@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>모험 일지</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/chart.umd.min.js"></script>
+  <style>
+    body {
+      font-family: 'Pretendard', sans-serif;
+      letter-spacing: -0.02em;
+      overflow: hidden;
+    }
+
+    .drag {
+      -webkit-app-region: drag;
+    }
+
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    /* Calendar Grid */
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 8px;
+    }
+
+    .calendar-cell {
+      min-height: 120px;
+      min-width: 0;
+      overflow: hidden;
+      border-radius: 12px;
+      background: rgba(30, 41, 59, 0.35);
+      border: 1px solid rgba(51, 65, 85, 0.45);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .calendar-cell:hover {
+      border-color: rgba(20, 184, 166, 0.6);
+      background: rgba(20, 184, 166, 0.06);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px -6px rgba(20, 184, 166, 0.15);
+      z-index: 10;
+    }
+
+    .calendar-cell.active {
+      border-color: #14b8a6;
+      background: rgba(20, 184, 166, 0.08);
+      box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.15);
+    }
+
+    .calendar-cell.empty {
+      background: rgba(15, 23, 42, 0.2);
+      border-color: transparent;
+    }
+
+    .calendar-cell.empty:hover {
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Week Cell (주간 뷰 셀) 스타일 */
+    .calendar-cell.week {
+      background: rgba(168, 85, 247, 0.04);
+      border: 1px solid rgba(168, 85, 247, 0.25);
+    }
+    
+    .calendar-cell.week:hover {
+      background: rgba(168, 85, 247, 0.1);
+      border-color: rgba(168, 85, 247, 0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px -6px rgba(168, 85, 247, 0.25);
+      z-index: 10;
+    }
+    
+    .calendar-cell.week.active {
+      border-color: rgb(168, 85, 247);
+      background: rgba(168, 85, 247, 0.16);
+      box-shadow: 0 0 0 2.5px rgba(168, 85, 247, 0.45);
+      transform: translateY(-2px);
+      z-index: 10;
+    }
+
+    /* Score Levels */
+    .level-1 { background: rgba(34, 197, 94, 0.04); border-color: rgba(34, 197, 94, 0.2); }
+    .level-2 { background: rgba(59, 130, 246, 0.04); border-color: rgba(59, 130, 246, 0.2); }
+    .level-3 { background: rgba(168, 85, 247, 0.04); border-color: rgba(168, 85, 247, 0.25); }
+    .level-4 { background: rgba(249, 115, 22, 0.04); border-color: rgba(249, 115, 22, 0.25); }
+
+    .date-num {
+      font-weight: 800;
+      font-size: 13px;
+      color: #64748b;
+      z-index: 2;
+    }
+
+    .calendar-cell.today .date-num {
+      color: #c084fc;
+    }
+
+    .calendar-cell.other-month {
+      opacity: 0.32;
+    }
+
+    .monster-icon {
+      width: 24px;
+      height: 24px;
+      opacity: 0.85;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .monster-icon img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+    }
+
+    .detail-monster-box {
+      width: 56px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 8px;
+    }
+
+    /* Loot Stack and Badges */
+    .loot-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 6px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .loot-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      border-radius: 6px;
+      padding: 2px 4px;
+      max-width: 100%;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Timeline */
+    .timeline-item {
+      position: relative;
+      padding-left: 24px;
+      margin-bottom: 12px;
+    }
+
+    .char-badge {
+      background: rgba(34, 211, 238, 0.15);
+      color: #22d3ee;
+      border: 1px solid rgba(34, 211, 238, 0.3);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      margin-right: 4px;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1.4;
+    }
+
+    .timeline-item::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 6px;
+      bottom: -18px;
+      width: 2px;
+      background: rgba(51, 65, 85, 0.5);
+    }
+
+    .timeline-item:last-child::before {
+      display: none;
+    }
+
+    /* Scrollbar */
+    .custom-scroll::-webkit-scrollbar { width: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 9999px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.16); }
+
+    /* Grouping Styles */
+    .auto-group-header {
+      cursor: pointer;
+      user-select: none;
+    }
+    .auto-group-content {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease-out;
+    }
+    .auto-group-content.expanded {
+      max-height: 2000px;
+      transition: max-height 0.5s ease-in;
+    }
+    .rotate-icon {
+      transition: transform 0.2s ease;
+    }
+    .rotate-icon.active {
+      transform: rotate(180deg);
+    }
+
+    /* Custom Tooltip */
+    .tooltip-container { position: relative; }
+    .tooltip-content {
+      position: absolute;
+      top: 120%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      border: 1px solid #334155;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 11px;
+      color: #cbd5e1;
+      width: max-content;
+      max-width: 220px;
+      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .tooltip-container:hover .tooltip-content {
+      opacity: 1;
+    }
+
+    /* CSS data-tooltip 공통 스타일 */
+    [data-tooltip] {
+      position: relative !important;
+    }
+    [data-tooltip]::after {
+      content: attr(data-tooltip) !important;
+      --tw-content: attr(data-tooltip) !important;
+      position: absolute;
+      bottom: 125%;
+      left: 50%;
+      transform: translateX(-50%) scale(0.9);
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(51, 65, 85, 0.85);
+      color: #e2e8f0;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: bold;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+      z-index: 99999 !important;
+    }
+    [data-tooltip]:hover::after {
+      opacity: 1 !important;
+      transform: translateX(-50%) scale(1) !important;
+    }
+  </style>
+</head>
+
+<body class="bg-[#0f172a] text-slate-200 w-full h-screen border border-slate-700/50 rounded-xl overflow-hidden shadow-2xl flex flex-col">
+  <!-- 글로벌 툴팁 (이쁜 툴팁 제공용) -->
+  <div id="global-tooltip" class="fixed hidden z-[99999] px-2.5 py-1.5 bg-slate-900/95 border border-white/10 text-slate-200 text-xs font-bold rounded-lg pointer-events-none transition-opacity duration-150 shadow-2xl opacity-0"></div>
+
+  <!-- Header -->
+  <div class="win-header">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-teal-500/10 border-teal-500/20">
+        <i data-lucide="book-heart" class="w-5 h-5 text-teal-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">모험 일지</span>
+        <span class="win-title-sub">Adventure Log</span>
+      </div>
+    </div>
+    <div class="win-controls flex items-center gap-1.5">
+      <button onclick="openLootSettingsDirect()" class="win-btn hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors" title="득템 설정">
+        <i data-lucide="settings" class="w-4.5 h-4.5"></i>
+      </button>
+      <button onclick="openDataSettingsDirect()" class="win-btn hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors" title="모험일지 보관 설정">
+        <i data-lucide="database" class="w-4.5 h-4.5"></i>
+      </button>
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="flex-1 flex overflow-hidden no-drag relative">
+    <!-- Tab Navigation -->
+    <div class="w-14 flex flex-col items-center py-4 gap-4 border-r border-slate-800 bg-[#0f172a]/80 shrink-0">
+      <button onclick="switchTab('log')" id="tab-btn-log"
+        class="tab-btn w-10 h-10 flex items-center justify-center rounded-xl bg-teal-500/20 text-teal-400 border border-teal-500/30 transition-all shadow-lg shadow-teal-500/10"
+        title="활동 기록">
+        <i data-lucide="calendar-days" class="w-5 h-5"></i>
+      </button>
+      <button onclick="switchTab('stats')" id="tab-btn-stats"
+        class="tab-btn w-10 h-10 flex items-center justify-center rounded-xl hover:bg-slate-800 text-slate-500 transition-all"
+        title="통계 리포트">
+        <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- View: Activity Log -->
+    <div id="view-log" class="flex-1 flex overflow-hidden">
+      <!-- Left: Calendar (expanded view) -->
+      <div class="flex-1 flex flex-col bg-[#0b0f19]/30 overflow-hidden">
+        <div class="flex items-center justify-between p-4 border-b border-slate-800/60 bg-[#0f172a]/60 select-none shrink-0">
+          <div class="flex items-center gap-2">
+            <button onclick="changeMonth(-1)" class="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
+              <i data-lucide="chevron-left" class="w-4.5 h-4.5"></i>
+            </button>
+            <div id="current-month" class="text-base font-black text-slate-100 tracking-wider font-mono px-2">2024. 03</div>
+            <button onclick="changeMonth(1)" class="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
+              <i data-lucide="chevron-right" class="w-4.5 h-4.5"></i>
+            </button>
+          </div>
+          
+          <!-- Summary Badges in calendar header -->
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 bg-amber-500/8 border border-amber-500/20 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-400">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              <span>이번 달 득템:</span>
+              <span id="monthly-total-loot-badge" class="text-amber-200 font-black">0개</span>
+            </div>
+            <div class="flex items-center gap-2 bg-orange-500/8 border border-orange-500/20 px-3 py-1.5 rounded-xl text-xs font-bold text-orange-400">
+              <i data-lucide="gem" class="w-3.5 h-3.5"></i>
+              <span>이번 달 수익:</span>
+              <span id="monthly-total-seed-badge" class="text-orange-200 font-black">0 Seed</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-8 gap-2 px-5 py-2.5 text-center text-xs font-black text-slate-500 border-b border-slate-800/40 bg-slate-900/10 shrink-0">
+          <div>MON</div><div>TUE</div><div>WED</div><div>THU</div><div>FRI</div><div class="text-blue-400/80">SAT</div><div class="text-red-400/80">SUN</div><div class="text-purple-400/80">WEEK</div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto custom-scroll p-5">
+          <div id="calendar-grid" class="calendar-grid"></div>
+        </div>
+      </div>
+
+      <!-- Right: Detail Panel (Fixed width) -->
+      <div class="w-[400px] flex flex-col bg-[#131b2f] border-l border-slate-800 shrink-0 overflow-y-auto custom-scroll" style="scrollbar-gutter: stable;">
+        <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-slate-500 gap-4">
+          <i data-lucide="mouse-pointer-click" class="w-12 h-12 opacity-50"></i>
+          <div class="text-sm font-semibold">달력에서 날짜를 선택하세요</div>
+        </div>
+
+        <div id="detail-view" class="flex-1 flex flex-col hidden overflow-hidden">
+          <div class="p-5 border-b border-slate-800/50 bg-slate-900/30 flex justify-between items-center shrink-0">
+            <div>
+              <div id="detail-date" class="text-lg font-black text-white font-mono tracking-tight">2024-03-29</div>
+              <div class="text-xs font-bold text-slate-400 mt-1 flex items-center gap-2">
+                <span id="detail-score" class="text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded text-xs">0 pt</span>
+                <span id="detail-hw">숙제 0/0</span>
+              </div>
+            </div>
+            <div id="detail-monster" class="detail-monster-box"></div>
+          </div>
+
+          <!-- Daily Summary Area -->
+          <div id="daily-summary-area" class="px-5 py-3 border-b border-slate-800/50 bg-teal-500/5 hidden flex justify-between items-center shrink-0"></div>
+
+          <!-- Weekly Summary Area -->
+          <div id="weekly-summary-area" class="hidden shrink-0"></div>
+
+          <!-- Add Record Area -->
+          <div id="add-record-area" class="p-4 border-b border-slate-800/50 flex flex-col gap-3.5 shrink-0">
+            <div>
+              <div class="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-amber-400/80">
+                <i data-lucide="sparkles" class="w-3 h-3 text-amber-400"></i> 득템 기록
+              </div>
+              <div class="flex gap-2">
+                <input type="text" id="loot-name" class="flex-1 bg-black/40 border border-slate-700/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/50" placeholder="아이템 이름">
+                <input type="number" id="loot-count" value="1" min="1" class="w-12 bg-black/40 border border-slate-700/50 rounded-xl px-1.5 py-1.5 text-xs text-white text-center focus:outline-none">
+                <button onclick="saveLoot(this)" class="px-4 py-1.5 bg-slate-800 hover:bg-amber-500 hover:text-black text-slate-300 text-[11px] font-bold rounded-xl transition-all shadow-sm">추가</button>
+              </div>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <div class="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-orange-400/80">
+                <i data-lucide="gem" class="w-3 h-3 text-orange-400"></i> 수익 기록 (수동)
+              </div>
+              <input type="text" id="manual-seed-desc" class="w-full bg-black/40 border border-slate-700/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-orange-500/50 mb-1.5" placeholder="내용 (예: 장사 수익)">
+              <div class="flex flex-col gap-1">
+                <div class="flex gap-2">
+                  <input type="number" id="manual-seed-amount" class="flex-1 bg-black/40 border border-slate-700/50 rounded-xl px-3 py-1.5 text-xs text-white text-right placeholder-slate-500 focus:outline-none focus:border-orange-500/50" placeholder="금액" oninput="updateSeedPreview(this.value)">
+                  <button onclick="saveManualSeed(this)" class="px-4 py-1.5 bg-slate-800 hover:bg-orange-500 hover:text-black text-slate-300 text-[11px] font-bold rounded-xl transition-all shadow-sm">추가</button>
+                </div>
+                <div id="manual-seed-preview" class="text-right text-xs font-bold text-orange-500/60 min-h-[14px]"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Timeline Area -->
+          <div class="flex-1 p-4 min-h-[220px] flex flex-col overflow-hidden">
+            <div class="text-[12px] font-bold text-slate-400 mb-3 flex items-center gap-1.5 shrink-0">
+              <i data-lucide="list-tree" class="w-3.5 h-3.5"></i> 활동 타임라인
+            </div>
+            <div id="timeline-list" class="flex flex-col flex-1 overflow-y-auto custom-scroll pr-1"></div>
+          </div>
+
+
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Statistics -->
+    <div id="view-stats" class="hidden flex-1 flex flex-col bg-[#0f172a] p-6 overflow-y-auto custom-scroll">
+      <div class="flex items-center justify-between mb-8">
+        <h2 class="text-2xl font-black text-white flex items-center gap-3">
+          <span class="w-8 h-8 bg-purple-500/20 border border-purple-500/30 rounded-lg flex items-center justify-center">
+            <i data-lucide="trending-up" class="w-5 h-5 text-purple-400"></i>
+          </span>
+          월간 모험 성적표
+        </h2>
+        <div id="stats-month-label" class="text-lg font-mono font-bold text-slate-400 bg-slate-800/50 px-4 py-1 rounded-full">2024. 03</div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-6 gap-4 mb-8">
+        <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl">
+          <div class="text-xs font-bold text-teal-400 mb-2 flex items-center gap-1.5"><i data-lucide="calendar-check" class="w-3.5 h-3.5"></i> 성실도</div>
+          <div class="flex items-baseline gap-1"><span id="stats-attendance" class="text-3xl font-black text-white">0</span><span class="text-sm font-bold text-slate-500">/ 31일</span></div>
+        </div>
+        <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl">
+          <div class="text-xs font-bold text-red-400 mb-2 flex items-center gap-1.5"><i data-lucide="swords" class="w-3.5 h-3.5"></i> 보스 정복</div>
+          <div class="flex items-baseline gap-1"><span id="stats-bosses" class="text-3xl font-black text-white">0</span><span class="text-sm font-bold text-slate-500">회</span></div>
+        </div>
+        <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl">
+          <div class="text-xs font-bold text-amber-400 mb-2 flex items-center gap-1.5"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 득템 운</div>
+          <div class="flex items-baseline gap-1"><span id="stats-loots" class="text-3xl font-black text-white">0</span><span class="text-sm font-bold text-slate-500">개</span></div>
+        </div>
+        <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl">
+          <div class="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1.5"><img src="assets/img/경험의정수.png" class="w-3.5 h-3.5 object-contain"> 경험의 정수</div>
+          <div class="flex items-baseline gap-1"><span id="stats-essences" class="text-3xl font-black text-white">0</span><span class="text-sm font-bold text-slate-500">개</span></div>
+        </div>
+        <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl">
+          <div class="text-xs font-bold text-fuchsia-400 mb-2 flex items-center gap-1.5"><i data-lucide="gem" class="w-3.5 h-3.5"></i> 엘소 획득</div>
+          <div class="flex items-baseline gap-1"><span id="stats-elso" class="text-3xl font-black text-white">0</span><span class="text-sm font-bold text-slate-500"> P</span></div>
+        </div>
+        <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl flex flex-col items-center justify-center relative group">
+          <div class="text-xs font-bold text-purple-400 mb-1 flex items-center gap-1 tooltip-container cursor-help">
+            모험 등급 <i data-lucide="help-circle" class="w-3 h-3 text-slate-500"></i>
+            <div class="tooltip-content text-left">
+              <div class="font-black mb-1 text-purple-300">[등급 산정 기준]</div>
+              <div class="space-y-0.5">
+                <div>S: 출석 25일 이상</div><div>A: 출석 20일 이상</div><div>B: 출석 12일 이상</div><div>C: 출석 5일 이상</div><div class="text-slate-500">D: 그 외</div>
+              </div>
+            </div>
+          </div>
+          <div id="stats-grade" class="text-4xl font-black text-white drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]">D</div>
+        </div>
+      </div>
+
+      <!-- Main Statistics Grid (상단 3열: 정적 통계) -->
+      <div class="grid grid-cols-3 gap-6">
+        <!-- 1st Column: Heatmap -->
+        <div class="bg-slate-800/20 border border-slate-800 rounded-2xl p-6">
+          <h3 class="text-sm font-black text-slate-300 mb-6 flex items-center gap-2"><i data-lucide="layout-grid" class="w-4 h-4 text-teal-500"></i> 활동 히트맵</h3>
+          <div id="stats-heatmap" class="grid grid-cols-7 gap-2"></div>
+        </div>
+
+        <!-- 2nd Column: Rhythm & Golden Time -->
+        <div class="flex flex-col gap-6">
+          <div class="bg-slate-800/20 border border-slate-800 rounded-2xl p-6">
+            <h3 class="text-sm font-black text-slate-300 mb-6 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4 text-blue-500"></i> 요일별 활동 리듬</h3>
+            <div id="stats-weekly-rhythm" class="flex items-end justify-between h-24 px-2"></div>
+          </div>
+          <!-- Golden Time Card -->
+          <div class="bg-slate-800/20 border border-slate-800 rounded-2xl p-6">
+            <h3 class="text-sm font-black text-slate-300 mb-4 flex items-center gap-2">
+              <i data-lucide="timer" class="w-4 h-4 text-emerald-400"></i> 나의 모험 골든 타임
+            </h3>
+            <div id="stats-golden-time-insight" class="text-[11px] text-slate-400 font-bold italic mb-4 min-h-[16px] leading-relaxed">활동 분석 중...</div>
+            <div class="flex flex-col gap-3">
+              <!-- Morning -->
+              <div class="flex flex-col gap-1">
+                <div class="flex justify-between text-xs font-bold text-slate-500">
+                  <span>🌅 아침/오전 (06-12시)</span>
+                  <span id="golden-time-morning-pct">0%</span>
+                </div>
+                <div class="w-full bg-slate-950/40 rounded-full h-1.5 overflow-hidden">
+                  <div id="golden-time-morning-bar" class="bg-teal-500/80 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+              </div>
+              <!-- Afternoon -->
+              <div class="flex flex-col gap-1">
+                <div class="flex justify-between text-xs font-bold text-slate-500">
+                  <span>☀️ 오후 (12-18시)</span>
+                  <span id="golden-time-afternoon-pct">0%</span>
+                </div>
+                <div class="w-full bg-slate-950/40 rounded-full h-1.5 overflow-hidden">
+                  <div id="golden-time-afternoon-bar" class="bg-blue-500/80 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+              </div>
+              <!-- Evening -->
+              <div class="flex flex-col gap-1">
+                <div class="flex justify-between text-xs font-bold text-slate-500">
+                  <span>🌙 저녁/밤 (18-24시)</span>
+                  <span id="golden-time-evening-pct">0%</span>
+                </div>
+                <div class="w-full bg-slate-950/40 rounded-full h-1.5 overflow-hidden">
+                  <div id="golden-time-evening-bar" class="bg-purple-500/80 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+              </div>
+              <!-- Night -->
+              <div class="flex flex-col gap-1">
+                <div class="flex justify-between text-xs font-bold text-slate-500">
+                  <span>🌌 새벽/심야 (00-06시)</span>
+                  <span id="golden-time-night-pct">0%</span>
+                </div>
+                <div class="w-full bg-slate-950/40 rounded-full h-1.5 overflow-hidden">
+                  <div id="golden-time-night-bar" class="bg-slate-500/80 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3rd Column: Top Bosses & Weekly Summary -->
+        <div class="flex flex-col gap-6">
+          <div class="bg-slate-800/20 border border-slate-800 rounded-2xl p-6">
+            <h3 class="text-sm font-black text-slate-300 mb-6 flex items-center gap-2"><i data-lucide="trophy" class="w-4 h-4 text-amber-500"></i> 최애 보스 Top 3</h3>
+            <div id="stats-top-bosses" class="flex flex-col gap-5"></div>
+          </div>
+          <div class="bg-slate-800/20 border border-slate-800 rounded-2xl p-6">
+            <h3 class="text-sm font-black text-slate-300 mb-4 flex items-center gap-2"><i data-lucide="gem" class="w-4 h-4 text-orange-500"></i> 주차별 수익 요약</h3>
+            <div id="stats-weekly-seed" class="flex flex-col gap-2"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Total Seed Summary -->
+      <div class="mt-6 bg-gradient-to-r from-orange-500/10 to-transparent border border-orange-500/20 p-6 rounded-2xl flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center"><i data-lucide="gem" class="w-6 h-6 text-orange-400"></i></div>
+          <div><div class="text-xs font-bold text-orange-400 mb-0.5">이번 달 총 수익</div><div id="stats-total-seed" class="text-xl font-black text-white">0 Seed</div></div>
+        </div>
+        <div id="stats-insight-text" class="text-sm font-medium text-slate-400 italic">"부지런한 모험가에게 행운이 따릅니다!"</div>
+      </div>
+
+      <!-- Monthly Accumulated Lists (중단 2열: 동적 리스트) -->
+      <div class="grid grid-cols-2 gap-6 mt-6">
+        <!-- Monthly Loots Card -->
+        <div class="bg-slate-800/20 border border-slate-800 rounded-2xl p-6 flex flex-col h-[320px]">
+          <h3 class="text-sm font-black text-slate-300 mb-4 flex items-center justify-between">
+            <span class="flex items-center gap-2">
+              <i data-lucide="sparkles" class="w-4 h-4 text-amber-400"></i> 이번 달 누적 득템 리스트
+            </span>
+            <span id="monthly-loot-badge" class="bg-amber-500/20 px-2 py-0.5 rounded text-xs text-amber-300 font-mono">0개</span>
+          </h3>
+          <div id="monthly-loot-list" class="flex-1 overflow-y-auto custom-scroll pr-1 text-xs flex flex-col gap-1.5"></div>
+        </div>
+
+        <!-- Monthly Seeds Card -->
+        <div class="bg-slate-800/20 border border-slate-800 rounded-2xl p-6 flex flex-col h-[320px]">
+          <h3 class="text-sm font-black text-slate-300 mb-4 flex items-center justify-between">
+            <span class="flex items-center gap-2">
+              <i data-lucide="gem" class="w-4 h-4 text-orange-400"></i> 이번 달 누적 수익 리스트
+            </span>
+            <span id="monthly-seed-badge" class="bg-orange-500/20 px-2 py-0.5 rounded text-xs text-orange-300 font-mono">0 Seed</span>
+          </h3>
+          <div id="monthly-seed-list" class="flex-1 overflow-y-auto custom-scroll pr-1 text-xs flex flex-col gap-1.5"></div>
+        </div>
+      </div>
+
+      <!-- Revenue Chart -->
+      <div class="mt-6 bg-slate-800/20 border border-slate-800 rounded-2xl p-6 mb-6">
+        <h3 class="text-sm font-black text-slate-300 mb-6 flex items-center gap-2"><i data-lucide="line-chart" class="w-4 h-4 text-orange-500"></i> 일별 수익 추이 (Seed)</h3>
+        <div class="h-64 relative"><canvas id="revenue-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/ui-utils.js"></script>
+  <script src="renderer/diary/log-utils.js"></script>
+  <script>
+    const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
+    lucide.createIcons();
+    window.bindEscapeClose();
+
+    let currentDate = new Date();
+    let selectedDateStr = null;
+    let monthlyData = [];
+    let currentSummary = null;
+    let currentTab = 'log';
+    let revenueChart = null;
+    let allItems = [];
+
+    async function loadItemsData() {
+      try {
+        const response = await fetch('assets/data/contents_items.json');
+        allItems = await response.json();
+      } catch (e) {
+        console.error('Failed to load contents items:', e);
+      }
+    }
+
+    const MONSTERS = {
+      0: 'assets/monster/1step.png', 1: 'assets/monster/2step.png',
+      2: 'assets/monster/3step.png', 3: 'assets/monster/4step.png',
+      4: 'assets/monster/5step.png', 5: 'assets/monster/6step.png'
+    };
+
+    const lootItemCache = new Map();
+
+    /** 득템 로그 파싱 헬퍼 함수 (캐시 적용) */
+    function parseLootItem(content, amount = 0) {
+      const cacheKey = `${content}_${amount}`;
+      if (lootItemCache.has(cacheKey)) return lootItemCache.get(cacheKey);
+
+      let clean = content.replace(/^\[득템\]\s*/u, '').trim();
+      let name = clean;
+      let count = resolveLootCount(content, amount);
+
+      // 1단계: 대괄호 포함 획득 문구 (예: "[아이템명] 아이템을 획득하였습니다", "[아이템명]을(를) [1]개 획득하였습니다")
+      const bracketMatch = clean.match(/^\[(.*?)\](?:\s*(?:을\(를\)|아이템을))?\s*(?:\[?(\d+)\]?개)?\s*획득\s*하였/u);
+      if (bracketMatch) {
+        name = bracketMatch[1].trim();
+        count = resolveLootCount(content, amount || bracketMatch[2]);
+      } else {
+        // 2단계: 대괄호 없는 획득 문구 (예: "스페셜 스킬 (ⓟ 무기 연마) 아이템을 획득 하였습니다")
+        const sentenceMatch = clean.match(/^(.*?)(?:\s+아이템을)?\s*(?:\[?(\d+)\]?개)?\s*획득\s*하였/u);
+        if (sentenceMatch && sentenceMatch[1].trim()) {
+          name = sentenceMatch[1].trim();
+          count = resolveLootCount(content, amount || sentenceMatch[2]);
+        } else {
+          // 3단계: 단순 아이템명 + 수량 (예: "경험의 정수 5개", "아크론 요새의 문양")
+          const simpleMatch = clean.match(/^(.*?)\s*(\d+개)?$/u);
+          if (simpleMatch) {
+            name = simpleMatch[1].trim();
+            count = resolveLootCount(content, amount || (simpleMatch[2] ? simpleMatch[2].replace('개', '') : 0));
+          }
+        }
+      }
+
+      // 대괄호 잔여물 정리
+      name = name.replace(/^\[|\]$/g, '').trim();
+
+      let img = '';
+      if (name === '경험의 정수') {
+        img = 'assets/img/경험의정수.png';
+      } else if (name.includes('마정석')) {
+        if (name.includes('최상급')) img = 'assets/items/magic_stone/최상급마정석.png';
+        else if (name.includes('상급')) img = 'assets/items/magic_stone/상급마정석.png';
+        else if (name.includes('중급')) img = 'assets/items/magic_stone/중급마정석.png';
+        else img = 'assets/items/magic_stone/하급마정석.png';
+      } else {
+        const norm = (s) => (s || '').replace(/[\s\(\)\[\]ⓟ]/gu, '').toLowerCase();
+        const cleanName = name.replace(/[^a-zA-Z0-9가-힣]/g, '');
+
+        // 1. allItems 정규화 매칭
+        const matched = allItems.find(it => {
+          const itNorm = norm(it.name);
+          const targetNorm = norm(name);
+          return itNorm === targetNorm || itNorm.includes(targetNorm) || targetNorm.includes(itNorm);
+        });
+
+        if (matched && matched.image) {
+          img = `assets/items/${matched.image}`;
+        } else if (name.includes('스페셜 스킬') || name.includes('연마') || cleanName.includes('연마')) {
+          img = 'assets/items/스페셜스킬.png';
+        } else {
+          img = `assets/items/${cleanName}.png`;
+        }
+      }
+
+      const result = { name, count, img };
+      if (lootItemCache.size > 2000) lootItemCache.clear();
+      lootItemCache.set(cacheKey, result);
+      return result;
+    }
+
+    // 타임라인 무한/청크 스크롤 상태 관리
+    let activeTimelineChunks = [];
+    let currentChunkIndex = 0;
+    const TIMELINE_CHUNK_SIZE = 80;
+
+    function initTimelineScroll(container, groupedLogs, isWeekly = false) {
+      container.innerHTML = '';
+      activeTimelineChunks = groupedLogs;
+      currentChunkIndex = 0;
+
+      if (!groupedLogs || groupedLogs.length === 0) {
+        container.innerHTML = `<div class="text-xs text-slate-500 italic text-center py-10">기록된 활동이 없습니다.</div>`;
+        if (typeof lucide !== 'undefined') lucide.createIcons({ root: container });
+        return;
+      }
+
+      renderNextTimelineChunk(container, isWeekly);
+
+      const scrollParent = container.closest('.overflow-y-auto') || container.parentElement;
+      if (scrollParent && !scrollParent._hasTimelineScrollHandler) {
+        scrollParent._hasTimelineScrollHandler = true;
+        scrollParent.addEventListener('scroll', () => {
+          if (currentChunkIndex * TIMELINE_CHUNK_SIZE >= activeTimelineChunks.length) return;
+          if (scrollParent.scrollTop + scrollParent.clientHeight >= scrollParent.scrollHeight - 150) {
+            renderNextTimelineChunk(container, scrollParent._isWeeklyTimeline);
+          }
+        }, { passive: true });
+      }
+      if (scrollParent) scrollParent._isWeeklyTimeline = isWeekly;
+    }
+
+    function renderNextTimelineChunk(container, isWeekly = false) {
+      const start = currentChunkIndex * TIMELINE_CHUNK_SIZE;
+      const end = Math.min(start + TIMELINE_CHUNK_SIZE, activeTimelineChunks.length);
+      if (start >= end) return;
+
+      const slice = activeTimelineChunks.slice(start, end);
+      const htmls = [];
+
+      slice.forEach((log, idx) => {
+        const gIdx = start + idx;
+        if (log.isAutoGroup) {
+          const gid = isWeekly ? `timeline-auto-week-${gIdx}` : `timeline-auto-${gIdx}`;
+          const timeDisplay = isWeekly ? `${log.startTime}~${log.endTime}` : `${log.startTime}~${log.endTime}`;
+          const timeClass = isWeekly ? 'w-24' : 'w-20';
+          const itemsHtml = log.items.map(it => {
+            const t = isWeekly ? it.displayTime.split(' ')[1] : it.time;
+            const msg = it.content.split('(')[0].replace('[자동] ', '').trim();
+            const seed = (it.content.match(/\(([^)]+)\)/) || [])[1] || '';
+            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${t}</span><span class="text-slate-400 truncate flex-1 px-2">${msg}</span><span class="text-orange-300/50 font-mono">${seed}</span></div>`;
+          }).join('');
+
+          htmls.push(`<div class="timeline-item flex flex-col pr-2"><i data-lucide="gem" class="w-3 h-3 text-orange-400/50 absolute left-0.5 top-[5px]"></i><div onclick="toggleAutoGroup('${gid}')" class="flex items-baseline gap-2 pl-1 pt-[2px] cursor-pointer hover:bg-white/5 rounded px-1 transition-colors"><span class="text-xs font-bold text-slate-600 font-mono ${timeClass} shrink-0">${timeDisplay}</span><span class="text-[11px] font-bold text-slate-500 shrink-0">[Auto]</span><span class="text-[11px] font-medium text-slate-400 flex-1">자동 수익 합계 (${log.items.length}건)</span><span class="text-[11px] font-black text-orange-400/70">${window.formatSeedAmount(log.totalAmount).replace(' 시드', '')}</span><i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i></div><div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-orange-500/20">${itemsHtml}</div></div>`);
+        } else if (log.isStoneGroup) {
+          const gid = isWeekly ? `timeline-stone-week-${gIdx}` : `timeline-stone-${gIdx}`;
+          const stoneImg = `assets/items/magic_stone/${log.grade}마정석.png`;
+          const hasMultiple = log.items.length > 1;
+          const timeDisplay = isWeekly ? `${log.startTime}${log.startTime !== log.endTime ? '~' + log.endTime : ''}` : log.startTime;
+          const timeClass = isWeekly ? 'w-24 text-xs' : 'w-10 text-[13px]';
+          const itemsHtml = hasMultiple ? log.items.map(it => {
+            const t = isWeekly ? it.displayTime.split(' ')[1] : it.time;
+            const cnt = it.amount || resolveLootCount(it.content, it.amount);
+            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${t}</span><span class="text-slate-400 truncate flex-1 px-2">${it.content.replace('[득템] ', '').trim()}</span><span class="text-amber-300/70 font-mono font-bold">${cnt}개</span></div>`;
+          }).join('') : '';
+
+          htmls.push(`<div class="timeline-item flex flex-col pr-2"><img src="${stoneImg}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[4px] select-none" onerror="handleLootImageError(this, 'sparkles', 'amber-400')"><div ${hasMultiple ? `onclick="toggleAutoGroup('${gid}')"` : ''} class="flex items-baseline gap-2 pl-1 pt-[2px] ${hasMultiple ? 'cursor-pointer hover:bg-white/5' : ''} rounded px-1 transition-colors"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${timeDisplay}</span><span class="text-[11px] font-bold text-amber-400/80 shrink-0">[마정석]</span><span class="text-[11px] font-medium text-slate-300 flex-1">${log.grade} 마정석 ${hasMultiple ? `(${log.items.length}회 획득)` : ''}</span><span class="text-[12px] font-black text-amber-400 font-mono">${log.totalCount.toLocaleString()}개</span>${hasMultiple ? `<i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i>` : ''}</div>${hasMultiple ? `<div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-amber-500/20">${itemsHtml}</div>` : ''}</div>`);
+        } else {
+          let icon = log.type === 'boss' ? 'sword' : (log.type === 'calc' ? 'gem' : (log.type === 'homework' ? 'check-square' : 'sparkles'));
+          let color = log.type === 'boss' ? 'red-400' : (log.type === 'calc' ? 'orange-400' : (log.type === 'homework' ? 'blue-400' : 'amber-400'));
+          const isEssence = log.content.includes('경험의 정수');
+          const del = (!isWeekly && (log.type === 'calc' || log.type === 'loot') && !isEssence)
+            ? `<button onclick="deleteTimelineItem('${log.type}', '${log.content.replace(/'/g, "\\'")}')" class="w-5 h-5 flex items-center justify-center ml-2 text-slate-500 hover:text-red-400 bg-slate-800/50 rounded transition-colors shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button>`
+            : '';
+
+          let iconHtml = '';
+          if (log.type === 'loot') {
+            const parsed = parseLootItem(log.content, log.amount);
+            if (parsed.img) {
+              iconHtml = `<img src="${parsed.img}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[2px] select-none" onerror="handleLootImageError(this, '${icon}', '${color}')">`;
+            } else {
+              iconHtml = `<i data-lucide="${icon}" class="w-3 h-3 text-${color} absolute left-0.5 top-[1px]"></i>`;
+            }
+          } else if (isEssence) {
+            iconHtml = `<img src="assets/img/경험의정수.png" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[2px] select-none">`;
+          } else {
+            iconHtml = `<i data-lucide="${icon}" class="w-3 h-3 text-${color} absolute left-0.5 top-[1px]"></i>`;
+          }
+
+          const timeVal = isWeekly ? log.displayTime : log.time;
+          const timeClass = isWeekly ? 'w-24 text-xs' : 'w-10 text-[13px]';
+          htmls.push(`<div class="timeline-item flex items-start pr-2">${iconHtml}<div class="flex items-baseline gap-2 pl-1 flex-1 pt-[2px]"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${timeVal}</span><span class="text-xs font-medium text-slate-200 leading-snug">${formatTimelineLogContent(log)}</span></div>${del}</div>`);
+        }
+      });
+
+      if (start === 0) {
+        container.innerHTML = htmls.join('');
+      } else {
+        container.insertAdjacentHTML('beforeend', htmls.join(''));
+      }
+      currentChunkIndex++;
+
+      if (typeof lucide !== 'undefined') {
+        lucide.createIcons({ root: container });
+      }
+    }
+
+    function formatTimelineLogContent(log) {
+      const content = formatLogContent(log.content);
+      if (log.type !== 'loot' || /\[?[\d,]+\]?개/u.test(log.content)) return content;
+      const count = resolveLootCount(log.content, log.amount);
+      return count > 1
+        ? `${content} <span class="text-slate-400 font-bold font-mono">${count}개</span>`
+        : content;
+    }
+
+    /** 득템 이미지 로드 실패 시 폴백 아이콘 처리 */
+    window.handleLootImageError = function(imgEl, icon, color) {
+      const parent = imgEl.parentNode;
+      if (!parent) return;
+      
+      const iEl = document.createElement('i');
+      iEl.setAttribute('data-lucide', icon);
+      iEl.className = `w-3 h-3 text-${color} absolute left-0.5 top-[1px]`;
+      
+      parent.replaceChild(iEl, imgEl);
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    };
+
+    /** 전역 함수: 자동 그룹 접기/펴기 */
+    function toggleAutoGroup(id) {
+      const el = document.getElementById(id);
+      const icon = document.getElementById(id + '-icon');
+      if (el) {
+        el.classList.toggle('expanded');
+        if (icon) icon.classList.toggle('active');
+      }
+    }
+
+    function getLevel(score) {
+      if (score === 0) return 0;
+      if (score <= 10) return 1;
+      if (score <= 25) return 2;
+      if (score <= 45) return 3;
+      if (score <= 70) return 4;
+      return 5;
+    }
+
+    function formatSeedShort(val) {
+      if (val >= 100000000) return (val / 100000000).toFixed(1) + '억';
+      if (val >= 10000) return (val / 10000).toFixed(0) + '만';
+      return val.toLocaleString();
+    }
+
+    function switchTab(tabId) {
+      currentTab = tabId;
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('bg-teal-500/20', 'text-teal-400', 'border-teal-500/30', 'shadow-lg', 'shadow-teal-500/10');
+        btn.classList.add('hover:bg-slate-800', 'text-slate-500');
+      });
+      document.getElementById(`tab-btn-${tabId}`).classList.add('bg-teal-500/20', 'text-teal-400', 'border-teal-500/30', 'shadow-lg', 'shadow-teal-500/10');
+      
+      document.getElementById('view-log').classList.toggle('hidden', tabId !== 'log');
+      document.getElementById('view-stats').classList.toggle('hidden', tabId !== 'stats');
+      if (tabId === 'stats') loadStatistics();
+    }
+
+    async function loadStatistics() {
+      const year = currentDate.getFullYear();
+      const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+      const yearMonth = `${year}-${month}`;
+      document.getElementById('stats-month-label').innerText = `${year}. ${month}`;
+
+      const stats = await window.electronAPI.diaryGetStatistics(yearMonth);
+      if (!stats) return;
+
+      document.getElementById('stats-attendance').innerText = stats.attendanceDays;
+      document.getElementById('stats-bosses').innerText = stats.totalBosses.toLocaleString();
+      document.getElementById('stats-loots').innerText = stats.totalLoots.toLocaleString();
+      document.getElementById('stats-essences').innerText = (stats.totalEssences || 0).toLocaleString();
+      document.getElementById('stats-elso').innerText = (stats.totalElso || 0).toLocaleString();
+      document.getElementById('stats-grade').innerText = stats.grade;
+      document.getElementById('stats-total-seed').innerText = window.formatSeedAmount(stats.totalSeed);
+
+      const gradeEl = document.getElementById('stats-grade');
+      gradeEl.className = 'text-4xl font-black drop-shadow-[0_0_8px_rgba(168,85,247,0.5)] ';
+      if (stats.grade === 'S') gradeEl.classList.add('text-yellow-400');
+      else if (stats.grade === 'A') gradeEl.classList.add('text-purple-400');
+      else if (stats.grade === 'B') gradeEl.classList.add('text-blue-400');
+      else if (stats.grade === 'C') gradeEl.classList.add('text-teal-400');
+      else gradeEl.classList.add('text-slate-400');
+
+      const heatmapEl = document.getElementById('stats-heatmap');
+      heatmapEl.innerHTML = '';
+      const daysInMonth = new Date(year, parseInt(month), 0).getDate();
+      for (let i = 1; i <= daysInMonth; i++) {
+        const dStr = `${year}-${month}-${String(i).padStart(2, '0')}`;
+        const dayData = stats.heatmap.find(h => h.date === dStr);
+        const count = dayData ? dayData.count : 0;
+        let colorClass = count > 15 ? 'bg-teal-400' : (count > 8 ? 'bg-teal-500/80' : (count > 3 ? 'bg-teal-700/60' : (count > 0 ? 'bg-teal-900/40' : 'bg-slate-800')));
+        heatmapEl.innerHTML += `<div class="aspect-square rounded-sm ${colorClass} transition-all hover:ring-1 hover:ring-teal-300 cursor-help" data-tooltip="${dStr}: ${count}개 활동"></div>`;
+      }
+
+      const bossEl = document.getElementById('stats-top-bosses');
+      bossEl.innerHTML = stats.topBosses.length === 0 ? '<div class="text-xs text-slate-600 italic py-4">기록된 보스 처치가 없습니다.</div>' : '';
+      if (stats.topBosses.length > 0) {
+        const maxCount = stats.topBosses[0].count;
+        stats.topBosses.forEach((b, idx) => {
+          const percent = Math.round((b.count / maxCount) * 100);
+          const color = idx === 0 ? 'bg-amber-500' : (idx === 1 ? 'bg-slate-400' : 'bg-orange-700/80');
+          bossEl.innerHTML += `<div class="flex flex-col gap-1.5"><div class="flex justify-between items-center text-xs font-bold"><span class="text-slate-200">${b.name}</span><span class="text-slate-400">${b.count}회</span></div><div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden"><div class="h-full ${color} rounded-full" style="width: ${percent}%"></div></div></div>`;
+        });
+      }
+
+      const rhythmEl = document.getElementById('stats-weekly-rhythm');
+      rhythmEl.innerHTML = '';
+      const maxRhythm = Math.max(...stats.weeklyActivity, 1);
+      const WEEKS = ['월', '화', '수', '목', '금', '토', '일'];
+      stats.weeklyActivity.forEach((val, idx) => {
+        const height = Math.max(Math.round((val / maxRhythm) * 100), 5);
+        const color = val === maxRhythm && val > 0 
+          ? 'bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.5)] hover:bg-blue-300' 
+          : 'bg-slate-700 hover:bg-slate-600';
+        rhythmEl.innerHTML += `<div class="w-6 ${color} rounded-t-md transition-all duration-300 cursor-help" style="height: ${height}%" data-tooltip="${WEEKS[idx]}요일: ${val}개 활동"></div>`;
+      });
+
+      // 주차별 수익 요약 렌더링
+      const weeklySeedEl = document.getElementById('stats-weekly-seed');
+      weeklySeedEl.innerHTML = '';
+      if (stats.weeklySeedList && stats.weeklySeedList.some(s => s > 0)) {
+        stats.weeklySeedList.forEach((amount, idx) => {
+          if (amount === 0) return;
+          weeklySeedEl.innerHTML += `
+            <div class="flex justify-between items-center py-2 border-b border-white/5 last:border-0">
+              <span class="text-xs font-bold text-slate-400">${idx + 1}주차 수익</span>
+              <span class="text-sm font-black text-orange-300">${window.formatSeedAmount(amount)}</span>
+            </div>`;
+        });
+      } else {
+        weeklySeedEl.innerHTML = '<div class="text-xs text-slate-600 italic py-2">수익 기록이 없습니다.</div>';
+      }
+
+      // 나의 모험 골든 타임 렌더링
+      const goldenTimeEl = document.getElementById('stats-golden-time-insight');
+      const hourly = stats.hourlyActivity || [0, 0, 0, 0];
+      const totalHours = hourly.reduce((a, b) => a + b, 0);
+      
+      const pctMorning = totalHours > 0 ? Math.round((hourly[0] / totalHours) * 100) : 0;
+      const pctAfternoon = totalHours > 0 ? Math.round((hourly[1] / totalHours) * 100) : 0;
+      const pctEvening = totalHours > 0 ? Math.round((hourly[2] / totalHours) * 100) : 0;
+      const pctNight = totalHours > 0 ? Math.round((hourly[3] / totalHours) * 100) : 0;
+      
+      document.getElementById('golden-time-morning-pct').innerText = `${pctMorning}%`;
+      document.getElementById('golden-time-morning-bar').style.width = `${pctMorning}%`;
+      
+      document.getElementById('golden-time-afternoon-pct').innerText = `${pctAfternoon}%`;
+      document.getElementById('golden-time-afternoon-bar').style.width = `${pctAfternoon}%`;
+      
+      document.getElementById('golden-time-evening-pct').innerText = `${pctEvening}%`;
+      document.getElementById('golden-time-evening-bar').style.width = `${pctEvening}%`;
+      
+      document.getElementById('golden-time-night-pct').innerText = `${pctNight}%`;
+      document.getElementById('golden-time-night-bar').style.width = `${pctNight}%`;
+      
+      if (totalHours > 0) {
+        const maxVal = Math.max(...hourly);
+        const maxIdx = hourly.indexOf(maxVal);
+        let zoneStr = '';
+        if (maxIdx === 0) zoneStr = '상쾌한 아침과 오전 (06:00 ~ 12:00)';
+        else if (maxIdx === 1) zoneStr = '나른한 오후 시간대 (12:00 ~ 18:00)';
+        else if (maxIdx === 2) zoneStr = '이른 저녁과 밤 시간대 (18:00 ~ 24:00)';
+        else zoneStr = '고요한 새벽과 심야 (00:00 ~ 06:00)';
+        
+        goldenTimeEl.innerText = `"${zoneStr}"에 가장 활발히 모험을 펼치셨습니다.`;
+      } else {
+        goldenTimeEl.innerText = '"기록된 활동이 없어 골든 타임을 분석할 수 없습니다."';
+      }
+
+      renderRevenueChart(await window.electronAPI.diaryGetMonthlyRevenue(yearMonth));
+      lucide.createIcons();
+    }
+
+    function renderRevenueChart(data) {
+      const canvas = document.getElementById('revenue-chart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (revenueChart) revenueChart.destroy();
+      revenueChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map(d => d.date.split('-')[2] + '일'),
+          datasets: [{
+            data: data.map(d => d.amount),
+            borderColor: '#f97316', backgroundColor: 'rgba(249, 115, 22, 0.1)', borderWidth: 3, pointRadius: 0, pointHoverRadius: 6, fill: true, tension: 0.4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => window.formatSeedAmount(c.raw) } } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: '#64748b', font: { size: 10, weight: 'bold' }, maxTicksLimit: 10 } },
+            y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#64748b', font: { size: 10, weight: 'bold' }, callback: (v) => formatSeedShort(v) } }
+          }
+        }
+      });
+    }
+
+    async function loadMonthData() {
+      const year = currentDate.getFullYear();
+      const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+      const yearMonth = `${year}-${month}`;
+      document.getElementById('current-month').innerText = `${year}. ${month}`;
+
+      try {
+        monthlyData = await window.electronAPI.diaryGetByMonth(yearMonth);
+        currentSummary = await window.electronAPI.diaryGetMonthlySummary(yearMonth);
+
+        document.getElementById('monthly-total-seed-badge').innerText = window.formatSeedAmount(currentSummary.totalSeed);
+        document.getElementById('monthly-total-loot-badge').innerText = currentSummary.totalLoots.toLocaleString() + '개';
+
+        // 아코디언 내부 뱃지 갱신
+        const accLootBadge = document.getElementById('monthly-loot-badge');
+        const accSeedBadge = document.getElementById('monthly-seed-badge');
+        if (accLootBadge) accLootBadge.innerText = currentSummary.totalLoots.toLocaleString() + '개';
+        if (accSeedBadge) accSeedBadge.innerText = window.formatSeedAmount(currentSummary.totalSeed).replace(' 시드', ' Seed');
+
+        const lootListEl = document.getElementById('monthly-loot-list');
+        // 일자별/아이템명별로 그룹화하여 수량 누적 합산
+        const monthlyLootGroup = {};
+        (currentSummary.lootList || []).forEach(item => {
+          const parsed = parseLootItem(item.content, item.amount);
+          const amt = parsed.count;
+          const key = `${item.date}|${parsed.name}`;
+          if (monthlyLootGroup[key]) {
+            monthlyLootGroup[key].count += amt;
+          } else {
+            monthlyLootGroup[key] = { date: item.date, name: parsed.name, count: amt, img: parsed.img };
+          }
+        });
+
+        lootListEl.innerHTML = Object.values(monthlyLootGroup).sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)).map(item => {
+          const imgHtml = item.img ? `<img src="${item.img}" class="w-3.5 h-3.5 object-contain select-none shrink-0" onerror="this.style.display='none'">` : '';
+          const displayCount = item.count > 1 ? ` <span class="text-slate-400 font-bold ml-1 font-mono">${item.count}개</span>` : '';
+          return `
+            <div class="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0 gap-2">
+              <span class="text-[11px] font-mono text-slate-500 shrink-0">${item.date.slice(5)}</span>
+              <div class="flex items-center gap-1.5 min-w-0 flex-1 justify-end">
+                ${imgHtml}
+                <span class="text-xs font-bold text-amber-200/90 truncate">${item.name}</span>
+                ${displayCount}
+              </div>
+            </div>`;
+        }).join('') || '<div class="text-xs text-slate-600 italic py-6 text-center">기록 없음</div>';
+
+        const seedListEl = document.getElementById('monthly-seed-list');
+        const manualSeeds = (currentSummary.seedList || []).filter(s => !s.content.includes('[자동]'));
+        const autoSeeds = (currentSummary.seedList || []).filter(s => s.content.includes('[자동]'));
+
+        const autoGroups = {};
+        autoSeeds.forEach(s => {
+          if (!autoGroups[s.date]) autoGroups[s.date] = { date: s.date, total: 0, items: [] };
+          const m = s.content.match(/\(([^)]+)\)/);
+          const amountStr = m ? m[1] : '';
+          let amount = 0;
+          const valMatch = amountStr.match(/([\d,]+)/);
+          if (valMatch) amount = parseInt(valMatch[1].replace(/,/g, ''), 10);
+          if (amountStr.includes('조')) amount *= 1000000000000;
+          if (amountStr.includes('억')) amount *= 100000000;
+          else if (amountStr.includes('만')) amount *= 10000;
+          autoGroups[s.date].total += amount;
+          autoGroups[s.date].items.push({ content: s.content, amountStr });
+        });
+
+        seedListEl.innerHTML = '';
+        manualSeeds.forEach(item => {
+          let desc = item.content.replace(/\s*\([^)]+\)/, '').trim();
+          if (desc.includes(':')) desc = desc.split(':').pop().trim();
+          seedListEl.innerHTML += `<div class="flex items-baseline justify-between py-2 border-b border-orange-500/5 last:border-0 gap-3"><div class="flex items-baseline gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${item.date.slice(5)}</span><span class="text-[13px] font-bold text-slate-400 truncate">${desc}</span></div><span class="text-[13px] font-black text-orange-300 shrink-0 text-right">${(item.content.match(/\(([^)]+)\)/) || [])[1] || ''}</span></div>`;
+        });
+
+                Object.values(autoGroups).sort((a, b) => b.date.localeCompare(a.date)).forEach((group, idx) => {
+          const groupId = `auto-group-${idx}`;
+          seedListEl.innerHTML += `<div class="border-b border-orange-500/5 last:border-0"><div onclick="toggleAutoGroup('${groupId}')" class="auto-group-header flex items-baseline justify-between py-2 gap-3 hover:bg-white/5 transition-colors px-1 rounded-md"><div class="flex items-center gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${group.date.slice(5)}</span><span class="text-[11px] font-black text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded shrink-0">Auto</span><span class="text-[12px] font-bold text-slate-400">자동 수익 요약 (${group.items.length}건)</span></div><div class="flex items-center gap-1.5"><span class="text-[13px] font-black text-orange-300/60 shrink-0">${window.formatSeedAmount(group.total).replace(' 시드', '')}</span><i data-lucide="chevron-down" id="${groupId}-icon" class="w-3 h-3 text-slate-600 rotate-icon"></i></div></div><div id="${groupId}" class="auto-group-content bg-black/20 rounded-lg mx-1 mb-1">${group.items.map(it => `<div class="flex justify-between py-1.5 px-3 text-[11px] border-b border-white/5 last:border-0"><span class="text-slate-500">${it.content.split('(')[0].replace('[자동] ', '').trim()}</span><span class="text-slate-400 font-mono">${it.amountStr}</span></div>`).join('')}</div></div>`;
+        });
+
+        if (seedListEl.innerHTML === '') seedListEl.innerHTML = '<div class="text-[13px] text-slate-600 italic py-6 text-center">기록 없음</div>';
+        renderCalendar();
+        if (currentTab === 'stats') loadStatistics();
+      } catch (e) { console.error(e); }
+    }
+
+    function changeMonth(offset) {
+      currentDate.setMonth(currentDate.getMonth() + offset);
+      loadMonthData();
+    }
+
+    function renderCalendar() {
+      const grid = document.getElementById('calendar-grid'); grid.innerHTML = '';
+      const year = currentDate.getFullYear(), month = currentDate.getMonth();
+      const firstDay = (new Date(year, month, 1).getDay() + 6) % 7;
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const prevMonthLastDate = new Date(year, month, 0).getDate();
+      const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+      let weekWDone = 0, weekWTotal = 0;
+      let currentWeekDates = [];
+      let weekIndex = 1;
+
+      const addCell = (d, mOffset, isOther) => {
+        const targetDate = new Date(year, month + mOffset, d);
+        const dStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+        currentWeekDates.push(dStr);
+        const data = monthlyData.find(m => m.date === dStr);
+        if (data) { weekWDone = Math.max(weekWDone, data.weekly_done); weekWTotal = Math.max(weekWTotal, data.weekly_total); }
+        const score = data ? data.total_score : 0, level = getLevel(score);
+        const div = document.createElement('div');
+        div.className = `calendar-cell ${isOther ? 'other-month' : ''} level-${level} ${dStr === todayStr ? 'today' : ''} ${dStr === selectedDateStr ? 'active' : ''}`;
+        div.onclick = () => selectDate(dStr, div);
+
+        let cellHtml = `
+          <div class="flex justify-between items-center shrink-0">
+            <span class="date-num">${d}</span>
+            <div class="monster-icon">${score > 0 ? `<img src="${MONSTERS[level]}">` : ''}</div>
+          </div>
+        `;
+
+        let lootStackHtml = `<div class="loot-stack custom-scroll">`;
+        if (currentSummary && currentSummary.lootList) {
+          const dayLoots = currentSummary.lootList.filter(l => l.date === dStr);
+          
+          // 동일 아이템 이름별로 수량 누적 집계
+          const lootMap = {};
+          dayLoots.forEach(loot => {
+            const parsed = parseLootItem(loot.content, loot.amount);
+            const amt = parsed.count;
+            if (lootMap[parsed.name]) {
+              lootMap[parsed.name].count += amt;
+            } else {
+              lootMap[parsed.name] = { count: amt, img: parsed.img };
+            }
+          });
+
+          Object.entries(lootMap).forEach(([name, info]) => {
+            const imgHtml = info.img ? `<img src="${info.img}" class="w-3.5 h-3.5 object-contain shrink-0 select-none pointer-events-none" onerror="this.style.display='none'">` : '';
+            const countStr = info.count > 1 ? ` <span class="text-white/60 ml-0.5 pointer-events-none">${info.count}</span>` : '';
+            
+            let badgeBg = 'bg-amber-500/10 border border-amber-500/20 text-amber-300';
+            if (name === '경험의 정수') {
+              badgeBg = 'bg-amber-500/8 border border-amber-500/20 text-amber-300';
+            } else if (name.includes('심장') || name.includes('기운')) {
+              badgeBg = 'bg-red-500/15 border border-red-500/25 text-red-300';
+            } else if (name.includes('결정체')) {
+              badgeBg = 'bg-purple-500/15 border border-purple-500/25 text-purple-300';
+            } else {
+              badgeBg = 'bg-slate-500/10 border border-slate-500/20 text-slate-300';
+            }
+            
+            lootStackHtml += `
+              <div class="loot-badge ${badgeBg} truncate shadow-sm cursor-help" data-diary-tooltip="${name}${info.count > 1 ? ' ' + info.count + '개' : ''}">
+                ${imgHtml}
+                <span class="truncate pointer-events-none">${name}${countStr}</span>
+              </div>
+            `;
+          });
+        }
+        lootStackHtml += `</div>`;
+
+        div.innerHTML = cellHtml + lootStackHtml;
+        grid.appendChild(div);
+      };
+
+      for (let i = firstDay; i > 0; i--) addCell(prevMonthLastDate - i + 1, -1, true);
+      for (let d = 1; d <= daysInMonth; d++) {
+        addCell(d, 0, false);
+        if ((firstDay + d) % 7 === 0 || d === daysInMonth) {
+          if (d === daysInMonth && (firstDay + d) % 7 !== 0) {
+             for (let n = 1; n <= (7 - ((firstDay + d) % 7)); n++) addCell(n, 1, true);
+          }
+          const wDiv = document.createElement('div');
+          const myWeekDates = [...currentWeekDates];
+          const myWeekIdx = weekIndex++;
+          const myHwDone = weekWDone, myHwTotal = weekWTotal;
+          wDiv.className = 'calendar-cell week flex flex-col items-center justify-center cursor-pointer transition-all'; 
+          wDiv.innerHTML = myHwTotal > 0 ? `<div class="text-xs font-black text-center ${myHwDone === myHwTotal ? 'text-purple-400' : 'text-slate-400'}">주간<br/><span class="text-xs">${myHwDone}/${myHwTotal}</span></div>` : `<div class="text-xs font-bold text-slate-600">주간<br/>상세</div>`;
+          wDiv.onclick = (e) => { e.stopPropagation(); selectWeek(myWeekIdx, myWeekDates, wDiv, myHwDone, myHwTotal); };
+          grid.appendChild(wDiv); 
+          weekWDone = 0; weekWTotal = 0; currentWeekDates = [];
+        }
+      }
+    }
+
+        async function selectWeek(weekIndex, dates, cellElement, hwDone, hwTotal) {
+      selectedDateStr = null; 
+      document.querySelectorAll('.calendar-cell').forEach(c => c.classList.remove('active'));
+      if (cellElement) cellElement.classList.add('active');
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('detail-view').classList.remove('hidden');
+      document.getElementById('add-record-area').classList.add('hidden');
+      document.getElementById('daily-summary-area').classList.add('hidden');
+      
+      let allHomework = [];
+      let allActivity = [];
+      let totalScore = 0;
+      let totalWeekSeed = 0;
+      let totalBossKills = 0;
+      let totalWeekEssences = 0;
+      let totalWeekElso = 0;
+      
+      const weekResults = await Promise.all(dates.map(d => window.electronAPI.diaryGetByDate(d).catch(() => null)));
+      weekResults.forEach((res, idx) => {
+        if (!res) return;
+        const d = dates[idx];
+        if (res.diary) totalScore += res.diary.total_score;
+        res.homeworkLogs.forEach(h => allHomework.push({...h, date: d}));
+        res.activityLogs.forEach(a => {
+          allActivity.push({...a, date: d});
+          if (a.type === 'boss') totalBossKills++;
+          else if (a.type === 'calc') totalWeekSeed += a.amount || 0;
+          else if (a.type === 'elso') totalWeekElso += a.amount || 0;
+          else if (a.type === 'loot' && a.content.includes('경험의 정수')) {
+            totalWeekEssences += a.amount || 1;
+          }
+        });
+      });
+      
+      // 요약 패널 표시
+      const summaryArea = document.getElementById('weekly-summary-area');
+      summaryArea.className = "px-5 py-4 border-b border-slate-800/50 bg-purple-500/5 grid grid-cols-6 gap-y-3 gap-x-1 shrink-0 text-center";
+      summaryArea.innerHTML = `
+        <!-- 1row: 3column (각 col-span-2) -->
+        <div class="col-span-2 flex flex-col items-center border-r border-slate-800/50">
+          <span class="text-xs text-slate-500 font-bold">주간 숙제</span>
+          <span class="text-sm font-black text-blue-400 mt-0.5">${hwDone}/${hwTotal}</span>
+        </div>
+        <div class="col-span-2 flex flex-col items-center border-r border-slate-800/50">
+          <span class="text-xs text-slate-500 font-bold">보스 처치</span>
+          <span class="text-sm font-black text-red-400 mt-0.5">${totalBossKills}회</span>
+        </div>
+        <div class="col-span-2 flex flex-col items-center">
+          <span class="text-xs text-slate-500 font-bold flex items-center justify-center gap-1">
+            <img src="assets/img/경험의정수.png" class="w-3 h-3 object-contain"> 경험의 정수
+          </span>
+          <span class="text-sm font-black text-emerald-400 mt-0.5">${totalWeekEssences}개</span>
+        </div>
+
+        <!-- 2row: 2column (각 col-span-3) -->
+        <div class="col-span-3 flex flex-col items-center border-r border-slate-800/50 pt-2 border-t border-slate-800/20">
+          <span class="text-xs text-slate-500 font-bold">시드 수익</span>
+          <span class="text-sm font-black text-orange-400 mt-0.5">${formatSeedShort(totalWeekSeed)}</span>
+        </div>
+        <div class="col-span-3 flex flex-col items-center pt-2 border-t border-slate-800/20">
+          <span class="text-xs text-slate-500 font-bold">엘소 획득</span>
+          <span class="text-sm font-black text-fuchsia-400 mt-0.5">${totalWeekElso.toLocaleString()} P</span>
+        </div>
+      `;
+
+      const startDate = dates[0].split('-').slice(1).join('.');
+      const endDate = dates[dates.length-1].split('-').slice(1).join('.');
+      
+      document.getElementById('detail-date').innerText = `${weekIndex}주차 (${startDate} ~ ${endDate})`;
+      document.getElementById('detail-score').innerText = `${totalScore} pt`;
+      document.getElementById('detail-hw').innerText = `주간 숙제 ${hwDone}/${hwTotal}`;
+      document.getElementById('detail-monster').innerHTML = `<i data-lucide="calendar-range" class="w-8 h-8 text-purple-400"></i>`; 
+
+      const list = document.getElementById('timeline-list');
+      let logs = [];
+      allHomework.forEach(h => logs.push({ 
+        displayTime: `${h.date.slice(5)} ${new Date(h.completed_at).toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit'})}`, 
+        sortTime: `${h.date} ${h.completed_at}`,
+        type: 'homework', content: `[숙제 완료] ${h.content_name}` 
+      }));
+      allActivity.forEach(a => {
+        const parts = (a.time || '').split(':');
+        const hh = (parts[0] || '00').padStart(2, '0');
+        const mm = (parts[1] || '00').padStart(2, '0');
+        logs.push({ 
+          displayTime: `${a.date.slice(5)} ${hh}:${mm}`, 
+          sortTime: `${a.date} ${a.time}`,
+          type: a.type, content: a.content, amount: a.amount
+        });
+      });
+      logs.sort((a, b) => a.sortTime.localeCompare(b.sortTime));
+
+      const groupedLogs = [];
+      logs.forEach(log => {
+        const last = groupedLogs[groupedLogs.length - 1];
+        const logDate = log.sortTime ? log.sortTime.split(' ')[0] : '';
+        const isStone = log.type === 'loot' && log.content.includes('마정석');
+        const stoneGrade = isStone ? (log.content.includes('최상급') ? '최상급' : (log.content.includes('상급') ? '상급' : (log.content.includes('중급') ? '중급' : '하급'))) : '';
+
+        if (log.content.includes('[자동]') && last && last.isAutoGroup && last.date === logDate) {
+          last.items.push(log); last.endTime = log.displayTime.split(' ')[1];
+          last.totalAmount += parseAutoLogAmount(log.content);
+        } else if (log.content.includes('[자동]')) {
+          groupedLogs.push({ 
+            isAutoGroup: true, date: logDate,
+            startTime: log.displayTime, endTime: log.displayTime.split(' ')[1], 
+            items: [log], totalAmount: parseAutoLogAmount(log.content), type: 'calc'
+          });
+        } else if (isStone && last && last.isStoneGroup && last.grade === stoneGrade && last.date === logDate) {
+          last.items.push(log); last.endTime = log.displayTime.split(' ')[1];
+          last.totalCount += (log.amount || resolveLootCount(log.content, log.amount));
+        } else if (isStone) {
+          groupedLogs.push({
+            isStoneGroup: true,
+            grade: stoneGrade,
+            date: logDate,
+            startTime: log.displayTime,
+            endTime: log.displayTime.split(' ')[1],
+            items: [log],
+            totalCount: (log.amount || resolveLootCount(log.content, log.amount)),
+            type: 'loot'
+          });
+        } else { groupedLogs.push(log); }
+      });
+
+      initTimelineScroll(list, groupedLogs, true);
+    }
+
+    async function selectDate(dateStr, cellElement) {
+      selectedDateStr = dateStr;
+      document.querySelectorAll('.calendar-cell').forEach(c => c.classList.remove('active'));
+      if (cellElement) cellElement.classList.add('active');
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('detail-view').classList.remove('hidden');
+      document.getElementById('add-record-area').classList.remove('hidden');
+      document.getElementById('weekly-summary-area').classList.add('hidden');
+      document.getElementById('daily-summary-area').classList.remove('hidden');
+      try { renderDetail(dateStr, await window.electronAPI.diaryGetByDate(dateStr)); } catch (e) { console.error(e); }
+    }
+
+    function renderDetail(dateStr, data) {
+      const diary = data.diary || { total_score: 0, daily_done: 0, daily_total: 0 };
+      const level = getLevel(diary.total_score);
+      document.getElementById('detail-date').innerText = dateStr;
+      document.getElementById('detail-score').innerText = `${diary.total_score} pt`;
+      document.getElementById('detail-hw').innerText = `숙제 ${diary.daily_done}/${diary.daily_total}`;
+      document.getElementById('detail-monster').innerHTML = `<img src="${MONSTERS[level]}" class="w-full h-full object-contain">`;
+
+      // 일일 요약 정보 계산
+      let dailyBossKills = 0;
+      let dailySeed = 0;
+      let dailyEssences = 0;
+      let dailyElso = 0;
+      
+      data.activityLogs.forEach(a => {
+        if (a.type === 'boss') dailyBossKills++;
+        else if (a.type === 'calc') dailySeed += a.amount || 0;
+        else if (a.type === 'elso') dailyElso += a.amount || 0;
+        else if (a.type === 'loot' && a.content.includes('경험의 정수')) {
+          dailyEssences += a.amount || 1;
+        }
+      });
+
+      const dailySummaryArea = document.getElementById('daily-summary-area');
+      dailySummaryArea.innerHTML = `
+        <div class="flex flex-col items-center flex-1 border-r border-slate-800/50">
+          <span class="text-xs text-slate-500 font-bold">보스 처치</span>
+          <span class="text-sm font-black text-red-400">${dailyBossKills}회</span>
+        </div>
+        <div class="flex flex-col items-center flex-1 border-r border-slate-800/50">
+          <span class="text-xs text-slate-500 font-bold">획득 시드</span>
+          <span class="text-sm font-black text-orange-400">${formatSeedShort(dailySeed)}</span>
+        </div>
+        <div class="flex flex-col items-center flex-1 border-r border-slate-800/50">
+          <span class="text-xs text-slate-500 font-bold">엘소 획득</span>
+          <span class="text-sm font-black text-fuchsia-400">${dailyElso.toLocaleString()} P</span>
+        </div>
+        <div class="flex flex-col items-center flex-1">
+          <span class="text-xs text-slate-500 font-bold flex items-center gap-1"><img src="assets/img/경험의정수.png" class="w-3 h-3 object-contain"> 정수</span>
+          <span class="text-sm font-black text-emerald-400">${dailyEssences}개</span>
+        </div>
+      `;
+
+      const list = document.getElementById('timeline-list');
+      let logs = [];
+      data.homeworkLogs.forEach(h => logs.push({ time: new Date(h.completed_at).toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit'}), type: 'homework', content: `[숙제 완료] ${h.content_name}` }));
+      data.activityLogs.forEach(a => {
+        const parts = (a.time || '').split(':');
+        const hh = (parts[0] || '00').padStart(2, '0');
+        const mm = (parts[1] || '00').padStart(2, '0');
+        logs.push({ time: `${hh}:${mm}`, type: a.type, content: a.content, amount: a.amount });
+      });
+      logs.sort((a, b) => a.time.localeCompare(b.time));
+
+      const groupedLogs = [];
+      logs.forEach(log => {
+        const last = groupedLogs[groupedLogs.length - 1];
+        const isStone = log.type === 'loot' && log.content.includes('마정석');
+        const stoneGrade = isStone ? (log.content.includes('최상급') ? '최상급' : (log.content.includes('상급') ? '상급' : (log.content.includes('중급') ? '중급' : '하급'))) : '';
+
+        if (log.content.includes('[자동]') && last && last.isAutoGroup) {
+          last.items.push(log); last.endTime = log.time;
+          last.totalAmount += parseAutoLogAmount(log.content);
+        } else if (log.content.includes('[자동]')) {
+          groupedLogs.push({ isAutoGroup: true, startTime: log.time, endTime: log.time, items: [log], totalAmount: parseAutoLogAmount(log.content), type: 'calc' });
+        } else if (isStone && last && last.isStoneGroup && last.grade === stoneGrade) {
+          last.items.push(log); last.endTime = log.time;
+          last.totalCount += (log.amount || resolveLootCount(log.content, log.amount));
+        } else if (isStone) {
+          groupedLogs.push({
+            isStoneGroup: true,
+            grade: stoneGrade,
+            startTime: log.time,
+            endTime: log.time,
+            items: [log],
+            totalCount: (log.amount || resolveLootCount(log.content, log.amount)),
+            type: 'loot'
+          });
+        } else { groupedLogs.push(log); }
+      });
+
+      initTimelineScroll(list, groupedLogs, false);
+    }
+
+    function deleteTimelineItem(type, content) {
+      if (!selectedDateStr) return;
+      window.electronAPI.diaryRemoveActivity(selectedDateStr, type, content);
+      setTimeout(() => selectDate(selectedDateStr), 50);
+    }
+
+    function saveLoot() {
+      if (!selectedDateStr) return;
+      const name = document.getElementById('loot-name').value.trim(), count = parseInt(document.getElementById('loot-count').value) || 1;
+      if (!name) return;
+      const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      window.electronAPI.diaryAddActivity(selectedDateStr, t, 'loot', count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`);
+      document.getElementById('loot-name').value = ''; document.getElementById('loot-count').value = '1';
+      selectDate(selectedDateStr);
+    }
+
+    function saveManualSeed(btn) {
+      if (!selectedDateStr) return;
+      const dIn = document.getElementById('manual-seed-desc'), aIn = document.getElementById('manual-seed-amount');
+      const desc = dIn.value.trim() || '수익', amount = parseInt(aIn.value) || 0;
+      if (amount === 0) return;
+      const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      window.electronAPI.diaryAddActivity(selectedDateStr, t, 'calc', `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`);
+      dIn.value = ''; aIn.value = ''; document.getElementById('manual-seed-preview').innerText = '';
+      const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black'); selectDate(selectedDateStr);
+      setTimeout(() => { btn.innerHTML = old; btn.classList.remove('bg-orange-500', 'text-black'); }, 1000);
+    }
+
+    function updateSeedPreview(val) {
+      const p = document.getElementById('manual-seed-preview'); if (p) p.innerText = (parseInt(val) || 0) > 0 ? window.formatSeedAmount(parseInt(val)) : '';
+    }
+
+    if (window.electronAPI && window.electronAPI.onDiaryUpdated) {
+      window.electronAPI.onDiaryUpdated(() => {
+        loadMonthData().then(() => { if (selectedDateStr) selectDate(selectedDateStr, Array.from(document.querySelectorAll('.calendar-cell')).find(c => c.classList.contains('active'))); });
+      });
+    }
+
+    loadItemsData().then(() => loadMonthData()).then(() => {
+      const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+      const cells = document.querySelectorAll('.calendar-cell');
+      for (const cell of cells) { if (cell.classList.contains('today')) { selectDate(today, cell); break; } }
+    });
+
+    window.bindChatLogStatusWarning();
+
+    function openLootSettingsDirect() {
+      if (window.electronAPI && window.electronAPI.toggleSettings) {
+        window.electronAPI.toggleSettings('chatlog:sub-tab-loot');
+      }
+    }
+
+    function openDataSettingsDirect() {
+      if (window.electronAPI && window.electronAPI.toggleSettings) {
+        window.electronAPI.toggleSettings('data:retention');
+      }
+    }
+
+    // 글로벌 커스텀 툴팁 제어 로직 추가
+    (function() {
+      const tooltipEl = document.getElementById('global-tooltip');
+      if (!tooltipEl) return;
+
+      tooltipEl.addEventListener('transitionend', () => {
+        if (!tooltipEl.classList.contains('opacity-100')) {
+          tooltipEl.classList.add('hidden');
+        }
+      });
+
+      document.body.addEventListener('mouseover', (e) => {
+        const target = e.target.closest('[data-diary-tooltip]');
+        if (!target) return;
+
+        const text = target.getAttribute('data-diary-tooltip');
+        if (!text) return;
+
+        tooltipEl.innerText = text;
+        tooltipEl.classList.remove('hidden');
+        
+        void tooltipEl.offsetWidth;
+        tooltipEl.classList.add('opacity-100');
+
+        const rect = target.getBoundingClientRect();
+        const tooltipRect = tooltipEl.getBoundingClientRect();
+
+        let left = rect.left + (rect.width - tooltipRect.width) / 2;
+        let top = rect.top - tooltipRect.height - 6;
+
+        if (left < 4) left = 4;
+        if (left + tooltipRect.width > window.innerWidth - 4) {
+          left = window.innerWidth - tooltipRect.width - 4;
+        }
+        if (top < 4) {
+          top = rect.bottom + 6;
+        }
+
+        tooltipEl.style.left = `${left}px`;
+        tooltipEl.style.top = `${top}px`;
+      });
+
+      document.body.addEventListener('mouseout', (e) => {
+        const target = e.target.closest('[data-diary-tooltip]');
+        if (!target) return;
+
+        tooltipEl.classList.remove('opacity-100');
+      });
+    })();
+</script>
+</body>
+
+</html>

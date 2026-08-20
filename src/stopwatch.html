@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>시간 측정 및 기록</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <style>
+    body {
+      background: rgba(15, 18, 30, 0.96);
+      backdrop-filter: blur(20px) saturate(180%);
+      color: #ffffff;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid rgba(129, 140, 248, 0.2);
+      border-radius: 12px;
+    }
+
+    /* 드래그 가능 헤더 영역 */
+    .drag-header {
+      -webkit-app-region: drag;
+      height: 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 16px;
+      background: rgba(20, 20, 35, 0.4);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      user-select: none;
+    }
+
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* 펄스 애니메이션 */
+    .status-pulse {
+      animation: status-pulse-anim 1.8s infinite ease-in-out;
+    }
+    @keyframes status-pulse-anim {
+      0%, 100% { opacity: 0.3; transform: scale(0.97); }
+      50% { opacity: 1; transform: scale(1.03); }
+    }
+
+  </style>
+</head>
+<body class="select-none custom-scroll">
+
+  <!-- 윈도우 헤더 -->
+  <div class="drag-header">
+    <div class="flex items-center gap-2">
+      <i data-lucide="timer" class="w-4 h-4 text-indigo-400"></i>
+      <span class="text-sm font-bold text-slate-200">클리어 타임 측정 및 기록</span>
+    </div>
+    <button onclick="window.close()" class="no-drag text-slate-400 hover:text-rose-400 transition-colors p-1 rounded-lg hover:bg-white/5 active:scale-95">
+      <i data-lucide="x" class="w-5 h-5"></i>
+    </button>
+  </div>
+
+  <!-- 메인 레이아웃 콘텐트 -->
+  <div class="flex-1 p-5 flex flex-col gap-4 overflow-hidden">
+
+    <!-- 상단 조작부 카드 -->
+    <div class="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 flex flex-col gap-4">
+      <div class="flex justify-between items-center">
+        <div class="flex flex-col">
+          <span class="text-xs font-semibold text-indigo-300 uppercase tracking-wider">STOPWATCH CONTROL</span>
+          <span class="text-lg font-black text-white mt-0.5">실시간 타임 트래커</span>
+        </div>
+        
+        <!-- 바로가기 / 도움말 버튼 그룹 -->
+        <div class="flex gap-2">
+          <button id="btn-open-calc" class="no-drag flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500 hover:text-white transition-all text-xs font-bold px-3 py-1.5 rounded-xl active:scale-95">
+            <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
+            <span>계수 계산기 바로가기</span>
+          </button>
+          <button id="btn-toggle-guide" class="no-drag flex items-center justify-center bg-slate-500/10 border border-slate-500/30 text-slate-300 hover:bg-slate-500/20 transition-all p-1.5 rounded-xl active:scale-95" title="사용 가이드 토글">
+            <i data-lucide="help-circle" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 사용 가이드 패널 (기본 숨김) -->
+      <div id="guide-panel" class="hidden bg-slate-950/40 border border-slate-800 rounded-xl p-4 flex flex-col gap-2.5 text-xs text-slate-300 transition-all">
+        <div class="flex items-center gap-1.5 font-bold text-indigo-300 text-sm border-b border-indigo-500/20 pb-1.5">
+          <i data-lucide="info" class="w-4 h-4"></i>
+          <span>시간 측정기 가이드</span>
+        </div>
+        <ul class="list-disc list-inside space-y-1 text-slate-400">
+          <li><strong>단축키 토글:</strong> <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white text-[10px]">Ctrl + Shift + S</kbd>를 눌러 게임 내에서 즉시 측정을 제어합니다.</li>
+          <li><strong>자동 스탯 바인딩:</strong> 측정 시작 시점의 계수 계산기 설정값을 기반으로 주스텟, 부스텟, 명중 값이 자동 합산되어 저장됩니다. (어빌리티는 기본값에 자동 포함)</li>
+          <li><strong>실시간 계수 업데이트:</strong> 측정 기록 테이블 내에서 계열(찌르기/베기 등) 및 코어 마스터를 변경하면 당시에 바인딩된 스탯을 토대로 최종 계수를 실시간 재계산합니다.</li>
+          <li><strong>종료 및 저장:</strong> 측정을 중지하면 기록 제목이 빈값(<span class="text-amber-400 font-mono">""</span>)으로 저장됩니다. 더블 클릭하여 원하는 내용(예: <em>"이클립스 클리어"</em>)으로 간편하게 수정하세요.</li>
+        </ul>
+      </div>
+
+      <!-- 제어 및 상태 영역 -->
+      <div class="flex items-center gap-4 justify-between bg-black/20 rounded-xl p-4 border border-white/[0.04]">
+        <div class="flex items-center gap-3">
+          <!-- 비활성 상태 아이콘 -->
+          <div id="status-icon-idle" class="w-10 h-10 rounded-xl bg-slate-500/10 border border-slate-500/20 flex items-center justify-center text-slate-400">
+            <i data-lucide="play" class="w-5 h-5"></i>
+          </div>
+          <!-- 활성 상태 애니메이션 아이콘 -->
+          <div id="status-icon-running" class="hidden w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 status-pulse">
+            <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
+          </div>
+
+          <div class="flex flex-col">
+            <span class="text-[11px] text-slate-400 font-medium">현재 상태</span>
+            <span id="status-text" class="text-sm font-bold text-slate-300">대기 중</span>
+          </div>
+        </div>
+
+        <!-- 시작/종료 버튼 -->
+        <button id="btn-toggle-timer" class="no-drag font-black text-sm px-6 py-3 rounded-xl transition-all active:scale-95 flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/30">
+          <i id="btn-icon" data-lucide="play" class="w-4 h-4"></i>
+          <span id="btn-text">측정 시작</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 하단 기록 리스트 카드 -->
+    <div class="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 flex flex-col gap-3 overflow-hidden">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <i data-lucide="database" class="w-4 h-4 text-indigo-400"></i>
+          <span class="text-sm font-bold text-white">시간 측정 기록 히스토리</span>
+        </div>
+        <span id="record-count" class="text-[11px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg text-slate-400">총 0건</span>
+      </div>
+
+      <!-- 기록 테이블 컨테이너 -->
+      <div class="flex-1 overflow-y-auto overflow-x-hidden custom-scroll border border-white/[0.04] rounded-xl bg-black/10 w-full min-w-0">
+        <table class="w-full text-left border-collapse table-fixed">
+          <thead>
+            <tr class="border-b border-white/[0.06] bg-white/[0.02] text-[10px] font-black text-slate-400 uppercase tracking-wider">
+              <th class="py-2.5 px-3 w-[90px]">기록 날짜</th>
+              <th class="py-2.5 px-2 w-[100px]">클리어 타임</th>
+              <th class="py-2.5 px-2">기록 제목 (더블클릭 수정)</th>
+              <th class="py-2.5 px-2 w-[95px]">계열</th>
+              <th class="py-2.5 px-2 w-[100px]">코어 마스터</th>
+              <th class="py-2.5 px-2 w-[80px] text-right">계수값</th>
+              <th class="py-2.5 px-2 w-[50px] text-center">스탯</th>
+              <th class="py-2.5 px-3 w-[60px] text-center">삭제</th>
+            </tr>
+          </thead>
+          <tbody id="record-tbody" class="text-xs divide-y divide-white/[0.03]">
+            <!-- 기록 데이터 행이 여기에 동적으로 추가됩니다 -->
+            <tr>
+              <td colspan="8" class="text-center py-10 text-slate-500 font-medium">시간 측정 기록이 존재하지 않습니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="assets/ui-utils.js"></script>
+  <script src="shared/buffConstants.js"></script>
+  <script src="stopwatch-renderer.js"></script>
+</body>
+</html>

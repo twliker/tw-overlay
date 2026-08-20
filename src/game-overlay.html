@@ -1,0 +1,3316 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <style>
+    body {
+      background: transparent;
+      /* 평소에는 완전히 투명하게 유지 */
+      overflow: hidden;
+      height: 100vh;
+      pointer-events: none;
+      transition: background-color 0.5s ease;
+    }
+
+    /* ── 도전과제 HUD ── */
+    .quest-hud {
+      position: fixed;
+      left: 50px;
+      bottom: 215px;
+      padding: 10px 16px;
+      background: rgba(22, 16, 35, 0.88);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(168, 85, 247, 0.45);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      box-shadow: 0 8px 24px rgba(168, 85, 247, 0.2);
+      z-index: 100;
+    }
+
+    .quest-hud.hidden {
+      display: none;
+    }
+
+    .quest-hud-title {
+      font-size: 10px;
+      font-weight: 800;
+      color: #c084fc;
+      letter-spacing: 0.05em;
+    }
+
+    .quest-hud-stats {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 2px;
+    }
+
+    /* ── 도전과제 완료 대형 알림 ── */
+    .quest-alert-overlay {
+      position: fixed;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.4);
+      pointer-events: none;
+      z-index: 101;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      opacity: 0;
+      background: linear-gradient(160deg, rgba(24, 14, 38, 0.97) 0%, rgba(14, 7, 26, 0.97) 100%);
+      border: 1.5px solid rgba(168, 85, 247, 0.65);
+      border-radius: 24px;
+      padding: 28px 52px 24px;
+      box-shadow:
+        0 0 0 1px rgba(168, 85, 247, 0.12) inset,
+        0 0 36px rgba(168, 85, 247, 0.4),
+        0 0 80px rgba(168, 85, 247, 0.14),
+        0 24px 64px rgba(0, 0, 0, 0.9);
+      backdrop-filter: blur(20px);
+      white-space: nowrap;
+    }
+
+    .quest-alert-overlay.show {
+      animation: ar-alert-show 5.0s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .quest-icon-wrap {
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(168, 85, 247, 0.1);
+      border: 1.5px solid rgba(168, 85, 247, 0.35);
+      border-radius: 20px;
+      box-shadow: 0 0 20px rgba(168, 85, 247, 0.25);
+    }
+
+    .quest-icon {
+      width: 30px;
+      height: 30px;
+      color: #c084fc;
+    }
+
+    .quest-title {
+      font-size: 1.5em;
+      font-weight: 900;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .quest-badge {
+      font-size: 0.85em;
+      font-weight: 700;
+      color: #c084fc;
+      background: rgba(168, 85, 247, 0.15);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      padding: 3px 12px;
+      border-radius: 9999px;
+      box-shadow: 0 2px 10px rgba(168, 85, 247, 0.1);
+    }
+
+    /* ── 공허 특별 몬스터 출현 알림 ── */
+    .special-monster-alert-overlay {
+      position: fixed;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.4);
+      pointer-events: none;
+      z-index: 102;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      opacity: 0;
+      background: linear-gradient(160deg, rgba(57, 25, 7, 0.97), rgba(25, 10, 3, 0.97));
+      border: 1.5px solid rgba(251, 191, 36, 0.8);
+      border-radius: 24px;
+      padding: 28px 52px 24px;
+      box-shadow: 0 0 36px rgba(251, 191, 36, 0.45), 0 0 80px rgba(239, 68, 68, 0.2), 0 24px 64px rgba(0, 0, 0, 0.9);
+      backdrop-filter: blur(20px);
+      white-space: nowrap;
+    }
+
+    .special-monster-alert-overlay.show {
+      animation: ar-alert-show 5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .special-monster-alert-icon {
+      width: 34px;
+      height: 34px;
+      color: #fbbf24;
+      filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.8));
+    }
+
+    .special-monster-alert-title {
+      font-size: 1.5em;
+      font-weight: 900;
+      color: #fff7d6;
+      letter-spacing: -0.02em;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+    }
+
+    .special-monster-alert-subtitle {
+      font-size: 0.85em;
+      font-weight: 700;
+      color: #fcd34d;
+    }
+
+    /* ── XP HUD ── */
+    .xp-hud {
+      position: fixed;
+      left: 200px;
+      bottom: 0;
+      padding: 10px 16px;
+      background: rgba(15, 18, 30, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .xp-hud.hidden {
+      display: none;
+    }
+
+    /* ── 오늘의 요약 HUD ── */
+    .today-summary-hud {
+      position: fixed;
+      left: 0px;
+      top: 200px;
+      width: 286px;
+      padding: 12px 14px;
+      background: rgba(15, 18, 30, 0.9);
+      backdrop-filter: blur(16px) saturate(160%);
+      border: 1px solid rgba(20, 184, 166, 0.34);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      color: #ffffff;
+      pointer-events: none;
+      z-index: 49;
+    }
+
+    .today-summary-hud.hidden {
+      display: none;
+    }
+
+    .today-summary-hud.collapsed .today-summary-stats,
+    .today-summary-hud.collapsed .today-summary-section {
+      display: none;
+    }
+
+    .today-summary-hud.collapsed {
+      width: auto;
+      min-width: 250px;
+      padding: 10px 16px;
+      background: rgba(15, 18, 30, 0.85);
+      backdrop-filter: blur(12px);
+      border-color: rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .today-summary-hud.collapsed .today-summary-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      row-gap: 3px;
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .today-summary-compact {
+      display: none;
+    }
+
+    .today-summary-hud.collapsed .today-summary-compact {
+      display: block;
+      grid-column: 1 / -1;
+      color: #cbd5e1;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
+
+    .today-summary-header,
+    .today-summary-section-title,
+    .today-summary-list-row {
+      display: flex;
+      align-items: center;
+    }
+
+    .today-summary-header {
+      width: 100%;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 8px;
+      background: transparent;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      color: inherit;
+      text-align: inherit;
+    }
+
+    .today-summary-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #5eead4;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    .today-summary-date,
+    .today-summary-meta,
+    .today-summary-list-row {
+      color: #cbd5e1;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .today-summary-stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 8px 0;
+    }
+
+    .today-summary-stat {
+      min-width: 0;
+      padding: 6px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .today-summary-stat-label {
+      display: block;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .today-summary-stat-value {
+      display: block;
+      overflow: hidden;
+      margin-top: 2px;
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 900;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .today-summary-section {
+      padding-top: 7px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .today-summary-section+.today-summary-section {
+      margin-top: 7px;
+    }
+
+    .today-summary-section-title {
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .today-summary-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .today-summary-list-row {
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .today-summary-list-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .today-summary-list-value {
+      flex-shrink: 0;
+      color: #fbbf24;
+    }
+
+    .today-summary-empty {
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    /* ── 어벤던로드 위젯 ── */
+    .abandoned-widget {
+      position: fixed;
+      padding: 10px 16px;
+      background: rgba(15, 18, 30, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      min-width: 160px;
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      opacity: 0;
+      z-index: 50;
+      /* 초기 위치는 스크립트에서 설정됨 */
+    }
+
+    .abandoned-widget.active {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .abandoned-widget.hidden {
+      display: none !important;
+    }
+
+    .region-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .profit-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 800;
+    }
+
+    /* ── 어벤던로드 10회 화면 플래시 ── */
+    .abandoned-flash {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center, rgba(251, 191, 36, 0.28) 0%, transparent 65%);
+      pointer-events: none;
+      z-index: 99;
+      opacity: 0;
+    }
+
+    .abandoned-flash.show {
+      animation: ar-flash 0.9s ease-out forwards;
+    }
+
+    @keyframes ar-flash {
+      0% {
+        opacity: 0;
+      }
+
+      20% {
+        opacity: 1;
+      }
+
+      100% {
+        opacity: 0;
+      }
+    }
+
+    /* ── 어벤던로드 10회 대형 알림 ── */
+    .abandoned-alert-overlay {
+      position: fixed;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.4);
+      pointer-events: none;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      opacity: 0;
+      background: linear-gradient(160deg, rgba(20, 14, 4, 0.97) 0%, rgba(10, 8, 20, 0.97) 100%);
+      border: 1.5px solid rgba(251, 191, 36, 0.65);
+      border-radius: 24px;
+      padding: 28px 52px 24px;
+      box-shadow:
+        0 0 0 1px rgba(251, 191, 36, 0.12) inset,
+        0 0 36px rgba(251, 191, 36, 0.4),
+        0 0 80px rgba(251, 191, 36, 0.14),
+        0 24px 64px rgba(0, 0, 0, 0.9);
+      backdrop-filter: blur(20px);
+      white-space: nowrap;
+    }
+
+    .abandoned-alert-overlay.show {
+      animation: ar-alert-show 4.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* ── 팔색조 언덕 5회 대형 알림 ── */
+    .pitta-alert-overlay {
+      position: fixed;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.4);
+      pointer-events: none;
+      z-index: 101;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      opacity: 0;
+      background: linear-gradient(160deg, rgba(14, 20, 4, 0.97) 0%, rgba(8, 20, 10, 0.97) 100%);
+      border: 1.5px solid rgba(74, 222, 128, 0.65);
+      border-radius: 24px;
+      padding: 28px 52px 24px;
+      box-shadow:
+        0 0 0 1px rgba(74, 222, 128, 0.12) inset,
+        0 0 36px rgba(74, 222, 128, 0.4),
+        0 0 80px rgba(74, 222, 128, 0.14),
+        0 24px 64px rgba(0, 0, 0, 0.9);
+      backdrop-filter: blur(20px);
+      white-space: nowrap;
+    }
+
+    .pitta-alert-overlay.show {
+      animation: ar-alert-show 5.0s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .pitta-bird-wrap {
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(74, 222, 128, 0.1);
+      border: 1.5px solid rgba(74, 222, 128, 0.35);
+      border-radius: 18px;
+      margin-bottom: 4px;
+    }
+
+    .pitta-bird-icon {
+      width: 34px;
+      height: 34px;
+      color: #4ade80;
+      filter:
+        drop-shadow(0 0 10px rgba(74, 222, 128, 1)) drop-shadow(0 0 24px rgba(74, 222, 128, 0.55));
+    }
+
+    .pitta-title {
+      font-size: 38px;
+      font-weight: 900;
+      color: #f0fdf4;
+      text-shadow:
+        0 0 18px rgba(74, 222, 128, 1),
+        0 0 40px rgba(74, 222, 128, 0.55),
+        0 2px 4px rgba(0, 0, 0, 0.95);
+      letter-spacing: 2px;
+      line-height: 1;
+    }
+
+    .pitta-badge {
+      font-size: 13px;
+      font-weight: 900;
+      color: #4ade80;
+      background: rgba(74, 222, 128, 0.14);
+      border: 1px solid rgba(74, 222, 128, 0.32);
+      padding: 3px 18px;
+      border-radius: 20px;
+      letter-spacing: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 4px;
+    }
+
+    @keyframes ar-alert-show {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.35);
+      }
+
+      12% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.07);
+      }
+
+      20% {
+        transform: translate(-50%, -50%) scale(0.97);
+      }
+
+      27% {
+        transform: translate(-50%, -50%) scale(1.02);
+      }
+
+      34% {
+        transform: translate(-50%, -50%) scale(1.0);
+      }
+
+      74% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.0);
+      }
+
+      90% {
+        opacity: 1;
+      }
+
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1.06);
+      }
+    }
+
+    .alert-gem-wrap {
+      width: 60px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(251, 191, 36, 0.1);
+      border: 1.5px solid rgba(251, 191, 36, 0.35);
+      border-radius: 18px;
+      margin-bottom: 4px;
+    }
+
+    .alert-gem-icon {
+      width: 34px;
+      height: 34px;
+      color: #fbbf24;
+      filter:
+        drop-shadow(0 0 10px rgba(251, 191, 36, 1)) drop-shadow(0 0 24px rgba(251, 191, 36, 0.55));
+    }
+
+    .alert-crown-label {
+      font-size: 10px;
+      font-weight: 800;
+      color: rgba(251, 191, 36, 0.65);
+      letter-spacing: 4px;
+      text-transform: uppercase;
+    }
+
+    .alert-region-name {
+      font-size: 38px;
+      font-weight: 900;
+      color: #fef3c7;
+      text-shadow:
+        0 0 18px rgba(251, 191, 36, 1),
+        0 0 40px rgba(251, 191, 36, 0.55),
+        0 2px 4px rgba(0, 0, 0, 0.95);
+      letter-spacing: 2px;
+      line-height: 1;
+    }
+
+    .alert-count-badge {
+      font-size: 13px;
+      font-weight: 900;
+      color: #fbbf24;
+      background: rgba(251, 191, 36, 0.14);
+      border: 1px solid rgba(251, 191, 36, 0.32);
+      padding: 3px 18px;
+      border-radius: 20px;
+      letter-spacing: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 4px;
+    }
+
+    /* ── 버프 타이머 HUD ── */
+    .buff-hud {
+      position: fixed;
+      left: 350px;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 340px;
+      align-items: flex-start;
+    }
+
+    /* ── 뱃지 (36×36 정사각형) ── */
+    .buff-badge {
+      position: relative;
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(15, 18, 30, 0.92);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+      flex-shrink: 0;
+      cursor: default;
+      box-shadow:
+        0 0 0 1px rgba(168, 85, 247, 0.12) inset,
+        0 2px 6px rgba(0, 0, 0, 0.35);
+      transition: border-color 0.35s ease, box-shadow 0.35s ease;
+      animation: badge-enter 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    @keyframes badge-enter {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.75);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .buff-badge.leaving {
+      animation: badge-exit 0.28s ease-in forwards;
+    }
+
+    @keyframes badge-exit {
+      from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      to {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.82);
+      }
+    }
+
+    /* ── 아이콘 ── */
+    .buff-badge-icon {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 900;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .buff-badge-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* 카테고리별 폴백 */
+    .buff-badge-icon.cat-exp {
+      background: rgba(34, 197, 94, 0.22);
+      color: #4ade80;
+    }
+
+    .buff-badge-icon.cat-drop {
+      background: rgba(168, 85, 247, 0.22);
+      color: #c084fc;
+    }
+
+    .buff-badge-icon.cat-stats {
+      background: rgba(59, 130, 246, 0.22);
+      color: #60a5fa;
+    }
+
+    .buff-badge-icon.cat-damage {
+      background: rgba(249, 115, 22, 0.22);
+      color: #fb923c;
+    }
+
+    .buff-badge-icon.cat-utility {
+      background: rgba(20, 184, 166, 0.22);
+      color: #2dd4bf;
+    }
+
+    /* ── 하단 그라디언트 스크림 + 시간 ── */
+    .buff-badge-scrim {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 50%;
+      background: linear-gradient(to bottom,
+          transparent 0%,
+          rgba(5, 5, 15, 0.85) 100%);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 3px;
+      border-radius: 0 0 8px 8px;
+      z-index: 1;
+    }
+
+    .buff-badge-time {
+      font-size: 9px;
+      font-weight: 900;
+      color: #e2e8f0;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.3px;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 1);
+      line-height: 1;
+    }
+
+    /* ── 페이즈별 스크림 오버레이 틴트 ── */
+    .buff-badge-tint {
+      position: absolute;
+      inset: 0;
+      border-radius: 8px;
+      opacity: 0;
+      transition: opacity 0.35s ease, background 0.35s ease;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ── SVG 링 프로그레스 (viewBox 42×42, r=18, center=21) ── */
+    .buff-badge-ring {
+      position: absolute;
+      inset: -3px;
+      width: calc(100% + 6px);
+      height: calc(100% + 6px);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .ring-track {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.06);
+      stroke-width: 2;
+    }
+
+    .ring-fill {
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.9s linear, stroke 0.35s ease;
+      transform-origin: center;
+      transform: rotate(-90deg);
+    }
+
+    /* ── 커스텀 툴팁 ── */
+    .buff-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%) translateY(4px);
+      background: rgba(15, 18, 30, 0.97);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #e2e8f0;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    .buff-badge:hover .buff-tooltip {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ══════════════════════════════
+       페이즈별 스타일
+    ══════════════════════════════ */
+
+    /* NORMAL: 브랜드 퍼플 링 */
+    .buff-badge.phase-normal {
+      border-color: rgba(255, 255, 255, 0.08);
+      box-shadow:
+        0 0 0 1px rgba(168, 85, 247, 0.15) inset,
+        0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    .buff-badge.phase-normal .ring-fill {
+      stroke: rgba(168, 85, 247, 0.75);
+    }
+
+    .buff-badge.phase-normal .buff-badge-time {
+      color: #e2e8f0;
+    }
+
+    .buff-badge.phase-normal .buff-badge-tint {
+      opacity: 0;
+    }
+
+    /* WARN1: 노란색 */
+    .buff-badge.phase-warn1 {
+      border-color: rgba(234, 179, 8, 0.65);
+      box-shadow:
+        0 0 0 1px rgba(234, 179, 8, 0.15) inset,
+        0 0 14px rgba(234, 179, 8, 0.25),
+        0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    .buff-badge.phase-warn1 .ring-fill {
+      stroke: rgba(234, 179, 8, 0.9);
+    }
+
+    .buff-badge.phase-warn1 .buff-badge-time {
+      color: #fbbf24;
+    }
+
+    .buff-badge.phase-warn1 .buff-badge-tint {
+      background: rgba(234, 179, 8, 0.07);
+      opacity: 1;
+    }
+
+    /* WARN2: 빨간색 pulse */
+    .buff-badge.phase-warn2 {
+      border-color: rgba(239, 68, 68, 0.85);
+      animation:
+        badge-enter 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+        badge-danger-pulse 0.65s ease-in-out infinite;
+    }
+
+    .buff-badge.phase-warn2 .ring-fill {
+      stroke: rgba(239, 68, 68, 1.0);
+    }
+
+    .buff-badge.phase-warn2 .buff-badge-time {
+      color: #f87171;
+    }
+
+    .buff-badge.phase-warn2 .buff-badge-tint {
+      background: rgba(239, 68, 68, 0.1);
+      opacity: 1;
+    }
+
+    /* ── 경험의 정수 버프 경고 알람 ── */
+    .essence-alert-overlay {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      opacity: 0;
+      padding: 28px 44px;
+      background: rgba(10, 3, 3, 0.86);
+      border: 2px solid rgba(239, 68, 68, 0.65);
+      border-radius: 18px;
+      box-shadow:
+        0 0 48px rgba(239, 68, 68, 0.4),
+        0 0 96px rgba(239, 68, 68, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(14px);
+    }
+
+    .essence-alert-overlay.show {
+      animation: essence-alert-anim 8s forwards;
+    }
+
+    @keyframes essence-alert-anim {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.88);
+      }
+
+      4% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.04);
+      }
+
+      8% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+
+      /* 빠른 깜빡임 (0.35s 주기 × 8회) */
+      12% {
+        opacity: 0.05;
+      }
+
+      16.5% {
+        opacity: 1;
+      }
+
+      21% {
+        opacity: 0.05;
+      }
+
+      25.5% {
+        opacity: 1;
+      }
+
+      30% {
+        opacity: 0.05;
+      }
+
+      34.5% {
+        opacity: 1;
+      }
+
+      39% {
+        opacity: 0.05;
+      }
+
+      43.5% {
+        opacity: 1;
+      }
+
+      48% {
+        opacity: 0.05;
+      }
+
+      52.5% {
+        opacity: 1;
+      }
+
+      57% {
+        opacity: 0.05;
+      }
+
+      61.5% {
+        opacity: 1;
+      }
+
+      /* 잠시 유지 후 페이드 아웃 */
+      78% {
+        opacity: 1;
+      }
+
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1);
+      }
+    }
+
+    .essence-alert-icon {
+      filter: drop-shadow(0 0 16px rgba(239, 68, 68, 0.9));
+    }
+
+    .essence-alert-title {
+      font-size: 32px;
+      font-weight: 900;
+      color: #fca5a5;
+      text-shadow:
+        0 0 24px rgba(239, 68, 68, 1),
+        0 0 48px rgba(239, 68, 68, 0.6),
+        0 2px 4px rgba(0, 0, 0, 0.95);
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
+
+    .essence-alert-sub {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fecaca;
+      background: rgba(239, 68, 68, 0.18);
+      border: 1px solid rgba(239, 68, 68, 0.55);
+      padding: 6px 22px;
+      border-radius: 20px;
+      backdrop-filter: blur(6px);
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+      white-space: nowrap;
+    }
+
+    @keyframes badge-danger-pulse {
+
+      0%,
+      100% {
+        box-shadow:
+          0 0 0 1px rgba(239, 68, 68, 0.2) inset,
+          0 0 8px rgba(239, 68, 68, 0.35);
+        border-color: rgba(239, 68, 68, 0.55);
+      }
+
+      50% {
+        box-shadow:
+          0 0 0 1px rgba(239, 68, 68, 0.3) inset,
+          0 0 22px rgba(239, 68, 68, 0.75);
+        border-color: rgba(239, 68, 68, 1.0);
+      }
+    }
+
+    /* ── 에토스 기믹 알림 CSS ── */
+    .ethos-arrow-container {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 260px;
+      height: 260px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 105;
+    }
+
+    .ethos-arrow-wrapper {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .ethos-arrow-wrapper.show {
+      opacity: 1;
+    }
+
+    .ethos-arrow-scaler {
+      transform-origin: center center;
+    }
+
+    .ethos-arrow-wrapper.show .ethos-arrow-scaler {
+      animation: ethos-pulse-arrow 0.6s infinite alternate ease-in-out;
+    }
+
+    @keyframes ethos-pulse-arrow {
+      0% {
+        filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.4));
+        transform: scale(1);
+      }
+
+      100% {
+        filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.85)) drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
+        transform: scale(1.1);
+      }
+    }
+
+    .ethos-dir-N {
+      transform: translate(-50%, -50%) rotate(0deg) translateY(-90px);
+    }
+
+    .ethos-dir-NE {
+      transform: translate(-50%, -50%) rotate(45deg) translateY(-90px);
+    }
+
+    .ethos-dir-E {
+      transform: translate(-50%, -50%) rotate(90deg) translateY(-90px);
+    }
+
+    .ethos-dir-SE {
+      transform: translate(-50%, -50%) rotate(135deg) translateY(-90px);
+    }
+
+    .ethos-dir-S {
+      transform: translate(-50%, -50%) rotate(180deg) translateY(-90px);
+    }
+
+    .ethos-dir-SW {
+      transform: translate(-50%, -50%) rotate(225deg) translateY(-90px);
+    }
+
+    .ethos-dir-W {
+      transform: translate(-50%, -50%) rotate(270deg) translateY(-90px);
+    }
+
+    .ethos-dir-NW {
+      transform: translate(-50%, -50%) rotate(315deg) translateY(-90px);
+    }
+
+    .ethos-warning-text {
+      position: absolute;
+      top: -50px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #ef4444;
+      font-weight: 900;
+      font-size: 26px;
+      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.9), 0 0 8px rgba(239, 68, 68, 0.6);
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .ethos-warning-text.show {
+      opacity: 1;
+    }
+
+    /* ── 심연의 제2사도 반사 알림 CSS ── */
+    .abyss-apostle-alert-overlay {
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      pointer-events: none;
+      z-index: 110;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      opacity: 0;
+      background: linear-gradient(160deg, rgba(20, 5, 5, 0.95) 0%, rgba(10, 2, 2, 0.95) 100%);
+      border: 2px solid rgba(239, 68, 68, 0.75);
+      border-radius: 20px;
+      padding: 24px 48px;
+      box-shadow:
+        0 0 40px rgba(239, 68, 68, 0.35),
+        0 16px 48px rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(16px);
+      white-space: nowrap;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .abyss-apostle-alert-overlay.warn {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      border-color: rgba(239, 68, 68, 0.85);
+      background: linear-gradient(160deg, rgba(30, 5, 5, 0.95) 0%, rgba(15, 2, 2, 0.95) 100%);
+      box-shadow:
+        0 0 50px rgba(239, 68, 68, 0.5),
+        0 16px 48px rgba(0, 0, 0, 0.8);
+    }
+
+    .abyss-apostle-alert-overlay.safe {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      border-color: rgba(34, 197, 94, 0.85);
+      background: linear-gradient(160deg, rgba(5, 25, 5, 0.95) 0%, rgba(2, 12, 2, 0.95) 100%);
+      box-shadow:
+        0 0 50px rgba(34, 197, 94, 0.5),
+        0 16px 48px rgba(0, 0, 0, 0.8);
+    }
+
+    .abyss-apostle-alert-overlay.hide {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.9);
+      transition: all 0.3s ease-in;
+    }
+
+    .abyss-apostle-title {
+      font-size: 34px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+      line-height: 1.2;
+    }
+
+    .abyss-apostle-title.warn {
+      color: #ef4444;
+      text-shadow: 0 0 20px rgba(239, 68, 68, 0.6), 0 2px 4px rgba(0, 0, 0, 0.8);
+    }
+
+    .abyss-apostle-title.safe {
+      color: #22c55e;
+      text-shadow: 0 0 20px rgba(34, 197, 94, 0.6), 0 2px 4px rgba(0, 0, 0, 0.8);
+    }
+
+    .abyss-apostle-subtitle {
+      font-size: 14px;
+      font-weight: 700;
+      color: #e2e8f0;
+      opacity: 0.85;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+
+    /* ── 몬스터 웨이브 경고 알림 CSS ── */
+    .wave-warning-alert-overlay {
+      position: fixed;
+      top: 35%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      pointer-events: none;
+      z-index: 110;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      opacity: 0;
+      background: linear-gradient(160deg, rgba(20, 5, 20, 0.95) 0%, rgba(10, 2, 10, 0.95) 100%);
+      border: 2px solid rgba(217, 70, 239, 0.75);
+      border-radius: 20px;
+      padding: 24px 48px;
+      box-shadow:
+        0 0 40px rgba(217, 70, 239, 0.35),
+        0 16px 48px rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(16px);
+      white-space: nowrap;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .wave-warning-alert-overlay.warn {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      border-color: rgba(217, 70, 239, 0.85);
+      box-shadow:
+        0 0 50px rgba(217, 70, 239, 0.5),
+        0 16px 48px rgba(0, 0, 0, 0.8);
+    }
+
+    .wave-warning-alert-overlay.hide {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.9);
+      transition: all 0.3s ease-in;
+    }
+
+    .wave-warning-title {
+      font-size: 34px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      color: #e879f9;
+      text-shadow: 0 0 20px rgba(217, 70, 239, 0.6), 0 2px 4px rgba(0, 0, 0, 0.8);
+      line-height: 1.2;
+    }
+
+    .wave-warning-subtitle {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fdf4ff;
+      opacity: 0.85;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+
+    /* ── 로카고스 기믹 경고 알림 CSS ── */
+    .lokagos-border-flash {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 109;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      box-shadow: inset 0 0 0px rgba(0, 0, 0, 0);
+    }
+
+    .lokagos-border-flash.show {
+      opacity: 1;
+      animation: lokagos-border-pulse 1.2s infinite alternate ease-in-out;
+    }
+
+    @keyframes lokagos-border-pulse {
+      0% {
+        box-shadow: inset 0 0 30px var(--lokagos-neon-color, rgba(255, 0, 255, 0.6));
+      }
+
+      100% {
+        box-shadow: inset 0 0 80px var(--lokagos-neon-color, rgba(255, 0, 255, 0.9));
+      }
+    }
+
+    .lokagos-alert-overlay {
+      position: fixed;
+      top: 35%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      pointer-events: none;
+      z-index: 110;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      opacity: 0;
+      background: linear-gradient(160deg, rgba(15, 10, 25, 0.96) 0%, rgba(5, 2, 10, 0.96) 100%);
+      border: 2px solid var(--lokagos-neon-color, rgba(255, 0, 255, 0.75));
+      border-radius: 24px;
+      padding: 32px 56px;
+      box-shadow:
+        0 0 40px var(--lokagos-neon-shadow, rgba(255, 0, 255, 0.3)),
+        0 16px 48px rgba(0, 0, 0, 0.9);
+      backdrop-filter: blur(20px);
+      white-space: nowrap;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .lokagos-alert-overlay.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    .lokagos-alert-overlay.hide {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.9);
+      transition: all 0.3s ease-in;
+    }
+
+    .lokagos-card-icon {
+      width: 64px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1.5px solid var(--lokagos-neon-color, rgba(255, 0, 255, 0.4));
+      box-shadow: 0 0 16px var(--lokagos-neon-shadow, rgba(255, 0, 255, 0.2));
+    }
+
+    .lokagos-card-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .lokagos-title {
+      font-size: 38px;
+      font-weight: 950;
+      letter-spacing: 1px;
+      color: #ffffff;
+      text-shadow: 0 0 24px var(--lokagos-neon-color, rgba(255, 0, 255, 0.8)), 0 2px 4px rgba(0, 0, 0, 0.9);
+      line-height: 1.1;
+    }
+
+    .lokagos-subtitle {
+      font-size: 16px;
+      font-weight: 800;
+      color: #f1f5f9;
+      opacity: 0.9;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lokagos-color-chips {
+      display: flex;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .lokagos-chip {
+      font-size: 11px;
+      font-weight: 900;
+      padding: 3px 10px;
+      border-radius: 8px;
+      color: #ffffff;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    }
+
+    /* ── 로카고스 네온 뱃지 스타일 추가 ── */
+    .lokagos-badge-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 4px;
+      position: relative;
+    }
+
+    .lokagos-badge-main {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      font-weight: 950;
+      color: #ffffff;
+      border: 3px solid var(--lokagos-neon-color, rgba(255, 0, 255, 1));
+      background-color: rgba(var(--lokagos-neon-rgb, 255, 0, 255), 0.15);
+      box-shadow:
+        0 0 20px var(--lokagos-neon-shadow, rgba(255, 0, 255, 0.4)),
+        inset 0 0 15px var(--lokagos-neon-shadow, rgba(255, 0, 255, 0.3));
+      text-shadow: 0 0 10px rgba(255, 255, 255, 0.8), 0 2px 4px rgba(0, 0, 0, 0.9);
+      position: relative;
+    }
+
+    .lokagos-badge-ban {
+      position: absolute;
+      width: 82px;
+      height: 82px;
+      border: 6px solid #ef4444;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 5;
+      box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
+    }
+
+    .lokagos-badge-ban::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: -6px;
+      right: -6px;
+      height: 6px;
+      background-color: #ef4444;
+      transform: translateY(-50%) rotate(-45deg);
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+    }
+
+    .lokagos-badge-mini-list {
+      display: flex;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .lokagos-badge-mini {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 900;
+      color: #ffffff;
+      border: 2px solid var(--mini-border-color);
+      background-color: var(--mini-bg-color);
+      box-shadow: 0 0 8px var(--mini-shadow-color);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+
+    /* ── 버프 타이머 대형 만료 경고 알람 컨테이너 ── */
+    .buff-alert-container {
+      position: fixed;
+      top: 32%;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 199;
+      pointer-events: none;
+      width: 320px;
+    }
+
+    /* 콤팩트 가로 바 형태의 경고 카드 */
+    .buff-alert-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 240px;
+      height: 38px;
+      padding: 0 12px;
+      background: rgba(12, 8, 22, 0.88);
+      border: 1px solid rgba(167, 139, 250, 0.55);
+      border-radius: 12px;
+      box-shadow:
+        0 0 16px rgba(167, 139, 250, 0.25),
+        0 4px 10px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(10px);
+      white-space: nowrap;
+      pointer-events: none;
+      animation: buff-alert-slide-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+      transition: all 0.3s ease;
+    }
+
+    .buff-alert-card.fade-out {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.92);
+    }
+
+    @keyframes buff-alert-slide-in {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.88);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .buff-alert-card-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      overflow: hidden;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .buff-alert-card-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .buff-alert-card-icon.default-icon {
+      background: rgba(167, 139, 250, 0.15);
+      border: 1px solid rgba(167, 139, 250, 0.3);
+    }
+
+    .buff-alert-card-content {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .buff-alert-card-name {
+      font-size: 11px;
+      font-weight: 800;
+      color: #ede9fe;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      max-width: 110px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .buff-alert-card-text {
+      font-size: 11px;
+      font-weight: 800;
+      color: #f87171;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+
+    /* Dock 모드 전용 알림 토스트 컨테이너 */
+    .dock-toast-container {
+      position: fixed;
+      right: 31px;
+      top: 66.6%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+      z-index: 10000;
+      pointer-events: none;
+      width: 320px;
+    }
+
+    /* ── 타이머 HUD ── */
+    .timer-hud {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      padding: 10px 24px;
+      background: rgba(15, 18, 30, 0.94);
+      backdrop-filter: blur(20px) saturate(180%);
+      border: 1px solid rgba(129, 140, 248, 0.45);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 16px rgba(129, 140, 248, 0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      z-index: 200;
+      min-width: 170px;
+      opacity: 0;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease;
+      pointer-events: none;
+    }
+
+    .timer-hud.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .timer-hud-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .timer-hud-icon-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: timer-pulse-indigo 2.5s infinite;
+    }
+
+    .timer-hud-title {
+      font-size: 10px;
+      font-weight: 800;
+      color: #94a3b8;
+      letter-spacing: 0.12em;
+    }
+
+    .timer-hud-display {
+      font-size: 26px;
+      font-weight: 900;
+      color: #ffffff;
+      font-family: 'JetBrains Mono', monospace, sans-serif;
+      text-shadow: 0 0 12px rgba(129, 140, 248, 0.5);
+      letter-spacing: 0.05em;
+    }
+
+    .timer-hud-status {
+      font-size: 9px;
+      font-weight: 800;
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      padding: 1px 10px;
+      border-radius: 9999px;
+      margin-top: 3px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    @keyframes timer-pulse-indigo {
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 0.5;
+        transform: scale(0.92);
+      }
+    }
+
+    /* ── 단축키 미니 뱃지 ── */
+    .hud-shortcut-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.1;
+      color: rgba(226, 232, 240, 0.85);
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 4px;
+      padding: 1px 4.5px;
+      letter-spacing: 0.02em;
+      user-select: none;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+      pointer-events: none;
+    }
+
+    body.hide-hud-shortcuts .hud-shortcut-badge {
+      display: none !important;
+    }
+
+    body.hide-hud-shortcuts #buff-hud-header {
+      display: none !important;
+    }
+
+    /* ── HUD 위치 편집 모드 (Edit Mode) ── */
+    body.hud-edit-mode {
+      background: rgba(15, 23, 42, 0.45) !important;
+      pointer-events: auto !important;
+    }
+
+    body.hud-edit-mode .hud-draggable {
+      pointer-events: auto !important;
+      cursor: grab !important;
+      outline: 2px dashed rgba(168, 85, 247, 0.75) !important;
+      outline-offset: 4px !important;
+      box-shadow: 0 0 20px rgba(168, 85, 247, 0.4) !important;
+      z-index: 9999 !important;
+      user-select: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
+    }
+
+    body.hud-edit-mode .hud-draggable.is-dragging {
+      cursor: grabbing !important;
+      outline-color: #38bdf8 !important;
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.6) !important;
+    }
+
+    body.hud-edit-mode .hud-draggable * {
+      user-select: none !important;
+    }
+
+    .hud-edit-badge {
+      display: none;
+    }
+
+    body.hud-edit-mode .hud-edit-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 0;
+      background: linear-gradient(135deg, #a855f7, #6366f1);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      pointer-events: auto;
+      cursor: grab;
+    }
+  </style>
+</head>
+
+<body class="select-none">
+  <!-- Dock 모드 전용 알림 토스트 컨테이너 -->
+  <div id="dock-toast-container" class="dock-toast-container"></div>
+
+  <!-- 타이머 HUD (클리어 타임 측정용) -->
+  <div id="timer-hud" class="timer-hud">
+    <div class="timer-hud-header">
+      <span class="timer-hud-icon-wrap">
+        <i data-lucide="timer" class="w-3.5 h-3.5 text-indigo-400"></i>
+      </span>
+      <span class="timer-hud-title">STOPWATCH</span>
+      <span class="hud-shortcut-badge" title="Ctrl + Shift + S" data-shortcut-key="toggleTimer">C+S+S</span>
+    </div>
+    <div id="timer-hud-display" class="timer-hud-display">00:00.00</div>
+    <div id="timer-hud-status" class="timer-hud-status hidden">HOLDING (10s)</div>
+  </div>
+
+  <!-- XP HUD -->
+  <section id="today-summary-hud" class="today-summary-hud hidden" aria-label="오늘의 모험 요약">
+    <div class="today-summary-header">
+      <div class="today-summary-title">
+        <i data-lucide="notebook-tabs" class="w-4 h-4"></i>
+        <span>오늘의 요약</span>
+        <span class="hud-shortcut-badge" title="Ctrl + Shift + Y" data-shortcut-key="toggleTodaySummaryHud">C+S+Y</span>
+      </div>
+      <span id="today-summary-date" class="today-summary-date">--.--</span>
+      <span id="today-summary-compact" class="today-summary-compact">SEED 0
+        ELSO 0 P
+        경험의 정수 0개 · 남은 숙제 0개</span>
+    </div>
+    <div class="today-summary-stats">
+      <div class="today-summary-stat">
+        <span class="today-summary-stat-label">획득 SEED</span>
+        <span id="today-summary-seed" class="today-summary-stat-value text-orange-400">0</span>
+      </div>
+      <div class="today-summary-stat">
+        <span class="today-summary-stat-label">획득 ELSO</span>
+        <span id="today-summary-elso" class="today-summary-stat-value text-fuchsia-400">0 P</span>
+      </div>
+      <div class="today-summary-stat">
+        <span class="today-summary-stat-label">기록 아이템</span>
+        <span id="today-summary-loot-total" class="today-summary-stat-value text-amber-400">0종</span>
+      </div>
+      <div class="today-summary-stat">
+        <span class="today-summary-stat-label">보스 처치</span>
+        <span id="today-summary-bosses" class="today-summary-stat-value text-red-400">0회</span>
+      </div>
+    </div>
+    <div class="today-summary-section">
+      <div class="today-summary-section-title">
+        <span>오늘 획득 아이템</span>
+        <span id="today-summary-loot-meta" class="today-summary-meta">0개</span>
+      </div>
+      <div id="today-summary-loot-list" class="today-summary-list"></div>
+    </div>
+    <div class="today-summary-section">
+      <div class="today-summary-section-title">
+        <span id="today-summary-homework-character">숙제</span>
+        <span id="today-summary-homework-progress" class="today-summary-meta">0/0</span>
+      </div>
+      <div id="today-summary-homework-list" class="today-summary-list"></div>
+    </div>
+  </section>
+
+  <div id="xp-hud" class="xp-hud">
+    <div class="flex items-center justify-end w-full gap-1 mb-0.5">
+      <span class="hud-shortcut-badge" title="Ctrl + Shift + Z" data-shortcut-key="toggleXpSession">C+S+Z</span>
+      <span class="hud-shortcut-badge" title="Ctrl + Shift + X" data-shortcut-key="resetXpSession">C+S+X</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-[9px] text-indigo-400 font-black uppercase">총 경험치</span>
+      <span id="xp-total" class="text-xs font-bold text-white">0</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-[9px] text-emerald-400 font-black uppercase">분당 경험치</span>
+      <span id="xp-epm" class="text-xs font-bold text-white">0</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-[9px] text-rose-400 font-black uppercase">잡은 몬스터</span>
+      <span id="xp-kills" class="text-xs font-bold text-white">0</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="text-[9px] text-amber-400 font-black uppercase">경과 시간</span>
+      <span id="xp-elapsed" class="text-xs font-bold text-white">00:00:00</span>
+    </div>
+  </div>
+
+  <!-- 어벤던로드 위젯 -->
+  <div id="abandoned-widget" class="abandoned-widget hidden">
+    <div class="flex items-center justify-between gap-1.5 mb-1">
+      <div class="flex items-center gap-1.5">
+        <i data-lucide="gem" class="w-3 h-3 text-amber-400"></i>
+        <span class="text-xs font-black text-amber-400 uppercase tracking-tighter">어벤던로드</span>
+      </div>
+      <span class="hud-shortcut-badge" title="Ctrl + Shift + A" data-shortcut-key="toggleAbandonedHud">C+S+A</span>
+    </div>
+    <div id="abandoned-regions" class="flex flex-col gap-0.5">
+      <!-- 지역별 횟수 동적 추가 -->
+    </div>
+    <div id="abandoned-stones" class="hidden flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+      <!-- 마정석 순획득 수량 동적 추가 -->
+    </div>
+    <div class="h-px bg-white/10 my-1"></div>
+    <div class="flex justify-between items-center">
+      <span class="text-[9px] text-slate-400 font-bold">실시간 수익</span>
+      <span id="abandoned-profit" class="profit-text text-[11px] text-white">+0</span>
+    </div>
+  </div>
+
+  <!-- 어벤던로드 10회 화면 플래시 -->
+  <div id="abandoned-flash" class="abandoned-flash"></div>
+
+  <!-- 어벤던로드 10회 알림 카드 -->
+  <div id="abandoned-alert" class="abandoned-alert-overlay">
+    <div class="alert-gem-wrap">
+      <svg class="alert-gem-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 3h12l4 6-10 13L2 9Z" />
+        <path d="M11 3 8 9l4 13 4-13-3-6" />
+        <path d="M2 9h20" />
+      </svg>
+    </div>
+    <div class="alert-crown-label">✦ 최고 효율 구간 ✦</div>
+    <div id="abandoned-alert-region" class="alert-region-name">카디프</div>
+    <div class="alert-count-badge">10 / 10</div>
+  </div>
+
+  <!-- 팔색조 언덕 5회 알림 카드 -->
+  <div id="pitta-alert" class="pitta-alert-overlay">
+    <div class="pitta-bird-wrap">
+      <i data-lucide="bird" class="pitta-bird-icon"></i>
+    </div>
+    <div class="alert-crown-label">✦ 효율 플레이 완료 ✦</div>
+    <div class="pitta-title">팔색조 언덕</div>
+    <div class="pitta-badge">SS 등급 보상 5회 획득</div>
+  </div>
+
+  <!-- 도전과제 HUD -->
+  <div id="quest-hud" class="quest-hud hidden">
+    <div id="quest-hud-title" class="quest-hud-title">도전과제 진행 중</div>
+    <div class="quest-hud-stats">
+      <span id="quest-kills" class="text-xs font-bold text-white">0 / 0 마리</span>
+      <span id="quest-timer" class="text-xs font-bold text-purple-400">20:00</span>
+    </div>
+  </div>
+
+  <!-- 도전과제 완료 알림 카드 -->
+  <div id="quest-alert" class="quest-alert-overlay">
+    <div class="quest-icon-wrap">
+      <i id="quest-alert-icon" data-lucide="hammer" class="quest-icon"></i>
+    </div>
+    <div class="alert-crown-label">✦ 도전과제 목표 달성 ✦</div>
+    <div id="quest-alert-title" class="quest-title">도전과제 완료</div>
+    <div id="quest-alert-badge" class="quest-badge">몬스터 0마리 처치 완료</div>
+  </div>
+
+  <!-- 공허 특별 몬스터 출현 알림 카드 -->
+  <div id="special-monster-alert" class="special-monster-alert-overlay">
+    <i data-lucide="skull" class="special-monster-alert-icon"></i>
+    <div class="alert-crown-label">✦ 공허의 영역 ✦</div>
+    <div class="special-monster-alert-title">특별 몬스터 출현!</div>
+    <div class="special-monster-alert-subtitle">맵 어딘가에 특별 몬스터가 나타났습니다.</div>
+  </div>
+
+  <!-- 경험의 정수 버프 경고 알람 -->
+  <div id="essence-alert" class="essence-alert-overlay">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="essence-alert-icon">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </svg>
+      <img src="assets/img/경험의정수.png"
+        style="width:40px; height:40px; object-fit:contain; filter: drop-shadow(0 0 6px rgba(239,68,68,0.45));">
+    </div>
+    <div class="essence-alert-title">경험의 정수 버프 확인!</div>
+    <div class="essence-alert-sub">경험치 100억 달성 — 자동 교환 버프가 꺼져 있을 수 있습니다</div>
+  </div>
+
+  <!-- 버프 타이머 대형 만료 경고 알람 컨테이너 -->
+  <div id="buff-alert-container" class="buff-alert-container"></div>
+
+  <!-- 에토스 기믹 알림 -->
+  <div id="ethos-arrow-container" class="ethos-arrow-container">
+    <div id="ethos-alert-text" class="ethos-warning-text"></div>
+    <div id="ethos-arrow-indicator" class="ethos-arrow-wrapper ethos-dir-N">
+      <div class="ethos-arrow-scaler">
+        <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24"
+          fill="rgba(255, 255, 255, 0.92)" stroke="#0284c7" stroke-width="1.5" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M12 21V3" />
+          <path d="m5 10 7-7 7 7" />
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- 심연의 제2사도 기믹 알림 -->
+  <div id="abyss-apostle-alert" class="abyss-apostle-alert-overlay hide">
+    <div id="abyss-apostle-title" class="abyss-apostle-title warn">공격 반사 패턴! 경고!</div>
+    <div id="abyss-apostle-subtitle" class="abyss-apostle-subtitle">보스 공격 중단 (6.5초 유지)</div>
+  </div>
+
+  <!-- 몬스터 웨이브 종료 대기 알림 -->
+  <div id="wave-warning-alert" class="wave-warning-alert-overlay hide">
+    <div class="wave-warning-title">몬스터 처치 대기!</div>
+    <div class="wave-warning-subtitle">잔존 몬스터를 퇴치해야 다음 웨이브로 진행됩니다.</div>
+  </div>
+
+  <!-- 로카고스 기믹 알림 -->
+  <div id="lokagos-border-flash" class="lokagos-border-flash hide"></div>
+  <div id="lokagos-alert" class="lokagos-alert-overlay hide">
+    <div id="lokagos-card-icon" class="lokagos-card-icon"></div>
+    <div class="lokagos-card-content">
+      <div id="lokagos-title" class="lokagos-title"></div>
+      <div id="lokagos-subtitle" class="lokagos-subtitle"></div>
+    </div>
+  </div>
+
+  <!-- 버프 HUD -->
+  <div id="buff-hud" class="buff-hud">
+    <div id="buff-hud-header" class="hidden w-full flex items-center justify-end gap-1 mb-0.5">
+      <span class="hud-shortcut-badge" title="Ctrl + Shift + B" data-shortcut-key="toggleBuffHud">C+S+B</span>
+      <span class="hud-shortcut-badge" title="Ctrl + Shift + E" data-shortcut-key="clearAllBuffs">C+S+E</span>
+    </div>
+    <div id="buff-hud-items" class="flex flex-row flex-wrap gap-2.5 items-start"></div>
+  </div>
+
+  <script src="assets/ui-utils.js"></script>
+  <script src="renderer/game-overlay/alerts.js"></script>
+  <script src="renderer/game-overlay/today-summary.js"></script>
+  <script src="renderer/game-overlay/edit-mode.js"></script>
+  <script>
+    const gameOverlayAlerts = window.gameOverlayAlerts;
+    // ── 타이머 HUD 상태 및 로직 정의 ──
+    let timerInterval = null;
+    let timerStartTime = 0;
+    let timerIsRunning = false;
+    let timerFadeTimeout = null;
+    let timerStatusInterval = null;
+
+    function formatTimerTime(ms) {
+      const totalSec = Math.floor(ms / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      const cs = Math.floor((ms % 1000) / 10);
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+    }
+
+    function startTimer() {
+      if (timerIsRunning) return;
+
+      if (timerFadeTimeout) { clearTimeout(timerFadeTimeout); timerFadeTimeout = null; }
+      if (timerStatusInterval) { clearInterval(timerStatusInterval); timerStatusInterval = null; }
+
+      timerStartTime = Date.now();
+      timerIsRunning = true;
+
+      const hud = document.getElementById('timer-hud');
+      const display = document.getElementById('timer-hud-display');
+      const status = document.getElementById('timer-hud-status');
+
+      if (hud) {
+        hud.classList.remove('hidden');
+        hud.offsetHeight; // layout trigger
+        hud.classList.add('show');
+      }
+      if (status) {
+        status.classList.add('hidden');
+      }
+      if (display) {
+        display.innerText = '00:00.00';
+      }
+
+      timerInterval = setInterval(() => {
+        if (display) {
+          const elapsed = Date.now() - timerStartTime;
+          display.innerText = formatTimerTime(elapsed);
+        }
+      }, 10);
+    }
+
+    function stopTimer() {
+      if (!timerIsRunning) return;
+      timerIsRunning = false;
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+      const status = document.getElementById('timer-hud-status');
+      const hud = document.getElementById('timer-hud');
+
+      if (status) {
+        status.classList.remove('hidden');
+        let remain = 10;
+        status.innerText = `HOLDING (${remain}s)`;
+
+        timerStatusInterval = setInterval(() => {
+          remain--;
+          if (remain <= 0) {
+            clearInterval(timerStatusInterval);
+            timerStatusInterval = null;
+            if (hud) {
+              hud.classList.remove('show');
+              timerFadeTimeout = setTimeout(() => {
+                hud.classList.add('hidden');
+                timerFadeTimeout = null;
+              }, 400);
+            }
+          } else {
+            status.innerText = `HOLDING (${remain}s)`;
+          }
+        }, 1000);
+      } else {
+        if (hud) {
+          timerFadeTimeout = setTimeout(() => {
+            hud.classList.remove('show');
+            timerFadeTimeout = setTimeout(() => {
+              hud.classList.add('hidden');
+              timerFadeTimeout = null;
+            }, 400);
+          }, 10000);
+        }
+      }
+    }
+
+    function formatXP(num) {
+      const n = Number(num);
+      if (isNaN(n)) return '0';
+      if (n === 0) return '0';
+
+      const isNegative = n < 0;
+      const absN = Math.abs(n);
+      let result = '';
+
+      if (absN >= 1000000000000) result = (absN / 1000000000000).toFixed(2) + '조';
+      else if (absN >= 100000000) result = (absN / 100000000).toFixed(1) + '억';
+      else if (absN >= 10000) result = Math.floor(absN / 10000).toLocaleString() + '만';
+      else result = Math.floor(absN).toLocaleString();
+
+      return (isNegative ? '-' : '') + result;
+    }
+
+    // 남은 시간 포맷: 1분 이상 m:ss, 미만 ss초
+    function formatMs(ms) {
+      const totalSec = Math.max(0, Math.ceil(ms / 1000));
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      if (m > 0) return `${m}:${String(s).padStart(2, '0')}`;
+      return `${s}s`;
+    }
+
+    function getCatClass(buffId) {
+      if (buffId.startsWith('exp_')) return 'cat-exp';
+      if (buffId.startsWith('rare_')) return 'cat-drop';
+      if (buffId.startsWith('stat_')) return 'cat-stats';
+      if (buffId.startsWith('dmg_')) return 'cat-damage';
+      return 'cat-utility';
+    }
+
+    function getCatLabel(buffId) {
+      if (buffId.startsWith('exp_')) return 'E';
+      if (buffId.startsWith('rare_')) return 'R';
+      if (buffId.startsWith('stat_')) return 'S';
+      if (buffId.startsWith('dmg_')) return 'D';
+      return 'U';
+    }
+
+    // SVG 링: 뱃지 36px + inset -3px 양쪽 → viewBox 42×42, center 21, r 18
+    const RING_R = 18;
+    const RING_C = 21;
+    const RING_CIRC = 2 * Math.PI * RING_R; // ≈ 113.1
+
+    function buildBadgeHtml(state) {
+      const pct = state.durationMs > 0 ? state.remainingMs / state.durationMs : 0;
+      const offset = (RING_CIRC * (1 - pct)).toFixed(2);
+      const timeStr = formatMs(state.remainingMs);
+      const catClass = getCatClass(state.buffId);
+      const catLabel = getCatLabel(state.buffId);
+
+      const iconHtml = state.image
+        ? `<div class="buff-badge-icon">
+             <img src="${state.image}" alt="${catLabel}"
+               onerror="this.parentElement.className='buff-badge-icon ${catClass}';this.parentElement.textContent='${catLabel}'">
+           </div>`
+        : `<div class="buff-badge-icon ${catClass}">${catLabel}</div>`;
+
+      return `
+        ${iconHtml}
+        <div class="buff-badge-tint"></div>
+        <div class="buff-badge-scrim">
+          <span class="buff-badge-time" id="buff-time-${state.buffId}">${timeStr}</span>
+        </div>
+        <svg class="buff-badge-ring" viewBox="0 0 42 42">
+          <circle class="ring-track" cx="${RING_C}" cy="${RING_C}" r="${RING_R}"/>
+          <circle class="ring-fill" id="buff-ring-${state.buffId}"
+            cx="${RING_C}" cy="${RING_C}" r="${RING_R}"
+            stroke-dasharray="${RING_CIRC.toFixed(2)}"
+            stroke-dashoffset="${offset}"/>
+        </svg>
+        <div class="buff-tooltip">${state.name}</div>
+      `;
+    }
+
+    // ── 버프 HUD 렌더링 ──
+    let _currentBuffIds = new Set();
+
+    function renderBuffHud(states) {
+      const hud = document.getElementById('buff-hud');
+      const itemsContainer = document.getElementById('buff-hud-items') || hud;
+      const header = document.getElementById('buff-hud-header');
+      const newIds = new Set(states.map(s => s.buffId));
+
+      if (header) {
+        if (states.length > 0) header.classList.remove('hidden');
+        else header.classList.add('hidden');
+      }
+
+      // 만료된 뱃지 퇴장 애니메이션
+      _currentBuffIds.forEach(id => {
+        if (!newIds.has(id)) {
+          const el = document.getElementById(`buff-badge-${id}`);
+          if (el) {
+            el.classList.add('leaving');
+            setTimeout(() => el.remove(), 300);
+          }
+        }
+      });
+
+      states.forEach(state => {
+        const pct = state.durationMs > 0 ? state.remainingMs / state.durationMs : 0;
+        const offset = (RING_CIRC * (1 - pct)).toFixed(2);
+        const timeStr = formatMs(state.remainingMs);
+        const phaseClass = `phase-${state.phase}`;
+
+        let badge = document.getElementById(`buff-badge-${state.buffId}`);
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.id = `buff-badge-${state.buffId}`;
+          badge.className = `buff-badge ${phaseClass}`;
+          badge.innerHTML = buildBadgeHtml(state);
+          itemsContainer.appendChild(badge);
+        } else {
+          // 기존 뱃지 업데이트 (DOM 재생성 없이)
+          badge.className = `buff-badge ${phaseClass}`;
+          const timeEl = document.getElementById(`buff-time-${state.buffId}`);
+          const ringEl = document.getElementById(`buff-ring-${state.buffId}`);
+          if (timeEl) timeEl.textContent = timeStr;
+          if (ringEl) ringEl.style.strokeDashoffset = offset;
+        }
+      });
+
+      _currentBuffIds = newIds;
+    }
+
+    let showXpWidget = true;
+    let sessionStartTime = Date.now();
+    let sessionAccumulatedTime = 0;
+    let sessionIsActive = false;
+    let currentConfig = null;
+
+    function measureHud(element) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) return rect;
+
+      // display:none 상태의 HUD도 실제 콘텐츠 크기로 판정하기 위해 화면에 보이지 않는 복제본을 측정합니다.
+      const clone = element.cloneNode(true);
+      clone.removeAttribute('id');
+      clone.classList.remove('hidden');
+      clone.style.setProperty('display', 'flex', 'important');
+      clone.style.setProperty('visibility', 'hidden', 'important');
+      clone.style.setProperty('opacity', '0', 'important');
+      clone.style.setProperty('left', '0', 'important');
+      clone.style.setProperty('bottom', '0', 'important');
+      document.body.appendChild(clone);
+      const measured = clone.getBoundingClientRect();
+      clone.remove();
+      return measured;
+    }
+
+    function recoverHudPosition(element, position) {
+      const left = Number(position?.left);
+      const bottom = Number(position?.bottom);
+      const size = measureHud(element);
+      const width = Math.max(1, size.width);
+      const height = Math.max(1, size.height);
+      const top = window.innerHeight - bottom - height;
+      const intersectsViewport = Number.isFinite(left)
+        && Number.isFinite(bottom)
+        && left + width > 0
+        && left < window.innerWidth
+        && top + height > 0
+        && top < window.innerHeight;
+
+      if (intersectsViewport) return { left, bottom, recovered: false };
+      return {
+        left: Math.round((window.innerWidth - width) / 2),
+        bottom: Math.round((window.innerHeight - height) / 2),
+        recovered: true,
+      };
+    }
+
+    function applySafeHudPositions(config) {
+      if (window.gameOverlayEditMode?.isEditMode?.()) return;
+      const recoveredSettings = {};
+      const positionSpecs = [
+        ['xp-hud', 'xpWidgetPos', config.xpWidgetPos || window.electronAPI.DEFAULT_CONFIG.xpWidgetPos],
+        ['abandoned-widget', 'abandonedWidgetPos', config.abandonedWidgetPos || window.electronAPI.DEFAULT_CONFIG.abandonedWidgetPos],
+        ['buff-hud', 'buffTimerHudPos', config.buffTimerHudPos || window.electronAPI.DEFAULT_CONFIG.buffTimerHudPos],
+        ['quest-hud', 'forgeQuestHudPos', config.forgeQuestHudPos || window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos],
+      ];
+
+      positionSpecs.forEach(([elementId, settingKey, position]) => {
+        const element = document.getElementById(elementId);
+        if (!element) return;
+        const safePosition = recoverHudPosition(element, position);
+        element.style.left = `${safePosition.left}px`;
+        element.style.bottom = `${safePosition.bottom}px`;
+        if (safePosition.recovered) {
+          recoveredSettings[settingKey] = { left: safePosition.left, bottom: safePosition.bottom };
+        }
+      });
+
+      // 스톱워치 타이머 HUD: CSS 기본 스타일(상단 가로 정중앙: top: 24px, left: 50%, transform: translateX(-50%)) 완전 고정
+      const timerHud = document.getElementById('timer-hud');
+      if (timerHud) {
+        timerHud.style.left = '';
+        timerHud.style.top = '';
+        timerHud.style.bottom = '';
+        timerHud.style.transform = '';
+      }
+
+      if (Object.keys(recoveredSettings).length > 0) {
+        currentConfig = { ...currentConfig, ...recoveredSettings };
+        window.electronAPI.applySettings(recoveredSettings);
+      }
+    }
+
+    window.__isTimerRunning = () => timerIsRunning;
+    window.__isAbandonedActive = () => abandonedActive;
+    window.__isQuestActive = () => isQuestActive;
+
+    // 1초마다 경과 시간 실시간 업데이트 (XP 위젯 표시 상태일 때만 연산)
+    setInterval(() => {
+      if (!showXpWidget) return;
+      const elapsedEl = document.getElementById('xp-elapsed');
+      if (elapsedEl) {
+        let elapsed = sessionAccumulatedTime;
+        if (sessionIsActive) {
+          elapsed += Date.now() - sessionStartTime;
+        }
+        elapsedEl.innerText = window.formatElapsedTime(elapsed) + (sessionIsActive ? '' : ' ⏸');
+      }
+    }, 1000);
+
+    // 설정 데이터 수신
+    window.electronAPI.onConfigData((config) => {
+      currentConfig = config;
+      const oldShowXpWidget = showXpWidget;
+      showXpWidget = config.showXpWidget !== false;
+      const hud = document.getElementById('xp-hud');
+
+      if (hud) {
+        if (!showXpWidget) {
+          hud.classList.add('hidden');
+        } else {
+          hud.classList.remove('hidden');
+          // 숨김 상태에서 보이기 상태로 전환되었을 때 최신 스탯을 즉시 동기화 요청
+          if (!oldShowXpWidget) {
+            refreshXpStats();
+          }
+        }
+      }
+
+      // 버프 HUD 표시 여부 제어
+      const buffHud = document.getElementById('buff-hud');
+      if (buffHud) {
+        if (config.showBuffHud === false) buffHud.classList.add('hidden');
+        else buffHud.classList.remove('hidden');
+      }
+      applySafeHudPositions(config);
+      updateHudShortcutsDisplay(config);
+    });
+
+    function formatShortcutForDisplay(shortcut) {
+      if (!shortcut) return '';
+      const parts = String(shortcut).split('+').map(part => part.trim());
+      const mapped = parts.map(part => {
+        const lower = part.toLowerCase();
+        if (lower === 'commandorcontrol' || lower === 'ctrl' || lower === 'control') return 'C';
+        if (lower === 'shift') return 'S';
+        if (lower === 'alt') return 'A';
+        if (lower.startsWith('num') && lower.length > 3) return lower.replace('num', 'N');
+        return part.toUpperCase();
+      });
+      return mapped.join('+');
+    }
+
+    function formatShortcutForTooltip(shortcut) {
+      if (!shortcut) return '';
+      return String(shortcut)
+        .replace(/CommandOrControl/gi, 'Ctrl')
+        .replace(/Control/gi, 'Ctrl')
+        .replace(/\+/g, ' + ');
+    }
+
+    function updateHudShortcutsDisplay(config) {
+      if (!config) return;
+      const isShortcutsVisible = config.showHudShortcuts !== false;
+      document.body.classList.toggle('hide-hud-shortcuts', !isShortcutsVisible);
+
+      if (!config.shortcuts) return;
+      const badges = document.querySelectorAll('.hud-shortcut-badge[data-shortcut-key]');
+      badges.forEach((badge) => {
+        const key = badge.getAttribute('data-shortcut-key');
+        if (key && config.shortcuts[key]) {
+          const raw = config.shortcuts[key];
+          badge.textContent = formatShortcutForDisplay(raw);
+          badge.setAttribute('title', formatShortcutForTooltip(raw));
+        }
+      });
+    }
+
+    window.addEventListener('resize', () => {
+      if (currentConfig) applySafeHudPositions(currentConfig);
+    });
+
+    function updateXpElapsedDisplay() {
+      const elapsedEl = document.getElementById('xp-elapsed');
+      if (!elapsedEl) return;
+
+      let elapsed = sessionAccumulatedTime;
+      if (sessionIsActive) {
+        elapsed += Date.now() - sessionStartTime;
+        elapsedEl.classList.remove('text-slate-400');
+        elapsedEl.classList.add('text-white');
+      } else {
+        elapsedEl.classList.remove('text-white');
+        elapsedEl.classList.add('text-slate-400');
+      }
+      elapsedEl.innerText = window.formatElapsedTime(elapsed) + (sessionIsActive ? '' : ' ⏸');
+    }
+
+    // 경험치 데이터 수신
+    window.electronAPI.onXpUpdate((data) => {
+      if (data.startTime !== undefined) {
+        sessionStartTime = data.startTime;
+      }
+      if (data.accumulatedTime !== undefined) {
+        sessionAccumulatedTime = data.accumulatedTime;
+      }
+      if (data.isActive !== undefined) {
+        sessionIsActive = data.isActive;
+      }
+      document.getElementById('xp-total').innerText = formatXP(data.total);
+      document.getElementById('xp-epm').innerText = formatXP(data.epm);
+      document.getElementById('xp-kills').innerText = (data.kills || 0).toLocaleString();
+      updateXpElapsedDisplay();
+    });
+
+    // 버프 타이머 HUD 업데이트
+    window.electronAPI.onBuffTimerUpdate((states) => {
+      renderBuffHud(states);
+    });
+
+    // warn2 flash & 대형 화면 중앙 알림 연동
+    window.electronAPI.onBuffTimerWarning((data) => {
+      // 1. 기존의 우하단 배지 100ms 간격 깜빡임 플래시 (기존 기능 원복 유지)
+      const badge = document.getElementById(`buff-badge-${data.buffId}`);
+      if (badge && data.phase === 'warn2') {
+        badge.style.opacity = '0.25';
+        setTimeout(() => { badge.style.opacity = '1'; }, 100);
+        setTimeout(() => { badge.style.opacity = '0.25'; }, 210);
+        setTimeout(() => { badge.style.opacity = '1'; }, 320);
+      }
+
+      // 2. 신규 화면 중앙 대형 알림 스택 팝업 (5초 전이고, 전역 설정이 켜져 있을 때만 실행)
+      if (data.buffTimerCenterAlert && data.warnSec === 5) {
+        const container = document.getElementById('buff-alert-container');
+        if (container) {
+          const card = document.createElement('div');
+          card.className = 'buff-alert-card';
+
+          const iconHtml = data.image
+            ? `<div class="buff-alert-card-icon"><img src="${data.image}"></div>`
+            : `<div class="buff-alert-card-icon default-icon"><i data-lucide="zap" style="width:14px;height:14px;color:#a78bfa"></i></div>`;
+
+          card.innerHTML = `
+            ${iconHtml}
+            <div class="buff-alert-card-content">
+              <span class="buff-alert-card-name">${data.buffName}</span>
+              <span class="buff-alert-card-text">만료 5초 전!</span>
+            </div>
+          `;
+
+          container.appendChild(card);
+          if (typeof lucide !== 'undefined') lucide.createIcons();
+
+          // 2.3초 후 자동 소멸 (2000ms 대기 + 300ms 페이드아웃)
+          setTimeout(() => {
+            card.classList.add('fade-out');
+            setTimeout(() => {
+              card.remove();
+            }, 300);
+          }, 2000);
+        }
+      }
+    });
+
+    // ── 어벤던로드 실시간 업데이트 ──
+    function updateAbandonedUI(state) {
+      const widget = document.getElementById('abandoned-widget');
+      if (!widget) return;
+
+      if (!state || !state.isActive) {
+        widget.classList.add('hidden');
+        return;
+      }
+
+      widget.classList.remove('hidden');
+      setTimeout(() => {
+        if (widget) widget.classList.add('active');
+      }, 50);
+
+      // 지역별 횟수 렌더링
+      const regionContainer = document.getElementById('abandoned-regions');
+      if (regionContainer) {
+        regionContainer.innerHTML = '';
+        Object.entries(state.regions).forEach(([region, count]) => {
+          const item = document.createElement('div');
+          item.className = 'region-item';
+          const isMax = count >= 10;
+          item.innerHTML = `
+            <span class="text-xs font-bold ${isMax ? 'text-amber-400' : 'text-slate-300'}">${region}</span>
+            <span class="text-xs font-black ${isMax ? 'text-amber-400' : 'text-white'}">${count}/10</span>
+          `;
+          regionContainer.appendChild(item);
+        });
+      }
+
+      // 마정석 순획득 수량 렌더링
+      const stonesEl = document.getElementById('abandoned-stones');
+      if (stonesEl) {
+        const grades = ['하급', '중급', '상급', '최상급'];
+        const gradeImgs = {
+          '하급': 'assets/items/magic_stone/하급마정석.png',
+          '중급': 'assets/items/magic_stone/중급마정석.png',
+          '상급': 'assets/items/magic_stone/상급마정석.png',
+          '최상급': 'assets/items/magic_stone/최상급마정석.png',
+        };
+        const gains = state.stoneGains || {};
+        const losses = state.stoneLosses || {};
+        const items = grades
+          .map(g => ({ grade: g, net: (gains[g] || 0) - (losses[g] || 0) }))
+          .filter(x => x.net !== 0);
+
+        if (items.length > 0) {
+          stonesEl.classList.remove('hidden');
+          stonesEl.innerHTML = items.map(({ grade, net }) => {
+            const color = net > 0 ? 'text-emerald-400' : 'text-rose-400';
+            const sign = net > 0 ? '+' : '';
+            return `<span class="flex items-center gap-0.5">
+              <img src="${gradeImgs[grade]}" class="w-3 h-3 object-contain" alt="${grade}">
+              <span class="text-[9px] font-bold ${color}">${sign}${net}</span>
+            </span>`;
+          }).join('');
+        } else {
+          stonesEl.classList.add('hidden');
+          stonesEl.innerHTML = '';
+        }
+      }
+
+      // 실시간 수익 업데이트
+      const profitEl = document.getElementById('abandoned-profit');
+      if (profitEl) {
+        const isPositive = state.profit >= 0;
+        profitEl.innerText = (isPositive ? '+' : '') + formatXP(state.profit);
+        profitEl.className = `profit-text text-[11px] font-black ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`;
+      }
+    }
+
+    window.electronAPI.onAbandonedUpdate((state) => {
+      updateAbandonedUI(state);
+    });
+
+    // 어벤던로드 즉시 숨김 (isActive 유지)
+    if (window.electronAPI.onAbandonedHideNow) {
+      window.electronAPI.onAbandonedHideNow(() => {
+        document.getElementById('abandoned-widget')?.classList.add('hidden');
+      });
+    }
+
+    // 어벤던로드 10회 알림
+    window.electronAPI.onAbandonedAlert((data) => {
+      if (currentConfig && currentConfig.abandonedAlertEnabled === false) return;
+      gameOverlayAlerts.showAbandonedAlert(data.region);
+    });
+
+    // 경험의 정수 버프 경고 알람
+    window.electronAPI.onEssenceAlert(() => {
+      if (currentConfig && currentConfig.essenceAlertEnabled === false) return;
+      gameOverlayAlerts.showEssenceAlert();
+    });
+
+    // 팔색조 언덕 5회 알림
+    window.electronAPI.onPittaHillAlert(() => {
+      console.log('[GAME_OVERLAY] onPittaHillAlert IPC 수신됨! currentConfig.pittaHillAlertEnabled =', currentConfig?.pittaHillAlertEnabled);
+      if (currentConfig && currentConfig.pittaHillAlertEnabled === false) return;
+      gameOverlayAlerts.showPittaAlert();
+      console.log('[GAME_OVERLAY] showPittaAlert() 애니메이션 재생 호출됨');
+    });
+
+    // 도전과제 실시간 타이머 및 수치 제어
+    let questTimerInterval = null;
+    let questTarget = 1500;
+    const QUEST_NAMES = {
+      forge: '대장간',
+      golgotha: '골고다',
+      void: '공허'
+    };
+    const QUEST_ICONS = {
+      forge: 'hammer',
+      golgotha: 'shield',
+      void: 'orbit'
+    };
+
+    window.electronAPI.onQuestStarted((data) => {
+      const hudEl = document.getElementById('quest-hud');
+      const hudTitleEl = document.getElementById('quest-hud-title');
+      const killsEl = document.getElementById('quest-kills');
+      const timerEl = document.getElementById('quest-timer');
+      if (!hudEl || !killsEl || !timerEl) return;
+
+      questTarget = data.targetKills || 1500;
+      const questName = QUEST_NAMES[data.questType] || '도전과제';
+
+      // 초기 UI 설정
+      if (hudTitleEl) {
+        hudTitleEl.textContent = `${questName} 도전과제 진행 중`;
+      }
+      killsEl.textContent = `0 / ${questTarget.toLocaleString()} 마리`;
+      hudEl.classList.remove('hidden');
+
+      if (questTimerInterval) clearInterval(questTimerInterval);
+
+      const durationMs = data.duration || 1200000;
+      const endTime = data.startTime + durationMs;
+
+      const updateTimer = () => {
+        const remainMs = endTime - Date.now();
+        if (remainMs <= 0) {
+          timerEl.textContent = '00:00';
+          clearInterval(questTimerInterval);
+          hudEl.classList.add('hidden');
+          return;
+        }
+        const totalSec = Math.ceil(remainMs / 1000);
+        const min = String(Math.floor(totalSec / 60)).padStart(2, '0');
+        const sec = String(totalSec % 60).padStart(2, '0');
+        timerEl.textContent = `${min}:${sec}`;
+      };
+
+      updateTimer();
+      questTimerInterval = setInterval(updateTimer, 1000);
+    });
+
+    window.electronAPI.onQuestUpdate((data) => {
+      const killsEl = document.getElementById('quest-kills');
+      if (killsEl) {
+        killsEl.textContent = `${data.currentKills.toLocaleString()} / ${questTarget.toLocaleString()} 마리`;
+      }
+    });
+
+    window.electronAPI.onQuestComplete((data) => {
+      const hudEl = document.getElementById('quest-hud');
+      if (hudEl) hudEl.classList.add('hidden');
+      if (questTimerInterval) clearInterval(questTimerInterval);
+
+      if (currentConfig && currentConfig.questCompleteAlertEnabled === false) return;
+
+      const type = data.questType || 'forge';
+      const questName = QUEST_NAMES[type] || '도전과제';
+      const target = type === 'forge' ? 1500 : type === 'golgotha' ? 1000 : 800;
+      const iconName = QUEST_ICONS[type] || 'hammer';
+      gameOverlayAlerts.showQuestComplete({ questName, target, iconName });
+    });
+
+    window.electronAPI.onQuestCancelled(() => {
+      const hudEl = document.getElementById('quest-hud');
+      if (hudEl) hudEl.classList.add('hidden');
+      if (questTimerInterval) clearInterval(questTimerInterval);
+    });
+
+    window.electronAPI.onSpecialMonsterAlert(() => {
+      if (currentConfig && currentConfig.specialMonsterAlertEnabled === false) return;
+      gameOverlayAlerts.showSpecialMonsterAlert();
+    });
+
+    // 에토스 기믹 알림
+    let ethosTimeout = null;
+    const ETHOS_DIRECTION_BY_PASSWORD = {
+      '번개': 'N',
+      '갈퀴 모양 번개': 'NE',
+      '갈퀴': 'E',
+      '갈퀴 모양 갈고리': 'SE',
+      '갈고리': 'S',
+      '파도 모양 갈고리': 'SW',
+      '파도': 'W',
+      '파도 모양 번개': 'NW'
+    };
+    const ETHOS_PASSWORD_BY_DIRECTION = {
+      'N': '번개', 'NE': '갈퀴 모양 번개', 'E': '갈퀴', 'SE': '갈퀴 모양 갈고리',
+      'S': '갈고리', 'SW': '파도 모양 갈고리', 'W': '파도', 'NW': '파도 모양 번개'
+    };
+
+    function showEthosAlert(password) {
+      const arrowContainer = document.getElementById('ethos-arrow-container');
+      const arrowIndicator = document.getElementById('ethos-arrow-indicator');
+      const alertText = document.getElementById('ethos-alert-text');
+      if (!arrowContainer || !arrowIndicator || !alertText) return null;
+
+      const dir = ETHOS_DIRECTION_BY_PASSWORD[password];
+      if (!dir) return null;
+      if (ethosTimeout) clearTimeout(ethosTimeout);
+
+      arrowIndicator.className = 'ethos-arrow-wrapper ethos-dir-' + dir;
+      alertText.classList.remove('show');
+      void arrowIndicator.offsetWidth;
+      arrowIndicator.classList.add('show');
+
+      ethosTimeout = setTimeout(() => {
+        arrowIndicator.classList.remove('show');
+        alertText.classList.remove('show');
+      }, 5000);
+      return dir;
+    }
+
+    window.electronAPI.onEthosAlert((data) => {
+      showEthosAlert(data.password);
+    });
+
+    // ── 심연의 제2사도 기믹 알림 ──
+    let abyssAlertTimeout = null;
+    let abyssResetTimeout = null;
+    function showAbyssApostleAlert(onStart, onEnd) {
+      const overlay = document.getElementById('abyss-apostle-alert');
+      const title = document.getElementById('abyss-apostle-title');
+      const subtitle = document.getElementById('abyss-apostle-subtitle');
+      if (!overlay || !title || !subtitle) return false;
+
+      if (abyssAlertTimeout) clearTimeout(abyssAlertTimeout);
+      if (abyssResetTimeout) clearTimeout(abyssResetTimeout);
+
+      overlay.className = 'abyss-apostle-alert-overlay warn';
+      title.className = 'abyss-apostle-title warn';
+      title.innerText = '공격 반사 패턴! 경고!';
+      subtitle.innerText = '보스 공격 중단 (6.5초)';
+      if (onStart) onStart();
+
+      abyssAlertTimeout = setTimeout(() => {
+        overlay.className = 'abyss-apostle-alert-overlay safe';
+        title.className = 'abyss-apostle-title safe';
+        title.innerText = '공격 반사 패턴 종료!';
+        subtitle.innerText = '공격 가능';
+        if (onEnd) onEnd();
+
+        abyssResetTimeout = setTimeout(() => {
+          overlay.className = 'abyss-apostle-alert-overlay hide';
+        }, 2000);
+      }, 6500);
+      return true;
+    }
+
+    if (window.electronAPI.onAbyssApostleAlert) {
+      window.electronAPI.onAbyssApostleAlert(() => {
+        showAbyssApostleAlert();
+      });
+    }
+
+    // ── 몬스터 웨이브 종료 대기 알림 ──
+    let waveWarningTimeout = null;
+    if (window.electronAPI.onWaveWarningAlert) {
+      window.electronAPI.onWaveWarningAlert(() => {
+        if (currentConfig && currentConfig.waveMonsterWarningEnabled === false) return;
+        const overlay = document.getElementById('wave-warning-alert');
+        if (!overlay) return;
+
+        if (waveWarningTimeout) clearTimeout(waveWarningTimeout);
+
+        overlay.className = 'wave-warning-alert-overlay warn';
+
+        // 4초 유지 후 페이드 아웃
+        waveWarningTimeout = setTimeout(() => {
+          overlay.className = 'wave-warning-alert-overlay hide';
+        }, 4000);
+      });
+    }
+
+    // ── 로카고스 기믹 알림 연동 ──
+    let lokagosAlertTimeout = null;
+
+    // 컬러 매핑
+    const LOKAGOS_COLORS = {
+      '알파': { color: 'rgba(255, 0, 255, 1)', shadow: 'rgba(255, 0, 255, 0.4)', bg: '#FF00FF', text: '자주색 (A)' },
+      '브라보': { color: 'rgba(0, 136, 255, 1)', shadow: 'rgba(0, 136, 255, 0.4)', bg: '#0088FF', text: '파랑색 (B)' },
+      '찰리': { color: 'rgba(0, 255, 136, 1)', shadow: 'rgba(0, 255, 136, 0.4)', bg: '#00FF88', text: '초록색 (C)' },
+      '델타': { color: 'rgba(255, 255, 0, 1)', shadow: 'rgba(255, 255, 0, 0.4)', bg: '#FFFF00', text: '노랑색 (D)' }
+    };
+    const WARN_RED_COLOR = 'rgba(255, 50, 50, 1)';
+    const WARN_RED_SHADOW = 'rgba(255, 50, 50, 0.4)';
+
+    function triggerLokagosAlert(type, zone) {
+      const overlay = document.getElementById('lokagos-alert');
+      const flash = document.getElementById('lokagos-border-flash');
+      const iconEl = document.getElementById('lokagos-card-icon');
+      const titleEl = document.getElementById('lokagos-title');
+      const subtitleEl = document.getElementById('lokagos-subtitle');
+      if (!overlay || !flash || !iconEl || !titleEl || !subtitleEl) return;
+
+      if (lokagosAlertTimeout) clearTimeout(lokagosAlertTimeout);
+
+      const zoneInfo = LOKAGOS_COLORS[zone];
+      if (!zoneInfo) return;
+
+      // RGB 값 매핑 (배경 불투명도 조절용)
+      const rgbMap = {
+        '알파': '255, 0, 255',
+        '브라보': '0, 136, 255',
+        '찰리': '0, 255, 136',
+        '델타': '255, 255, 0'
+      };
+
+      // 알파벳 문자
+      const letter = zone === '알파' ? 'A' : zone === '브라보' ? 'B' : zone === '찰리' ? 'C' : 'D';
+
+      if (type === 'EXCLUDE') {
+        // ~ 제외 구역 대피 -> 지정 구역이 안전
+        document.documentElement.style.setProperty('--lokagos-neon-color', zoneInfo.color);
+        document.documentElement.style.setProperty('--lokagos-neon-shadow', zoneInfo.shadow);
+        document.documentElement.style.setProperty('--lokagos-neon-rgb', rgbMap[zone]);
+
+        iconEl.className = 'lokagos-badge-container';
+        iconEl.innerHTML = `<div class="lokagos-badge-main">${letter}</div>`;
+
+        titleEl.innerHTML = `<span style="color:${zoneInfo.bg}; text-shadow: 0 0 15px ${zoneInfo.color};">${zoneInfo.text}</span>으로 이동!`;
+        subtitleEl.innerHTML = `안전 구역: <span style="color:${zoneInfo.bg}; font-weight:900;">${zone} (${zoneInfo.text})</span>`;
+      } else {
+        // ~ 구역 폭격 -> 지정 구역을 피해서 대피
+        document.documentElement.style.setProperty('--lokagos-neon-color', WARN_RED_COLOR);
+        document.documentElement.style.setProperty('--lokagos-neon-shadow', WARN_RED_SHADOW);
+        document.documentElement.style.setProperty('--lokagos-neon-rgb', '255, 50, 50');
+
+        iconEl.className = 'lokagos-badge-container';
+        iconEl.innerHTML = `
+          <div class="lokagos-badge-container" style="--lokagos-neon-color: ${zoneInfo.color}; --lokagos-neon-shadow: ${zoneInfo.shadow}; --lokagos-neon-rgb: ${rgbMap[zone]}">
+            <div class="lokagos-badge-main">${letter}</div>
+            <div class="lokagos-badge-ban"></div>
+          </div>
+        `;
+
+        titleEl.innerHTML = `<span style="color:#ef4444; text-decoration:line-through; text-shadow: 0 0 15px rgba(239, 68, 68, 0.8);">${zoneInfo.text} 피하세요!</span>`;
+
+        // 안전한 구역들 미니 뱃지로 나열
+        const safeZones = Object.keys(LOKAGOS_COLORS).filter(z => z !== zone);
+        const miniBadgesHtml = safeZones.map(z => {
+          const info = LOKAGOS_COLORS[z];
+          const l = z === '알파' ? 'A' : z === '브라보' ? 'B' : z === '찰리' ? 'C' : 'D';
+          return `
+            <div class="lokagos-badge-mini" style="--mini-border-color:${info.bg}; --mini-bg-color:rgba(${rgbMap[z]},0.2); --mini-shadow-color:${info.shadow}">
+              ${l}
+            </div>
+          `;
+        }).join('');
+
+        subtitleEl.innerHTML = `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+            <span style="font-weight:700;">안전 구역 (아래 3곳 중 하나로 이동):</span>
+            <div class="lokagos-badge-mini-list">${miniBadgesHtml}</div>
+          </div>
+        `;
+      }
+
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+
+      // 표출
+      flash.className = 'lokagos-border-flash show';
+      overlay.className = 'lokagos-alert-overlay show';
+
+      // 5초 유지 후 종료
+      lokagosAlertTimeout = setTimeout(() => {
+        flash.className = 'lokagos-border-flash';
+        overlay.className = 'lokagos-alert-overlay hide';
+      }, 5000);
+    }
+
+    if (window.electronAPI.onLokagosAlert) {
+      window.electronAPI.onLokagosAlert((data) => {
+        triggerLokagosAlert(data.type, data.zone);
+      });
+    }
+
+    // --- 젤리삐 비 이스터애그 ---
+    function triggerJellyppyRain() {
+      const container = document.body;
+      const count = 80; // 전체 화면이므로 풍성하게 80개 생성
+
+      // 실행 중 일시적으로 배경을 더 어둡게 페이드
+      document.body.style.backgroundColor = 'rgba(0, 0, 0, 0.55)';
+      if (window._jellyppyRainBgTimeout) clearTimeout(window._jellyppyRainBgTimeout);
+      window._jellyppyRainBgTimeout = setTimeout(() => {
+        document.body.style.backgroundColor = 'transparent';
+      }, 6200);
+
+      if (!document.getElementById('jellyppy-rain-style')) {
+        const style = document.createElement('style');
+        style.id = 'jellyppy-rain-style';
+        style.innerHTML = `
+          @keyframes jellyppyFall {
+            0% {
+              transform: translateY(-50px) rotate(0deg);
+              opacity: 0;
+            }
+            10% {
+              opacity: 1;
+            }
+            90% {
+              opacity: 1;
+            }
+            100% {
+              transform: translateY(105vh) rotate(360deg);
+              opacity: 0;
+            }
+          }
+          .jellyppy-rain-item {
+            position: fixed;
+            top: -50px;
+            z-index: 99999;
+            pointer-events: none;
+            animation: jellyppyFall linear forwards;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      for (let i = 0; i < count; i++) {
+        const jelly = document.createElement('img');
+        jelly.src = 'assets/img/젤리삐.png';
+        jelly.className = 'jellyppy-rain-item';
+
+        const size = Math.random() * 28 + 20; // 20px ~ 48px
+        const left = Math.random() * 100;
+        const duration = Math.random() * 3 + 2; // 2초 ~ 5초 낙하
+        const delay = Math.random() * 3; // 0초 ~ 3초 딜레이
+
+        jelly.style.width = `${size}px`;
+        jelly.style.height = `${size}px`;
+        jelly.style.left = `${left}%`;
+        jelly.style.animationDuration = `${duration}s`;
+        jelly.style.animationDelay = `${delay}s`;
+
+        jelly.addEventListener('animationend', () => {
+          jelly.remove();
+        });
+
+        container.appendChild(jelly);
+      }
+    }
+
+    if (window.electronAPI && window.electronAPI.onTriggerJellyppyRain) {
+      window.electronAPI.onTriggerJellyppyRain(() => {
+        triggerJellyppyRain();
+      });
+    }
+
+    // --- 폭죽 이스터애그 (CSS/DOM 기반 초대형 축제 피날레 버전) ---
+    function triggerFirework() {
+      const container = document.body;
+      const fireworkCount = 20; // 축제 피날레급 20발 공습 (렉 최적화)
+
+      // 실행 중 일시적으로 배경을 더 어둡게 페이드 (5초 지속)
+      document.body.style.backgroundColor = 'rgba(0, 0, 0, 0.55)';
+      if (window._fireworkBgTimeout) clearTimeout(window._fireworkBgTimeout);
+      window._fireworkBgTimeout = setTimeout(() => {
+        document.body.style.backgroundColor = 'transparent';
+      }, 5000);
+
+      // 가운데 thx.png 이미지 추가
+      const centerImg = document.createElement('img');
+      centerImg.src = 'assets/img/thx.png';
+      centerImg.className = 'firework-center-image';
+      container.appendChild(centerImg);
+      setTimeout(() => {
+        centerImg.remove();
+      }, 5200);
+
+      // 스타일 정의 (처음 1회만 추가)
+      if (!document.getElementById('firework-style')) {
+        const style = document.createElement('style');
+        style.id = 'firework-style';
+        style.innerHTML = `
+          @keyframes particleBlow {
+            0% {
+              transform: translate(0, 0) scale(1.6);
+              opacity: 1;
+              filter: brightness(1.6);
+            }
+            30% {
+              filter: brightness(1.3);
+            }
+            80% {
+              opacity: 0.9;
+            }
+            100% {
+              transform: translate(var(--mx), var(--my)) scale(0.1);
+              opacity: 0;
+            }
+          }
+          @keyframes sparkleTrail {
+            0% {
+              transform: translate(0, 0) scale(1.2);
+              opacity: 1;
+            }
+            30% {
+              opacity: 1;
+            }
+            70% {
+              opacity: 0.4;
+            }
+            100% {
+              transform: translate(var(--mx), var(--my)) scale(0.05);
+              opacity: 0;
+            }
+          }
+          @keyframes rocketLaunch {
+            0% {
+              transform: translateY(105vh) scale(2.2);
+              opacity: 1;
+              filter: brightness(2);
+            }
+            85% {
+              opacity: 1;
+            }
+            100% {
+              transform: translate(var(--tx), var(--ty)) scale(0.35);
+              opacity: 0;
+            }
+          }
+          @keyframes centerImageFade {
+            0% {
+              opacity: 0;
+              transform: translate(-50%, -50%) scale(0.6);
+            }
+            15% {
+              opacity: 1;
+              transform: translate(-50%, -50%) scale(1.0);
+            }
+            80% {
+              opacity: 1;
+              transform: translate(-50%, -50%) scale(1.0);
+            }
+            100% {
+              opacity: 0;
+              transform: translate(-50%, -50%) scale(0.85);
+            }
+          }
+          .firework-rocket {
+            position: fixed;
+            left: var(--sx);
+            bottom: -30px;
+            width: 8px;
+            height: 28px;
+            background: linear-gradient(to top, rgba(255,255,255,0), #ffffff 85%);
+            border-radius: 50% 50% 0 0;
+            box-shadow: 0 0 25px #ffeedd, 0 0 10px #ffffff, 0 0 4px #ffaa66;
+            z-index: 99999;
+            pointer-events: none;
+            will-change: transform, opacity;
+            animation: rocketLaunch 0.62s cubic-bezier(0.1, 0.85, 0.25, 1) forwards;
+          }
+          .firework-particle {
+            position: fixed;
+            left: var(--x);
+            top: var(--y);
+            border-radius: 50%;
+            z-index: 99998;
+            pointer-events: none;
+            will-change: transform, opacity;
+            animation: particleBlow 1.6s cubic-bezier(0.05, 0.95, 0.15, 1) forwards;
+          }
+          .firework-sparkle {
+            position: fixed;
+            left: var(--x);
+            top: var(--y);
+            border-radius: 50%;
+            z-index: 99997;
+            pointer-events: none;
+            will-change: transform, opacity;
+            animation: sparkleTrail 2.2s cubic-bezier(0.1, 0.8, 0.1, 1) forwards;
+          }
+          .firework-center-image {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100000;
+            max-width: 50%;
+            max-height: 50%;
+            pointer-events: none;
+            will-change: transform, opacity;
+            animation: centerImageFade 5.2s ease-in-out forwards;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      function launchFirework() {
+        const sx = Math.random() * 84 + 8; // 8vw ~ 92vw 넓은 분포
+        const tx = (Math.random() * 40 - 20); // -20vw ~ 20vw
+        const ty = -(Math.random() * 55 + 35); // 높이 -35vh ~ -90vh
+
+        const rocket = document.createElement('div');
+        rocket.className = 'firework-rocket';
+        rocket.style.setProperty('--sx', `${sx}vw`);
+        rocket.style.setProperty('--tx', `${tx}vw`);
+        rocket.style.setProperty('--ty', `${ty}vh`);
+
+        rocket.addEventListener('animationend', () => {
+          const rect = rocket.getBoundingClientRect();
+          const x = rect.left;
+          const y = rect.top;
+
+          const particleNum = 35; // 폭죽 한 발당 입자 수 35개로 최적화 (렉 대폭 완화)
+          const colors = [
+            '#ff0055', '#ff00ff', '#00ffcc', '#00ffff',
+            '#ffff00', '#ffaa00', '#ff3300', '#9d4edd',
+            '#3a86c8', '#f72585', '#7209b7', '#4cc9f0',
+            '#ffd700', '#ffffff', '#a855f7', '#10b981'
+          ];
+          const baseColor = colors[Math.floor(Math.random() * colors.length)];
+
+          for (let i = 0; i < particleNum; i++) {
+            const p = document.createElement('div');
+
+            // 입자 타입 분할 (일반 불꽃 65%, 중력 낙하 반짝이 꼬리 35%)
+            const isSparkle = Math.random() < 0.35;
+            p.className = isSparkle ? 'firework-sparkle' : 'firework-particle';
+
+            // 색상 조화
+            p.style.backgroundColor = Math.random() > 0.4 ? baseColor : colors[Math.floor(Math.random() * colors.length)];
+
+            // 크기 다양성
+            const size = isSparkle ? (Math.random() * 3.5 + 2) : (Math.random() * 6.5 + 3.5);
+            p.style.width = `${size}px`;
+            p.style.height = `${size}px`;
+
+            // box-shadow 그림자 연산 최적화 (단일 그림자로 과도한 GPU 픽셀 렌더링 방지)
+            p.style.boxShadow = `0 0 ${size * 1.5}px ${p.style.backgroundColor}`;
+
+            p.style.setProperty('--x', `${x}px`);
+            p.style.setProperty('--y', `${y}px`);
+
+            const angle = Math.random() * Math.PI * 2;
+            // 비산 범위
+            const distance = isSparkle ? (Math.random() * 200 + 40) : (Math.random() * 280 + 70);
+            const mx = Math.cos(angle) * distance;
+            // 반짝이는 낙하 꼬리(sparkle)는 아래로 훨씬 더 처지도록 물리 연산 추가
+            const my = Math.sin(angle) * distance + (isSparkle ? (Math.random() * 180 + 100) : (Math.random() * 90 + 30));
+
+            p.style.setProperty('--mx', `${mx}px`);
+            p.style.setProperty('--my', `${my}px`);
+
+            // 지연 분사로 자연스러운 반짝임 구름 연출
+            p.style.animationDelay = `${Math.random() * 0.18}s`;
+
+            p.addEventListener('animationend', () => {
+              p.remove();
+            });
+
+            container.appendChild(p);
+          }
+
+          rocket.remove();
+        });
+
+        container.appendChild(rocket);
+      }
+
+      // 동시 다발 발사 루프 (렉을 최소화하도록 150ms~300ms 딜레이 완화)
+      let launched = 0;
+      function step() {
+        if (launched >= fireworkCount) return;
+
+        // 25%의 확률로 2발 동시 발사, 10%의 확률로 3발 동시 발사
+        const rand = Math.random();
+        const batch = rand < 0.10 ? 3 : (rand < 0.35 ? 2 : 1);
+
+        for (let i = 0; i < batch; i++) {
+          if (launched < fireworkCount) {
+            launchFirework();
+            launched++;
+          }
+        }
+
+        setTimeout(step, Math.random() * 150 + 150); // 150ms ~ 300ms 사이 안정적인 딜레이
+      }
+
+      step();
+    }
+
+    if (window.electronAPI && window.electronAPI.onTriggerFirework) {
+      window.electronAPI.onTriggerFirework(() => {
+        console.log('[EasterEgg] trigger-firework event received in game-overlay. HTML load OK. Starting firework...');
+        triggerFirework();
+      });
+    }
+
+    // ── Dock 모드 전용 알림 토스트 (읽기 전용) ──
+
+    function createDockToast(bossName, isCustomFromApi, spawnTime, offset) {
+      const isDock = currentConfig && (currentConfig.sidebarPosition === 'dock' || currentConfig.sidebarPosition === 'dock-top');
+      const showOnOverlay = currentConfig && !!currentConfig.showSidebarToastOnOverlay;
+      if (!isDock && !showOnOverlay) return;
+
+      const toastContainer = document.getElementById('dock-toast-container');
+      if (!toastContainer) return;
+
+      const {
+        isRealBoss,
+        displayName,
+        iconName,
+        iconColor,
+      } = window.getBossToastPresentation(bossName, isCustomFromApi, spawnTime, offset);
+      const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+
+      const toast = document.createElement('div');
+      toast.id = toastId;
+      toast.className = 'boss-toast show';
+
+      toast.innerHTML = `
+        <div class="flex items-start justify-between w-full gap-3">
+          <div class="flex items-start gap-2.5 pt-0.5">
+            <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor} mt-0.5 shrink-0"></i>
+            <span class="boss-toast-name flex-1 leading-snug break-keep">${displayName}</span>
+          </div>
+        </div>
+      `;
+
+      toastContainer.appendChild(toast);
+      refreshIcons();
+
+      // 자동 삭제 타이머
+      let duration = 5000;
+      if (isRealBoss) {
+        duration = (offset === 0) ? 60000 : 30000;
+      }
+      setTimeout(() => { removeDockToast(toastId); }, duration);
+    }
+
+    function removeDockToast(id) {
+      const toast = document.getElementById(id);
+      if (toast) {
+        toast.classList.remove('show');
+        setTimeout(() => {
+          if (toast.parentElement) toast.remove();
+        }, 300);
+      }
+    }
+
+    function createDockScamToast(result) {
+      const isDock = currentConfig && (currentConfig.sidebarPosition === 'dock' || currentConfig.sidebarPosition === 'dock-top');
+      const showOnOverlay = currentConfig && !!currentConfig.showSidebarToastOnOverlay;
+      if (!isDock && !showOnOverlay) return;
+
+      const toastContainer = document.getElementById('dock-toast-container');
+      if (!toastContainer) return;
+
+      const {
+        isScam,
+        title,
+        colorClass,
+        reason,
+      } = window.getScamToastPresentation(result);
+      const toastId = 'scam-toast-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+      const toast = document.createElement('div');
+      toast.id = toastId;
+      toast.className = 'boss-toast show';
+      toast.style.borderLeft = isScam ? '3px solid #ef4444' : '3px solid #f59e0b';
+
+      toast.innerHTML = `
+        <div class="flex items-start justify-between w-full gap-3">
+          <div class="flex items-start gap-2.5 pt-0.5">
+            <i data-lucide="shield-alert" class="w-4 h-4 ${colorClass} mt-0.5 shrink-0"></i>
+            <div class="flex-1">
+              <div class="boss-toast-name leading-snug font-bold ${colorClass}">${title}</div>
+              ${reason ? `<div class="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">${reason}</div>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="mt-2 text-xs text-slate-500 italic border-t border-slate-700/50 pt-2">
+          ※ AI 판정은 참고용. 100% 안전 보장 불가. 에타 레벨·교환창 아이템을 직접 확인하세요.
+        </div>
+      `;
+
+      toastContainer.appendChild(toast);
+      refreshIcons();
+
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => removeDockToast(toastId), 300);
+      }, 30000);
+    }
+
+    if (window.electronAPI) {
+      window.electronAPI.onPlaySound(({ label, isCustom, spawnTime, offset, isAlreadyRecorded, showToast }) => {
+        if (showToast) {
+          createDockToast(label, isCustom, spawnTime, offset, isAlreadyRecorded);
+        }
+      });
+
+      window.electronAPI.onScamAlert((result) => {
+        createDockScamToast(result);
+      });
+
+      window.electronAPI.onTimerToggle((state) => {
+        if (state === 'start') {
+          startTimer();
+        } else if (state === 'stop') {
+          stopTimer();
+        } else if (state === 'toggle') {
+          if (timerIsRunning) {
+            window.electronAPI.timerToggleSession('stop');
+            stopTimer();
+          } else {
+            window.electronAPI.timerToggleSession('start');
+            startTimer();
+          }
+        }
+      });
+    }
+
+    window.onload = () => {
+      refreshIcons();
+      if (window.electronAPI?.DEFAULT_CONFIG) {
+        updateHudShortcutsDisplay(window.electronAPI.DEFAULT_CONFIG);
+      }
+      if (window.electronAPI && window.electronAPI.abandonedGetState) {
+        window.electronAPI.abandonedGetState().then(state => {
+          updateAbandonedUI(state);
+        }).catch(err => console.error('Failed to get abandoned state:', err));
+      }
+
+      function refreshXpStats() {
+        if (window.electronAPI && window.electronAPI.getXpStats) {
+          window.electronAPI.getXpStats().then(stats => {
+            if (stats) {
+              if (stats.startTime !== undefined) {
+                sessionStartTime = stats.startTime;
+              }
+              if (stats.accumulatedTime !== undefined) {
+                sessionAccumulatedTime = stats.accumulatedTime;
+              }
+              if (stats.isActive !== undefined) {
+                sessionIsActive = stats.isActive;
+              }
+              document.getElementById('xp-total').innerText = formatXP(stats.total || 0);
+              document.getElementById('xp-epm').innerText = formatXP(stats.epm || 0);
+              document.getElementById('xp-kills').innerText = (stats.kills || 0).toLocaleString();
+              updateXpElapsedDisplay();
+            }
+          }).catch(err => console.error('Failed to get initial XP stats:', err));
+        }
+      }
+
+      // 경험치 초기 데이터 가져오기 (경과 시간 시작 시점 동기화)
+      refreshXpStats();
+    };
+  </script>
+  <script src="renderer/game-overlay/devtools.js"></script>
+</body>
+
+</html>

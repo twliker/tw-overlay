@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body { font-family: 'Pretendard', sans-serif; letter-spacing: -0.02em; margin: 0; padding: 0; background: #0f121e; overflow: hidden; }
+    .credit-footer { height: 28px; background: #1a1c2e; border-top: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #94a3b8; font-weight: 500; }
+  </style>
+</head>
+
+<body class="panel-glass p-0 h-screen flex flex-col relative text-white select-none">
+  <div class="win-header">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-amber-500/10 border-amber-500/20">
+        <i data-lucide="sword" class="w-5 h-5 text-amber-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">검 강화하기</span>
+        <span class="win-title-sub">twliker game</span>
+      </div>
+    </div>
+    <div class="win-controls">
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="flex-1 bg-[#0f121e]"></div>
+
+  <div class="credit-footer no-drag">twliker님의 검 강화하기 게임을 연동하였습니다.</div>
+
+  <script>
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    if (window.bindEscapeClose) window.bindEscapeClose();
+  </script>
+</body>
+
+</html>

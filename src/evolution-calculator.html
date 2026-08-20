@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
+  <title>진화 재료 비용 계산기</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body {
+      font-family: 'Pretendard', sans-serif;
+      letter-spacing: -0.02em;
+    }
+
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    .drag {
+      -webkit-app-region: drag;
+    }
+
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    .tab-btn {
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #64748b;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      color: #84cc16;
+      border-bottom-color: #84cc16;
+      background-color: rgba(249, 115, 22, 0.05);
+    }
+
+    .tab-btn:hover:not(.active) {
+      color: #94a3b8;
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+    .part-btn {
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 8px;
+      border: 1px solid rgba(51, 65, 85, 1);
+      color: #64748b;
+      background: rgba(15, 23, 42, 1);
+      /* cursor: pointer removed, handled by style.css */
+      transition: all 0.15s;
+    }
+
+    .part-btn.active {
+      color: #84cc16;
+      border-color: rgba(249, 115, 22, 0.5);
+      background: rgba(249, 115, 22, 0.08);
+    }
+
+    .part-btn:hover:not(.active) {
+      color: #94a3b8;
+      border-color: rgba(100, 116, 139, 0.5);
+    }
+
+    .step-select {
+      background: rgba(15, 23, 42, 1);
+      border: 1px solid rgba(51, 65, 85, 1);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: #f1f5f9;
+      font-size: 12px;
+      font-weight: 600;
+      outline: none;
+      flex: 1;
+    }
+
+    .step-select:focus {
+      border-color: rgba(249, 115, 22, 0.5);
+    }
+
+    .price-input {
+      background: rgba(30, 41, 59, 1);
+      border: 1px solid rgba(51, 65, 85, 1);
+      border-radius: 6px;
+      padding: 4px 8px;
+      color: #84cc16;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: right;
+      width: 90px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .price-input:focus {
+      border-color: rgba(249, 115, 22, 0.5);
+    }
+
+    .price-input::placeholder {
+      color: rgba(249, 115, 22, 0.3);
+      font-size: 10px;
+    }
+
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+    }
+
+    .material-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(51, 65, 85, 0.6);
+      transition: border-color 0.15s;
+    }
+
+    .material-row:hover {
+      border-color: rgba(100, 116, 139, 0.5);
+    }
+
+    .step-badge {
+      font-size: 9px;
+      font-weight: 900;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+  </style>
+
+  <script>
+    window.bindElectronListenerCleanup();
+</script>
+</head>
+
+<body class="bg-slate-950 text-slate-100 select-none h-screen flex flex-col border border-slate-800">
+
+  <!-- Header -->
+  <div class="win-header">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-lime-500/10 border-lime-500/20">
+        <i data-lucide="trending-up" class="w-5 h-5 text-lime-500"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">진화 재료 계산기</span>
+        <span class="win-title-sub">Evolution Cost Calc</span>
+      </div>
+    </div>
+    <div class="win-controls">
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Category Tabs -->
+  <div class="flex bg-slate-900 px-4 no-drag border-b border-slate-800 shrink-0">
+    <button class="tab-btn active" data-category="weapon" onclick="selectCategory('weapon')">
+      ⚔️ 무기
+    </button>
+    <button class="tab-btn" data-category="equipment" onclick="selectCategory('equipment')">
+      🛡️ 장비
+    </button>
+  </div>
+
+  <!-- Equipment Part Selector (only for equipment) -->
+  <div id="part-selector" class="hidden px-4 pt-3 pb-2 bg-slate-900/50 border-b border-slate-800 no-drag shrink-0">
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest mr-1">부위</span>
+      <button class="part-btn active" data-part="helm" onclick="selectPart('helm')">투구</button>
+      <button class="part-btn" data-part="armor" onclick="selectPart('armor')">갑옷</button>
+      <button class="part-btn" data-part="gloves" onclick="selectPart('gloves')">손</button>
+      <button class="part-btn" data-part="boots" onclick="selectPart('boots')">다리</button>
+      <button class="part-btn" data-part="wings" onclick="selectPart('wings')">몸</button>
+      <button class="part-btn" data-part="amulet" onclick="selectPart('amulet')">머리</button>
+      <button class="part-btn" data-part="shield" onclick="selectPart('shield')">손목</button>
+    </div>
+  </div>
+
+  <!-- Step Range Selector -->
+  <div class="px-4 py-3 bg-slate-950 border-b border-slate-800 no-drag shrink-0">
+    <div class="flex items-center gap-3">
+      <span class="text-xs font-black text-slate-500 uppercase tracking-widest shrink-0">진화 범위</span>
+      <div class="flex items-center gap-2 flex-1">
+        <select id="step-from" class="step-select" onchange="updateMaterials()"></select>
+        <i data-lucide="arrow-right" class="w-4 h-4 text-lime-400 shrink-0"></i>
+        <select id="step-to" class="step-select" onchange="updateMaterials()"></select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Materials List -->
+  <div class="flex-1 overflow-y-auto custom-scroll no-drag p-4 space-y-2" id="material-list">
+    <div class="text-center text-slate-600 text-xs font-bold py-10">데이터를 불러오는 중...</div>
+  </div>
+
+  <!-- Total Cost Footer -->
+  <div class="shrink-0 border-t border-slate-800 bg-slate-900 px-5 py-4 no-drag">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <i data-lucide="coins" class="w-4 h-4 text-yellow-400"></i>
+        <span class="text-xs font-black text-slate-400 uppercase tracking-widest">총 예상 비용</span>
+      </div>
+      <div class="flex flex-col items-end gap-1">
+        <div class="flex items-baseline gap-2">
+          <span id="total-cost" class="text-2xl font-black text-lime-400">0</span>
+          <span class="text-xs font-bold text-slate-500">시드</span>
+        </div>
+        <div class="flex items-baseline gap-1" id="total-elso-container" style="display: none;">
+          <span class="text-xs font-bold text-slate-500">+</span>
+          <span id="total-elso" class="text-sm font-black text-purple-400">0</span>
+          <span class="text-xs font-bold text-slate-500">엘소</span>
+        </div>
+      </div>
+    </div>
+    <div class="mt-1.5 flex items-center justify-between">
+      <span class="text-xs text-slate-600">단가 미입력 항목은 계산에서 제외됩니다</span>
+      <button onclick="resetPrices()"
+        class="text-xs text-slate-500 hover:text-red-400 transition-colors font-bold flex items-center gap-1">
+        <i data-lucide="rotate-ccw" class="w-3 h-3"></i> 단가 초기화
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let evolutionData = null;
+    let currentCategory = 'weapon';
+    let currentPart = 'helm';
+
+    const STEP_COLORS = {
+      'EnkiriaToShinEnkiria': { bg: 'bg-slate-700/40', text: 'text-slate-300', label: '엔키라→칼라그' },
+      'ShinEnkiriaToInfernal': { bg: 'bg-purple-900/30', text: 'text-purple-300', label: '칼라그→인퍼널' },
+      'AcadToInfernal': { bg: 'bg-purple-900/30', text: 'text-purple-300', label: '아카드→인퍼널' },
+      'InfernalToAquilus': { bg: 'bg-blue-900/30', text: 'text-blue-300', label: '인퍼널→아퀼루스' },
+      'AquilusToAbyss': { bg: 'bg-red-900/30', text: 'text-red-300', label: '아퀼루스→어비스' },
+      'AbyssToEclipse': { bg: 'bg-yellow-900/30', text: 'text-yellow-300', label: '어비스→이클립스' },
+    };
+
+    const STEP_ORDER_EQUIPMENT = [
+      'EnkiriaToShinEnkiria',
+      'ShinEnkiriaToInfernal',
+      'InfernalToAquilus',
+      'AquilusToAbyss',
+      'AbyssToEclipse',
+    ];
+    const STEP_ORDER_WEAPON = [
+      'AcadToInfernal',
+      'InfernalToAquilus',
+      'AquilusToAbyss',
+      'AbyssToEclipse',
+    ];
+
+    function getPriceKey(materialName) {
+      return `evo_price_${materialName}`;
+    }
+
+    function savePrice(materialName, price) {
+      localStorage.setItem(getPriceKey(materialName), price);
+    }
+
+    function loadPrice(materialName) {
+      return localStorage.getItem(getPriceKey(materialName)) || '';
+    }
+
+    function saveElsoOption(enabled) {
+      localStorage.setItem('evo_elso_enabled', enabled ? 'true' : 'false');
+    }
+
+    function loadElsoOption() {
+      return localStorage.getItem('evo_elso_enabled') === 'true';
+    }
+
+    function resetPrices() {
+      if (!evolutionData) return;
+      const allMaterials = new Set();
+      const eq = evolutionData.evolutionSystem.equipment;
+      Object.values(eq.parts).forEach(part => {
+        Object.values(part).forEach(step => {
+          step.materials.forEach(m => allMaterials.add(m.name));
+        });
+      });
+      const wp = evolutionData.evolutionSystem.weapon;
+      Object.values(wp.recipes).forEach(step => {
+        step.materials.forEach(m => allMaterials.add(m.name));
+      });
+      allMaterials.forEach(name => localStorage.removeItem(getPriceKey(name)));
+      localStorage.setItem('evo_price_unit', 'man');
+      updateMaterials();
+    }
+
+    // 단가 단위 변경(시드→만원) 마이그레이션: 기존 시드 단위 데이터 자동 초기화
+    function migratePriceUnit() {
+      if (localStorage.getItem('evo_price_unit') !== 'man') {
+        // 기존 저장 데이터가 시드 단위일 수 있으므로 모두 제거
+        const keys = Object.keys(localStorage).filter(k => k.startsWith('evo_price_'));
+        keys.forEach(k => { if (k !== 'evo_price_unit') localStorage.removeItem(k); });
+        localStorage.setItem('evo_price_unit', 'man');
+      }
+    }
+
+    function selectCategory(cat) {
+      currentCategory = cat;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector(`[data-category="${cat}"]`).classList.add('active');
+
+      const partSel = document.getElementById('part-selector');
+      if (cat === 'equipment') {
+        partSel.classList.remove('hidden');
+      } else {
+        partSel.classList.add('hidden');
+      }
+      rebuildStepSelectors();
+      updateMaterials();
+    }
+
+    function selectPart(part) {
+      currentPart = part;
+      document.querySelectorAll('.part-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector(`[data-part="${part}"]`).classList.add('active');
+      rebuildStepSelectors();
+      updateMaterials();
+    }
+
+    function getStepOrder() {
+      return currentCategory === 'weapon' ? STEP_ORDER_WEAPON : STEP_ORDER_EQUIPMENT;
+    }
+
+    function getChain() {
+      if (!evolutionData) return [];
+      const sys = evolutionData.evolutionSystem;
+      return currentCategory === 'weapon'
+        ? sys.weapon.evolutionChain
+        : sys.equipment.evolutionChain;
+    }
+
+    function rebuildStepSelectors() {
+      const chain = getChain();
+      const stepOrder = getStepOrder();
+      const fromSel = document.getElementById('step-from');
+      const toSel = document.getElementById('step-to');
+
+      // from: 첫 번째 ~ 마지막 전전 (마지막 step 시작점)
+      const fromOptions = chain.slice(0, chain.length - 1);
+      // to: 두 번째 ~ 마지막
+      const toOptions = chain.slice(1);
+
+      const prevFrom = fromSel.value || fromOptions[0];
+      const prevTo = toSel.value || toOptions[toOptions.length - 1];
+
+      fromSel.innerHTML = fromOptions.map((v, i) =>
+        `<option value="${i}">${v}</option>`
+      ).join('');
+      toSel.innerHTML = toOptions.map((v, i) =>
+        `<option value="${i + 1}">${v}</option>`
+      ).join('');
+
+      // 이전 값 복원 시도
+      const fromIdx = fromOptions.indexOf(prevFrom);
+      fromSel.value = fromIdx >= 0 ? fromIdx : 0;
+      toSel.value = toOptions.length; // 기본: 마지막
+    }
+
+    function getSelectedSteps() {
+      const fromSel = document.getElementById('step-from');
+      const toSel = document.getElementById('step-to');
+      const fromIdx = parseInt(fromSel.value);
+      const toIdx = parseInt(toSel.value);
+
+      if (fromIdx >= toIdx) return [];
+
+      const stepOrder = getStepOrder();
+      // fromIdx ~ toIdx-1 번째 step들 선택
+      return stepOrder.slice(fromIdx, toIdx);
+    }
+
+    function getMaterialsForSteps(steps) {
+      if (!evolutionData) return {};
+      const sys = evolutionData.evolutionSystem;
+      const recipes = currentCategory === 'weapon'
+        ? sys.weapon.recipes
+        : sys.equipment.parts[currentPart];
+
+      // 재료 집계: name -> { quantity, steps[] }
+      const agg = {};
+      steps.forEach(stepKey => {
+        const stepData = recipes[stepKey];
+        if (!stepData) return;
+        stepData.materials.forEach(m => {
+          if (!agg[m.name]) {
+            agg[m.name] = { quantity: 0, steps: [] };
+          }
+          agg[m.name].quantity += m.quantity;
+          if (!agg[m.name].steps.includes(stepKey)) {
+            agg[m.name].steps.push(stepKey);
+          }
+        });
+      });
+      return agg;
+    }
+
+    function formatKoreanWon(value) {
+      if (!value || value <= 0) return '0';
+      const units = [
+        { value: 1000000000000, name: '조' },
+        { value: 100000000, name: '억' },
+        { value: 10000, name: '만' }
+      ];
+      let result = '';
+      let remain = value;
+      for (const unit of units) {
+        const quotient = Math.floor(remain / unit.value);
+        if (quotient > 0) {
+          result += quotient + unit.name + ' ';
+          remain %= unit.value;
+        }
+      }
+      if (remain > 0) {
+        result += remain;
+      }
+      return result.trim();
+    }
+
+    function updateTotalCost() {
+      let totalSeed = 0;
+      let totalElso = 0;
+      document.querySelectorAll('.price-input').forEach(input => {
+        const qty = parseInt(input.dataset.qty || '0');
+        const price = parseFloat(input.value.replace(/,/g, '')) || 0;
+
+        if (input.dataset.name === '태청금액신단' && loadElsoOption()) {
+          // 시드 단가 입력 무시, 엘소로 합산
+          totalElso += qty * 23000;
+        } else {
+          if (price > 0) totalSeed += Math.round(qty * price * 10000);
+        }
+      });
+      document.getElementById('total-cost').textContent = formatKoreanWon(totalSeed);
+
+      const elsoContainer = document.getElementById('total-elso-container');
+      if (totalElso > 0) {
+        document.getElementById('total-elso').textContent = window.formatLocaleNumber(totalElso);
+        elsoContainer.style.display = 'flex';
+      } else {
+        elsoContainer.style.display = 'none';
+      }
+    }
+
+    function updateMaterials() {
+      const steps = getSelectedSteps();
+      const list = document.getElementById('material-list');
+
+      if (steps.length === 0) {
+        list.innerHTML = `<div class="text-center text-slate-600 text-xs font-bold py-10">올바른 진화 범위를 선택해주세요<br><span class="text-xs">(From < To)</span></div>`;
+        document.getElementById('total-cost').textContent = '0';
+        return;
+      }
+
+      const agg = getMaterialsForSteps(steps);
+      const entries = Object.entries(agg);
+
+      if (entries.length === 0) {
+        list.innerHTML = `<div class="text-center text-slate-600 text-xs font-bold py-10">해당 단계의 재료 데이터가 없습니다</div>`;
+        return;
+      }
+
+      list.innerHTML = '';
+
+      // 단계 구분 헤더
+      const stepsLabel = steps.map(s => STEP_COLORS[s]?.label || s).join(' + ');
+      const headerEl = document.createElement('div');
+      headerEl.className = 'flex items-center gap-2 mb-1 px-1';
+      headerEl.innerHTML = `
+        <i data-lucide="layers" class="w-3 h-3 text-lime-400"></i>
+        <span class="text-xs font-black text-lime-400 uppercase tracking-widest">${steps.length}단계 진화</span>
+        <span class="text-xs text-slate-600 font-medium truncate">${stepsLabel}</span>
+      `;
+      list.appendChild(headerEl);
+
+      // 컬럼 헤더
+      const colHeader = document.createElement('div');
+      colHeader.className = 'flex items-center gap-2 px-3 mb-1';
+      colHeader.innerHTML = `
+        <span class="flex-1 text-[9px] font-black text-slate-600 uppercase tracking-widest text-left">재료명</span>
+        <span class="w-12 text-[9px] font-black text-slate-600 uppercase tracking-widest text-right shrink-0">수량</span>
+        <span class="w-24 text-[9px] font-black text-slate-600 uppercase tracking-widest text-right shrink-0">단가(만원)</span>
+        <span class="w-28 text-[9px] font-black text-slate-600 uppercase tracking-widest text-right shrink-0">소계</span>
+      `;
+      list.appendChild(colHeader);
+
+      entries.forEach(([name, data]) => {
+        const savedPrice = loadPrice(name);
+        const row = document.createElement('div');
+        row.className = 'material-row';
+
+        const isTaecheong = name === '태청금액신단';
+        const isElsoSelected = loadElsoOption();
+
+        let subtotal = '-';
+        let subtotalColor = 'text-slate-700';
+
+        if (isTaecheong && isElsoSelected) {
+          subtotal = window.formatLocaleNumber(data.quantity * 23000) + ' 엘소';
+          subtotalColor = 'text-purple-400 flex flex-col text-right !text-xs leading-none mt-1';
+        } else if (savedPrice) {
+          subtotal = formatKoreanWon(Math.round(data.quantity * parseFloat(savedPrice) * 10000));
+          subtotalColor = 'text-lime-400';
+        }
+
+        row.innerHTML = `
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <div class="text-xs font-bold text-slate-200 truncate">${name}</div>
+            </div>
+            ${isTaecheong ? `
+              <div class="mt-1">
+                <label class="inline-flex items-center gap-1 cursor-pointer bg-slate-800/80 px-1.5 py-0.5 rounded border border-purple-500/20 hover:border-purple-500/50 transition-colors">
+                  <input type="checkbox" class="w-2.5 h-2.5 accent-purple-600 elso-checkbox" ${isElsoSelected ? 'checked' : ''}>
+                  <span class="text-[9px] font-bold text-purple-300">엘소 구입 (23,000)</span>
+                </label>
+              </div>
+            ` : ''}
+            <div class="flex gap-1 mt-1 flex-wrap">
+              ${data.steps.map(s => {
+          const c = STEP_COLORS[s] || { bg: 'bg-slate-700/40', text: 'text-slate-400', label: s };
+          return `<span class="step-badge ${c.bg} ${c.text}">${c.label}</span>`;
+        }).join('')}
+            </div>
+          </div>
+          <div class="w-12 text-right shrink-0">
+            <span class="text-xs font-black text-slate-300">×${window.formatLocaleNumber(data.quantity)}</span>
+          </div>
+          <div class="w-24 shrink-0 flex justify-end">
+            <input
+              type="number"
+              class="price-input ${isTaecheong && isElsoSelected ? 'opacity-30' : ''}"
+              placeholder="단가 (만)"
+              data-name="${name}"
+              data-qty="${data.quantity}"
+              value="${savedPrice}"
+              ${isTaecheong && isElsoSelected ? 'disabled' : ''}
+            >
+          </div>
+          <div class="w-28 text-right shrink-0">
+            <span class="subtotal text-xs lg:text-sm font-black tracking-tight ${subtotalColor}">${subtotal}</span>
+          </div>
+        `;
+        list.appendChild(row);
+      });
+
+      lucide.createIcons();
+
+      // 가격 입력 이벤트 등록
+      list.querySelectorAll('.price-input').forEach(input => {
+        input.addEventListener('input', () => {
+          const name = input.dataset.name;
+          const qty = parseInt(input.dataset.qty);
+          const price = parseFloat(input.value) || 0;
+
+          savePrice(name, input.value);
+
+          const isTaecheong = name === '태청금액신단';
+          const isElsoSelected = loadElsoOption();
+
+          // 엘소 옵션 켜져있으면 가격 입력 시에도 소계 UI 업데이트 무시(어차피 disabled됨)
+          if (!(isTaecheong && isElsoSelected)) {
+            const subtotalEl = input.closest('.material-row').querySelector('.subtotal');
+            if (price > 0) {
+              subtotalEl.textContent = formatKoreanWon(Math.round(qty * price * 10000));
+              subtotalEl.className = 'subtotal text-sm font-black text-lime-400';
+            } else {
+              subtotalEl.textContent = '-';
+              subtotalEl.className = 'subtotal text-sm font-black text-slate-700';
+            }
+          }
+          updateTotalCost();
+        });
+      });
+
+      // 엘소 체크박스 이벤트 등록
+      list.querySelectorAll('.elso-checkbox').forEach(chk => {
+        chk.addEventListener('change', (e) => {
+          saveElsoOption(e.target.checked);
+          updateMaterials(); // 재렌더링하여 UI 갱신 (input 활성/비활성, 소계표시)
+        });
+      });
+
+      updateTotalCost();
+    }
+
+    function handleAutoSelect(data) {
+      if (!data) return;
+
+      try {
+        // Rebuild category selection
+        currentCategory = data.category;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        const activeTab = document.querySelector(`[data-category="${currentCategory}"]`);
+        if (activeTab) activeTab.classList.add('active');
+
+        const partSel = document.getElementById('part-selector');
+        if (currentCategory === 'equipment') {
+          partSel.classList.remove('hidden');
+          currentPart = data.part;
+          document.querySelectorAll('.part-btn').forEach(b => b.classList.remove('active'));
+          const activePart = document.querySelector(`[data-part="${currentPart}"]`);
+          if (activePart) activePart.classList.add('active');
+        } else {
+          partSel.classList.add('hidden');
+        }
+
+        rebuildStepSelectors();
+
+        // Auto-detect step-from based on name
+        const itemName = data.itemName || '';
+        let matchedTierIndex = -1;
+        const chain = getChain();
+        const sortedChain = [...chain]
+          .map((name, index) => ({ name, originalIndex: index }))
+          .sort((a, b) => b.name.length - a.name.length);
+        
+        for (let entry of sortedChain) {
+          if (itemName.includes(entry.name)) {
+            matchedTierIndex = entry.originalIndex;
+            break;
+          }
+        }
+        
+        if (matchedTierIndex >= 0 && matchedTierIndex < chain.length - 1) {
+          const fromSel = document.getElementById('step-from');
+          if (fromSel) {
+            fromSel.value = matchedTierIndex.toString();
+          }
+        }
+        updateMaterials();
+      } catch (e) {
+        console.error('Failed to handle auto select:', e);
+      }
+    }
+
+    let pendingEvoData = null;
+
+    // 초기화
+    async function init() {
+      migratePriceUnit();
+      try {
+        const res = await fetch('./assets/data/evolution_data.json');
+        evolutionData = await res.json();
+        rebuildStepSelectors();
+        updateMaterials();
+
+        if (pendingEvoData) {
+          handleAutoSelect(pendingEvoData);
+          pendingEvoData = null;
+        }
+        if (window.electronAPI && window.electronAPI.sendRendererReady) {
+          window.electronAPI.sendRendererReady('evolutionCalculator');
+        }
+      } catch (e) {
+        document.getElementById('material-list').innerHTML =
+          `<div class="text-center text-red-400 text-xs font-bold py-10">데이터 로드 실패<br><span class="text-xs text-slate-600">${e.message}</span></div>`;
+      }
+    }
+
+    if (window.electronAPI && window.electronAPI.onAutoSelectEvolution) {
+      window.electronAPI.onAutoSelectEvolution((data) => {
+        if (!evolutionData) {
+          pendingEvoData = data;
+        } else {
+          handleAutoSelect(data);
+        }
+      });
+    }
+
+    window.bindEscapeClose();
+    lucide.createIcons();
+    init();
+</script>
+</body>
+
+</html>

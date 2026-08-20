@@ -1,0 +1,102 @@
+[
+  {
+    "name": "기본 알림",
+    "file": "orb.mp3"
+  },
+  {
+    "name": "🚨 공습경보",
+    "file": "gongseubgyeongbo-gongseubgyeongbo.mp3"
+  },
+  {
+    "name": "🎯 잡았죠?",
+    "file": "jabassjyo.mp3"
+  },
+  {
+    "name": "😎 카리스마",
+    "file": "kariseumaisseo.mp3"
+  },
+  {
+    "name": "👋 가버려!",
+    "file": "ralro-gabeoryeo-gabeoryeo.mp3"
+  },
+  {
+    "name": "⚔️ 진격의 거인",
+    "file": "shingeki-no-kyojin-ost-attack-on-titan2.mp3"
+  },
+  {
+    "name": "💢 개X끼야!",
+    "file": "yai-gaesaeggiya.mp3"
+  },
+  {
+    "name": "🍑 앙 기모찌",
+    "file": "anggimojji.mp3"
+  },
+  {
+    "name": "🛵 배달의 민족 주문!",
+    "file": "baedalyi-minjog.mp3"
+  },
+  {
+    "name": "🚔 FBI OPEN UP",
+    "file": "fbi-open-up-sfx.mp3"
+  },
+  {
+    "name": "🎵 미션 임파서블",
+    "file": "m3.mp3"
+  },
+  {
+    "name": "📺 P사 인트로",
+    "file": "ponheobeu.mp3"
+  },
+  {
+    "name": "❓ 누구세요?",
+    "file": "ralro-nuguseyo.mp3"
+  },
+  {
+    "name": "🏃 Why are you running?",
+    "file": "why-are-you-running-sound-effect-hd_2yraBjq.mp3"
+  },
+  {
+    "name": "😱 으아아아",
+    "file": "uaaaaa.webm"
+  },
+  {
+    "name": "⚔️ 일단은 보스부터 쓰러뜨리자",
+    "file": "voice_boss_first.wav"
+  },
+  {
+    "name": "🎉 모두 준비됐어? 곧 이벤트가 시작될 거야",
+    "file": "voice_event_start.wav"
+  },
+  {
+    "name": "🔮 소환사 한명이 게임을 종료 했습니다.",
+    "file": "summoner_ended.mp3"
+  },
+  {
+    "name": "💻 윈도우 종료음 1",
+    "file": "windows_shutdown_1.mp3"
+  },
+  {
+    "name": "💻 윈도우 종료음 2",
+    "file": "windows_shutdown_2.mp3"
+  },
+  {
+    "name": "💻 윈도우 효과음",
+    "file": "windows_sound_1.mp3"
+  },
+  {
+    "name": "에토스 기믹 알림",
+    "file": "에코스_기믹_알림.mp3"
+  },
+  {
+    "name": "제2사도 반사 시작",
+    "file": "제2사도_반사_패턴_시작.mp3"
+  },
+  {
+    "name": "제2사도 반사 종료",
+    "file": "제2사도_반사_패턴_종료.mp3"
+  },
+  {
+    "name": "로카고스 기믹 알림",
+    "file": "로카고스_기믹_알림.mp3"
+  }
+]

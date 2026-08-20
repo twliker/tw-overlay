@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
+  <title>계수 계산기</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    /* ── Base ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; letter-spacing: -0.02em; }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+    /* ── Drag ─────────────────────────────────── */
+    .drag   { -webkit-app-region: drag; }
+    .no-drag{ -webkit-app-region: no-drag; }
+
+    /* ── Scrollbar ────────────────────────────── */
+    .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+    /* ── Tab buttons ──────────────────────────── */
+    .tab-btn { padding: 8px 16px; font-size: 14px; font-weight: 800; color: #475569;
+               border-bottom: 2px solid transparent; transition: all .15s; white-space: nowrap; }
+    .tab-btn.active { color: #818cf8; border-bottom-color: #6366f1; }
+    .tab-btn:hover:not(.active) { color: #94a3b8; }
+
+    /* ── Stat-bar inputs ──────────────────────── */
+    .sb-input { background: rgba(15,23,42,.9); border: 1px solid rgba(51,65,85,.7);
+                border-radius: 6px; padding: 4px 8px; text-align: right;
+                font-size: 15px; font-weight: 700; color: #818cf8; width: 84px; outline: none; }
+    .sb-input:focus { border-color: rgba(99,102,241,.5); }
+    .sb-input.dex { color: #facc15; }
+
+    /* ── Calc Table ───────────────────────────── */
+    .ct { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .ct th {
+      background: rgba(15,23,42,.95); padding: 6px 6px;
+      font-size: 12px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .04em; color: #94a3b8;
+      border-bottom: 1px solid rgba(51,65,85,.6);
+      text-align: center; white-space: nowrap;
+    }
+    .ct th:first-child, .ct td:first-child { text-align: left; padding-left: 10px; }
+    .ct th:last-child, .ct td:last-child { text-align: right; padding-right: 10px; }
+    .ct td {
+      padding: 4px 5px; font-size: 13px;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.8);
+      vertical-align: middle; color: #cbd5e1;
+    }
+    .ct tbody tr:hover td { background: rgba(99, 102, 241, 0.04); }
+
+    /* cell input */
+    .ci {
+      width: 100%; background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(51, 65, 85, 0.5); border-radius: 4px;
+      padding: 3px 5px; text-align: right;
+      font-size: 13px; font-weight: 700; outline: none; color: #f1f5f9;
+    }
+    .ci:focus { border-color: rgba(99, 102, 241, 0.5); }
+    .ci.upg  { color: #34d399; border-color: rgba(52, 211, 153, 0.18); }
+    .ci.abil { color: #c084fc; border-color: rgba(167, 139, 250, 0.18); }
+    .ci.dex  { color: #fbbf24; border-color: rgba(251, 191, 36, 0.18); }
+    .ci.bas  { color: #cbd5e1; border-color: rgba(100, 116, 139, 0.18); }
+    .ci.core { color: #f472b6; border-color: rgba(244, 114, 182, 0.15); }
+
+    /* gear select */
+    .gs {
+      width: 100%; background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(51, 65, 85, 0.5); border-radius: 4px;
+      padding: 1px 5px; font-size: 13px; font-weight: 600;
+      color: #ffffff; outline: none;
+    }
+
+    /* custom dropdown */
+    .custom-dropdown {
+      position: relative;
+      width: 100%;
+      text-align: left;
+    }
+    .custom-dropdown-trigger {
+      width: 100%;
+      height: 30px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(51, 65, 85, 0.5);
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #ffffff;
+      outline: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .custom-dropdown-trigger:focus {
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+    .custom-dropdown-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      margin-top: 4px;
+      background: rgba(15, 23, 42, 0.98);
+      border: 1px solid rgba(51, 65, 85, 0.8);
+      border-radius: 6px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      max-height: 260px;
+    }
+    .custom-dropdown-menu.hidden {
+      display: none;
+    }
+    .custom-dropdown-search-wrapper {
+      padding: 6px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+      background: rgba(15, 23, 42, 0.95);
+    }
+    .custom-dropdown-search {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(51, 65, 85, 0.5);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 12px;
+      color: #f1f5f9;
+      outline: none;
+    }
+    .custom-dropdown-search:focus {
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+    .custom-dropdown-options {
+      overflow-y: auto;
+      flex: 1;
+      max-height: 210px;
+    }
+    .custom-dropdown-optgroup {
+      font-size: 11px;
+      font-weight: 800;
+      color: #64748b;
+      padding: 4px 8px 2px 8px;
+      background: rgba(15, 23, 42, 0.3);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .custom-dropdown-option {
+      width: 100%;
+      padding: 4px 8px;
+      font-size: 12px;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      text-align: left;
+      border: none;
+      background: transparent;
+      outline: none;
+    }
+    .custom-dropdown-option:hover {
+      background: rgba(99, 102, 241, 0.15);
+      color: #ffffff;
+    }
+    .custom-dropdown-option.selected {
+      background: rgba(99, 102, 241, 0.25);
+      color: #818cf8;
+      font-weight: 700;
+    }
+
+    /* auto val (read-only preview) */
+    .av { display: block; text-align: center; font-size: 13px; font-weight: 700; color: #64748b; }
+    .av.has { color: #f1f5f9; }
+
+    /* coeff cell */
+    .cc { text-align: right; font-size: 14px; font-weight: 800; color: #475569; }
+    .cc.lit { color: #38bdf8; }
+
+    /* row types */
+    .tr-gear td { }
+    .tr-bonus td { background: rgba(99,102,241,.025); }
+    .tr-core td  { background: rgba(244,114,182,.02); }
+    .tr-total td {
+      background: rgba(99,102,241,.08) !important;
+      border-top: 1px solid rgba(99,102,241,.25) !important;
+      font-weight: 800;
+    }
+    .tr-div td { height: 4px; background: rgba(15, 23, 42, 0.6); padding: 0; border: none; }
+
+    /* Part label */
+    .part-lbl { font-size: 13px; font-weight: 800; color: #64748b; white-space: nowrap; }
+    .part-lbl.weapon { color: #818cf8; }
+
+    /* dash cell */
+    .dash { text-align: center; color: #1e293b; font-size: 12px; }
+
+    /* ── Result cards ─────────────────────────── */
+    .res-card {
+      background: rgba(99,102,241,.07); border: 1px solid rgba(99,102,241,.25);
+      border-radius: 12px; padding: 5px 14px; display: flex; flex-direction: column; align-items: center;
+    }
+    .res-card.dex-card {
+      background: rgba(250,204,21,.04); border-color: rgba(250,204,21,.2);
+    }
+
+    /* ── Content guide cards ──────────────────── */
+    .guide-card {
+      background: rgba(15,23,42,.7); border: 1px solid rgba(51,65,85,.4);
+      border-radius: 9px; padding: 7px 9px; display: flex; flex-direction: column;
+      justify-content: space-between; gap: 3px; overflow: hidden;
+    }
+
+    /* ── Tooltip ──────────────────────────────── */
+    .tooltip-wrap { display: inline-flex; align-items: center; cursor: help; }
+  </style>
+  <script>
+    window.bindElectronListenerCleanup();
+</script>
+</head>
+
+<body class="bg-slate-950 text-slate-100 select-none h-screen flex flex-col border border-slate-800 overflow-hidden">
+
+  <!-- ① Win Header ───────────────────────────── -->
+  <div class="win-header shrink-0 drag">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-indigo-500/10 border-indigo-500/20">
+        <i data-lucide="calculator" class="w-5 h-5 text-indigo-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">계수 계산기</span>
+        <span class="win-title-sub">Coefficient Calculator</span>
+      </div>
+    </div>
+    <!-- Profile controls -->
+    <div class="flex items-center gap-1.5 no-drag">
+      <select id="profile-select"
+        class="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs font-bold text-slate-300 outline-none max-w-[140px]"></select>
+      <button id="btn-add-profile" class="p-1 hover:bg-indigo-500/20 rounded transition-colors text-indigo-400" title="추가">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i></button>
+      <button id="btn-rename-profile" class="p-1 hover:bg-slate-700 rounded transition-colors text-slate-400" title="이름변경">
+        <i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+      <button id="btn-delete-profile" class="p-1 hover:bg-red-500/20 rounded transition-colors text-red-400" title="삭제">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+    </div>
+    <div class="win-controls">
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+  </div>
+
+  <!-- ② Tab Bar ──────────────── -->
+  <div class="flex items-center bg-slate-900 border-b border-slate-800/60 px-4 no-drag flex-shrink-0" style="height:40px">
+    <!-- Tabs -->
+    <div class="flex">
+      <button class="tab-btn active" data-type="stab">찌르기</button>
+      <button class="tab-btn" data-type="hack">베기</button>
+      <button class="tab-btn" data-type="phycomp">물리복합</button>
+      <button class="tab-btn" data-type="magatk">마법공격</button>
+      <button class="tab-btn" data-type="maghack">마법베기</button>
+      <button class="tab-btn" data-type="magdef">마법방어</button>
+    </div>
+
+    <!-- Spacer -->
+    <div class="flex-1"></div>
+
+    <!-- Formula -->
+    <span id="sum-formula" class="text-[12px] text-indigo-300 font-bold italic mr-3 truncate max-w-sm" title=""></span>
+  </div>
+
+  <!-- ③ Stats & Doping Bar (row 2) ──────────────── -->
+  <div class="flex items-center bg-slate-900/50 border-b border-slate-800/80 px-4 no-drag flex-shrink-0 gap-4" style="height:50px">
+    <!-- Character stats -->
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1">
+        <label class="text-xs font-black text-slate-500">찌르기</label>
+        <input type="number" id="stat-stab" class="sb-input" value="850">
+      </div>
+      <div class="flex items-center gap-1">
+        <label class="text-xs font-black text-slate-500">베기</label>
+        <input type="number" id="stat-hack" class="sb-input" value="550">
+      </div>
+      <div class="flex items-center gap-1">
+        <label class="text-xs font-black text-slate-500">마공</label>
+        <input type="number" id="stat-int" class="sb-input" value="0">
+      </div>
+      <div class="flex items-center gap-1">
+        <label class="text-xs font-black text-slate-500">마방</label>
+        <input type="number" id="stat-mr" class="sb-input" value="0">
+      </div>
+      <div class="flex items-center gap-1">
+        <label class="text-xs font-black text-yellow-600">명중</label>
+        <input type="number" id="stat-dex" class="sb-input dex" value="700">
+      </div>
+    </div>
+
+    <div class="w-px h-4 bg-slate-800"></div>
+
+    <!-- Doping -->
+    <div class="flex items-center gap-1.5 relative">
+      <label class="text-xs font-black text-slate-500">도핑</label>
+      <select id="buff-preset-select"
+        class="bg-slate-950 border border-slate-800 rounded px-2 py-0.5 text-xs font-bold text-purple-400 outline-none">
+        <option value="none">없음</option>
+        <option value="standard">기본 도핑 세트</option>
+      </select>
+      <button id="btn-toggle-buff-info" class="px-2 py-0.5 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded text-[10px] font-black text-purple-400 hidden no-drag transition-colors" title="도핑 상세정보 토글">
+        툴팁 ON
+      </button>
+      <div id="active-buff-info" class="hidden absolute top-full left-0 mt-2 z-[999] w-[210px] bg-slate-950/98 backdrop-blur-md border border-purple-500/30 rounded-xl shadow-2xl p-2.5 flex flex-col no-drag"></div>
+    </div>
+
+    <!-- Spacer -->
+    <div class="flex-1"></div>
+
+    <!-- Results (Coeff & DEX) -->
+    <div class="flex items-center gap-2 mr-2">
+      <!-- Result: Coefficient -->
+      <div class="bg-indigo-500/5 px-2.5 py-1 rounded-lg border border-indigo-500/15 flex items-center gap-2.5">
+        <div class="flex flex-col">
+          <div class="flex items-center gap-1.5">
+            <span id="current-series-name"
+              class="text-[9px] font-black text-indigo-400 bg-indigo-500/15 px-1 py-0.2 rounded uppercase tracking-wider">찌르기</span>
+            <span class="text-[9px] text-slate-500 font-bold">총합 계수</span>
+          </div>
+          <div id="total-coefficient" class="text-[17px] font-black text-white tracking-tight mt-0.5 leading-none">0.00</div>
+        </div>
+        <select id="main-core-select"
+          class="bg-slate-900 border border-slate-800 rounded px-1.5 py-0.5 text-[9px] font-bold text-pink-400 outline-none cursor-pointer">
+          <option value="eclipse">이클립스</option>
+          <option value="rubicona">루비코나</option>
+          <option value="abyss">어비스</option>
+          <option value="mercurial">머큐리얼</option>
+          <option value="none">코어없음</option>
+        </select>
+      </div>
+
+      <!-- Result: DEX -->
+      <div class="bg-yellow-500/5 px-3 py-1 rounded-lg border border-yellow-500/15 flex flex-col justify-center min-w-[70px]">
+        <span class="text-[9px] text-slate-500 font-bold leading-none">명중</span>
+        <div id="total-hit-display" class="text-[17px] font-black text-yellow-400 tracking-tight mt-1 leading-none">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ Main Body Wrapper (좌: 계산기 테이블 / 우: 콘텐츠 가이드) ──────────────── -->
+  <div class="flex flex-1 overflow-hidden no-drag text-slate-200">
+    
+    <!-- Left Pane: Main Table -->
+    <div class="flex-1 overflow-hidden px-3 pt-2 border-r border-slate-800/60">
+      <table class="ct">
+        <colgroup>
+          <col style="width:60px">   <!-- 부위 -->
+          <col>                      <!-- 장비명 (유연하게 남은 너비 모두 흡수) -->
+          <col style="width:75px">   <!-- 기본 주 -->
+          <col style="width:75px">   <!-- 기본 부 -->
+          <col style="width:75px">   <!-- 기본 DEX -->
+          <col style="width:75px">   <!-- 강화 주 -->
+          <col style="width:75px">   <!-- 강화 부 -->
+          <col style="width:75px">   <!-- 어빌 -->
+          <col style="width:75px">   <!-- 어빌 DEX -->
+          <col style="width:100px">  <!-- 계수 기여 (쓸데없이 넓지 않게 고정) -->
+        </colgroup>
+        <thead>
+          <tr>
+            <th>부위</th>
+            <th style="text-align:left; padding-left:6px;">장비명</th>
+            <th>기본<br><span class="bonus-label-main text-indigo-400/90">STAB</span></th>
+            <th>기본<br><span class="bonus-label-sub text-slate-500/80">HACK</span></th>
+            <th class="text-yellow-500/70">기본<br>명중</th>
+            <th class="text-emerald-500/80">강화<br><span class="bonus-label-main2">STAB</span></th>
+            <th class="text-emerald-500/80">강화<br><span class="bonus-label-sub2">HACK</span></th>
+            <th class="text-violet-400/80">어빌<br><span class="bonus-label-main3">STAB</span></th>
+            <th class="text-yellow-500/70">어빌<br>명중</th>
+            <th>계수 기여</th>
+          </tr>
+        </thead>
+
+        <!-- Equipment rows (filled by renderer) -->
+        <tbody id="gear-tbody"></tbody>
+
+        <!-- Section divider -->
+        <tbody><tr class="tr-div"><td colspan="10"></td></tr></tbody>
+
+        <!-- Bonus rows -->
+        <tbody id="bonus-tbody">
+          <!-- 아바타 -->
+          <tr class="tr-bonus">
+            <td><span class="part-lbl tooltip-wrap" data-tooltip="기본 세트 스탯(주/부/명중 각 +15)은 자동 가산됩니다.">아바타 <i data-lucide="help-circle" class="inline-block w-3 h-3 text-slate-500 hover:text-slate-300 ml-0.5"></i></span></td>
+            <td class="text-xs text-slate-700 italic pl-1">(기본+15 자동)</td>
+            <td><span class="av has">15</span></td>
+            <td><span class="av has">15</span></td>
+            <td><span class="av has">15</span></td>
+            <td class="px-1"><input type="number" id="bonus-avatar-main" class="ci upg" value="50" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-avatar-sub"  class="ci upg" value="0"  placeholder="0"></td>
+            <td class="dash">—</td>
+            <td class="px-1"><input type="number" id="bonus-avatar-hit"  class="ci dex" value="0"  placeholder="0"></td>
+            <td class="cc" id="row-coeff-avatar">—</td>
+          </tr>
+          <!-- 커프 -->
+          <tr class="tr-bonus">
+            <td><span class="part-lbl tooltip-wrap" data-tooltip="라이도 심볼릭 커프의 기본 주/부스탯을 입력해 주세요.">커프 <i data-lucide="help-circle" class="inline-block w-3 h-3 text-slate-500 hover:text-slate-300 ml-0.5"></i></span></td>
+            <td class="text-xs text-slate-700 italic pl-1"></td>
+            <td class="px-1"><input type="number" id="bonus-cuff-main" class="ci bas" value="140" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-cuff-sub"  class="ci bas" value="140" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-cuff-hit"  class="ci dex" value="0"   placeholder="0"></td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="cc" id="row-coeff-cuff">—</td>
+          </tr>
+          <!-- 효과 -->
+          <tr class="tr-bonus">
+            <td><span class="part-lbl tooltip-wrap" data-tooltip="효과 부위 장비의 기본 주/부스탯 및 강화 수치를 입력해 주세요.">효과 <i data-lucide="help-circle" class="inline-block w-3 h-3 text-slate-500 hover:text-slate-300 ml-0.5"></i></span></td>
+            <td class="text-xs text-slate-700 italic pl-1"></td>
+            <td class="px-1"><input type="number" id="bonus-effect-base-main" class="ci bas" value="20" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-effect-base-sub"  class="ci bas" value="5"  placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-effect-hit"       class="ci dex" value="0"  placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-effect-main"      class="ci upg" value="235" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-effect-sub"       class="ci upg" value="0"  placeholder="0"></td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="cc" id="row-coeff-effect">—</td>
+          </tr>
+          <!-- 렐릭 -->
+          <tr class="tr-bonus">
+            <td><span class="part-lbl tooltip-wrap" data-tooltip="렐릭의 태양/신조 스탯 및 명중 스탯을 입력해 주세요.">렐릭 <i data-lucide="help-circle" class="inline-block w-3 h-3 text-slate-500 hover:text-slate-300 ml-0.5"></i></span></td>
+            <td class="text-xs text-slate-700 italic pl-1"></td>
+            <td class="px-1"><input type="number" id="bonus-relic-main" class="ci bas" value="50" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-relic-sub"  class="ci bas" value="50" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-relic-hit"  class="ci dex" value="0"  placeholder="0"></td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="cc" id="row-coeff-relic">—</td>
+          </tr>
+          <!-- 칭호 -->
+          <tr class="tr-bonus">
+            <td><span class="part-lbl">칭호</span></td>
+            <td class="text-xs text-slate-700 italic pl-1"></td>
+            <td class="px-1"><input type="number" id="bonus-title" class="ci bas" value="80" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-title-sub" class="ci bas" value="0" placeholder="0"></td>
+            <td class="px-1"><input type="number" id="bonus-title-hit" class="ci dex" value="0" placeholder="0"></td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="dash">—</td>
+            <td class="cc" id="row-coeff-title">—</td>
+          </tr>
+        </tbody>
+
+        <!-- Section divider -->
+        <tbody><tr class="tr-div"><td colspan="10"></td></tr></tbody>
+
+        <!-- Core + Total -->
+        <tbody>
+          <!-- 코어 -->
+          <tr class="tr-core">
+            <td>
+              <div class="flex items-center gap-1">
+                <span class="text-[11px] font-black text-pink-500">코어</span>
+                <div class="tooltip-wrap cursor-help text-xs text-slate-500 hover:text-slate-300" data-tooltip="코어의 주 스탯 강화 합을 입력해 주세요. (상단 셀렉터 기준으로 총합 계수 반영)">
+                  <i data-lucide="help-circle" class="w-3 h-3"></i>
+                </div>
+              </div>
+            </td>
+            <td colspan="8" class="px-2">
+              <div class="flex items-center gap-5">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[9px] font-black text-slate-600 uppercase tooltip-wrap cursor-help" data-tooltip="머큐리얼 케이브 지역 코어 강화 능력치 합을 입력해 주세요.">머큐리얼 <i data-lucide="help-circle" class="inline-block w-2.5 h-2.5 text-slate-500 hover:text-slate-300 ml-0.5"></i></span>
+                  <input type="number" id="bonus-core-mercurial" class="ci core" style="width:60px" value="90" placeholder="주 스탯">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[9px] font-black text-slate-600 uppercase tooltip-wrap cursor-help" data-tooltip="어비스 던전 지역 코어 강화 능력치 합을 입력해 주세요.">어비스 <i data-lucide="help-circle" class="inline-block w-2.5 h-2.5 text-slate-500 hover:text-slate-300 ml-0.5"></i></span>
+                  <input type="number" id="bonus-core-abyss" class="ci core" style="width:60px" value="150" placeholder="주 스탯">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[9px] font-black text-slate-600 uppercase tooltip-wrap cursor-help" data-tooltip="이클립스/아페테리아/최후의 결전/골고다 적용 코어 강화 능력치 합을 입력해 주세요.">이클립스 <i data-lucide="help-circle" class="inline-block w-2.5 h-2.5 text-slate-500 hover:text-slate-300 ml-0.5"></i></span>
+                  <input type="number" id="bonus-core-eclipse" class="ci core" style="width:60px" value="210" placeholder="주 스탯">
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[9px] font-black text-slate-600 uppercase tooltip-wrap cursor-help" data-tooltip="루비코나 던전 지역 코어 강화 능력치 합을 입력해 주세요.">루비코나 <i data-lucide="help-circle" class="inline-block w-2.5 h-2.5 text-slate-500 hover:text-slate-300 ml-0.5"></i></span>
+                  <input type="number" id="bonus-core-rubicona" class="ci core" style="width:60px" value="270" placeholder="주 스탯">
+                </div>
+              </div>
+            </td>
+            <td class="cc text-pink-500/60" id="row-coeff-core">—</td>
+          </tr>
+          <!-- 합계 -->
+          <tr class="tr-total">
+            <td colspan="9" style="text-align:right; padding-right:12px; font-size:12px; color:#64748b;">합계</td>
+            <td class="text-indigo-400 text-base" id="total-coefficient-table">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Right Pane: Content Guide -->
+    <div class="w-[360px] flex-shrink-0 flex flex-col bg-slate-900/10">
+      <div class="flex items-center justify-between px-3 py-2 border-b border-slate-800/60 flex-shrink-0" style="height:38px">
+        <h3 class="text-[11px] font-black text-slate-500 flex items-center gap-1.5">
+          <i data-lucide="award" class="w-3.5 h-3.5 text-purple-500"></i>콘텐츠 가이드
+        </h3>
+        <div class="flex items-center gap-2 text-[9px] text-slate-600 font-bold">
+          <span>출처:</span>
+          <button onclick="window.electronAPI.openExternal('https://docs.google.com/spreadsheets/d/1IUy4PgYEX0ov-yLPMR_v87k6fdXtMIEv7CxHabL85wk/edit?gid=0#gid=0')"
+            class="hover:text-indigo-400 flex items-center gap-0.5 transition-colors">
+            <i data-lucide="link" class="w-2.5 h-2.5"></i> 텔쥐 계수계산기
+          </button>
+          <button onclick="window.electronAPI.openExternal('https://gall.dcinside.com/mini/board/view/?id=talesweaver&no=144536')"
+            class="hover:text-indigo-400 flex items-center gap-0.5 transition-colors">
+            <i data-lucide="link" class="w-2.5 h-2.5"></i> 일텔 공식
+          </button>
+        </div>
+      </div>
+      <div id="content-guide" class="flex-1 overflow-y-auto custom-scroll p-3 flex flex-col gap-2.5"></div>
+    </div>
+
+  </div>
+
+  <!-- Script -->
+  <script src="utils/hangul.js"></script>
+  <script src="shared/buffConstants.js"></script>
+  <script src="coefficient-calculator-renderer.js"></script>
+
+  <!-- Modal -->
+  <div id="modal-overlay"
+    class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center hidden no-drag">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-80 shadow-2xl space-y-4">
+      <h3 id="modal-title" class="text-base font-black text-slate-100"></h3>
+      <p  id="modal-message" class="text-sm text-slate-400"></p>
+      <input id="modal-input" type="text"
+        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none hidden">
+      <div class="flex gap-2 justify-end pt-2">
+        <button id="modal-cancel"
+          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-bold text-slate-300 transition-colors">취소</button>
+        <button id="modal-confirm"
+          class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-black text-white transition-colors">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Tooltip -->
+  <div id="g-tooltip" style="
+    position:fixed; z-index:9999; pointer-events:none; opacity:0; transition:opacity .12s;
+    background:rgba(15,23,42,.97); border:1px solid rgba(99,102,241,.4); color:#cbd5e1;
+    font-size:11px; font-weight:500; line-height:1.6; padding:7px 11px; border-radius:9px;
+    max-width:280px; white-space:pre-line; box-shadow:0 4px 24px rgba(0,0,0,.55);
+  "></div>
+  <script>
+    (function(){
+      const tip = document.getElementById('g-tooltip');
+      let vis = false;
+      document.addEventListener('mouseover', e => {
+        const el = e.target.closest('.tooltip-wrap');
+        if (el?.dataset.tooltip) { tip.textContent = el.dataset.tooltip; tip.style.opacity='1'; vis=true; }
+      });
+      document.addEventListener('mouseout', e => {
+        const el = e.target.closest('.tooltip-wrap');
+        if (el && !el.contains(e.relatedTarget)) { tip.style.opacity='0'; vis=false; }
+      });
+      document.addEventListener('mousemove', e => {
+        if (!vis) return;
+        const mx=e.clientX, my=e.clientY, tw=tip.offsetWidth, th=tip.offsetHeight;
+        let l=mx+14, t=my-th-10;
+        if (l+tw>window.innerWidth-6) l=mx-tw-14;
+        if (t<6) t=my+20;
+        tip.style.left=l+'px'; tip.style.top=t+'px';
+      });
+    })();
+</script>
+</body>
+</html>

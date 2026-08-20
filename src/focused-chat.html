@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>집중 대화방</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; overflow: hidden; }
+    .chat-window {
+      width: 100%; height: 100vh; display: flex; flex-direction: column;
+      overflow: hidden; border: 1px solid rgba(255,255,255,.1); border-radius: 12px;
+      background: rgba(15,18,30,.96); backdrop-filter: blur(20px) saturate(180%);
+    }
+    .titlebar {
+      min-height: 64px; padding: 12px 14px; display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid rgba(255,255,255,.08); -webkit-app-region: drag;
+    }
+    .title-icon {
+      width: 38px; height: 38px; display: grid; place-items: center; flex: none;
+      color: #34d399; background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.25);
+      border-radius: 12px;
+    }
+    .title-copy { min-width: 0; flex: 1; }
+    .title { margin: 0; font-size: 14px; font-weight: 800; color: #fff; }
+    .subtitle { margin-top: 3px; font-size: 12px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .icon-button {
+      width: 34px; height: 34px; display: grid; place-items: center; border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.1); color: #cbd5e1; background: rgba(255,255,255,.04);
+      -webkit-app-region: no-drag; transition: all .2s cubic-bezier(.4,0,.2,1);
+    }
+    .icon-button:hover { color: #fff; background: rgba(239,68,68,.18); border-color: rgba(239,68,68,.35); }
+    .panel-toggle:hover { color: #fff; background: rgba(124,58,237,.2); border-color: rgba(168,85,247,.4); }
+    .panel-toggle svg { width: 18px; height: 18px; transition: transform .2s ease; }
+    .panel-toggle.is-collapsed svg { transform: rotate(180deg); }
+    .target-panel { padding: 14px; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(20,20,35,.75); }
+    .target-panel.collapsed { display: none; }
+    .field-group + .field-group { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.08); }
+    .field-label { display: block; margin: 0 0 7px 2px; color: #cbd5e1; font-size: 12px; font-weight: 800; }
+    .field-hint { color: #94a3b8; font-weight: 500; }
+    .input-row { display: flex; gap: 8px; }
+    .input-area { position: relative; min-width: 0; flex: 1; }
+    .nickname-input {
+      width: 100%; height: 40px; padding: 0 12px; border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.1); outline: none; background: rgba(0,0,0,.4);
+      color: #fff; font-size: 14px; transition: all .2s cubic-bezier(.4,0,.2,1);
+    }
+    .nickname-input:focus { border-color: #a855f7; box-shadow: 0 0 0 3px rgba(168,85,247,.12); }
+    .autocomplete-menu {
+      position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0;
+      max-height: 180px; overflow-y: auto; padding: 5px; border: 1px solid rgba(168,85,247,.35);
+      border-radius: 12px; background: #111421; box-shadow: 0 12px 28px rgba(0,0,0,.5);
+    }
+    .autocomplete-menu[hidden] { display: none; }
+    .autocomplete-option {
+      width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; color: #cbd5e1;
+      background: transparent; text-align: left; font-size: 13px; cursor: pointer;
+    }
+    .autocomplete-option:hover { color: #fff; background: rgba(168,85,247,.18); }
+    .autocomplete-option.active {
+      color: #fff; background: #7c3aed; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16);
+    }
+    .add-button {
+      height: 40px; padding: 0 16px; border: 0; border-radius: 12px; color: #fff;
+      background: #7c3aed; font-size: 13px; font-weight: 800; transition: all .2s cubic-bezier(.4,0,.2,1);
+    }
+    .add-button:hover { background: #a855f7; box-shadow: 0 0 16px rgba(168,85,247,.25); }
+    .target-list { min-height: 30px; margin-top: 10px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+    .target-chip {
+      display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 9px 6px 11px;
+      border: 1px solid rgba(52,211,153,.25); border-radius: 999px; color: #a7f3d0;
+      background: rgba(52,211,153,.1); font-size: 12px; font-weight: 700;
+    }
+    .target-chip span { overflow: hidden; text-overflow: ellipsis; }
+    .remove-target { padding: 0; border: 0; color: #a7f3d0; background: transparent; display: grid; place-items: center; }
+    .target-help { font-size: 12px; color: #94a3b8; }
+    .messages {
+      flex: 1; min-height: 0; overflow-y: auto; padding: 6px 12px 20px;
+      background: radial-gradient(circle at top, rgba(52,211,153,.05), transparent 42%);
+    }
+    .message-row { display: flex; padding: 6px 2px; }
+    .message-row.self { justify-content: flex-end; }
+    .message-block { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; max-width: 82%; }
+    .self .message-block { align-items: flex-end; }
+    .message-meta { display: flex; align-items: center; gap: 5px; min-width: 0; margin-bottom: 3px; }
+    .sender { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e2e8f0; font-size: 12px; font-weight: 800; }
+    .self .sender { color: #fde047; }
+    .channel, .eta-badge {
+      display: inline-flex; align-items: center; flex: none; height: 18px; padding: 0 6px;
+      border-radius: 5px; font-size: 10px; font-weight: 800;
+    }
+    .channel { color: #cbd5e1; border: 1px solid rgba(148,163,184,.2); background: rgba(148,163,184,.1); }
+    .channel-general { color: #d1d5db; }
+    .channel-team { color: #93c5fd; border-color: rgba(59,130,246,.25); background: rgba(59,130,246,.12); }
+    .channel-club { color: #86efac; border-color: rgba(34,197,94,.25); background: rgba(34,197,94,.12); }
+    .channel-whisper { color: #f0abfc; border-color: rgba(217,70,239,.25); background: rgba(217,70,239,.12); }
+    .eta-badge { color: #fff; border: 1px solid rgba(255,255,255,.13); background: linear-gradient(135deg, #a855f7, #3b82f6); }
+    .bubble-line { display: flex; align-items: flex-end; gap: 6px; min-width: 0; }
+    .self .bubble-line { flex-direction: row-reverse; }
+    .bubble {
+      min-width: 0; padding: 8px 10px; border: 1px solid rgba(255,255,255,.08);
+      border-radius: 4px 13px 13px 13px; color: #f8fafc; background: rgba(30,35,60,.78);
+      font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; user-select: text;
+    }
+    .self .bubble { color: #1f2937; background: #facc15; border-color: rgba(250,204,21,.65); border-radius: 13px 4px 13px 13px; }
+    .time { flex: none; padding-bottom: 1px; color: #64748b; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .resize-handle {
+      position: absolute; z-index: 101; right: 4px; bottom: 4px; width: 16px; height: 16px;
+      cursor: se-resize; opacity: .75;
+      background-image: linear-gradient(135deg, transparent 48%, rgba(255,255,255,.4) 49%, rgba(255,255,255,.4) 58%, transparent 59%, transparent 70%, rgba(255,255,255,.4) 71%, rgba(255,255,255,.4) 80%, transparent 81%);
+    }
+    .resize-handle:hover { opacity: 1; }
+    .empty-state { height: 100%; min-height: 260px; display: grid; place-items: center; text-align: center; padding: 30px; }
+    .empty-card { max-width: 300px; padding: 24px; border: 1px solid rgba(255,255,255,.08); border-radius: 24px; background: rgba(255,255,255,.03); }
+    .empty-icon { width: 48px; height: 48px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 16px; color: #34d399; background: rgba(52,211,153,.1); }
+    .empty-title { margin: 0 0 8px; color: #fff; font-size: 14px; font-weight: 800; }
+    .empty-description { margin: 0; color: #cbd5e1; font-size: 12px; line-height: 1.6; }
+    .custom-scroll::-webkit-scrollbar { width: 7px; }
+    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 999px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.2); }
+  </style>
+</head>
+<body>
+  <main class="chat-window">
+    <header class="titlebar">
+      <div class="title-icon"><i data-lucide="messages-square" width="20" height="20"></i></div>
+      <div class="title-copy">
+        <h1 class="title">집중 대화방</h1>
+        <div class="subtitle" id="roomStatus">대화 상대를 등록해주세요</div>
+      </div>
+      <button type="button" id="panelToggleButton" class="icon-button panel-toggle" title="닉네임 설정 접기" aria-label="닉네임 설정 접기" aria-expanded="true" aria-controls="nicknameSettingsPanel">
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m18 15-6-6-6 6"></path>
+        </svg>
+      </button>
+      <button type="button" id="closeButton" class="icon-button" title="닫기" aria-label="집중 대화방 닫기">
+        <i data-lucide="x" width="18" height="18"></i>
+      </button>
+    </header>
+
+    <section id="nicknameSettingsPanel" class="target-panel" aria-label="대화 상대 설정">
+      <div class="field-group">
+        <label class="field-label" for="selfNicknameInput">내 닉네임 <span class="field-hint">· 오른쪽 노란 말풍선</span></label>
+        <form id="selfForm" class="input-row">
+          <div class="input-area">
+            <input id="selfNicknameInput" class="nickname-input" type="text" maxlength="40" autocomplete="off" placeholder="내 캐릭터 닉네임 직접 입력" aria-label="내 닉네임" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="selfNicknameSuggestions">
+            <div id="selfNicknameSuggestions" class="autocomplete-menu custom-scroll" role="listbox" hidden></div>
+          </div>
+          <button class="add-button" type="submit">저장</button>
+        </form>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="nicknameInput">대화 상대 <span class="field-hint">· 여러 명 등록 가능</span></label>
+        <form id="targetForm" class="input-row">
+          <div class="input-area">
+            <input id="nicknameInput" class="nickname-input" type="text" maxlength="40" autocomplete="off" placeholder="닉네임 선택 또는 직접 입력" aria-label="추가할 닉네임" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="targetNicknameSuggestions">
+            <div id="targetNicknameSuggestions" class="autocomplete-menu custom-scroll" role="listbox" hidden></div>
+          </div>
+          <button class="add-button" type="submit">추가</button>
+        </form>
+        <div id="targetList" class="target-list"></div>
+      </div>
+    </section>
+
+    <section id="messageList" class="messages custom-scroll" aria-live="polite"></section>
+    <div id="resizeHandle" class="resize-handle" title="창 크기 조절" aria-label="창 크기 조절"></div>
+  </main>
+  <script src="assets/lucide.min.js"></script>
+  <script src="shared/chatChannels.js"></script>
+  <script src="focusedChatRenderer.js"></script>
+</body>
+</html>

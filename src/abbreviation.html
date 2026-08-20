@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body { background: transparent; color: var(--text-main); overflow: hidden; font-family: 'Inter', 'Noto Sans KR', sans-serif; }
+    
+    /* 카테고리 칩: Blue 시그니처 톤 적용 */
+    .cat-chip {
+      padding: 5px 12px; border-radius: 8px; font-size: 11px; font-weight: 700;
+      background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
+      color: var(--text-muted); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: -0.01em;
+    }
+    .cat-chip:hover { 
+      background: rgba(59, 130, 246, 0.08); color: white; border-color: rgba(59, 130, 246, 0.2);
+    }
+    .cat-chip.active { 
+      background: #2563eb; border-color: #60a5fa; color: white; 
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+    }
+
+    /* 카드: 고도화된 Glassmorphism 적용 */
+    .abbr-card {
+      background: rgba(30, 41, 59, 0.3); border: 1px solid rgba(255, 255, 255, 0.03);
+      border-radius: 16px; padding: 16px; transition: all 0.3s ease;
+    }
+    .abbr-card:hover { 
+      background: rgba(30, 41, 59, 0.5); border-color: rgba(59, 130, 246, 0.3);
+      transform: translateY(-2px);
+    }
+    .abbr-card:first-child {
+      margin-top: 10px;
+    }
+
+    /* 약어 배지: Blue 톤 포인트 */
+    .abbr-badge {
+      font-size: 11px; font-weight: 800; color: #60a5fa; 
+      background: rgba(59, 130, 246, 0.08); padding: 3px 8px; 
+      border-radius: 6px; border: 1px solid rgba(59, 130, 246, 0.15);
+      display: inline-block; text-transform: uppercase;
+    }
+
+    /* 검색창 커스텀 스타일 */
+    .search-box-inner {
+      background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px; transition: all 0.2s;
+    }
+    .search-box-inner:focus-within {
+      background: rgba(0, 0, 0, 0.4); border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .no-drag { -webkit-app-region: no-drag; }
+    
+    /* 스크롤바 최적화 */
+    .custom-scroll::-webkit-scrollbar { width: 5px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+  </style>
+
+  <script>
+    window.bindElectronListenerCleanup();
+</script>
+</head>
+<body class="panel-glass p-0 h-screen flex flex-col">
+  <!-- Unified Header (Standard) -->
+  <div class="win-header shrink-0">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-blue-500/10 border-blue-500/20">
+        <i data-lucide="book-open" class="w-5 h-5 text-blue-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">테일즈 약어 사전</span>
+        <span class="win-title-sub">Tales Dictionary</span>
+      </div>
+    </div>
+    <div class="win-controls">
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="flex-1 overflow-hidden flex flex-col p-6 space-y-5 no-drag">
+    <!-- 검색 영역 -->
+    <div class="search-box-inner relative group">
+      <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-blue-400 transition-colors"></i>
+      <input id="search-input" class="w-full bg-transparent pl-11 pr-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 font-medium" 
+             placeholder="궁금한 용어나 약어를 검색해보세요..." oninput="handleSearch()">
+    </div>
+
+    <!-- 카테고리 칩 영역 -->
+    <div id="category-container" class="flex flex-wrap gap-1.5 shrink-0">
+      <button class="cat-chip active" onclick="filterCategory('전체')">전체</button>
+      <button class="cat-chip" onclick="filterCategory('캐릭터')">캐릭터</button>
+      <button class="cat-chip" onclick="filterCategory('던전')">던전</button>
+      <button class="cat-chip" onclick="filterCategory('콘텐츠')">콘텐츠</button>
+      <button class="cat-chip" onclick="filterCategory('필드 보스')">보스</button>
+      <button class="cat-chip" onclick="filterCategory('스페셜 스킬')">스킬</button>
+      <button class="cat-chip" onclick="filterCategory('팀 게시판')">팀게</button>
+      <button class="cat-chip" onclick="filterCategory('실전 예시')">실전예시</button>
+      <button class="cat-chip" onclick="filterCategory('기본 시스템')">기본</button>
+      <button class="cat-chip" onclick="filterCategory('장비 시스템')">장비</button>
+      <button class="cat-chip" onclick="filterCategory('내실 시스템')">내실</button>
+      <button class="cat-chip" onclick="filterCategory('아이템')">아이템</button>
+    </div>
+
+    <!-- 결과 리스트 -->
+    <div id="result-list" class="flex-1 custom-scroll overflow-y-auto space-y-3 pr-2">
+      <!-- 동적 로드 -->
+    </div>
+
+    <!-- 미니멀 푸터 -->
+    <div class="pt-4 border-t border-white/5 shrink-0">
+      <div class="flex justify-between items-center opacity-40 hover:opacity-100 transition-opacity">
+        <div class="flex gap-3">
+          <span class="text-xs font-bold text-slate-400 cursor-pointer hover:text-blue-400 transition-colors" onclick="window.electronAPI.openExternal('https://tales.nexon.com/Community/Walkthrough/66063')">공식홈페이지</span>
+          <span class="text-xs font-bold text-slate-400 cursor-pointer hover:text-blue-400 transition-colors" onclick="window.electronAPI.openExternal('https://cafe.daum.net/MagicWeaver/Q60A/15819')">매직위버</span>
+        </div>
+        <p class="text-xs font-medium text-slate-500 italic">Auth: 알롱지, 햄찌</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allData = [];
+    let currentCategory = '전체';
+
+    async function loadData() {
+      try {
+        const response = await fetch('assets/data/abbreviations.json');
+        allData = await response.json();
+        renderResults();
+      } catch (e) {
+        console.error('Failed to load abbreviations:', e);
+      }
+    }
+
+    function renderResults(filterText = '') {
+      const list = document.getElementById('result-list');
+      list.innerHTML = '';
+      
+      const query = filterText.toLowerCase().trim();
+      
+      const filtered = allData.filter(item => {
+        if (currentCategory !== '전체' && item.category !== currentCategory) return false;
+        if (!query) return true;
+        const matchTerm = item.term.toLowerCase().includes(query);
+        const matchAbbr = item.abbrs.some(a => a.abbr.toLowerCase().includes(query) || a.desc.toLowerCase().includes(query));
+        return matchTerm || matchAbbr;
+      });
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="flex flex-col items-center justify-center py-20 text-slate-700 gap-3">
+          <i data-lucide="search-x" class="w-10 h-10 opacity-20"></i>
+          <span class="text-xs font-bold tracking-widest uppercase">No Results Found</span>
+        </div>`;
+        lucide.createIcons();
+        return;
+      }
+
+      filtered.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'abbr-card space-y-4';
+        
+        let abbrsHtml = item.abbrs.map(a => `
+          <div class="flex flex-col gap-1.5 p-3.5 bg-black/20 rounded-xl border border-white/5">
+            <div><span class="abbr-badge">${a.abbr}</span></div>
+            <p class="text-[13px] text-slate-400 leading-relaxed font-normal">${a.desc}</p>
+          </div>
+        `).join('');
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between px-1">
+            <div class="flex items-center gap-2">
+              <div class="w-1 h-3 bg-blue-500 rounded-full opacity-60"></div>
+              <span class="text-[14px] font-bold text-slate-100 tracking-tight">${item.term}</span>
+            </div>
+            <span class="text-xs text-slate-500 font-bold bg-white/5 px-2.5 py-1 rounded-md border border-white/5 uppercase tracking-wider">${item.category}</span>
+          </div>
+          <div class="space-y-2">
+            ${abbrsHtml}
+          </div>
+        `;
+        list.appendChild(card);
+      });
+      lucide.createIcons();
+    }
+
+    function handleSearch() {
+      const input = document.getElementById('search-input');
+      renderResults(input.value);
+    }
+
+    function filterCategory(cat) {
+      currentCategory = cat;
+      const chips = document.querySelectorAll('.cat-chip');
+      chips.forEach(chip => {
+        const text = chip.innerText;
+        const isActive = (text === cat) || 
+                         (cat === '전체' && text === '전체') || 
+                         (cat === '필드 보스' && text === '보스') || 
+                         (cat === '팀 게시판' && text === '팀게') || 
+                         (cat === '스페셜 스킬' && text === '스킬') ||
+                         (cat === '실전 예시' && text === '실전예시') ||
+                         (cat === '기본 시스템' && text === '기본') ||
+                         (cat === '장비 시스템' && text === '장비') ||
+                         (cat === '내실 시스템' && text === '내실') ||
+                         (cat === '콘텐츠' && text === '콘텐츠') ||
+                         (cat === '아이템' && text === '아이템');
+        
+        if (isActive) chip.classList.add('active');
+        else chip.classList.remove('active');
+      });
+      handleSearch();
+    }
+
+    window.onload = loadData;
+    window.bindEscapeClose();
+</script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+    <script src="assets/tailwind.min.js"></script>
+    <script src="assets/lucide.min.js"></script>
+    <script src="assets/ui-utils.js"></script>
+    <style>
+        body {
+            color: white;
+            overflow: hidden;
+        }
+
+        .post-item {
+            padding: 12px 14px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .post-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .no-drag {
+            -webkit-app-region: no-drag;
+        }
+    </style>
+
+    <script>
+        window.bindElectronListenerCleanup();
+</script>
+</head>
+
+<body class="panel-glass p-0 h-screen flex flex-col">
+    <!-- Header -->
+    <div class="win-header">
+        <div class="win-title-area">
+            <div class="win-icon-box bg-yellow-500/10 border-yellow-500/20">
+                <i data-lucide="trophy" class="w-5 h-5 text-yellow-400"></i>
+            </div>
+            <div class="win-title-text">
+                <span class="win-title-main">에타 랭킹 조회</span>
+                <span id="last-update" class="win-title-sub">Loading...</span>
+            </div>
+        </div>
+        <div class="win-controls">
+            <button onclick="fetchRanking()" class="win-btn" title="새로고침">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+            </button>
+            <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="flex-1 overflow-hidden flex flex-col p-6 space-y-5 no-drag">
+        <!-- 검색 영역 -->
+        <div class="flex flex-col gap-2.5">
+            <div class="flex gap-3 bg-black/40 px-4 py-2.5 rounded-xl border border-white/5 items-center">
+                <span class="text-xs font-bold text-slate-400 mr-2">서버</span>
+                <label class="flex items-center gap-1.5 cursor-pointer group">
+                    <input type="radio" name="server" value="7" checked class="accent-amber-600 w-3.5 h-3.5"
+                        onchange="fetchRanking()">
+                    <span class="text-xs font-bold text-slate-300 group-hover:text-white transition-colors">하이아칸</span>
+                </label>
+                <label class="flex items-center gap-1.5 cursor-pointer group">
+                    <input type="radio" name="server" value="16" class="accent-amber-600 w-3.5 h-3.5"
+                        onchange="fetchRanking()">
+                    <span class="text-xs font-bold text-slate-300 group-hover:text-white transition-colors">네냐플</span>
+                </label>
+            </div>
+            <div
+                class="flex gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5 focus-within:border-yellow-500/50 transition-colors">
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 ml-3 mt-3"></i>
+                <input id="search-input"
+                    class="bg-transparent flex-1 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-700 font-bold"
+                    placeholder="캐릭터명 검색..." onkeypress="if(event.key==='Enter')fetchRanking(true)">
+                <button onclick="fetchRanking(true)"
+                    class="text-xs bg-amber-600 hover:bg-yellow-500 text-white px-5 py-2 rounded-lg font-black transition-all active:scale-95 shadow-lg flex items-center justify-center w-16"
+                    id="search-btn">검색</button>
+            </div>
+
+            <div class="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex flex-col gap-1 mt-1">
+                <div class="flex items-center gap-1.5 text-red-400 font-bold text-xs">
+                    <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                    <span>사기 거래 주의!</span>
+                </div>
+                <p class="text-[11px] text-slate-300 leading-relaxed font-bold">
+                    에타 레벨이 높다고 무조건 신뢰할 수는 없지만, 사기꾼을 거르는 최소한의 지표가 될 수 있습니다.<br>
+                    아래 글을 참고하여 안전하게 거래하세요.
+                </p>
+                <div class="flex flex-col gap-1.5 mt-2">
+                    <a href="#"
+                        onclick="window.electronAPI.openExternal('https://tales.nexon.com/Community/Free/47290')"
+                        class="text-[11px] text-yellow-400 hover:text-pink-300 hover:underline flex items-center gap-1.5 w-fit font-bold">
+                        <i data-lucide="external-link" class="w-3 h-3"></i> [공홈게시판] 뉴비복귀 유저분들 반드시 꼭!!! 이 글 봐주세요 (햄찌)
+                    </a>
+                    <a href="#"
+                        onclick="window.electronAPI.openExternal('https://gall.dcinside.com/mini/board/view/?id=talesweaver&no=191037')"
+                        class="text-[11px] text-yellow-400 hover:text-pink-300 hover:underline flex items-center gap-1.5 w-fit font-bold">
+                        <i data-lucide="external-link" class="w-3 h-3"></i> [텔즈미니갤] 사칭 사기 예방하는 방법. (윤삐삐)
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- 결과 리스트 -->
+        <div class="flex-1 custom-scroll overflow-y-auto space-y-4 pr-1">
+            <div>
+                <div class="px-1 mb-3">
+                    <h3 id="result-title"
+                        class="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="users" class="w-3.5 h-3.5"></i> 최상위 랭킹 (전체)
+                    </h3>
+                </div>
+                <div id="ranking-list" class="space-y-2">
+                    <!-- 랭킹 아이템들이 여기에 추가됨 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function renderList(entries) {
+            const list = document.getElementById('ranking-list');
+            list.innerHTML = '';
+            if (!entries || entries.length === 0) {
+                list.innerHTML = '<div class="text-xs text-slate-700 text-center py-10 font-bold tracking-widest opacity-50">검색 결과가 없습니다.</div>';
+                return;
+            }
+
+            entries.forEach(e => {
+                const div = document.createElement('div');
+                div.className = 'post-item';
+
+                // 등수 스타일 변환
+                let rankClass = "text-slate-500";
+                if (e.rank === 1) rankClass = "text-yellow-400";
+                else if (e.rank === 2) rankClass = "text-slate-300";
+                else if (e.rank === 3) rankClass = "text-orange-400";
+
+                div.innerHTML = `
+          <div class="w-10 text-sm ${rankClass} font-black tracking-tighter text-center">
+            ${e.rank}
+          </div>
+          <div class="flex-1 flex flex-col truncate ml-1">
+            <span class="text-sm text-slate-200 font-bold truncate">${e.nickname}</span>
+            <span class="text-xs text-slate-500 font-bold">${e.character}</span>
+          </div>
+          <div class="flex flex-col items-end">
+            <div class="text-xs text-yellow-400 font-black"><span class="text-xs text-slate-500 mr-1">Lv.</span>${e.level}</div>
+            <div class="text-xs text-slate-500 font-bold mt-0.5">${e.point.toLocaleString()} 정수</div>
+          </div>
+        `;
+                list.appendChild(div);
+            });
+            refreshIcons();
+        }
+
+        async function fetchRanking(isSearch = false) {
+            const input = document.getElementById('search-input');
+            const searchBtn = document.getElementById('search-btn');
+            // 라디오 버튼 선택된 값 가져오기
+            const selectedRadio = document.querySelector('input[name="server"]:checked');
+            const sc = selectedRadio ? parseInt(selectedRadio.value, 10) : 7;
+            const list = document.getElementById('ranking-list');
+            const resultTitle = document.getElementById('result-title');
+            const lastUpdateLabel = document.getElementById('last-update');
+
+            let searchKeyword = '';
+            if (isSearch) {
+                searchKeyword = input.value.trim();
+            } else {
+                input.value = ''; // 초기화 호출 시 검색어 비우기
+            }
+
+            list.innerHTML = '<div class="text-xs text-slate-600 font-bold text-center py-6 animate-pulse">데이터 조회 중...</div>';
+
+            // 검색 중 버튼 비활성화
+            input.disabled = true;
+            document.querySelectorAll('input[name="server"]').forEach(el => el.disabled = true);
+            const originalBtnHTML = searchBtn.innerHTML;
+            searchBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>';
+            searchBtn.disabled = true;
+            refreshIcons();
+
+            try {
+                const params = { sc, cc: 99, page: 1, search: searchKeyword };
+                const result = await window.electronAPI.getEtaRanking(params);
+
+                lastUpdateLabel.innerText = result.lastUpdate || 'Unknown';
+
+                if (searchKeyword) {
+                    resultTitle.innerHTML = `<i data-lucide="search" class="w-3 h-3"></i> 검색 결과`;
+                } else {
+                    resultTitle.innerHTML = `<i data-lucide="users" class="w-3 h-3"></i> 최상위 랭킹 (전체)`;
+                }
+
+                renderList(result.entries);
+
+            } catch (err) {
+                console.error(err);
+                list.innerHTML = `<div class="text-xs font-bold text-red-400 text-center py-6">조회 실패: ${err.message}</div>`;
+            } finally {
+                input.disabled = false;
+                document.querySelectorAll('input[name="server"]').forEach(el => el.disabled = false);
+                searchBtn.innerHTML = originalBtnHTML;
+                searchBtn.disabled = false;
+                input.focus();
+                refreshIcons();
+            }
+        }
+
+        window.onload = () => {
+            fetchRanking(); // 창이 열릴 때 기본 데이터 요청 (1페이지 탑)
+        };
+
+        window.bindEscapeClose();
+        refreshIcons();
+</script>
+</body>
+
+</html>

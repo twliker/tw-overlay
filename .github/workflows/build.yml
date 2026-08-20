@@ -1,0 +1,57 @@
+name: Build/Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out git repository
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate TypeScript
+        run: npm run typecheck
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Inject Analytics Secrets
+        env:
+          GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
+          GA_API_SECRET: ${{ secrets.GA_API_SECRET }}
+        shell: bash
+        run: |
+          echo "{\"MEASUREMENT_ID\": \"$GA_MEASUREMENT_ID\", \"API_SECRET\": \"$GA_API_SECRET\"}" > dist/env.json
+
+      - name: Package Electron app
+        run: npm exec electron-builder -- --win --publish never
+
+      - name: Create one draft release and upload update files
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          body_path: release-note/CHANGELOG-${{ github.ref_name }}.md
+          fail_on_unmatched_files: true
+          preserve_order: true
+          files: |
+            dist_electron/twOverlay-Setup-*.exe
+            dist_electron/twOverlay-Setup-*.exe.blockmap
+            dist_electron/latest.yml

@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>twOverlay 업데이트 공지</title>
+  <script src="assets/lucide.min.js"></script>
+  <style>
+    /* Reset & Base */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    
+    html, body {
+      width: 640px;
+      height: 680px;
+      background: transparent;
+      overflow: hidden;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif;
+      font-variant-numeric: tabular-nums;
+    }
+    
+    /* Main Layout */
+    .notice-container {
+      width: 640px;
+      height: 680px;
+      background: rgba(15, 23, 42, 0.97); /* slate-900 */
+      border: 1.5px solid rgba(168, 85, 247, 0.35); /* purple-500/35 */
+      border-radius: 20px;
+      box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.7), 0 0 35px rgba(168, 85, 247, 0.15);
+      display: flex;
+      flex-direction: column;
+      color: #f1f5f9;
+      position: relative;
+      backdrop-filter: blur(20px) saturate(180%);
+    }
+    
+    /* Header Drag Area */
+    .notice-header {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      -webkit-app-region: drag;
+      flex-shrink: 0;
+    }
+    
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .header-icon {
+      width: 24px;
+      height: 24px;
+      color: #a78bfa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .header-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #f8fafc;
+      letter-spacing: 0.3px;
+    }
+    
+    .version-badge {
+      background: rgba(168, 85, 247, 0.18);
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      color: #c084fc;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      margin-left: 4px;
+    }
+    
+    .close-btn {
+      -webkit-app-region: no-drag;
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    
+    .close-btn:hover {
+      background: rgba(239, 68, 68, 0.2);
+      color: #ef4444;
+    }
+    
+    /* Content Area */
+    .notice-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    
+    /* Scrollbar */
+    .notice-content::-webkit-scrollbar {
+      width: 6px;
+    }
+    .notice-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .notice-content::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 3px;
+    }
+    .notice-content::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+    
+    /* Hero / Summary Banner */
+    .hero-banner {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%);
+      border: 1px solid rgba(168, 85, 247, 0.25);
+      border-radius: 14px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    
+    .hero-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .hero-title {
+      font-size: 15.5px;
+      font-weight: 700;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .hero-date {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    
+    .hero-summary {
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    
+    /* 4-Column Compact Image Gallery */
+    .gallery-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: rgba(30, 41, 59, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+    
+    .gallery-header {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .gallery-header-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .gallery-header-hint {
+      font-size: 11px;
+      color: #a78bfa;
+      font-weight: 500;
+    }
+    
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    
+    .thumbnail-card {
+      position: relative;
+      height: 84px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .thumbnail-card:hover {
+      border-color: #a855f7;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.6), 0 0 16px rgba(168, 85, 247, 0.3);
+    }
+    
+    .thumbnail-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.3s ease;
+    }
+    
+    .thumbnail-card:hover .thumbnail-img {
+      transform: scale(1.08);
+    }
+    
+    .thumbnail-badge {
+      position: absolute;
+      bottom: 5px;
+      left: 5px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(4px);
+      color: #e2e8f0;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+
+    .thumbnail-zoom-icon {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: rgba(168, 85, 247, 0.85);
+      color: #ffffff;
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: scale(0.8);
+      transition: all 0.2s ease;
+      pointer-events: none;
+    }
+
+    .thumbnail-card:hover .thumbnail-zoom-icon {
+      opacity: 1;
+      transform: scale(1);
+    }
+    
+    /* Section Card */
+    .section-card {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.2s;
+    }
+    
+    .section-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+    
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 6px;
+      letter-spacing: 0.2px;
+      text-transform: uppercase;
+    }
+    
+    .badge-purple { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+    .badge-orange { background: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
+    .badge-blue   { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .badge-green  { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+    .badge-teal   { background: rgba(20, 184, 166, 0.2); color: #2dd4bf; border: 1px solid rgba(20, 184, 166, 0.4); }
+    .badge-red    { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-amber  { background: rgba(251, 191, 36, 0.2); color: #fcd34d; border: 1px solid rgba(251, 191, 36, 0.4); }
+    
+    .section-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    
+    .section-desc {
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    
+    /* Section Items */
+    .section-items {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 2px;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    
+    .section-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.45;
+    }
+    
+    .item-dot {
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #a855f7;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+    
+    /* Lightbox Modal */
+    .lightbox-modal {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.88);
+      backdrop-filter: blur(12px);
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    
+    .lightbox-modal.active {
+      display: flex;
+      opacity: 1;
+    }
+    
+    .lightbox-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 12px;
+      flex-shrink: 0;
+    }
+    
+    .lightbox-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .lightbox-close-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #f1f5f9;
+      cursor: pointer;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    
+    .lightbox-close-btn:hover {
+      background: rgba(239, 68, 68, 0.5);
+      border-color: #ef4444;
+      color: #ffffff;
+      transform: scale(1.05);
+    }
+    
+    .lightbox-body {
+      flex: 1;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      padding: 8px;
+    }
+    
+    .lightbox-img {
+      max-width: 96%;
+      max-height: 520px;
+      object-fit: contain;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
+      user-select: none;
+    }
+    
+    .lightbox-nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(8px);
+      color: #ffffff;
+      cursor: pointer;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      z-index: 10;
+    }
+    
+    .lightbox-nav-btn:hover {
+      background: #a855f7;
+      border-color: #c084fc;
+      transform: translateY(-50%) scale(1.1);
+    }
+    
+    .lightbox-prev { left: 16px; }
+    .lightbox-next { right: 16px; }
+    
+    .lightbox-footer {
+      font-size: 12px;
+      color: #94a3b8;
+      padding: 6px 12px;
+      background: rgba(15, 23, 42, 0.7);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      flex-shrink: 0;
+    }
+    
+    /* Footer */
+    .notice-footer {
+      height: 64px;
+      padding: 0 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      background: rgba(15, 23, 42, 0.8);
+    }
+    
+    .footer-tip {
+      font-size: 12px;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .confirm-btn {
+      background: #9333ea;
+      color: #ffffff;
+      border: none;
+      padding: 8px 20px;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 14px rgba(147, 51, 234, 0.35);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .confirm-btn:hover {
+      background: #a855f7;
+      box-shadow: 0 6px 20px rgba(168, 85, 247, 0.5);
+      transform: translateY(-1px);
+    }
+    
+    .confirm-btn:active {
+      transform: scale(0.97);
+    }
+  </style>
+</head>
+<body>
+  <div class="notice-container">
+    <!-- Header -->
+    <header class="notice-header">
+      <div class="header-left">
+        <div class="header-icon">
+          <i data-lucide="sparkles" style="width: 20px; height: 20px;"></i>
+        </div>
+        <span class="header-title">업데이트 공지</span>
+        <span id="version-badge" class="version-badge">v2.5.0</span>
+      </div>
+      <button id="close-btn" class="close-btn" title="닫기 (Esc)">
+        <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+      </button>
+    </header>
+
+    <!-- Content Area -->
+    <main id="notice-content" class="notice-content">
+      <!-- Hero Banner -->
+      <div class="hero-banner">
+        <div class="hero-title-row">
+          <div id="notice-title" class="hero-title">
+            <i data-lucide="bell" style="width: 16px; height: 16px; color: #c084fc;"></i>
+            <span>TW-Overlay 새로운 업데이트 소식</span>
+          </div>
+          <span id="notice-date" class="hero-date">2026-08-15</span>
+        </div>
+        <p id="notice-summary" class="hero-summary">
+          모험가님의 쾌적하고 편리한 플레이를 위해 새로운 편의 기능이 추가되고 안정성이 개선되었습니다.
+        </p>
+      </div>
+
+      <!-- Top 4-Column Compact Image Gallery (Rendered when images are present) -->
+      <div id="gallery-container" class="gallery-container" style="display: none;">
+        <div class="gallery-header">
+          <div class="gallery-header-left">
+            <i data-lucide="images" style="width: 15px; height: 15px; color: #a78bfa;"></i>
+            <span>업데이트 스크린샷</span>
+          </div>
+          <span class="gallery-header-hint">클릭하여 크게 보기 🔍</span>
+        </div>
+        <div id="gallery-grid" class="gallery-grid">
+          <!-- 4-column compact thumbnails rendered here -->
+        </div>
+      </div>
+
+      <!-- Sections Dynamic Container -->
+      <div id="sections-container" style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- Javascript renders sections here -->
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="notice-footer">
+      <div class="footer-tip">
+        <i data-lucide="info" style="width: 14px; height: 14px;"></i>
+        <span>환경 설정 > 일반에서 언제든 다시 볼 수 있습니다.</span>
+      </div>
+      <button id="confirm-btn" class="confirm-btn">
+        <span>확인하고 닫기</span>
+        <i data-lucide="check" style="width: 16px; height: 16px;"></i>
+      </button>
+    </footer>
+
+    <!-- Lightbox Modal for Zoomed Image -->
+    <div id="lightbox-modal" class="lightbox-modal">
+      <div class="lightbox-header">
+        <div class="lightbox-title">
+          <i data-lucide="maximize-2" style="width: 15px; height: 15px; color: #c084fc;"></i>
+          <span id="lightbox-counter">이미지 1 / 1</span>
+        </div>
+        <button id="lightbox-close-btn" class="lightbox-close-btn" title="닫기 (Esc)">
+          <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+        </button>
+      </div>
+
+      <div class="lightbox-body" id="lightbox-body">
+        <button id="lightbox-prev-btn" class="lightbox-nav-btn lightbox-prev" title="이전 이미지 (←)">
+          <i data-lucide="chevron-left" style="width: 22px; height: 22px;"></i>
+        </button>
+        <img id="lightbox-img" class="lightbox-img" src="" alt="확대 이미지" />
+        <button id="lightbox-next-btn" class="lightbox-nav-btn lightbox-next" title="다음 이미지 (→)">
+          <i data-lucide="chevron-right" style="width: 22px; height: 22px;"></i>
+        </button>
+      </div>
+
+      <div class="lightbox-footer">
+        <span>키보드 방향키(←, →)로 이동하거나 Esc 키로 닫을 수 있습니다.</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentGalleryImages = [];
+    let currentLightboxIndex = 0;
+    let isLightboxOpen = false;
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Lucide Icons
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+
+      const closeBtn = document.getElementById('close-btn');
+      const confirmBtn = document.getElementById('confirm-btn');
+      const lightboxModal = document.getElementById('lightbox-modal');
+      const lightboxCloseBtn = document.getElementById('lightbox-close-btn');
+      const lightboxPrevBtn = document.getElementById('lightbox-prev-btn');
+      const lightboxNextBtn = document.getElementById('lightbox-next-btn');
+
+      const handleClose = () => {
+        if (window.electronAPI && window.electronAPI.updateNoticeClose) {
+          window.electronAPI.updateNoticeClose();
+        }
+      };
+
+      if (closeBtn) closeBtn.addEventListener('click', handleClose);
+      if (confirmBtn) confirmBtn.addEventListener('click', handleClose);
+
+      // Lightbox Controls
+      if (lightboxCloseBtn) lightboxCloseBtn.addEventListener('click', closeLightbox);
+      if (lightboxPrevBtn) lightboxPrevBtn.addEventListener('click', prevLightboxImage);
+      if (lightboxNextBtn) lightboxNextBtn.addEventListener('click', nextLightboxImage);
+
+      // Click outside image in lightbox to close
+      if (lightboxModal) {
+        lightboxModal.addEventListener('click', (e) => {
+          if (e.target === lightboxModal || e.target.id === 'lightbox-body') {
+            closeLightbox();
+          }
+        });
+      }
+
+      // Keyboard navigation (ESC, ArrowLeft, ArrowRight)
+      window.addEventListener('keydown', (e) => {
+        if (isLightboxOpen) {
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            closeLightbox();
+          } else if (e.key === 'ArrowLeft') {
+            prevLightboxImage();
+          } else if (e.key === 'ArrowRight') {
+            nextLightboxImage();
+          }
+        } else {
+          if (e.key === 'Escape') {
+            handleClose();
+          }
+        }
+      });
+
+      // Load Notice Data
+      try {
+        if (window.electronAPI && window.electronAPI.getUpdateNoticeData) {
+          const data = await window.electronAPI.getUpdateNoticeData();
+          if (data) {
+            renderNotice(data);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load update notice data:', err);
+      }
+    });
+
+    function renderNotice(data) {
+      if (data.version) {
+        const badge = document.getElementById('version-badge');
+        if (badge) badge.textContent = `v${data.version}`;
+      }
+
+      if (data.title) {
+        const titleSpan = document.querySelector('#notice-title span');
+        if (titleSpan) titleSpan.textContent = data.title;
+      }
+
+      if (data.date) {
+        const dateSpan = document.getElementById('notice-date');
+        if (dateSpan) dateSpan.textContent = data.date;
+      }
+
+      if (data.summary) {
+        const summaryP = document.getElementById('notice-summary');
+        if (summaryP) summaryP.textContent = data.summary;
+      }
+
+      // 1. Render Top 4-Column Image Gallery (notice_1.png, notice_2.png, etc.)
+      const gallerySection = document.getElementById('gallery-container');
+      const galleryGrid = document.getElementById('gallery-grid');
+
+      if (Array.isArray(data.images) && data.images.length > 0) {
+        currentGalleryImages = data.images.map((imgName) => {
+          return imgName.startsWith('http') || imgName.startsWith('assets/')
+            ? imgName
+            : `assets/notice/${imgName}`;
+        });
+
+        galleryGrid.replaceChildren();
+
+        currentGalleryImages.forEach((imgSrc, index) => {
+          const card = document.createElement('div');
+          card.className = 'thumbnail-card';
+
+          const img = document.createElement('img');
+          img.className = 'thumbnail-img';
+          img.src = imgSrc;
+          img.alt = `업데이트 이미지 ${index + 1}`;
+
+          const zoomIcon = document.createElement('div');
+          zoomIcon.className = 'thumbnail-zoom-icon';
+          zoomIcon.innerHTML = '<i data-lucide="zoom-in" style="width: 12px; height: 12px;"></i>';
+
+          const badge = document.createElement('span');
+          badge.className = 'thumbnail-badge';
+          badge.textContent = `${index + 1}`;
+
+          card.appendChild(img);
+          card.appendChild(zoomIcon);
+          card.appendChild(badge);
+
+          card.addEventListener('click', () => {
+            openLightbox(index);
+          });
+
+          galleryGrid.appendChild(card);
+        });
+
+        gallerySection.style.display = 'flex';
+      } else {
+        gallerySection.style.display = 'none';
+      }
+
+      // 2. Render Text Sections
+      const container = document.getElementById('sections-container');
+      if (container && Array.isArray(data.sections)) {
+        container.replaceChildren();
+
+        data.sections.forEach((section) => {
+          const card = document.createElement('div');
+          card.className = 'section-card';
+
+          // Header (Badge + Title)
+          const header = document.createElement('div');
+          header.className = 'section-header';
+
+          if (section.badge) {
+            const badge = document.createElement('span');
+            const colorClass = `badge-${section.badgeColor || 'purple'}`;
+            badge.className = `badge ${colorClass}`;
+            badge.textContent = section.badge;
+            header.appendChild(badge);
+          }
+
+          const title = document.createElement('h3');
+          title.className = 'section-title';
+          title.textContent = section.title || '';
+          header.appendChild(title);
+          card.appendChild(header);
+
+          // Description
+          if (section.description) {
+            const desc = document.createElement('p');
+            desc.className = 'section-desc';
+            desc.textContent = section.description;
+            card.appendChild(desc);
+          }
+
+          // Sub Items
+          if (Array.isArray(section.items) && section.items.length > 0) {
+            const itemsBox = document.createElement('div');
+            itemsBox.className = 'section-items';
+
+            section.items.forEach((itemText) => {
+              const row = document.createElement('div');
+              row.className = 'section-item';
+
+              const dot = document.createElement('div');
+              dot.className = 'item-dot';
+
+              const text = document.createElement('span');
+              text.textContent = itemText;
+
+              row.appendChild(dot);
+              row.appendChild(text);
+              itemsBox.appendChild(row);
+            });
+
+            card.appendChild(itemsBox);
+          }
+
+          container.appendChild(card);
+        });
+      }
+
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+    }
+
+    function openLightbox(index) {
+      if (!currentGalleryImages || currentGalleryImages.length === 0) return;
+      currentLightboxIndex = Math.max(0, Math.min(index, currentGalleryImages.length - 1));
+      updateLightboxDisplay();
+
+      const modal = document.getElementById('lightbox-modal');
+      if (modal) {
+        modal.classList.add('active');
+        isLightboxOpen = true;
+      }
+    }
+
+    function updateLightboxDisplay() {
+      const img = document.getElementById('lightbox-img');
+      const counter = document.getElementById('lightbox-counter');
+      const prevBtn = document.getElementById('lightbox-prev-btn');
+      const nextBtn = document.getElementById('lightbox-next-btn');
+
+      if (img && currentGalleryImages[currentLightboxIndex]) {
+        img.src = currentGalleryImages[currentLightboxIndex];
+      }
+
+      if (counter) {
+        counter.textContent = `이미지 ${currentLightboxIndex + 1} / ${currentGalleryImages.length}`;
+      }
+
+      // Hide/Show prev/next buttons if only 1 image
+      const hasMultiple = currentGalleryImages.length > 1;
+      if (prevBtn) prevBtn.style.display = hasMultiple ? 'flex' : 'none';
+      if (nextBtn) nextBtn.style.display = hasMultiple ? 'flex' : 'none';
+
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+    }
+
+    function prevLightboxImage() {
+      if (currentGalleryImages.length <= 1) return;
+      currentLightboxIndex = (currentLightboxIndex - 1 + currentGalleryImages.length) % currentGalleryImages.length;
+      updateLightboxDisplay();
+    }
+
+    function nextLightboxImage() {
+      if (currentGalleryImages.length <= 1) return;
+      currentLightboxIndex = (currentLightboxIndex + 1) % currentGalleryImages.length;
+      updateLightboxDisplay();
+    }
+
+    function closeLightbox() {
+      const modal = document.getElementById('lightbox-modal');
+      if (modal) {
+        modal.classList.remove('active');
+        isLightboxOpen = false;
+      }
+    }
+  </script>
+</body>
+</html>

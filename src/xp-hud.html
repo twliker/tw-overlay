@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>경험치 HUD</title>
+  <link rel="stylesheet" href="style.css">
+    <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    :root {
+      --bg: #0f0e1a;
+      --surface: #17152b;
+      --surface2: #1f1c38;
+      --border: rgba(96, 165, 250, 0.12);
+      --accent: #60a5fa;
+      --accent-hover: #93c5fd;
+      --accent-dim: rgba(96, 165, 250, 0.12);
+      --accent-glow: rgba(96, 165, 250, 0.2);
+      --text: #eff6ff;
+      --text-muted: #93c5fd;
+      --danger: #f87171;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── 수치 카드 ── */
+    .stat-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .stat-card:hover {
+      border-color: rgba(96, 165, 250, 0.3);
+      box-shadow: 0 0 12px rgba(96, 165, 250, 0.08);
+    }
+
+    .stat-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      opacity: 0.75;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+
+    .unit-sm {
+      font-size: 11px;
+      font-weight: 700;
+      opacity: 0.5;
+      margin: 0 2px 0 1px;
+    }
+
+    .remainder-sm {
+      font-size: 14px;
+      opacity: 0.6;
+      font-weight: 700;
+    }
+
+    /* ── 차트 영역 ── */
+    .chart-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      height: 160px;
+      position: relative;
+    }
+
+    .stat-grid-top {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .stat-grid-sub {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .essence-card {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(59, 130, 246, 0.1));
+      border: 1px solid rgba(168, 85, 247, 0.2);
+    }
+
+    .essence-label {
+      color: #c084fc;
+    }
+
+    .essence-value {
+      color: #e9d5ff;
+      font-size: 20px;
+    }
+
+    /* ── 구분선 ── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 4px 0;
+    }
+
+    /* ── 섹션 라벨 ── */
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #60a5fa;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.8;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+
+    /* ── 토글 스위치 ── */
+    .toggle-wrap {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+
+    .toggle-wrap input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle-wrap input:checked+.toggle-slider {
+      background: var(--accent);
+    }
+
+    .toggle-wrap input:checked+.toggle-slider::before {
+      transform: translateX(16px);
+    }
+
+    /* ── 설정 행 ── */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--surface2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .setting-row-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .setting-row-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      opacity: 0.7;
+    }
+
+    /* ── 숫자 인풋 ── */
+    .num-input {
+      width: 100%;
+      padding: 6px 28px 6px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .num-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
+    }
+
+    /* ── 버튼 ── */
+    .btn-sm {
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      border: none;
+    }
+
+    .btn-sm:active {
+      transform: scale(0.96);
+    }
+
+    .btn-danger {
+      background: rgba(248, 113, 113, 0.12);
+      border: 1px solid rgba(248, 113, 113, 0.3);
+      color: var(--danger);
+    }
+
+    .btn-danger:hover {
+      background: rgba(248, 113, 113, 0.2);
+    }
+
+    /* ── 스크롤 ── */
+    .scroll-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .scroll-area::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .scroll-area::-webkit-scrollbar-thumb {
+      background: rgba(52, 211, 153, 0.2);
+      border-radius: 4px;
+    }
+  </style>
+  <!-- Chart.js (Local) -->
+  <script src="assets/chart.umd.min.js"></script>
+</head>
+
+<body class="panel-glass p-0 h-screen flex flex-col relative">
+
+  <!-- 헤더 -->
+  <div class="win-header">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-blue-500/10 border-blue-500/20">
+        <i data-lucide="activity" class="w-5 h-5 text-blue-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">경험치 HUD</span>
+      </div>
+    </div>
+    <div class="win-controls">
+      <button onclick="window.electronAPI && window.electronAPI.toggleSettings && window.electronAPI.toggleSettings('display:game-overlay')" class="win-btn mr-1 text-blue-400 hover:text-blue-300" title="게임 오버레이 위치 및 표시 설정으로 이동">
+        <i data-lucide="layers" class="w-4 h-4"></i>
+      </button>
+      <button id="btn-toggle-hud-show" class="win-btn mr-1" title="오버레이 HUD 표시 토글">
+        <i id="hud-show-icon" data-lucide="eye" class="w-4 h-4"></i>
+      </button>
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- 본문 스크롤 영역 -->
+  <div class="scroll-area">
+
+    <!-- ① 세션 통계 -->
+    <div class="stat-grid-top">
+      <div class="section-label">
+        <i data-lucide="bar-chart-2" style="width:11px;height:11px"></i>
+        현재 세션 통계
+      </div>
+
+      <!-- 총 경험치 (가장 크게) -->
+      <div class="stat-card">
+        <div class="stat-label">총 획득 경험치</div>
+        <div class="stat-value text-blue-300" id="stat-total">0</div>
+      </div>
+
+      <!-- EPM 및 실시간 페이스 (2단) -->
+      <div class="stat-grid-sub">
+        <div class="stat-card">
+          <div class="stat-label">분당 평균 (EPM)</div>
+          <div class="stat-value !text-[17px]" id="stat-epm">0</div>
+        </div>
+        <div class="stat-card border-blue-500/30">
+          <div class="stat-label text-blue-400">실시간 페이스 (5m)</div>
+          <div class="stat-value !text-[17px] text-blue-400" id="stat-moving-epm">0</div>
+        </div>
+      </div>
+
+      <!-- 정수 기대값 카드 -->
+      <div class="stat-card essence-card">
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="stat-label essence-label flex items-center gap-1"><img src="assets/img/경험의정수.png" class="w-3.5 h-3.5 object-contain"> 시간당 정수 예상</div>
+            <div class="stat-value essence-value" id="stat-essence-per-hour">0.00개</div>
+          </div>
+          <div class="text-right">
+            <div class="stat-label">다음 경험의 정수까지</div>
+            <div class="text-xs font-bold text-slate-300" id="stat-essence-eta">--분 남음</div>
+          </div>
+        </div>
+        <div class="w-full bg-slate-800/50 h-1.5 rounded-full mt-3 overflow-hidden">
+          <div id="essence-progress"
+            class="bg-purple-500 h-full transition-all duration-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]"
+            style="width: 0%"></div>
+        </div>
+        <div style="margin-top:8px;display:flex;justify-content:flex-end;align-items:center;gap:4px;">
+          <span style="font-size:10px;font-weight:700;color:#c084fc;opacity:0.75;display:flex;align-items:center;gap:3px;"><img src="assets/img/경험의정수.png" style="width:12px;height:12px;object-fit:contain;"> 세션 교환</span>
+          <span id="stat-essence-count" style="font-size:13px;font-weight:900;color:#e9d5ff;">0개</span>
+        </div>
+      </div>
+
+      <!-- 마릿수 + 마리당 평균 경험치 (2단) -->
+      <div class="stat-grid-sub">
+        <div class="stat-card">
+          <div class="stat-label">잡은 몬스터</div>
+          <div class="stat-value !text-[17px] text-blue-300" id="stat-kills">0마리</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">마리당 평균 경험치</div>
+          <div class="stat-value !text-[17px]" id="stat-xp-per-kill">0</div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button id="btn-session-control" 
+              style="width:36px;height:36px;border-radius:50%;border:none;background:var(--accent-dim);border:1px solid rgba(52,211,153,0.3);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;"
+              title="세션 측정 시작/중지">
+              <i data-lucide="play" class="w-4 h-4" id="icon-session-control"></i>
+            </button>
+            <div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span class="stat-label">세션 경과 시간</span>
+                <span id="session-status-badge" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f87171;"></span>
+              </div>
+              <div style="font-size:16px;font-weight:900;color:var(--text);margin-top:2px;" id="elapsed-timer">00:00:00
+              </div>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div class="stat-label">세션 시작</div>
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-top:2px;" id="stat-start-time">—
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ② 실시간 추이 차트 -->
+    <div class="mt-2">
+      <div class="section-label">
+        <i data-lucide="line-chart" style="width:11px;height:11px"></i>
+        최근 30분 사냥 리듬
+      </div>
+      <div class="chart-container">
+        <canvas id="xpChart"></canvas>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- ③ 초기화 -->
+    <div>
+      <div class="section-label">
+        <i data-lucide="rotate-ccw" style="width:11px;height:11px"></i>
+        세션 초기화
+      </div>
+      <div class="stat-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;">
+        <div>
+          <div class="setting-row-label">경험치 세션 초기화</div>
+          <div class="setting-row-sub">데이터를 모두 리셋합니다.</div>
+        </div>
+        <button class="btn-sm btn-danger" id="btn-reset" style="white-space:nowrap;flex-shrink:0;">
+          초기화
+        </button>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- ④ 정수 알림 설정 -->
+    <div id="essence-alert-settings-section">
+      <div class="section-label">
+        <i data-lucide="bell-ring" style="width:11px;height:11px"></i>
+        경험의 정수 버프 알림
+      </div>
+      <!-- 활성화 토글 -->
+      <div class="setting-row">
+        <div>
+          <div class="setting-row-label">경험의 정수 버프 미감지 알림 활성화</div>
+          <div class="setting-row-sub">100억 달성 후 교환 미감지 시 경고</div>
+        </div>
+        <label class="toggle-wrap">
+          <input type="checkbox" id="toggle-essence-alert" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <!-- 사운드 + 미리듣기 -->
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+        <select id="essence-alert-sound"
+          style="flex:1;height:40px;padding:0 12px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:12px;font-weight:700;outline:none;cursor:pointer;">
+        </select>
+        <button id="btn-essence-preview"
+          class="w-10 h-[40px] flex items-center justify-center bg-blue-600/20 border border-blue-500/40 rounded-xl text-blue-400 hover:bg-blue-600 hover:text-white transition-all shadow-lg active:scale-90 shrink-0" 
+          title="소리 테스트">
+          <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+        </button>
+      </div>
+      <!-- 볼륨 -->
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:10px;color:var(--text-muted);font-weight:700;white-space:nowrap;">볼륨</span>
+        <input type="range" id="essence-alert-volume" min="0" max="100" value="70"
+          style="flex:1;accent-color:var(--accent);">
+        <span id="essence-alert-volume-label"
+          style="font-size:11px;font-weight:700;color:var(--text);min-width:28px;text-align:right;">70</span>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- ⑤ 표시 설정 -->
+    <div>
+      <div class="section-label">
+        <i data-lucide="monitor" style="width:11px;height:11px"></i>
+        표시 설정
+      </div>
+      <div class="setting-row">
+        <div>
+          <div class="setting-row-label">경험치 HUD 표시</div>
+          <div class="setting-row-sub">게임 화면 오버레이 여부</div>
+        </div>
+        <label class="toggle-wrap">
+          <input type="checkbox" id="toggle-show" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-row mt-2">
+        <div>
+          <div class="setting-row-label">경험치 세션 자동 시작</div>
+          <div class="setting-row-sub">앱 실행 시 경험치 측정을 자동으로 시작합니다.</div>
+        </div>
+        <label class="toggle-wrap">
+          <input type="checkbox" id="toggle-xp-auto-start" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-row mt-2">
+        <div>
+          <div class="setting-row-label">경험치 감소 무시</div>
+          <div class="setting-row-sub">경험치 판매 시 합계에서 제외</div>
+        </div>
+        <label class="toggle-wrap">
+          <input type="checkbox" id="toggle-ignore-negative" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- ⑤ 위치 설정 -->
+    <div>
+      <div class="section-label">
+        <i data-lucide="move" style="width:11px;height:11px"></i>
+        HUD 위치
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">좌측 여백 (Left)</div>
+          <div style="position:relative;">
+            <input type="number" id="pos-left" class="num-input" min="-3000" max="3000" value="200">
+            <span
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--text-muted);font-weight:700;">px</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">하단 여백 (Bottom)</div>
+          <div style="position:relative;">
+            <input type="number" id="pos-bottom" class="num-input" min="-3000" max="3000" value="0">
+            <span
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--text-muted);font-weight:700;">px</span>
+          </div>
+        </div>
+      </div>
+      <button id="btn-apply-pos"
+        style="margin-top:8px;width:100%;padding:6px 0;background:var(--accent-dim);border:1px solid rgba(52,211,153,0.3);border-radius:8px;font-size:11px;font-weight:700;color:var(--accent);cursor:pointer;transition:background 0.15s;"
+        onmouseover="this.style.background='rgba(52,211,153,0.2)'"
+        onmouseout="this.style.background='var(--accent-dim)'">
+        위치 즉시 적용
+      </button>
+    </div>
+
+  </div>
+
+  <script>
+    // ── 숫자 포맷 (단위 스타일링 적용) ──
+    function formatXP(num) {
+      if (num === 0) return '0';
+      const units = [
+        { label: '조', value: 1000000000000 },
+        { label: '억', value: 100000000 },
+        { label: '만', value: 10000 }
+      ];
+      let html = '';
+      let remainder = num;
+      for (const unit of units) {
+        if (remainder >= unit.value) {
+          const val = Math.floor(remainder / unit.value);
+          html += `${val}<span class="unit-sm">${unit.label}</span>`;
+          remainder %= unit.value;
+        }
+      }
+      // 만 단위 이상 기록이 있으면 나머지는 버림, 없으면(1만 미만) 숫자 표시
+      if (html === '') {
+        html = remainder.toLocaleString();
+      }
+      return html;
+    }
+
+    function formatStartTime(ts) {
+      const d = new Date(ts);
+      return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+    }
+
+    // ── 차트 설정 ──
+    let xpChart = null;
+    function initChart() {
+      const ctx = document.getElementById('xpChart').getContext('2d');
+      const gradient = ctx.createLinearGradient(0, 0, 0, 140);
+      gradient.addColorStop(0, 'rgba(96, 165, 250, 0.3)');
+      gradient.addColorStop(1, 'rgba(96, 165, 250, 0)');
+
+      xpChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array(30).fill(''),
+          datasets: [{
+            label: '분당 경험치',
+            data: Array(30).fill(0),
+            borderColor: '#60a5fa',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: true,
+            backgroundColor: gradient,
+            tension: 0.4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false },
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(255, 255, 255, 0.05)' },
+              ticks: {
+                color: '#93c5fd',
+                font: { size: 9 },
+                callback: (val) => val >= 100000000 ? (val / 100000000).toFixed(1) + '억' : (val / 10000).toFixed(0) + '만'
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // ── 상태 ──
+    let _startTime = Date.now();
+    let _accumulatedTime = 0;
+    let _isActive = false;
+    let _elapsedTimer = null;
+
+    function startElapsedTimer() {
+      if (_elapsedTimer) clearInterval(_elapsedTimer);
+      _elapsedTimer = setInterval(() => {
+        let elapsed = _accumulatedTime;
+        if (_isActive) {
+          elapsed += Date.now() - _startTime;
+        }
+        document.getElementById('elapsed-timer').textContent = window.formatElapsedTime(elapsed);
+      }, 1000);
+    }
+
+    function updateStats(data, isInitial = false) {
+      if (!data) return;
+
+      if (data.isActive !== undefined) {
+        _isActive = data.isActive;
+        const btn = document.getElementById('btn-session-control');
+        const icon = document.getElementById('icon-session-control');
+        const badge = document.getElementById('session-status-badge');
+
+        if (_isActive) {
+          if (icon) {
+            icon.setAttribute('data-lucide', 'pause');
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+          }
+          if (badge) {
+            badge.style.backgroundColor = 'var(--accent)';
+            badge.classList.add('animate-pulse');
+          }
+          if (btn) {
+            btn.style.background = 'rgba(248, 113, 113, 0.12)';
+            btn.style.borderColor = 'rgba(248, 113, 113, 0.3)';
+            btn.style.color = 'var(--danger)';
+            btn.title = '세션 측정 중지';
+          }
+        } else {
+          if (icon) {
+            icon.setAttribute('data-lucide', 'play');
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+          }
+          if (badge) {
+            badge.style.backgroundColor = 'var(--danger)';
+            badge.classList.remove('animate-pulse');
+          }
+          if (btn) {
+            btn.style.background = 'var(--accent-dim)';
+            btn.style.borderColor = 'rgba(52, 211, 153, 0.3)';
+            btn.style.color = 'var(--accent)';
+            btn.title = '세션 측정 시작';
+          }
+        }
+      }
+
+      if (data.startTime !== undefined) {
+        _startTime = data.startTime;
+        const startTimeEl = document.getElementById('stat-start-time');
+        if (startTimeEl) startTimeEl.textContent = formatStartTime(_startTime);
+      }
+      if (data.accumulatedTime !== undefined) _accumulatedTime = data.accumulatedTime;
+
+      if (document.getElementById('stat-total')) document.getElementById('stat-total').innerHTML = formatXP(data.total || 0);
+      if (document.getElementById('stat-epm')) document.getElementById('stat-epm').innerHTML = formatXP(data.epm || 0);
+      if (document.getElementById('stat-moving-epm')) document.getElementById('stat-moving-epm').innerHTML = formatXP(data.movingEpm || 0);
+
+      // 정수 계산 (100억 = 1정수)
+      const ESSENCE_XP = 10000000000;
+      const movingEpm = data.movingEpm || 0;
+      const hourlyXP = movingEpm * 60;
+      const hourlyEssence = hourlyXP / ESSENCE_XP;
+      if (document.getElementById('stat-essence-per-hour')) document.getElementById('stat-essence-per-hour').textContent = hourlyEssence.toFixed(2) + '개';
+
+      // 다음 정수까지 남은 시간 (마지막 교환 이후 누적 기준)
+      const xpSinceExchange = data.xpSinceLastExchange || 0;
+      const remainingForEssence = ESSENCE_XP - xpSinceExchange;
+      const progressPercent = Math.min(xpSinceExchange / ESSENCE_XP * 100, 100);
+      if (document.getElementById('essence-progress')) document.getElementById('essence-progress').style.width = progressPercent + '%';
+
+      if (movingEpm > 0) {
+        const minsRemaining = remainingForEssence / movingEpm;
+        if (document.getElementById('stat-essence-eta')) document.getElementById('stat-essence-eta').textContent = Math.ceil(minsRemaining) + '분 남음';
+      } else {
+        if (document.getElementById('stat-essence-eta')) document.getElementById('stat-essence-eta').textContent = '--분 남음';
+      }
+
+      // 세션 정수 교환 횟수
+      if (document.getElementById('stat-essence-count'))
+        document.getElementById('stat-essence-count').textContent = (data.essenceCount || 0) + '개';
+
+      // 마릿수 및 마리당 평균 경험치
+      const kills = data.kills || 0;
+      if (document.getElementById('stat-kills'))
+        document.getElementById('stat-kills').textContent = kills.toLocaleString() + '마리';
+      if (document.getElementById('stat-xp-per-kill')) {
+        const xpPerKill = kills > 0 ? Math.floor((data.total || 0) / kills) : 0;
+        document.getElementById('stat-xp-per-kill').innerHTML = formatXP(xpPerKill);
+      }
+
+      // 차트 업데이트 (y축 callback에서 단위 변환을 수행하므로 여기서는 원본 전달)
+      if (xpChart && data.history) {
+        const displayData = data.history.slice(-30);
+        while (displayData.length < 30) displayData.unshift(0);
+        xpChart.data.datasets[0].data = displayData;
+        xpChart.update(isInitial ? undefined : 'none');
+      }
+    }
+    // ── 이벤트 리스너 ──
+    window.electronAPI.onXpUpdate((data) => {
+      updateStats(data);
+    });
+
+    window.electronAPI.onXpResetDone((data) => {
+      _startTime = data.startTime;
+      _accumulatedTime = data.accumulatedTime || 0;
+      _isActive = data.isActive || false;
+      updateStats({
+        total: 0, epm: 0, movingEpm: 0, history: [], kills: 0, essenceCount: 0,
+        xpSinceLastExchange: 0, isActive: _isActive, startTime: _startTime, accumulatedTime: _accumulatedTime
+      }, true);
+      const startTimeEl = document.getElementById('stat-start-time');
+      if (startTimeEl) startTimeEl.textContent = formatStartTime(_startTime);
+    });
+
+    document.getElementById('btn-session-control').addEventListener('click', () => {
+      if (_isActive) {
+        window.electronAPI.stopXpSession();
+      } else {
+        window.electronAPI.startXpSession();
+      }
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      window.electronAPI.resetXp();
+    });
+
+    document.getElementById('toggle-show').addEventListener('change', (e) => {
+      window.electronAPI.applySettings({ showXpWidget: e.target.checked });
+    });
+
+    document.getElementById('btn-toggle-hud-show').addEventListener('click', () => {
+      window.electronAPI.applySettings({ showXpWidget: !currentShowXpWidget });
+    });
+
+    document.getElementById('toggle-xp-auto-start').addEventListener('change', (e) => {
+      window.electronAPI.applySettings({ xpAutoStart: e.target.checked });
+    });
+
+    document.getElementById('toggle-ignore-negative').addEventListener('change', (e) => {
+      window.electronAPI.applySettings({ ignoreNegativeXp: e.target.checked });
+    });
+
+    document.getElementById('toggle-essence-alert').addEventListener('change', (e) => {
+      window.electronAPI.applySettings({ essenceAlertEnabled: e.target.checked });
+    });
+
+    document.getElementById('essence-alert-sound').addEventListener('change', (e) => {
+      window.electronAPI.applySettings({ essenceAlertSound: e.target.value });
+    });
+
+    document.getElementById('essence-alert-volume').addEventListener('input', (e) => {
+      const vol = parseInt(e.target.value);
+      document.getElementById('essence-alert-volume-label').textContent = vol;
+      window.electronAPI.applySettings({ essenceAlertVolume: vol });
+    });
+
+    document.getElementById('btn-essence-preview').addEventListener('click', () => {
+      const sound = document.getElementById('essence-alert-sound').value || 'orb.mp3';
+      const vol = parseInt(document.getElementById('essence-alert-volume').value) || 70;
+      window.playPreview(sound, vol, '경험의 정수 버프 확인');
+    });
+
+    document.getElementById('btn-apply-pos').addEventListener('click', () => {
+      const left = parseInt(document.getElementById('pos-left').value) || 0;
+      const bottom = parseInt(document.getElementById('pos-bottom').value) || 0;
+      window.electronAPI.applySettings({ xpWidgetPos: { left, bottom } });
+    });
+
+    if (window.electronAPI && window.electronAPI.onHighlightAlarmSettings) {
+      window.electronAPI.onHighlightAlarmSettings(() => {
+        window.highlightElement(document.getElementById('essence-alert-settings-section'), {
+          borderColor: 'rgba(59, 130, 246, 0.8)',
+          boxShadow: '0 0 25px rgba(59, 130, 246, 0.5)',
+        });
+      });
+    }
+
+    let currentShowXpWidget = true;
+
+    window.electronAPI.onConfigData(async (config) => {
+      if (config.showXpWidget !== undefined) {
+        currentShowXpWidget = config.showXpWidget;
+        document.getElementById('toggle-show').checked = config.showXpWidget;
+        
+        // 헤더 눈 아이콘 업데이트
+        const icon = document.getElementById('hud-show-icon');
+        if (icon) {
+          icon.setAttribute('data-lucide', config.showXpWidget ? 'eye' : 'eye-off');
+          icon.classList.toggle('text-blue-400', config.showXpWidget);
+          refreshIcons();
+        }
+      }
+      if (config.xpAutoStart !== undefined) document.getElementById('toggle-xp-auto-start').checked = config.xpAutoStart;
+      if (config.ignoreNegativeXp !== undefined) document.getElementById('toggle-ignore-negative').checked = config.ignoreNegativeXp;
+      if (config.xpWidgetPos) {
+        document.getElementById('pos-left').value = config.xpWidgetPos.left;
+        document.getElementById('pos-bottom').value = config.xpWidgetPos.bottom;
+      }
+
+      // 사운드 목록 동적 갱신
+      if (window.loadSoundList) {
+        try {
+          const sounds = await window.loadSoundList();
+          const sel = document.getElementById('essence-alert-sound');
+          if (sel && sounds) {
+            const prevVal = sel.value || config.essenceAlertSound;
+            sel.innerHTML = sounds.map(s => `<option value="${s.file}">${s.name}</option>`).join('');
+            if (prevVal) sel.value = prevVal;
+          }
+        } catch (e) {
+          console.error('Failed to reload sound list:', e);
+        }
+      }
+
+      if (config.essenceAlertEnabled !== undefined)
+        document.getElementById('toggle-essence-alert').checked = config.essenceAlertEnabled;
+      if (config.essenceAlertSound) {
+        const sel = document.getElementById('essence-alert-sound');
+        if (sel) sel.value = config.essenceAlertSound;
+      }
+      if (config.essenceAlertVolume !== undefined) {
+        document.getElementById('essence-alert-volume').value = config.essenceAlertVolume;
+        document.getElementById('essence-alert-volume-label').textContent = config.essenceAlertVolume;
+      }
+    });
+
+    window.onload = async () => {
+      refreshIcons();
+      initChart();
+      startElapsedTimer();
+      if (window.bindEscapeClose) window.bindEscapeClose();
+
+      window.bindChatLogStatusWarning();
+
+      // 사운드 목록 로드
+      if (window.loadSoundList) {
+        const sounds = await window.loadSoundList();
+        const sel = document.getElementById('essence-alert-sound');
+        if (sel && sounds) {
+          sel.innerHTML = sounds.map(s => `<option value="${s.file}">${s.name}</option>`).join('');
+        }
+      }
+
+      // 초기 데이터 요청 (약간의 지연을 주어 차트 캔버스가 완전히 준비되도록 함)
+      setTimeout(() => {
+        window.electronAPI.getXpStats().then(stats => {
+          if (stats) {
+            _startTime = stats.startTime;
+            _accumulatedTime = stats.accumulatedTime || 0;
+            _isActive = stats.isActive || false;
+            const startTimeEl = document.getElementById('stat-start-time');
+            if (startTimeEl) startTimeEl.textContent = formatStartTime(_startTime);
+            updateStats(stats, true); // true 인자를 주어 초기 렌더링 강제화
+          }
+        });
+      }, 50);
+    };
+</script>
+</body>
+
+</html>

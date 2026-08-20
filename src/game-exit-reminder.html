@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+    <script src="assets/tailwind.min.js"></script>
+    <script src="assets/lucide.min.js"></script>
+    <style>
+        body {
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+        }
+
+        .panel-glass {
+            background: rgba(15, 18, 30, 0.98);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .header-bg {
+            background: linear-gradient(to bottom, rgba(168, 85, 247, 0.15), transparent);
+            padding: 40px 20px 20px 20px;
+            text-align: center;
+        }
+
+        .content-area {
+            flex: 1;
+            padding: 0 30px 30px 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        .icon-box {
+            width: 64px;
+            height: 64px;
+            background: rgba(168, 85, 247, 0.2);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px auto;
+        }
+
+        .icon-box i {
+            color: #a855f7;
+            width: 32px;
+            height: 32px;
+            filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.5));
+        }
+
+        .message-box {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 20px;
+            width: 100%;
+            text-align: center;
+            margin-bottom: 24px;
+            flex-shrink: 0;
+        }
+
+        .message-text {
+            font-size: 15px;
+            font-weight: 700;
+            line-height: 1.6;
+            color: #e2e8f0;
+            white-space: pre-wrap;
+        }
+
+        .incomplete-section {
+            width: 100%;
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .section-label {
+            font-size: 10px;
+            font-weight: 900;
+            color: #a855f7;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .scroll-area {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+
+        .scroll-area::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .scroll-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scroll-area::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .tag-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .task-card {
+            background: rgba(168, 85, 247, 0.08);
+            border: 1px solid rgba(168, 85, 247, 0.15);
+            border-radius: 10px;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+
+        .cat-dot {
+            width: 4px;
+            height: 16px;
+            border-radius: 100px;
+            background: #a855f7;
+            flex-shrink: 0;
+        }
+
+        .btn-confirm {
+            width: 100%;
+            background: #a855f7;
+            color: white;
+            font-size: 13px;
+            font-weight: 900;
+            padding: 14px;
+            border-radius: 14px;
+            margin-top: 24px;
+            transition: all 0.2s;
+            box-shadow: 0 10px 20px rgba(168, 85, 247, 0.2);
+            flex-shrink: 0;
+        }
+
+        .btn-confirm:hover {
+            background: #9333ea;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 25px rgba(168, 85, 247, 0.3);
+        }
+
+        .btn-confirm:active {
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="panel-glass">
+        <div class="header-bg">
+            <div class="icon-box">
+                <i data-lucide="log-out"></i>
+            </div>
+            <h1 class="text-xl font-black tracking-tight uppercase">게임 종료 안내</h1>
+        </div>
+        <div class="content-area">
+            <div class="message-box">
+                <div id="reminder-message" class="message-text">잠시만 기다려주세요...</div>
+            </div>
+            <div id="incomplete-section" class="incomplete-section hidden">
+                <div class="section-label">
+                    <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i>
+                    아직 완료하지 않은 숙제
+                </div>
+                <div class="scroll-area custom-scroll">
+                    <div id="incomplete-list" class="tag-container">
+                        <!-- 미완료 항목들이 여기에 추가됩니다 -->
+                    </div>
+                </div>
+            </div>
+            <button class="btn-confirm no-drag" onclick="window.close()">확인했습니다</button>
+        </div>
+    </div>
+
+    <script>
+        if (window.electronAPI) {
+            // 메인 메시지 수신
+            window.electronAPI.onReminderMessage((msg) => {
+                document.getElementById('reminder-message').textContent = msg || '오늘의 숙제는 다 하셨나요?\n내일 또 만나요! 👋';
+            });
+
+            // 미완료 숙제 목록 수신
+            window.electronAPI.onIncompleteContents((items) => {
+                if (items && items.length > 0) {
+                    document.getElementById('incomplete-section').classList.remove('hidden');
+                    const list = document.getElementById('incomplete-list');
+                    
+                    // 정렬: 1. 일일(daily) -> 주간(weekly) 순서, 2. 카테고리 가나다순
+                    const sortedItems = [...items].sort((a, b) => {
+                        if (a.type !== b.type) {
+                            return a.type === 'daily' ? -1 : 1;
+                        }
+                        return a.category.localeCompare(b.category);
+                    });
+
+                    list.innerHTML = sortedItems.map(item => {
+                        const isWeekly = item.type === 'weekly';
+                        const accentColor = isWeekly ? '#a855f7' : '#3b82f6';
+                        const borderColor = isWeekly ? 'rgba(168, 85, 247, 0.2)' : 'rgba(59, 130, 246, 0.2)';
+                        const bgColor = isWeekly ? 'rgba(168, 85, 247, 0.08)' : 'rgba(59, 130, 246, 0.08)';
+                        
+                        return `
+                            <div class="task-card" style="background: ${bgColor}; border-color: ${borderColor};">
+                                <div class="cat-dot" style="background: ${accentColor}; box-shadow: 0 0 8px ${accentColor}44;"></div>
+                                <div class="flex flex-col min-w-0">
+                                    <div class="flex items-center gap-1.5 mb-0.5">
+                                        <span class="px-1 py-0.5 bg-white/10 rounded text-[7px] font-black text-white/60 uppercase">
+                                            ${item.charName}
+                                        </span>
+                                        <span class="text-[8px] font-black uppercase tracking-tight opacity-70" style="color: ${accentColor};">
+                                            ${isWeekly ? '주간' : '일일'} • ${item.category}
+                                        </span>
+                                    </div>
+                                    <span class="text-[11px] font-bold text-white/90 truncate">${item.name}</span>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            });
+        }
+
+        // 아이콘 초기화
+        lucide.createIcons();
+</script>
+</body>
+
+</html>

@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <script src="shared/buffConstants.js"></script>
+  <style>
+    body {
+      background: transparent;
+      color: white;
+      overflow: hidden;
+    }
+
+    .cat-chip {
+      flex-shrink: 0;
+      padding: 8px 16px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 800;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #64748b;
+      transition: all 0.2s;
+    }
+
+    .cat-chip:hover {
+      background: rgba(245, 158, 11, 0.1);
+      color: #fbbf24;
+    }
+
+    .cat-chip.active {
+      background: #d97706;
+      border-color: #f59e0b;
+      color: white;
+      box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);
+    }
+
+    .buff-card {
+      background: rgba(30, 35, 60, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 16px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .buff-card:hover {
+      background: rgba(245, 158, 11, 0.05);
+      border-color: rgba(245, 158, 11, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    }
+
+    .buff-card.selected {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: #f59e0b;
+      box-shadow: inset 0 0 30px rgba(245, 158, 11, 0.05);
+    }
+
+    .buff-card.selected .buff-name {
+      color: #fbbf24;
+    }
+
+    .buff-card.disabled {
+      opacity: 0.2;
+      pointer-events: none;
+      filter: grayscale(1);
+    }
+
+    .buff-tag {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 8px;
+      font-weight: 700;
+      background: rgba(239, 68, 68, 0.1);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .system-locked .buff-card {
+      opacity: 0.5;
+      pointer-events: none;
+      filter: grayscale(0.5);
+    }
+
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    .custom-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  </style>
+
+    <script>
+        window.bindElectronListenerCleanup();
+</script>
+</head>
+
+<body class="panel-glass text-slate-200">
+  <div class="h-screen flex flex-col">
+    <!-- Header -->
+    <div class="win-header">
+      <div class="win-title-area">
+        <div class="win-icon-box bg-amber-500/10 border-amber-500/20">
+          <i data-lucide="zap" class="w-5 h-5 text-amber-400"></i>
+        </div>
+        <div class="win-title-text">
+          <span class="win-title-main">버프 백과 & 계산기</span>
+          <span class="win-title-sub">Buff Encyclopedia</span>
+        </div>
+      </div>
+      <div class="win-controls">
+        <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Source Info Bar (드래그 불가 영역) -->
+    <div class="no-drag px-5 py-2 bg-amber-500/5 border-b border-white/5 flex justify-between items-center shrink-0">
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-slate-500 font-medium">최종 업데이트: 2021.11.26</span>
+      </div>
+      <button onclick="window.electronAPI.openExternal('https://tales.nexon.com/News/Notice/131192')"
+        class="text-xs text-amber-500/70 hover:text-amber-400 transition-colors flex items-center gap-1.5">
+        출처: GM 가이드 <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+
+    <!-- Main Content Area (드래그 불가 영역) -->
+    <div class="flex-1 flex overflow-hidden no-drag">
+
+      <!-- Left Column: Presets -->
+      <div class="w-[340px] border-r border-white/5 flex flex-col bg-black/20">
+        <div class="p-5 space-y-5 overflow-y-auto custom-scroll flex-1">
+          <h2 class="text-xs font-black text-slate-500 uppercase tracking-widest px-1">도핑 프리셋</h2>
+
+          <!-- Standard Set -->
+          <div id="standard-preset-card" onclick="selectPreset('standard')"
+            class="cursor-pointer bg-gradient-to-br from-amber-600/20 to-orange-600/20 border border-amber-500/30 rounded-xl p-5 transition-all hover:bg-amber-600/30 active:scale-[0.98] group relative">
+            <div class="flex justify-between items-center mb-3">
+              <span class="text-sm font-black text-amber-400">기본 도핑 세트</span>
+              <div id="standard-deselect" class="hidden text-yellow-600 hover:text-yellow-400 transition-colors"
+                onclick="event.stopPropagation(); deselectPreset()">
+                <i data-lucide="x-circle" class="w-5 h-5"></i>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed font-medium">눈사람, 改-각성/신뢰, 이자벨 3종, 클럽 P, 앰플, 신속포션 (총 9종)
+            </p>
+          </div>
+
+          <div class="space-y-4 pt-2">
+            <div class="flex items-center justify-between px-1">
+              <span class="text-xs font-bold text-slate-400">나만의 프리셋</span>
+              <div class="flex gap-1.5">
+                <input id="preset-name" onfocus="handleInputFocus()"
+                  class="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs w-36 focus:outline-none focus:border-amber-500 transition-colors text-white"
+                  placeholder="이름 입력...">
+                <button onclick="saveCurrentPreset()"
+                  class="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-lg font-bold transition-colors">저장</button>
+              </div>
+            </div>
+            <div id="user-preset-list" class="space-y-3"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Buff List -->
+      <div class="flex-1 flex flex-col bg-black/10">
+        <div class="p-5 border-b border-white/5 space-y-4">
+          <div class="flex gap-4">
+            <div class="relative group flex-1">
+              <i data-lucide="search"
+                class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-amber-400 transition-colors"></i>
+              <input id="search-input"
+                class="input-field w-full pl-12 pr-4 py-3 text-sm bg-black/40 border-white/10 focus:border-amber-500/50 rounded-xl text-white"
+                placeholder="버프 이름 또는 효과 검색..." oninput="handleSearch()">
+            </div>
+            <div id="category-container" class="flex gap-2 items-center overflow-x-auto custom-scroll shrink-0 pb-1">
+              <button class="cat-chip active" onclick="filterCategory('ALL')">전체</button>
+              <button class="cat-chip" onclick="filterCategory('Experience')">경험치</button>
+              <button class="cat-chip" onclick="filterCategory('DropRate')">레어</button>
+              <button class="cat-chip" onclick="filterCategory('Stats')">능력치</button>
+              <button class="cat-chip" onclick="filterCategory('Damage')">대미지</button>
+              <button class="cat-chip" onclick="filterCategory('Utility')">유틸</button>
+            </div>
+          </div>
+        </div>
+        <div id="buff-list"
+          class="flex-1 custom-scroll overflow-y-auto p-5 grid grid-cols-2 xl:grid-cols-3 gap-3 content-start pb-40">
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary Panel -->
+    <div
+      class="no-drag absolute bottom-0 left-0 right-0 bg-slate-950/95 border-t border-white/10 p-5 backdrop-blur-xl z-20">
+      <div class="max-w-screen-2xl mx-auto flex justify-between items-center">
+        <div class="flex-1">
+          <h3 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">적용된 총 효과 합계</h3>
+          <div id="total-stats" class="text-lg font-black text-white">선택된 버프 없음</div>
+        </div>
+        <div class="flex items-center gap-5">
+          <div id="warnings"
+            class="text-xs text-red-400 font-bold bg-red-400/10 px-4 py-2 rounded-xl border border-red-400/20 hidden">
+            <i data-lucide="alert-triangle" class="w-4 h-4 inline align-bottom mr-2"></i>
+            <span id="warning-text"></span>
+          </div>
+          <button onclick="resetSelection()"
+            class="text-sm bg-white/5 hover:bg-red-500/20 hover:text-red-400 border border-white/10 hover:border-red-500/30 px-6 py-2.5 rounded-xl text-slate-400 font-bold transition-all">전체
+            해제</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allBuffs = [];
+    let selectedBuffIds = new Set();
+    let currentCategory = 'ALL';
+    let activePresetId = null;
+
+    window.onload = async () => {
+      await loadData();
+      loadCurrentSelection();
+      renderPresets();
+      lucide.createIcons();
+    };
+
+    async function loadData() { try { const response = await fetch('assets/data/buffs.json'); allBuffs = await response.json(); renderList(); } catch (e) { console.error('Failed to load buffs:', e); } }
+    function saveCurrentSelection() { localStorage.setItem('buff_current_selection', JSON.stringify(Array.from(selectedBuffIds))); localStorage.setItem('buff_active_preset_id', JSON.stringify(activePresetId)); }
+    function loadCurrentSelection() { const savedIds = localStorage.getItem('buff_current_selection'); const savedPresetId = localStorage.getItem('buff_active_preset_id'); if (savedIds) selectedBuffIds = new Set(JSON.parse(savedIds)); if (savedPresetId) activePresetId = JSON.parse(savedPresetId); renderList(); }
+    function getPresets() { const saved = localStorage.getItem('buff_presets'); return saved ? JSON.parse(saved) : []; }
+    function handleInputFocus() { if (activePresetId !== null) deselectPreset(); }
+    function saveCurrentPreset() { if (selectedBuffIds.size === 0) return alert('선택된 버프가 없습니다.'); const nameInput = document.getElementById('preset-name'); const name = nameInput.value.trim() || `프리셋 ${getPresets().length + 1}`; const newPreset = { id: Date.now(), name: name, buffIds: Array.from(selectedBuffIds) }; const presets = getPresets(); presets.push(newPreset); localStorage.setItem('buff_presets', JSON.stringify(presets)); nameInput.value = ''; activePresetId = newPreset.id; saveCurrentSelection(); renderPresets(); }
+    function updatePreset(presetId) { const presets = getPresets(); const idx = presets.findIndex(p => p.id === presetId); if (idx === -1) return; presets[idx].buffIds = Array.from(selectedBuffIds); localStorage.setItem('buff_presets', JSON.stringify(presets)); renderPresets(); }
+    function selectPreset(id) { document.getElementById('preset-name').value = ''; if (activePresetId === id) { deselectPreset(); return; } if (id === 'standard') { selectedBuffIds = new Set(window.buffConstants.STANDARD_BUFFS); activePresetId = 'standard'; } else { const presets = getPresets(); const preset = presets.find(p => p.id === id); if (!preset) return; selectedBuffIds = new Set(preset.buffIds); activePresetId = id; } saveCurrentSelection(); renderPresets(); renderList(document.getElementById('search-input').value); }
+    function deselectPreset() { selectedBuffIds.clear(); activePresetId = null; saveCurrentSelection(); renderPresets(); renderList(document.getElementById('search-input').value); }
+    function deletePreset(e, presetId) { e.stopPropagation(); if (!confirm('삭제하시겠습니까?')) return; const filtered = getPresets().filter(p => p.id !== presetId); localStorage.setItem('buff_presets', JSON.stringify(filtered)); if (activePresetId === presetId) deselectPreset(); else renderPresets(); }
+    function renderPresets() {
+      const container = document.getElementById('user-preset-list');
+      const presets = getPresets();
+      const stdCard = document.getElementById('standard-preset-card');
+      const stdDeselect = document.getElementById('standard-deselect');
+      if (activePresetId === 'standard') { stdCard.classList.add('ring-2', 'ring-amber-400', 'bg-amber-600/40'); stdDeselect.classList.remove('hidden'); }
+      else { stdCard.classList.remove('ring-2', 'ring-amber-400', 'bg-amber-600/40'); stdDeselect.classList.add('hidden'); }
+      if (presets.length === 0) { container.innerHTML = '<div class="text-xs text-slate-600 py-2 px-1">저장된 프리셋이 없습니다.</div>'; return; }
+      container.innerHTML = presets.map(p => {
+        const isActive = activePresetId === p.id;
+        const isModified = isActive && (JSON.stringify(p.buffIds.sort()) !== JSON.stringify(Array.from(selectedBuffIds).sort()));
+        return `<div onclick="selectPreset(${p.id})" class="group relative bg-slate-800/40 border ${isActive ? 'ring-2 ring-amber-500 border-amber-400 bg-amber-900/20' : 'border-white/10'} hover:bg-slate-800/60 rounded-xl p-4 cursor-pointer transition-all active:scale-[0.98]"><div class="flex justify-between items-start mb-1.5"><span class="text-xs font-black ${isActive ? 'text-amber-300' : 'text-slate-300'}">${p.name}</span><div class="flex gap-2">${isModified ? `<button onclick="event.stopPropagation(); updatePreset(${p.id})" class="text-green-400 hover:text-green-300 transition-colors"><i data-lucide="save" class="w-4 h-4"></i></button>` : ''}${isActive ? `<button onclick="event.stopPropagation(); deselectPreset()" class="text-amber-400 hover:text-white transition-colors"><i data-lucide="x-circle" class="w-4 h-4"></i></button>` : ''}<button onclick="deletePreset(event, ${p.id})" class="text-slate-600 hover:text-red-400 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div></div><p class="text-[11px] text-slate-500 font-medium">${isActive ? selectedBuffIds.size : p.buffIds.length}개의 버프 ${isModified ? '<span class="text-amber-400/70 ml-1">(수정됨)</span>' : ''}</p></div>`;
+      }).join('');
+      lucide.createIcons();
+    }
+    function renderList(query = '') {
+      const list = document.getElementById('buff-list');
+      list.innerHTML = '';
+      if (activePresetId === 'standard') list.classList.add('system-locked'); else list.classList.remove('system-locked');
+      const filtered = allBuffs.filter(item => {
+        if (currentCategory !== 'ALL' && item.category !== currentCategory) return false;
+        if (query && !item.name.includes(query) && !item.effect.includes(query)) return false;
+        return true;
+      });
+      const activeGroups = new Set();
+      selectedBuffIds.forEach(id => { const buff = allBuffs.find(b => b.id === id); if (buff && buff.group && buff.group !== 'none') activeGroups.add(buff.group); });
+      filtered.forEach(buff => {
+        const isSelected = selectedBuffIds.has(buff.id);
+        const isDisabled = !isSelected && buff.group !== 'none' && activeGroups.has(buff.group);
+        const card = document.createElement('div');
+        card.className = `buff-card ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`;
+        card.onclick = () => toggleSelection(buff.id);
+        let tags = [];
+        if (buff.removeOnExit) tags.push('<span class="buff-tag">종료 시 삭제</span>');
+        if (buff.removeOnDeath) tags.push('<span class="buff-tag">사망 시 삭제</span>');
+        card.innerHTML = `
+          <div class="flex justify-between items-start mb-2">
+            <span class="buff-name text-sm font-black text-slate-200 pr-2">${buff.name}</span>
+            <span class="shrink-0 text-[11px] text-yellow-400 font-black bg-yellow-400/10 px-2 py-0.5 rounded-lg">${buff.duration}</span>
+          </div>
+          <div class="text-xs text-white font-bold mb-3 leading-snug">${buff.effect}</div>
+          <div class="flex flex-wrap gap-1.5 mb-3">${tags.join('')}</div>
+          <p class="text-[11px] text-slate-500 leading-normal font-medium mt-auto line-clamp-3">${buff.description}</p>
+        `;
+        list.appendChild(card);
+      });
+      if (filtered.length === 0) list.innerHTML = `<div class="col-span-full text-center py-20 text-slate-600 text-sm font-bold">검색 결과가 없습니다.</div>`;
+      updateSummary();
+      lucide.createIcons();
+    }
+    function toggleSelection(id) {
+      if (activePresetId === 'standard') return;
+      const buff = allBuffs.find(b => b.id === id);
+      if (!buff) return;
+      if (selectedBuffIds.has(id)) selectedBuffIds.delete(id);
+      else {
+        if (buff.group && buff.group !== 'none') {
+          selectedBuffIds.forEach(sid => { const b = allBuffs.find(x => x.id === sid); if (b && b.group === buff.group) selectedBuffIds.delete(sid); });
+        }
+        selectedBuffIds.add(id);
+      }
+      saveCurrentSelection(); renderPresets(); renderList(document.getElementById('search-input').value);
+    }
+    function updateSummary() {
+      const summaryEl = document.getElementById('total-stats');
+      const warningEl = document.getElementById('warnings');
+      const warningText = document.getElementById('warning-text');
+      if (selectedBuffIds.size === 0) { summaryEl.textContent = "선택된 버프 없음"; summaryEl.className = "text-sm font-bold text-slate-500 mt-1"; warningEl.classList.add('hidden'); return; }
+      summaryEl.className = "text-base font-black leading-tight mt-1 flex flex-wrap gap-y-1";
+      let stats = { dmg: { pct: 0 }, stat: { pct: 0, fix: 0 }, exp: { pct: 0 }, rare: { pct: 0 }, crit: { pct: 0 }, speed: { fix: 0 }, attr: { fix: 0 } };
+      let hasDeathRisk = false, hasExitRisk = false;
+      selectedBuffIds.forEach(id => {
+        const buff = allBuffs.find(b => b.id === id); if (!buff) return;
+        const text = buff.effect;
+        const getPct = (r) => { const m = text.match(r); return m ? parseInt(m[1]) : 0; };
+        const getFix = (r) => { const m = text.match(r); return m ? parseInt(m[1]) : 0; };
+        stats.dmg.pct += getPct(/대미지\s*\+?(\d+)%/) || getPct(/공격력\s*\+?(\d+)%/);
+        stats.stat.pct += getPct(/능력치\s*\+?(\d+)%/);
+        stats.stat.fix += getFix(/능력치\s*\+?(\d+)(?!%)/);
+        stats.exp.pct += getPct(/경험치\s*\+?(\d+)%/);
+        stats.rare.pct += getPct(/레어\s*\+?(\d+)%/);
+        stats.crit.pct += getPct(/크리티컬\s*\+?(\d+)%/);
+        stats.speed.fix += getFix(/이속\s*\+?(\d+)(?!%)/) || getFix(/이동\s*속도\s*\+?(\d+)(?!%)/);
+        stats.attr.fix += getFix(/속성\s*\+?(\d+)(?!%)/);
+        if (buff.removeOnDeath) hasDeathRisk = true;
+        if (buff.removeOnExit) hasExitRisk = true;
+      });
+      let html = [];
+      const add = (l, v, c) => { let p = []; if (v.fix > 0) p.push(`+${v.fix}`); if (v.pct > 0) p.push(`+${v.pct}%`); if (p.length > 0) html.push(`<span class="${c}">${l} ${p.join(' / ')}</span>`); };
+      if (stats.dmg.pct > 0) html.push(`<span class="text-orange-400">대미지 +${stats.dmg.pct}%</span>`);
+      add('능력치', stats.stat, 'text-blue-400');
+      if (stats.crit.pct > 0) html.push(`<span class="text-cyan-400">크리 +${stats.crit.pct}%</span>`);
+      if (stats.exp.pct > 0) html.push(`<span class="text-green-400 font-black">EXP +${stats.exp.pct}%</span>`);
+      if (stats.rare.pct > 0) html.push(`<span class="text-purple-400 font-black">레어 +${stats.rare.pct}%</span>`);
+      if (stats.speed.fix > 0) html.push(`<span class="text-slate-300">이속 +${stats.speed.fix}</span>`);
+      if (stats.attr.fix > 0) html.push(`<span class="text-slate-300">속성 +${stats.attr.fix}</span>`);
+      summaryEl.innerHTML = html.join(' <span class="text-slate-700 mx-2">|</span> ');
+      if (hasDeathRisk || hasExitRisk) { let wrns = []; if (hasDeathRisk) wrns.push("사망 시 삭제"); if (hasExitRisk) wrns.push("재접속 시 삭제"); warningEl.classList.remove('hidden'); warningText.textContent = "주의: " + wrns.join(', '); } else warningEl.classList.add('hidden');
+    }
+    function resetSelection() { if (!confirm('현재 선택된 프리셋과 버프 선택을 모두 해제할까요?')) return; deselectPreset(); }
+    function handleSearch() { renderList(document.getElementById('search-input').value); }
+    function filterCategory(cat) { currentCategory = cat; const chips = document.querySelectorAll('.cat-chip'); chips.forEach(chip => { if (chip.innerText === getCategoryLabel(cat)) chip.classList.add('active'); else chip.classList.remove('active'); }); handleSearch(); }
+    function getCategoryLabel(cat) { const map = { 'ALL': '전체', 'Experience': '경험치', 'DropRate': '레어', 'Stats': '능력치', 'Damage': '대미지', 'Utility': '유틸' }; return map[cat] || cat; }
+    window.bindEscapeClose();
+
+    window.bindChatLogStatusWarning();
+</script>
+</body>
+
+</html>

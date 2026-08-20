@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <script src="shared/sidebarCategories.js"></script>
+
+  <script>
+    window.bindElectronListenerCleanup();
+</script>
+  <style>
+    /* 카테고리 아이콘 및 플라이아웃 서브메뉴 스타일 */
+    .category-item {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+    }
+    
+    .category-btn {
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      transition: all 0.2s;
+    }
+    
+    .category-btn:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    
+    .flyout-submenu {
+      display: none;
+      position: fixed;
+      background: rgba(15, 23, 42, 0.96) !important;
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border: 1.5px solid color-mix(in srgb, var(--theme-color, rgba(255, 255, 255, 0.08)) 30%, transparent);
+      border-radius: 14px;
+      padding: 8px;
+      gap: 6px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 25px var(--theme-glow, rgba(168, 85, 247, 0.15));
+      z-index: 1000;
+      white-space: nowrap;
+      pointer-events: auto;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+    
+    /* 사이드바 위치에 따른 플라이아웃 배치 */
+    body[data-sidebar-pos="right"] .flyout-submenu {
+      left: 44px;
+      right: auto;
+      flex-direction: column;
+    }
+    
+    body[data-sidebar-pos="left"] .flyout-submenu {
+      right: 44px;
+      left: auto;
+      flex-direction: column;
+    }
+
+    /* 사이드바 플라이아웃 공백 영역 브릿지 (마우스 이동 시 닫힘 방지) */
+    .flyout-submenu::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: transparent;
+    }
+    
+    body[data-sidebar-pos="right"] .flyout-submenu::before {
+      left: -10px;
+      width: 10px;
+    }
+    
+    body[data-sidebar-pos="left"] .flyout-submenu::before {
+      right: -10px;
+      width: 10px;
+    }
+    
+    /* 서브메뉴 칩 스타일 */
+    .submenu-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: color-mix(in srgb, var(--theme-color, #ffffff) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--theme-color, #ffffff) 20%, transparent);
+      border-radius: 10px;
+      color: var(--theme-color, #cbd5e1);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .submenu-chip:hover {
+      background: color-mix(in srgb, var(--theme-color, #ffffff) 18%, transparent) !important;
+      color: var(--theme-color, #cbd5e1) !important;
+      border-color: color-mix(in srgb, var(--theme-color, #ffffff) 50%, transparent);
+      box-shadow: 0 0 10px var(--theme-glow, rgba(255, 255, 255, 0.1));
+      text-shadow: 0 0 5px var(--theme-glow, rgba(255, 255, 255, 0.3));
+      transform: translateY(-1px);
+    }
+
+    .submenu-chip i {
+      width: 14px;
+      height: 14px;
+      color: var(--theme-color, #cbd5e1);
+      transition: all 0.2s;
+    }
+
+    .submenu-chip:hover i {
+      filter: drop-shadow(0 0 4px var(--theme-color));
+    }
+
+    /* 테마 컬러 클래스 정의 */
+    .color-purple-400 { --theme-color: #c084fc; --theme-glow: rgba(192, 132, 252, 0.15); }
+    .color-emerald-400 { --theme-color: #34d399; --theme-glow: rgba(52, 211, 153, 0.15); }
+    .color-emerald-500 { --theme-color: #10b981; --theme-glow: rgba(16, 185, 129, 0.15); }
+    .color-indigo-400 { --theme-color: #818cf8; --theme-glow: rgba(129, 140, 248, 0.15); }
+    .color-blue-400 { --theme-color: #60a5fa; --theme-glow: rgba(96, 165, 250, 0.15); }
+    .color-sky-400 { --theme-color: #38bdf8; --theme-glow: rgba(56, 189, 248, 0.15); }
+    .color-amber-400 { --theme-color: #fbbf24; --theme-glow: rgba(251, 191, 36, 0.15); }
+    .color-yellow-400 { --theme-color: #facc15; --theme-glow: rgba(250, 204, 21, 0.15); }
+    .color-red-400 { --theme-color: #f87171; --theme-glow: rgba(248, 113, 113, 0.15); }
+    .color-pink-400 { --theme-color: #f472b6; --theme-glow: rgba(244, 114, 182, 0.15); }
+    .color-violet-400 { --theme-color: #a78bfa; --theme-glow: rgba(167, 139, 250, 0.15); }
+    .color-cyan-400 { --theme-color: #22d3ee; --theme-glow: rgba(34, 211, 238, 0.15); }
+    .color-lime-400 { --theme-color: #a3e635; --theme-glow: rgba(163, 230, 53, 0.15); }
+    .color-orange-400 { --theme-color: #fb923c; --theme-glow: rgba(251, 146, 60, 0.15); }
+    .color-teal-400 { --theme-color: #2dd4bf; --theme-glow: rgba(45, 212, 191, 0.15); }
+    .color-rose-400 { --theme-color: #fb7185; --theme-glow: rgba(251, 113, 133, 0.15); }
+    .color-purple-500 { --theme-color: #a855f7; --theme-glow: rgba(168, 85, 247, 0.15); }
+    .color-slate-400 { --theme-color: #cbd5e1; --theme-glow: rgba(203, 213, 225, 0.15); }
+  </style>
+</head>
+
+<body>
+  <div id="wrapper" class="sidebar-wrapper">
+    <!-- 사이드바 접기/펴기 -->
+    <div class="toggle-btn cursor-pointer" onclick="window.electronAPI.toggleSidebar()" title="사이드바 토글">
+      <i id="toggle-icon" data-lucide="chevron-left"></i>
+    </div>
+
+    <!-- 스크롤 가능한 중간 메뉴 영역 -->
+    <div class="flex-1 overflow-y-auto overflow-x-hidden sidebar-scroll-area flex flex-col w-full items-center">
+      <!-- 동적 메뉴 영역 -->
+      <div id="dynamic-menus" class="flex flex-col gap-0.5"></div>
+
+      <!-- 퀵슬롯 컨테이너 -->
+      <div id="slot-container" class="slot-container flex flex-col gap-2 mt-2"></div>
+    </div>
+
+    <!-- 시스템 하단 버튼 영역 (고정) -->
+    <div id="system-menus" class="mt-auto flex flex-col gap-0.5"></div>
+
+    <!-- 후원 버튼 -->
+    <div class="p-2 cursor-pointer text-purple-400/90 hover:text-purple-300 hover:scale-110 transition-transform relative"
+      onclick="window.electronAPI.openExternal('https://fairy.hada.io/@filbert')"
+      onmouseenter="showTooltip('Fairy로 후원하기 🧚', this)" onmouseleave="hideTooltip()">
+      <i data-lucide="feather" class="w-4 h-4"></i>
+    </div>
+
+    <div class="p-2 cursor-pointer text-slate-400 hover:text-purple-400 relative"
+      onclick="window.electronAPI.toggleSettings()" onmouseenter="showTooltip('환경 설정', this)"
+      onmouseleave="hideTooltip()">
+      <i data-lucide="settings" class="w-4 h-4"></i>
+      <span id="update-badge" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full hidden"></span>
+    </div>
+
+    <div class="p-2 pb-4 cursor-pointer text-slate-400 hover:text-red-500" onclick="window.electronAPI.closeApp()"
+      onmouseenter="showTooltip('앱 종료', this)" onmouseleave="hideTooltip()">
+      <i data-lucide="power" class="w-4 h-4"></i>
+    </div>
+  </div>
+
+  <!-- 툴팁 -->
+  <div id="tooltip" class="tw-tooltip"></div>
+
+  <!-- 알림 토스트 컨테이너 (스택형) -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- 오디오 재생기 -->
+  <audio id="boss-audio" class="hidden"></audio>
+
+  <script>
+    // 전역 변수 선언
+    const tooltip = document.getElementById('tooltip');
+    let bossAudio = null;
+    const toastContainer = document.getElementById('toast-container');
+    const wrapper = document.getElementById('wrapper');
+
+    let bossNotifyVolume = 0.5;
+    let currentHiddenMenuIds = [];
+    let _lastRecordedBossKey = null;
+    let lastConfig = null;
+    let sidebarPos = 'right';
+    let isCollapsed = false;
+
+    // 오디오 순차 재생용 큐 및 상태 변수
+    let audioQueue = [];
+    let isPlayingAudio = false;
+
+    function playNextAudio() {
+      if (audioQueue.length === 0) {
+        isPlayingAudio = false;
+        return;
+      }
+      isPlayingAudio = true;
+      const { soundFile, volume } = audioQueue.shift();
+
+      // 기존 재생 중인 오디오 정지 및 정리
+      if (bossAudio) {
+        try {
+          bossAudio.pause();
+          bossAudio.onended = null;
+        } catch (e) {}
+        bossAudio = null;
+      }
+
+      const rand = Math.random().toString(36).substring(2, 9);
+      let srcUrl = '';
+      if (soundFile.startsWith('custom_')) {
+        srcUrl = `tw-sound://custom/${soundFile}?t=${rand}`;
+      } else {
+        srcUrl = `tw-sound://default/${soundFile}?t=${rand}`;
+      }
+
+      // 새 Audio 객체 인스턴스 생성 (소스 변경 시 브라우저 오디오 엔진 레이스 컨디션 및 AbortError 전이 방지)
+      bossAudio = new Audio(srcUrl);
+      bossAudio.volume = (volume !== undefined && volume !== null) ? volume / 100 : bossNotifyVolume;
+
+      bossAudio.onended = () => {
+        bossAudio = null;
+        setTimeout(playNextAudio, 500);
+      };
+
+      bossAudio.play().catch(e => {
+        if (e.name === 'AbortError') {
+          console.log('[AUDIO] Play request was interrupted (AbortError). Ignoring.');
+          return;
+        }
+        console.error('Audio play failed:', e);
+        bossAudio = null;
+        setTimeout(playNextAudio, 500);
+      });
+    }
+
+    function showTooltip(text, el) {
+      const rect = el.getBoundingClientRect();
+      tooltip.innerText = text;
+      tooltip.style.top = `${rect.top + 4}px`;
+
+      if (sidebarPos === 'left') {
+        tooltip.style.left = 'auto';
+        tooltip.style.right = '42px'; // 본체 왼쪽(공백 쪽)으로 표시
+      } else {
+        tooltip.style.left = '42px'; // 본체 오른쪽(공백 쪽)으로 표시
+        tooltip.style.right = 'auto';
+      }
+
+      tooltip.style.display = 'flex';
+    }
+
+    function hideTooltip() {
+      tooltip.style.display = 'none';
+    }
+
+    const sidebarCategories = window.sidebarCategories;
+
+    let allMenus = [];
+
+    // --- 동적 메뉴 로딩 ---
+    async function initDynamicMenus() {
+      try {
+        const response = await fetch('assets/data/sidebar_menus.json');
+        allMenus = await response.json();
+
+        const dynamicContainer = document.getElementById('dynamic-menus');
+        const systemContainer = document.getElementById('system-menus');
+        dynamicContainer.innerHTML = '';
+        systemContainer.innerHTML = '';
+
+        // 1. 대분류 카테고리 렌더링
+        sidebarCategories.forEach(cat => {
+          const catItem = document.createElement('div');
+          catItem.className = 'category-item';
+          catItem.id = `cat-${cat.id}`;
+          
+          const categoryMenus = allMenus.filter(m => m.category === cat.id && !m.isSystem && !m.isComment);
+          const subMenus = categoryMenus.filter(menu => !menu.isOneDepth);
+          const oneDepthMenus = categoryMenus.filter(menu => menu.isOneDepth);
+          if (subMenus.length === 0 && oneDepthMenus.length === 0) return;
+
+          if (cat.id === 'homework') {
+            catItem.innerHTML = `
+              <div class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" 
+                   onclick="window.electronAPI.toggleContentsChecker()"
+                   onmouseenter="showTooltip('${cat.label}', this)"
+                   onmouseleave="hideTooltip()">
+                <i data-lucide="${cat.icon}" class="w-4 h-4"></i>
+              </div>
+            `;
+          } else if (subMenus.length > 0) {
+            catItem.innerHTML = `
+              <div class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" title="${cat.label}">
+                <i data-lucide="${cat.icon}" class="w-4 h-4"></i>
+              </div>
+              <div class="flyout-submenu hidden" id="flyout-${cat.id}"></div>
+            `;
+
+            catItem.onmouseenter = () => {
+              const flyout = catItem.querySelector('.flyout-submenu');
+              if (flyout) {
+                // 먼저 렌더링되게 하여 offsetHeight를 측정할 수 있도록 함
+                flyout.classList.remove('hidden');
+                flyout.style.display = 'flex';
+                
+                const rect = catItem.getBoundingClientRect();
+                const flyoutHeight = flyout.offsetHeight;
+                const targetTop = rect.top + rect.height / 2;
+                
+                let flyoutTop = targetTop - flyoutHeight / 2;
+                
+                // 화면 위/아래 경계선 침범 보정 (여백 8px)
+                const margin = 8;
+                if (flyoutTop < margin) {
+                  flyoutTop = margin;
+                } else if (flyoutTop + flyoutHeight > window.innerHeight - margin) {
+                  flyoutTop = window.innerHeight - flyoutHeight - margin;
+                }
+                
+                flyout.style.top = `${flyoutTop}px`;
+              }
+            };
+
+            catItem.onmouseleave = () => {
+              const flyout = catItem.querySelector('.flyout-submenu');
+              if (flyout) {
+                flyout.classList.add('hidden');
+                flyout.style.display = 'none';
+              }
+            };
+
+            const flyout = catItem.querySelector('.flyout-submenu');
+            if (flyout) {
+              // 카테고리 기본 테마 색상 적용
+              flyout.classList.add(`color-${cat.color}`);
+            }
+
+            subMenus.forEach(menu => {
+              const chip = document.createElement('div');
+              chip.className = `submenu-chip`;
+              chip.id = menu.id;
+              
+              const colorClass = menu.color ? `color-${menu.color}` : 'color-slate-400';
+              chip.classList.add(colorClass);
+
+              chip.innerHTML = `
+                <i data-lucide="${menu.icon}"></i>
+                <span>${menu.label}</span>
+              `;
+
+              if (menu.id === 'gallery-btn') {
+                chip.innerHTML += `<span id="noti-badge" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full hidden"></span>`;
+              }
+
+              chip.onclick = () => {
+                if (menu.action === 'openGallery') openGallery();
+                else if (menu.api && window.electronAPI[menu.api]) window.electronAPI[menu.api]();
+              };
+
+              // 호버 시 부모 서브메뉴 전체 테두리/글로우 색상 실시간 연동
+              chip.onmouseenter = () => {
+                const flyoutEl = chip.closest('.flyout-submenu');
+                if (flyoutEl && menu.color) {
+                  // 카테고리 기본색 제거
+                  flyoutEl.classList.remove(`color-${cat.color}`);
+                  // 칩 색상 추가
+                  flyoutEl.classList.add(`color-${menu.color}`);
+                }
+              };
+              
+              chip.onmouseleave = () => {
+                const flyoutEl = chip.closest('.flyout-submenu');
+                if (flyoutEl && menu.color) {
+                  // 칩 색상 제거
+                  flyoutEl.classList.remove(`color-${menu.color}`);
+                  // 카테고리 기본색 복원
+                  flyoutEl.classList.add(`color-${cat.color}`);
+                }
+              };
+
+              flyout.appendChild(chip);
+            });
+          }
+
+          if (subMenus.length > 0) dynamicContainer.appendChild(catItem);
+
+          oneDepthMenus.forEach(menu => {
+            const btn = document.createElement('div');
+            btn.id = menu.id;
+            btn.className = `category-item one-depth-menu p-2 cursor-pointer text-slate-400 hover:text-${menu.color} relative`;
+            btn.innerHTML = menu.image
+              ? `<img src="${menu.image}" class="w-4 h-4 object-contain" alt="${menu.label}">`
+              : `<i data-lucide="${menu.icon}" class="w-4 h-4"></i>`;
+            btn.onclick = () => {
+              if (menu.api && window.electronAPI[menu.api]) window.electronAPI[menu.api]();
+            };
+            btn.onmouseenter = () => showTooltip(menu.tooltip, btn);
+            btn.onmouseleave = () => hideTooltip();
+            dynamicContainer.appendChild(btn);
+          });
+        });
+
+        // 2. 시스템 고정 메뉴 렌더링
+        allMenus.forEach(menu => {
+          if (!menu.isSystem) return;
+          const btn = document.createElement('div');
+          btn.id = menu.id;
+          btn.className = `p-2 cursor-pointer text-slate-400 hover:text-${menu.color} relative`;
+          btn.innerHTML = `<i data-lucide="${menu.icon}" class="${menu.id.includes('icon') ? '' : 'w-4 h-4'}"></i>`;
+          if (menu.id === 'overlay-toggle-btn') btn.querySelector('i').id = 'overlay-icon';
+          if (menu.id === 'chat-overlay-toggle-btn') btn.querySelector('i').id = 'chat-overlay-icon';
+          if (menu.id === 'click-through-btn') btn.querySelector('i').id = 'click-through-icon';
+
+          btn.onclick = () => {
+            if (menu.api && window.electronAPI[menu.api]) window.electronAPI[menu.api]();
+          };
+
+          btn.onmouseenter = () => showTooltip(menu.tooltip, btn);
+          btn.onmouseleave = () => hideTooltip();
+
+          systemContainer.appendChild(btn);
+        });
+
+        refreshIcons();
+        applyMenuVisibility();
+      } catch (e) { console.error('Failed to load dynamic menus:', e); }
+    }
+
+    function applyMenuVisibility() {
+      sidebarCategories.forEach(cat => {
+        const catItem = document.getElementById(`cat-${cat.id}`);
+        if (!catItem) return;
+
+        if (cat.id === 'homework') {
+          catItem.style.display = currentHiddenMenuIds.includes('contents-checker-btn') ? 'none' : 'flex';
+          return;
+        }
+
+        const flyout = document.getElementById(`flyout-${cat.id}`);
+        if (!flyout) return;
+
+        let visibleCount = 0;
+        Array.from(flyout.children).forEach(chip => {
+          const isHidden = currentHiddenMenuIds.includes(chip.id);
+          chip.style.display = isHidden ? 'none' : 'flex';
+          if (!isHidden) visibleCount++;
+        });
+
+        catItem.style.display = visibleCount === 0 ? 'none' : 'flex';
+      });
+
+      const systemContainer = document.getElementById('system-menus');
+      if (systemContainer) {
+        Array.from(systemContainer.children).forEach(el => {
+          if (el.id) {
+            el.style.display = currentHiddenMenuIds.includes(el.id) ? 'none' : 'flex';
+          }
+        });
+      }
+
+      document.querySelectorAll('.one-depth-menu').forEach(menu => {
+        menu.style.display = currentHiddenMenuIds.includes(menu.id) ? 'none' : 'flex';
+      });
+    }
+
+    // 마우스 투과 제어 통합 함수
+    let lastIgnoreState = null;
+    function updateIgnoreMouseEvents(ignore) {
+      if (lastIgnoreState === ignore) return;
+      lastIgnoreState = ignore;
+      if (window.electronAPI && window.electronAPI.setIgnoreMouseEvents) {
+        window.electronAPI.setIgnoreMouseEvents(ignore, ignore ? { forward: true } : undefined);
+      }
+    }
+
+    function createToast(bossName, isCustomFromApi, spawnTime, offset, isAlreadyRecorded) {
+      const {
+        isRealBoss,
+        validSpawnTime,
+        displayName,
+        iconName,
+        iconColor,
+      } = window.getBossToastPresentation(bossName, isCustomFromApi, spawnTime, offset);
+      const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+
+      const toast = document.createElement('div');
+      toast.id = toastId;
+      toast.className = 'boss-toast show';
+
+      const buttonHtml = isAlreadyRecorded
+        ? `<button disabled class="px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default">
+            <i data-lucide="info" class="w-3.5 h-3.5"></i>
+            이미 기록됨!
+          </button>`
+        : `<button onclick="recordKillAndRemove('${toastId}', '${bossName}', '${validSpawnTime || ''}', event)" class="cursor-custom-sword px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-white transition-all text-[11px] font-bold">
+            <i data-lucide="sword" class="w-3.5 h-3.5"></i>
+            일지 기록
+          </button>`;
+
+      toast.innerHTML = `
+        <div class="flex items-start justify-between w-full gap-3">
+          <div class="flex items-start gap-2.5 pt-0.5">
+            <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor} mt-0.5 shrink-0"></i>
+            <span class="boss-toast-name flex-1 leading-snug break-keep">${displayName}</span>
+          </div>
+          <button onclick="removeToast('${toastId}', event)" class="p-1 text-slate-400 hover:text-white bg-white/5 hover:bg-red-500/80 rounded-md transition-colors shrink-0">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        ${isRealBoss ? `
+        <div class="mt-3 flex justify-end w-full border-t border-slate-700/50 pt-2">
+          ${buttonHtml}
+        </div>` : ''}
+      `;
+
+      toastContainer.appendChild(toast);
+      refreshIcons();
+      updateIgnoreMouseEvents(false);
+      updateSidebarWindowWidth(400); // 알림 생성 시 즉시 너비 확장 (짤림 방지)
+
+      // 자동 삭제 타이머
+      let duration = 5000; // 커스텀 알림 기본 5초
+      if (isRealBoss) {
+        duration = (offset === 0) ? 60000 : 30000; // 정각 알림은 1분, N분 전 알림은 30초
+      }
+      setTimeout(() => { removeToast(toastId); }, duration);
+    }
+
+    function removeToast(id, event) {
+      if (event) event.stopPropagation();
+      const toast = document.getElementById(id);
+      if (toast) {
+        toast.classList.remove('show');
+        setTimeout(() => {
+          if (toast.parentElement) toast.remove();
+          if (toastContainer.children.length === 0) {
+            updateIgnoreMouseEvents(true);
+          }
+        }, 300);
+      }
+    }
+
+    async function recordKillAndRemove(toastId, bossName, spawnTime, event) {
+      if (event) event.stopPropagation();
+
+      const recordKey = `${bossName}-${spawnTime}`;
+      // 1차 필터: 현재 세션 내 메모리 체크 (가장 빠름)
+      if (_lastRecordedBossKey === recordKey) {
+        const toast = document.getElementById(toastId);
+        if (toast) {
+          const btn = toast.querySelector('button[onclick^="recordKillAndRemove"]');
+          if (btn) {
+            btn.innerHTML = `<i data-lucide="info" class="w-3.5 h-3.5"></i> 이미 기록됨!`;
+            btn.disabled = true;
+            btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default";
+            refreshIcons();
+          }
+          setTimeout(() => { removeToast(toastId); }, 1500);
+        }
+        return;
+      }
+
+      const vol = (lastConfig && lastConfig.volumeCalculators !== undefined ? lastConfig.volumeCalculators : 50) / 100;
+      if (vol > 0) {
+        const audio = new Audio('assets/sound/item_get.wav');
+        audio.volume = vol;
+        audio.play().catch(e => { });
+      }
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const dateStr = String(now.getDate()).padStart(2, '0');
+      const date = `${year}-${month}-${dateStr}`;
+      const recordTime = (spawnTime && spawnTime !== 'null' && spawnTime !== '') ? (spawnTime + ':00') : (String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0'));
+      const content = `[${bossName}] ${spawnTime || recordTime.substring(0, 5)} 스폰 처치 완료`;
+
+      try {
+        // 2차 필터: DB 실제 존재 여부 확인 (최종 보루)
+        const isSuccess = await window.electronAPI.diaryAddActivity(date, recordTime, 'boss', content);
+
+        const toast = document.getElementById(toastId);
+        if (toast) {
+          const btn = toast.querySelector('button[onclick^="recordKillAndRemove"]');
+          if (btn) {
+            if (isSuccess) {
+              _lastRecordedBossKey = recordKey;
+              btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5"></i> 기록 완료!`;
+              btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500 text-white rounded-lg transition-all text-[11px] font-bold opacity-70 cursor-default";
+            } else {
+              btn.innerHTML = `<i data-lucide="info" class="w-3.5 h-3.5"></i> 이미 기록됨!`;
+              btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default";
+            }
+            btn.disabled = true;
+            refreshIcons();
+          }
+          setTimeout(() => { removeToast(toastId); }, isSuccess ? 1000 : 1500);
+        }
+      } catch (err) { console.error('Failed to record boss kill:', err); }
+    }
+
+    function updateOverlayIcon(isVisible) {
+      const iconContainer = document.getElementById('overlay-toggle-btn');
+      if (iconContainer) {
+        iconContainer.innerHTML = `<i id="overlay-icon" data-lucide="${isVisible ? 'layout-template' : 'layout'}" class="w-4 h-4 ${isVisible ? 'text-white' : 'text-slate-600'}"></i>`;
+        refreshIcons();
+      }
+    }
+
+    function updateChatOverlayIcon(isVisible) {
+      const iconContainer = document.getElementById('chat-overlay-toggle-btn');
+      if (iconContainer) {
+        iconContainer.innerHTML = `<i id="chat-overlay-icon" data-lucide="message-square" class="w-4 h-4 ${isVisible ? 'text-emerald-400' : 'text-slate-600'}"></i>`;
+        refreshIcons();
+      }
+    }
+
+    function openGallery() { document.getElementById('noti-badge').classList.add('hidden'); window.electronAPI.toggleGallery(); }
+
+    // IPC 리스너 등록
+    window.electronAPI.onPlaySound(async ({ label, soundFile, volume, isCustom, spawnTime, offset, isAlreadyRecorded, isPreview, showToast }) => {
+      // 사운드 파일 재생 처리 (soundFile이 있을 때만)
+      if (soundFile) {
+        let shouldPlay = true;
+        // 미리보기(테스트)가 아니고 게임이 꺼진 상태이면 소리 재생을 차단함
+        if (!isPreview) {
+          try {
+            const status = await window.electronAPI.getGameStatus();
+            if (status !== 'running' && status !== 'minimized') {
+              console.log(`[AUDIO] Skipped playing ${soundFile} because game status is: ${status}`);
+              shouldPlay = false;
+            }
+          } catch (e) {
+            console.error('[AUDIO] Failed to check game status:', e);
+          }
+        }
+
+        if (shouldPlay) {
+          if (isPreview) {
+            // 미리보기 요청일 경우 현재 울리던 소리를 즉각 차단하고 큐를 초기화함
+            audioQueue = [];
+            if (bossAudio) {
+              try {
+                bossAudio.pause();
+                bossAudio.onended = null;
+              } catch (e) {}
+              bossAudio = null;
+            }
+            isPlayingAudio = false;
+          }
+
+          // 사운드 재생 큐에 삽입 후 순차 재생 처리
+          audioQueue.push({ soundFile, volume });
+          if (!isPlayingAudio) {
+            playNextAudio();
+          }
+        }
+      }
+
+      // 토스트 생성 처리
+      if (showToast !== false) {
+        const btn = document.getElementById('boss-btn');
+        if (btn) { btn.classList.add('animate-bounce', 'text-blue-400'); setTimeout(() => btn.classList.remove('animate-bounce'), 5000); }
+        createToast(label, isCustom, spawnTime, offset, isAlreadyRecorded);
+      }
+    });
+
+    window.electronAPI.onScamAlert((result) => {
+      const {
+        isScam,
+        title,
+        colorClass,
+        reason,
+      } = window.getScamToastPresentation(result);
+      const toastId = 'scam-toast-' + Date.now();
+      const toast = document.createElement('div');
+      toast.id = toastId;
+      toast.className = 'boss-toast show';
+      toast.style.borderLeft = isScam ? '3px solid #ef4444' : '3px solid #f59e0b';
+
+      toast.innerHTML = `
+        <div class="flex items-start justify-between w-full gap-3">
+          <div class="flex items-start gap-2.5 pt-0.5">
+            <i data-lucide="shield-alert" class="w-4 h-4 ${colorClass} mt-0.5 shrink-0"></i>
+            <div class="flex-1">
+              <div class="boss-toast-name leading-snug font-bold ${colorClass}">${title}</div>
+              ${reason ? `<div class="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">${reason}</div>` : ''}
+            </div>
+          </div>
+          <button onclick="document.getElementById('${toastId}')?.remove()" class="p-1 text-slate-400 hover:text-white bg-white/5 hover:bg-red-500/80 rounded-md transition-colors shrink-0">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        <div class="mt-2 text-xs text-slate-500 italic border-t border-slate-700/50 pt-2">
+          ※ AI 판정은 참고용. 100% 안전 보장 불가. 에타 레벨·교환창 아이템을 직접 확인하세요.
+        </div>
+      `;
+
+      toastContainer.appendChild(toast);
+      refreshIcons();
+      updateIgnoreMouseEvents(false);
+      updateSidebarWindowWidth(400);
+      setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 30000);
+    });
+
+    window.electronAPI.onSidebarStatus((collapsed) => {
+      isCollapsed = collapsed;
+      wrapper.className = isCollapsed ? 'sidebar-wrapper collapsed' : 'sidebar-wrapper';
+
+      let iconName = 'chevron-left';
+      if (sidebarPos === 'left') {
+        iconName = isCollapsed ? 'chevron-left' : 'chevron-right';
+      } else {
+        iconName = isCollapsed ? 'chevron-right' : 'chevron-left';
+      }
+
+      document.getElementById('toggle-icon').setAttribute('data-lucide', iconName);
+      tooltip.style.display = 'none';
+      refreshIcons();
+    });
+
+    window.electronAPI.onOverlayStatus(updateOverlayIcon);
+    window.electronAPI.onChatOverlayStatus(updateChatOverlayIcon);
+
+    window.electronAPI.onClickThroughStatus((isClickThrough) => {
+      const icon = document.getElementById('click-through-icon');
+      const btn = document.getElementById('click-through-btn');
+      if (isClickThrough) { icon.setAttribute('data-lucide', 'mouse-pointer-off'); btn.classList.add('text-green-400'); btn.classList.remove('text-slate-400'); }
+      else { icon.setAttribute('data-lucide', 'mouse-pointer-2'); btn.classList.add('text-slate-400'); btn.classList.remove('text-green-400'); }
+      refreshIcons();
+    });
+
+    window.electronAPI.onConfigData((config) => {
+      lastConfig = config;
+      sidebarPos = config.sidebarPosition || 'right';
+
+      // CSS 데이터 속성 부여 (레이아웃 자동 전환용)
+      document.body.dataset.sidebarPos = sidebarPos;
+
+      // 왼쪽 배치: 리사이즈 시 X 좌표 이동(gX-width)이 깜박임을 유발하므로 400px 고정
+      if (sidebarPos === 'left' && currentWidth !== 400) {
+        performWidthUpdate(400);
+      }
+
+      // 화살표 방향 갱신
+      let iconName = 'chevron-left';
+      if (sidebarPos === 'left') {
+        iconName = isCollapsed ? 'chevron-left' : 'chevron-right';
+      } else {
+        iconName = isCollapsed ? 'chevron-right' : 'chevron-left';
+      }
+      document.getElementById('toggle-icon').setAttribute('data-lucide', iconName);
+
+      bossNotifyVolume = (config.fieldBossNotifyVolume !== undefined ? config.fieldBossNotifyVolume : 50) / 100;
+
+      currentHiddenMenuIds = config.hiddenMenuIds || [];
+      applyMenuVisibility();
+
+      updateOverlayIcon(config.overlayVisible !== false);
+      updateChatOverlayIcon(config.chatOverlayEnabled !== false);
+      const container = document.getElementById('slot-container');
+      container.innerHTML = '';
+      (config.quickSlots || []).forEach(slot => {
+        const btn = document.createElement('div');
+        btn.className = 'tw-slot';
+        btn.innerHTML = slot.iconType === 'text' && slot.textChar ? `<span class="tw-slot-text">${slot.textChar}</span>` : `<i data-lucide="${slot.icon || 'link'}"></i>`;
+        if (slot.external) { const dot = document.createElement('div'); dot.className = 'external-dot'; btn.appendChild(dot); }
+        btn.onmouseenter = () => showTooltip(slot.label || 'LINK', btn);
+        btn.onmouseleave = () => hideTooltip();
+        btn.onclick = () => { if (slot.external) window.electronAPI.openExternal(slot.url); else window.electronAPI.navigate(slot.url); };
+        container.appendChild(btn);
+      });
+      refreshIcons();
+      if (!window._sidebarInitialized) { window.electronAPI.sidebarReady(); window._sidebarInitialized = true; }
+    });
+
+    initDynamicMenus();
+    window.electronAPI.onGalleryNewActivity(() => { 
+      const badge = document.getElementById('noti-badge');
+      if (badge) badge.classList.remove('hidden'); 
+    });
+    window.electronAPI.onUpdateStatus((data) => {
+      const badge = document.getElementById('update-badge');
+      if (badge) {
+        if (data.state === 'available' || data.state === 'ready' || data.state === 'downloading' || data.state === 'mandatory') badge.classList.remove('hidden');
+        else badge.classList.add('hidden');
+      }
+    });
+
+
+    // 마우스 이벤트 및 창 크기 동적 제어
+    let currentWidth = 400;
+    let isResizing = false;
+    let resizeTimer = null;
+    let shrinkTimer = null;
+
+    function updateSidebarWindowWidth(neededWidth) {
+      // 왼쪽 배치: width 변경 → X좌표 이동(gX-width) → 윈도우 350px 점프 → 깜박임
+      // 오른쪽 배치: X 고정(gX+gW) → width만 변경 → 시각적 문제 없음
+      if (sidebarPos === 'left') return;
+
+      // 확장 요청 시: 진행 중인 축소 타이머를 항상 취소 (currentWidth 상태와 무관하게 선제 취소)
+      if (neededWidth !== 50 && shrinkTimer) {
+        clearTimeout(shrinkTimer);
+        shrinkTimer = null;
+      }
+
+      if (currentWidth !== neededWidth) {
+        if (neededWidth === 50) {
+          // 좁아질 때는 200ms 지연을 주어 깜박임 방지 (Debounce)
+          if (shrinkTimer) return; 
+          shrinkTimer = setTimeout(() => {
+            performWidthUpdate(50);
+            shrinkTimer = null;
+          }, 200);
+        } else {
+          // 넓어질 때는 즉시 반응
+          performWidthUpdate(neededWidth);
+        }
+      }
+    }
+
+    function performWidthUpdate(width) {
+      currentWidth = width;
+      isResizing = true;
+      if (resizeTimer) clearTimeout(resizeTimer);
+
+      window.electronAPI.applySettings({ isSidebarResize: true, width: width });
+
+      resizeTimer = setTimeout(() => {
+        isResizing = false;
+      }, 300);
+    }
+
+    function checkMouseIgnore(e) {
+      if (isResizing) return;
+
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const hitPadding = 14;
+      const isOverSidebar = (
+        e.clientX >= wrapperRect.left - hitPadding &&
+        e.clientX <= wrapperRect.right + hitPadding &&
+        e.clientY >= wrapperRect.top - hitPadding &&
+        e.clientY <= wrapperRect.bottom + hitPadding
+      );
+
+      let isOverSubmenu = false;
+      const flyouts = document.querySelectorAll('.flyout-submenu');
+      flyouts.forEach(flyout => {
+        const style = window.getComputedStyle(flyout);
+        if (style.display !== 'none') {
+          const rect = flyout.getBoundingClientRect();
+          const submenuBuffer = 10;
+          if (e.clientX >= rect.left - submenuBuffer && e.clientX <= rect.right + submenuBuffer && 
+              e.clientY >= rect.top - submenuBuffer && e.clientY <= rect.bottom + submenuBuffer) {
+            isOverSubmenu = true;
+          }
+        }
+      });
+
+      const activeToasts = toastContainer.querySelectorAll('.boss-toast');
+      let isOverToast = false;
+      activeToasts.forEach(toast => {
+        const rect = toast.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right && 
+            e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          isOverToast = true;
+        }
+      });
+      const hasToasts = activeToasts.length > 0;
+
+      if (isOverSidebar || isOverSubmenu || isOverToast) {
+        updateIgnoreMouseEvents(false);
+        updateSidebarWindowWidth(400); 
+      } else {
+        updateIgnoreMouseEvents(true);
+        if (!hasToasts) {
+          updateSidebarWindowWidth(50); 
+        } else {
+          updateSidebarWindowWidth(400); 
+        }
+      }
+    }
+    // 전역 마우스 이동 감시
+    window.addEventListener('mousemove', checkMouseIgnore);
+
+    // 초기 상태 설정
+    updateIgnoreMouseEvents(true);
+    updateSidebarWindowWidth(50); // 시작 시엔 좁게 설정
+
+    refreshIcons();
+</script>
+</body>
+
+</html>

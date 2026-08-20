@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>버프 타이머 알림 설정</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    :root {
+      --bg: #0f0e1a;
+      --surface: #17152b;
+      --surface2: #1f1c38;
+      --border: rgba(251, 146, 60, 0.1);
+      --accent: #fb923c;
+      --accent-hover: #fdba74;
+      --accent-dim: rgba(251, 146, 60, 0.15);
+      --accent-glow: rgba(251, 146, 60, 0.25);
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --text: #ede9fe;
+      --text-muted: #a89fc5;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    .master-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* Toggle switch */
+    .toggle-wrap {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+
+    .toggle-wrap input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .toggle-wrap input:checked+.toggle-slider {
+      background: var(--accent);
+    }
+
+    .toggle-wrap input:checked+.toggle-slider::before {
+      transform: translateX(16px);
+    }
+
+    /* Main content */
+    .content {
+      display: grid;
+      grid-template-columns: 1fr 1.1fr 0.9fr;
+      gap: 0;
+      flex: 1;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .panel {
+      padding: 14px;
+      overflow-y: auto;
+      border-right: 1px solid rgba(251, 146, 60, 0.1);
+    }
+
+    .panel:last-child {
+      border-right: none;
+    }
+
+    .panel-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 10px;
+      opacity: 0.7;
+    }
+
+    /* Buff list */
+    .buff-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .buff-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      background: var(--surface2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .buff-item:hover {
+      background: var(--accent-dim);
+      border-color: rgba(251, 146, 60, 0.4);
+    }
+
+    .buff-item.disabled {
+      opacity: 0.4;
+    }
+
+    .buff-item-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 900;
+      flex-shrink: 0;
+    }
+
+    .cat-exp {
+      background: rgba(34, 197, 94, 0.18);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .cat-drop {
+      background: rgba(192, 132, 252, 0.18);
+      color: #e879f9;
+      border: 1px solid rgba(192, 132, 252, 0.3);
+    }
+
+    .cat-stats {
+      background: rgba(251, 146, 60, 0.2);
+      color: #fdba74;
+      border: 1px solid rgba(251, 146, 60, 0.4);
+    }
+
+    .cat-damage {
+      background: rgba(251, 146, 60, 0.18);
+      color: #fb923c;
+      border: 1px solid rgba(251, 146, 60, 0.3);
+    }
+
+    .cat-util {
+      background: rgba(45, 212, 191, 0.18);
+      color: #2dd4bf;
+      border: 1px solid rgba(45, 212, 191, 0.3);
+    }
+
+    .buff-item-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .buff-item-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .buff-item-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    /* Right panel sections */
+    .section {
+      margin-bottom: 18px;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      opacity: 0.85;
+    }
+
+    /* 경고 칩 */
+    .warn-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      align-items: center;
+    }
+
+    .warn-chip {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: default;
+      transition: border-color 0.15s;
+    }
+
+    .warn-chip:hover {
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+
+    .warn-chip .remove-btn {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      color: var(--text-muted);
+      opacity: 0.6;
+      transition: opacity 0.15s;
+    }
+
+    .warn-chip .remove-btn:hover {
+      opacity: 1;
+      color: var(--danger);
+    }
+
+    .add-chip-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      background: transparent;
+      border: 1px dashed rgba(251, 146, 60, 0.4);
+      border-radius: 20px;
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .add-chip-btn:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+    }
+
+    .add-input-row {
+      display: none;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .add-input-row.visible {
+      display: flex;
+    }
+
+    .add-input-row input {
+      width: 70px;
+      padding: 5px 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+    }
+
+    .add-input-row input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
+    }
+
+    .btn-sm {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #f97316, #fb923c);
+      color: white;
+      box-shadow: 0 2px 8px rgba(251, 146, 60, 0.25);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #ea580c, #f97316);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    /* 볼륨 슬라이더 */
+    .volume-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .volume-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .volume-val {
+      width: 28px;
+      text-align: right;
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--accent-hover);
+    }
+
+    .preview-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+
+    .preview-btn:hover {
+      background: var(--accent-dim);
+      color: var(--text);
+    }
+
+    /* 알림 토글 행 */
+    .alert-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: var(--surface2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 6px;
+    }
+
+    .alert-row-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .alert-row-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+
+
+    /* Footer */
+    .footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      gap: 6px;
+      flex-shrink: 0;
+      box-shadow: 0 -1px 0 rgba(251, 146, 60, 0.08);
+    }
+
+    /* Active buff list */
+    .active-buff-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .active-buff-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: var(--surface2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .active-buff-item:hover {
+      background: rgba(239, 68, 68, 0.03);
+      border-color: rgba(239, 68, 68, 0.15);
+    }
+
+    .active-buff-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      flex-shrink: 0;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .active-buff-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .active-buff-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .active-buff-time {
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      margin-top: 1px;
+    }
+
+    .active-buff-deactivate-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .active-buff-deactivate-btn:hover {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--danger);
+    }
+  </style>
+</head>
+
+<body class="panel-glass p-0 h-screen flex flex-col relative">
+
+  <!-- 헤더 -->
+  <div class="win-header">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-orange-500/10 border-orange-500/20">
+        <i data-lucide="timer" class="w-5 h-5 text-orange-400"></i>
+      </div>
+      <div class="win-title-text">
+        <div class="flex items-center gap-2">
+          <span class="win-title-main">버프 타이머 알림 설정</span>
+        </div>
+      </div>
+    </div>
+    <div class="win-controls">
+      <button onclick="window.electronAPI && window.electronAPI.toggleSettings && window.electronAPI.toggleSettings('display:game-overlay')" class="win-btn mr-2 text-orange-400 hover:text-orange-300" title="게임 오버레이 위치 및 표시 설정으로 이동">
+        <i data-lucide="layers" class="w-4 h-4"></i>
+      </button>
+      <div class="master-toggle mr-2">
+        <span class="text-[11px] text-slate-400 font-bold tracking-wider uppercase mr-2">전체 사용</span>
+        <label class="toggle-wrap mb-0 flex items-center">
+          <input type="checkbox" id="master-toggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="bg-orange-500/10 border-b border-orange-500/20 py-2 px-4 flex items-center gap-2 flex-shrink-0">
+    <i data-lucide="info" class="w-3.5 h-3.5 text-orange-300 shrink-0"></i>
+    <span class="text-orange-200 text-[11px] font-medium leading-tight">게임 내 채팅 로그 파일에서 아이템 사용 내역을 읽어오므로, <strong>게임 내
+        설정 > 게임 > 채팅 로그</strong> 기능이 켜져 있어야 동작합니다.</span>
+  </div>
+
+  <!-- 본문 -->
+  <div class="content">
+
+    <!-- 왼쪽: 감지 버프 목록 -->
+    <div class="panel">
+      <div class="panel-title">감지 버프 목록</div>
+      <div class="buff-list" id="buff-list">
+        <!-- JS로 동적 생성 -->
+      </div>
+    </div>
+
+    <!-- 오른쪽: 경고 설정 -->
+    <div class="panel">
+
+      <!-- 경고 시점 -->
+      <div class="section">
+        <div class="section-label">
+          <i data-lucide="clock-alert" style="width:12px;height:12px"></i>
+          경고 시점 (만료 N초 전)
+        </div>
+        <div class="warn-chips" id="warn-chips"></div>
+        <div class="add-input-row" id="add-input-row">
+          <div class="flex items-center gap-1.5">
+            <input type="number" id="add-warn-input" placeholder="초" min="1" max="1199">
+            <button class="btn-sm btn-primary" id="confirm-add-warn">추가</button>
+            <button class="btn-sm btn-ghost" id="cancel-add-warn">취소</button>
+          </div>
+          <div id="add-error-msg"
+            class="text-red-500 font-bold text-[11px] ml-1 opacity-0 transition-opacity duration-200"></div>
+        </div>
+      </div>
+
+      <!-- 청각 알림 -->
+      <div id="audio-settings-section" class="section">
+        <div class="section-label">
+          <i data-lucide="volume-2" style="width:12px;height:12px"></i>
+          청각 알림
+        </div>
+        <div class="alert-row" id="audio-row">
+          <div>
+            <div class="alert-row-label">알림음 재생</div>
+            <div class="alert-row-sub">경고 시점 도달 시 사운드 재생</div>
+          </div>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="audio-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="flex flex-col gap-2 mt-3 p-3 bg-white/5 border border-white/5 rounded-lg" id="volume-container">
+          <div class="flex items-center gap-2 w-full min-w-0">
+            <select id="sound-select"
+              class="bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-slate-300 focus:outline-none flex-1 cursor-pointer h-[40px] min-w-0 w-full">
+              <!-- JS dynamic options -->
+            </select>
+            <button id="preview-sound"
+                    class="w-10 h-[40px] flex items-center justify-center bg-orange-600/20 border border-orange-500/40 rounded-xl text-orange-400 hover:bg-orange-600 hover:text-white transition-all shadow-lg active:scale-90 shrink-0"
+                    title="소리 테스트">
+              <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+            </button>
+          </div>
+          <div class="volume-row mt-1">
+            <i data-lucide="volume-1" style="width:13px;height:13px;color:#94a3b8;flex-shrink:0;"></i>
+            <input type="range" id="volume-slider" min="0" max="100" value="70">
+            <span class="volume-val" id="volume-val">70</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 시각 알림 -->
+      <div class="section">
+        <div class="section-label">
+          <i data-lucide="eye" style="width:12px;height:12px"></i>
+          시각 알림
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-row-label">임박 경고 (시스템 고정)</div>
+            <div class="alert-row-sub">종료 5초 전 빨간색 카드 & 시스템 알림음</div>
+          </div>
+          <span style="font-size:10px;color:#ef4444;font-weight:700;">항상 적용</span>
+        </div>
+        <div class="alert-row" style="margin-top:4px;">
+          <div>
+            <div class="alert-row-label">시각 애니메이션</div>
+            <div class="alert-row-sub">임박 경고 시 카드가 깜빡이는(Pulse) 효과 사용</div>
+          </div>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="visual-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="alert-row" style="margin-top:4px;">
+          <div>
+            <div class="alert-row-label">화면 중앙 대형 알림</div>
+            <div class="alert-row-sub">종료 5초 전 화면 중앙에 2.3초간 대형 경고 카드 노출</div>
+          </div>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="center-alert-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- HUD 표시 설정 -->
+      <div class="section">
+        <div class="section-label">
+          <i data-lucide="monitor" style="width:12px;height:12px"></i>
+          인게임 오버레이 설정
+        </div>
+        <div class="alert-row">
+          <div>
+            <div class="alert-row-label">인게임 HUD 표시</div>
+            <div class="alert-row-sub">게임 화면 내에 버프 타이머 위젯 표시</div>
+          </div>
+          <label class="toggle-wrap">
+            <input type="checkbox" id="show-hud-toggle" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- HUD 위치 설정 -->
+      <div class="section">
+        <div class="section-label">
+          <i data-lucide="move" style="width:12px;height:12px"></i>
+          HUD 위치 (화면 우하단 기준)
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div>
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">좌측 여백 (Left)</div>
+            <div style="position:relative;">
+              <input type="number" id="hud-pos-left" min="-3000" max="3000"
+                style="width:100%;padding:5px 28px 5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;outline:none;">
+              <span
+                style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--text-muted);font-weight:700;">px</span>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">하단 여백 (Bottom)</div>
+            <div style="position:relative;">
+              <input type="number" id="hud-pos-bottom" min="-3000" max="3000"
+                style="width:100%;padding:5px 28px 5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;outline:none;">
+              <span
+                style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--text-muted);font-weight:700;">px</span>
+            </div>
+          </div>
+        </div>
+        <button id="btn-apply-pos"
+          style="margin-top:8px;width:100%;padding:5px 0;background:var(--accent-dim);border:1px solid rgba(167,139,250,0.3);border-radius:6px;font-size:11px;font-weight:700;color:var(--accent);cursor:pointer;transition:background 0.15s;"
+          onmouseover="this.style.background='rgba(167,139,250,0.25)'"
+          onmouseout="this.style.background='var(--accent-dim)'">
+          <i data-lucide="check"
+            style="width:11px;height:11px;display:inline;vertical-align:middle;margin-right:3px;"></i>
+          위치 즉시 적용
+        </button>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:5px;font-style:italic;">
+          * 화면 왼쪽·아래쪽으로부터의 거리입니다.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 오른쪽: 활성 버프 관리 -->
+    <div class="panel flex flex-col">
+      <div class="flex justify-between items-center mb-2">
+        <div class="panel-title mb-0">현재 활성화된 버프</div>
+        <button class="btn-sm btn-danger py-1 px-2.5 text-xs" id="btn-clear-all-buffs">전체 삭제</button>
+      </div>
+      <div class="active-buff-list flex-1" id="active-buff-list">
+        <div class="flex flex-col items-center justify-center py-12 px-4 text-center" id="active-buff-empty">
+          <i data-lucide="info" class="w-6 h-6 text-slate-500 mb-2"></i>
+          <span class="text-[11px] text-slate-500 font-semibold">현재 활성화된 버프가 없습니다.</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 푸터 -->
+  <div class="footer">
+    <div class="flex items-center gap-1.5 mr-auto">
+      <span class="text-xs text-slate-500 font-bold uppercase">테스트 시간</span>
+      <div class="relative">
+        <input type="number" id="test-seconds-input" value="1200" min="1" max="3600"
+          style="width:70px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;font-weight:700;outline:none;text-align:center;">
+        <span class="absolute -right-4 top-1/2 -translate-y-1/2 text-xs text-slate-500 font-bold">초</span>
+      </div>
+    </div>
+    <button class="btn-sm btn-ghost" id="btn-test" title="입력한 시간만큼 남은 테스트 버프를 표시합니다">
+      <i data-lucide="flask-conical"
+        style="width:12px;height:12px;display:inline;vertical-align:middle;margin-right:3px"></i>
+      테스트 (미리보기)
+    </button>
+    <button class="btn-sm btn-primary" id="btn-save">저장</button>
+  </div>
+
+  <script>
+    const TRACKED_BUFFS = [
+      { id: 'exp_heart', name: '경험의 심장', duration: '20분 유지', cat: 'exp', image: 'assets/img/buffs/경험의심장.png' },
+      { id: 'rare_heart', name: '레어의 심장', duration: '20분 유지', cat: 'drop', image: 'assets/img/buffs/레어의심장.png' },
+      { id: 'stat_exorcist', name: '퇴마사의 은총', duration: '20분 유지', cat: 'stats', image: 'assets/img/buffs/퇴마사의은총.png' },
+      { id: 'stat_sami_sunryeong', name: '사미선령지채', duration: '5분 유지', cat: 'stats', image: 'assets/img/buffs/사미선령지채.png' },
+      { id: 'rare_loto', name: '로토의 부적', duration: '30분 유지', cat: 'drop', image: 'assets/img/buffs/로토의부적.png' },
+      { id: 'util_ampoule', name: '속성 앰플', duration: '1시간 유지', cat: 'util', image: 'assets/img/buffs/속성앰플.png' },
+      { id: 'dmg_izabel', name: '이자벨의 비법 (대미지)', duration: '30분 유지', cat: 'damage', image: 'assets/img/buffs/이자벨의비법_대미지.png' },
+      { id: 'util_illumination', name: '일루미네이션 축제 음료', duration: '2시간 유지', cat: 'util', image: 'assets/img/buffs/일루미네이션축체음료.png' },
+      { id: 'insight_elixir_large', name: '통찰의 비약(대)', duration: '5분 유지', cat: 'util', image: 'assets/img/buffs/통찰대.png' },
+      { id: 'insight_elixir_special', name: '통찰의 비약(특대)', duration: '1분 유지', cat: 'util', image: 'assets/img/buffs/통찰특대.png' },
+      { id: 'exp_eos_supreme', name: '최상급 에오스의 파편', duration: '30분 유지', cat: 'exp', image: 'assets/img/buffs/최상급_에오스의_파편.png' },
+      { id: 'exp_sweetpotato_legend', name: '전설의 군고구마', duration: '30분 유지', cat: 'exp', image: 'assets/img/buffs/전설의_군고구마.png' },
+      { id: 'exp_earlybird', name: '얼리버드 경험치 부스터', duration: '30분 유지', cat: 'exp', image: 'assets/img/buffs/얼리버드_경험치_부스터.png' },
+    ];
+
+    const CAT_LABELS = { exp: 'E', drop: 'R', stats: 'S', damage: 'D', util: 'U' };
+
+    let cfg = {};
+    let buffEnabled = {};
+    let warnSeconds = [60, 10];
+
+    function renderBuffList() {
+      const list = document.getElementById('buff-list');
+      list.innerHTML = '';
+      TRACKED_BUFFS.forEach(buff => {
+        const enabled = buffEnabled[buff.id] !== false;
+        const div = document.createElement('div');
+        div.className = `buff-item${enabled ? '' : ' disabled'}`;
+        div.dataset.id = buff.id;
+        const iconHtml = buff.image
+          ? `<div class="buff-item-icon" style="background:transparent;border:none;padding:0">
+               <img src="${buff.image}" style="width:100%;height:100%;object-fit:contain">
+             </div>`
+          : `<div class="buff-item-icon cat-${buff.cat}">${CAT_LABELS[buff.cat] || 'U'}</div>`;
+
+        div.innerHTML = `
+          ${iconHtml}
+          <div class="buff-item-info">
+            <div class="buff-item-name">${buff.name}</div>
+            <div class="buff-item-sub">${buff.duration}</div>
+          </div>
+          <label class="toggle-wrap">
+            <input type="checkbox" ${enabled ? 'checked' : ''} data-buff-id="${buff.id}">
+            <span class="toggle-slider"></span>
+          </label>
+        `;
+        div.querySelector('input').addEventListener('change', (e) => {
+          buffEnabled[buff.id] = e.target.checked;
+          div.classList.toggle('disabled', !e.target.checked);
+        });
+        list.appendChild(div);
+      });
+    }
+
+    function renderWarnChips() {
+      const container = document.getElementById('warn-chips');
+      container.querySelectorAll('.warn-chip, .warn-chip-fixed').forEach(el => el.remove());
+      const sorted = [...warnSeconds].sort((a, b) => b - a);
+      sorted.forEach(sec => {
+        const chip = document.createElement('div');
+        chip.className = 'warn-chip';
+        chip.innerHTML = `<span>${sec >= 60 ? Math.floor(sec / 60) + '분' : sec + '초'} 전</span><span class="remove-btn" data-sec="${sec}"><i data-lucide="x" style="width:10px;height:10px"></i></span>`;
+        chip.querySelector('.remove-btn').addEventListener('click', () => {
+          warnSeconds = warnSeconds.filter(s => s !== sec);
+          renderWarnChips();
+        });
+        container.insertBefore(chip, container.querySelector('.add-chip-btn'));
+      });
+      const fixed = document.createElement('div');
+      fixed.className = 'warn-chip-fixed flex items-center gap-1.5 px-2 py-1 bg-red-500/20 border border-red-500/30 rounded text-[11px] font-bold text-red-300';
+      fixed.innerHTML = `<span>5초 전 (고정)</span>`;
+      container.insertBefore(fixed, container.querySelector('.add-chip-btn'));
+      refreshIcons();
+    }
+
+    function setupAddChip() {
+      const container = document.getElementById('warn-chips');
+      if (container.querySelector('.add-chip-btn')) return;
+      const addBtn = document.createElement('button');
+      addBtn.className = 'add-chip-btn';
+      addBtn.innerHTML = `<i data-lucide="plus" style="width:11px;height:11px"></i> 추가`;
+      addBtn.onclick = () => document.getElementById('add-input-row').classList.add('visible');
+      container.appendChild(addBtn);
+    }
+
+    document.getElementById('confirm-add-warn').onclick = () => {
+      const input = document.getElementById('add-warn-input');
+      const val = parseInt(input.value);
+      if (val > 5 && !warnSeconds.includes(val)) {
+        warnSeconds.push(val);
+        renderWarnChips();
+      }
+      input.value = '';
+      document.getElementById('add-input-row').classList.remove('visible');
+    };
+
+    document.getElementById('cancel-add-warn').onclick = () => document.getElementById('add-input-row').classList.remove('visible');
+
+    document.getElementById('audio-toggle').onchange = (e) => {
+      document.getElementById('volume-container').style.opacity = e.target.checked ? '1' : '0.4';
+      document.getElementById('volume-container').style.pointerEvents = e.target.checked ? '' : 'none';
+    };
+
+    document.getElementById('volume-slider').oninput = (e) => document.getElementById('volume-val').textContent = e.target.value;
+
+    document.getElementById('preview-sound').onclick = () => {
+      const vol = parseInt(document.getElementById('volume-slider').value);
+      const file = document.getElementById('sound-select').value || 'orb.mp3';
+      window.playPreview(file, vol, '버프 타이머 테스트');
+    };
+
+    document.getElementById('btn-test').onclick = () => {
+      // 테스트 시점의 설정들을 우선 실시간 적용
+      window.electronAPI.applySettings({
+        buffTimerEnabled: document.getElementById('master-toggle').checked,
+        showBuffHud: document.getElementById('show-hud-toggle').checked,
+        buffTimerWarnSeconds: [...warnSeconds],
+        buffTimerAudioAlert: document.getElementById('audio-toggle').checked,
+        buffTimerVisualAlert: document.getElementById('visual-toggle').checked,
+        buffTimerCenterAlert: document.getElementById('center-alert-toggle').checked,
+        buffTimerVolume: parseInt(document.getElementById('volume-slider').value),
+        buffTimerSound: document.getElementById('sound-select').value,
+        buffTimerBuffs: { ...buffEnabled }
+      });
+
+      const secs = parseInt(document.getElementById('test-seconds-input').value) || 1200;
+      window.electronAPI.buffTimerTest(secs);
+    };
+
+    document.getElementById('show-hud-toggle').onchange = (e) => window.electronAPI.applySettings({ showBuffHud: e.target.checked });
+    document.getElementById('master-toggle').onchange = (e) => window.electronAPI.applySettings({ buffTimerEnabled: e.target.checked });
+
+    document.getElementById('btn-apply-pos').onclick = () => {
+      const left = parseInt(document.getElementById('hud-pos-left').value) || 0;
+      const bottom = parseInt(document.getElementById('hud-pos-bottom').value) || 0;
+      window.electronAPI.applySettings({ buffTimerHudPos: { left, bottom } });
+    };
+
+    document.getElementById('btn-save').onclick = () => {
+      window.electronAPI.applySettings({
+        buffTimerEnabled: document.getElementById('master-toggle').checked,
+        showBuffHud: document.getElementById('show-hud-toggle').checked,
+        buffTimerWarnSeconds: [...warnSeconds],
+        buffTimerAudioAlert: document.getElementById('audio-toggle').checked,
+        buffTimerVisualAlert: document.getElementById('visual-toggle').checked,
+        buffTimerCenterAlert: document.getElementById('center-alert-toggle').checked,
+        buffTimerVolume: parseInt(document.getElementById('volume-slider').value),
+        buffTimerSound: document.getElementById('sound-select').value,
+        buffTimerBuffs: { ...buffEnabled },
+        buffTimerHudPos: { left: parseInt(document.getElementById('hud-pos-left').value) || 0, bottom: parseInt(document.getElementById('hud-pos-bottom').value) || 0 }
+      });
+    };
+
+    document.getElementById('btn-clear-all-buffs').onclick = () => {
+      window.electronAPI.buffTimerClearAll();
+    };
+
+    if (window.electronAPI && window.electronAPI.onHighlightAlarmSettings) {
+      window.electronAPI.onHighlightAlarmSettings(() => {
+        window.highlightElement(document.getElementById('audio-settings-section'), {
+          borderColor: 'rgba(249, 115, 22, 0.8)',
+          boxShadow: '0 0 25px rgba(249, 115, 22, 0.5)',
+        });
+      });
+    }
+
+    function formatMs(ms) {
+      if (ms <= 0) return '0초';
+      const totalSecs = Math.ceil(ms / 1000);
+      const hrs = Math.floor(totalSecs / 3600);
+      const mins = Math.floor((totalSecs % 3600) / 60);
+      const secs = totalSecs % 60;
+      if (hrs > 0) {
+        return `${hrs}시간 ${mins}분`;
+      }
+      if (mins > 0) {
+        return `${mins}분 ${secs}초`;
+      }
+      return `${secs}초`;
+    }
+
+    // 실시간 활성 버프 업데이트 리스너
+    window.electronAPI.onBuffTimerUpdate((states) => {
+      const list = document.getElementById('active-buff-list');
+
+      if (!states || states.length === 0) {
+        list.innerHTML = `
+          <div class="flex flex-col items-center justify-center py-12 px-4 text-center" id="active-buff-empty">
+            <i data-lucide="info" class="w-6 h-6 text-slate-500 mb-2"></i>
+            <span class="text-[11px] text-slate-500 font-semibold">현재 활성화된 버프가 없습니다.</span>
+          </div>
+        `;
+        refreshIcons();
+        return;
+      }
+
+      list.innerHTML = '';
+      states.forEach(state => {
+        const buffDef = TRACKED_BUFFS.find(b => b.id === state.buffId);
+        const imagePath = state.image || (buffDef ? buffDef.image : '');
+        const iconHtml = imagePath
+          ? `<div class="active-buff-icon" style="background:transparent;border:none;padding:0">
+               <img src="${imagePath}" style="width:100%;height:100%;object-fit:contain">
+             </div>`
+          : `<div class="active-buff-icon cat-util">${state.name.substring(0, 1)}</div>`;
+
+        const div = document.createElement('div');
+        div.className = 'active-buff-item';
+        div.innerHTML = `
+          ${iconHtml}
+          <div class="active-buff-info">
+            <div class="active-buff-name">${state.name}</div>
+            <div class="active-buff-time">${formatMs(state.remainingMs)}</div>
+          </div>
+          <button class="active-buff-deactivate-btn" title="버프 제거" data-buff-id="${state.buffId}">
+            <i data-lucide="trash-2" style="width:13.5px;height:13.5px;"></i>
+          </button>
+        `;
+
+        div.querySelector('.active-buff-deactivate-btn').onclick = (e) => {
+          const buffId = e.currentTarget.dataset.buffId;
+          window.electronAPI.buffTimerDeactivate(buffId);
+        };
+
+        list.appendChild(div);
+      });
+
+      refreshIcons();
+    });
+
+    let soundFiles = [];
+
+    window.electronAPI.onConfigData(async (config) => {
+      cfg = config;
+
+      const masterToggle = document.getElementById('master-toggle');
+      if (masterToggle) masterToggle.checked = config.buffTimerEnabled !== false;
+      const showHudToggle = document.getElementById('show-hud-toggle');
+      if (showHudToggle) showHudToggle.checked = config.showBuffHud !== false;
+      const audioToggle = document.getElementById('audio-toggle');
+      if (audioToggle) audioToggle.checked = config.buffTimerAudioAlert !== false;
+      const visualToggle = document.getElementById('visual-toggle');
+      if (visualToggle) visualToggle.checked = config.buffTimerVisualAlert !== false;
+      const centerToggle = document.getElementById('center-alert-toggle');
+      if (centerToggle) centerToggle.checked = config.buffTimerCenterAlert !== false;
+
+      const vol = config.buffTimerVolume ?? 70;
+      const volSlider = document.getElementById('volume-slider');
+      if (volSlider) volSlider.value = vol;
+      const volVal = document.getElementById('volume-val');
+      if (volVal) volVal.textContent = vol;
+
+      warnSeconds = (config.buffTimerWarnSeconds ?? [60]).filter(s => s > 5);
+      buffEnabled = { ...(config.buffTimerBuffs ?? { exp_heart: true, rare_heart: true, stat_exorcist: true, stat_sami_sunryeong: true, rare_loto: true, util_ampoule: true, dmg_izabel: true, util_illumination: true, insight_elixir_large: true, insight_elixir_special: true, exp_eos_supreme: true, exp_sweetpotato_legend: true, exp_earlybird: true }) };
+
+      const hudPos = config.buffTimerHudPos ?? window.electronAPI.DEFAULT_CONFIG.buffTimerHudPos;
+      const posLeft = document.getElementById('hud-pos-left');
+      if (posLeft) posLeft.value = hudPos.left;
+      const posBottom = document.getElementById('hud-pos-bottom');
+      if (posBottom) posBottom.value = hudPos.bottom;
+
+      // 사운드 목록 동적 갱신
+      if (window.loadSoundList) {
+        try {
+          soundFiles = await window.loadSoundList();
+          const sel = document.getElementById('sound-select');
+          if (sel) {
+            const prevVal = sel.value || config.buffTimerSound;
+            sel.innerHTML = soundFiles.map(s => `<option value="${s.file}">${s.name}</option>`).join('');
+            if (prevVal) sel.value = prevVal;
+          }
+        } catch (e) {
+          console.error('Failed to reload sound list:', e);
+        }
+      }
+
+      // 사운드 셀렉트 박스 옵션이 이미 준비된 경우 설정값 지정
+      const sel = document.getElementById('sound-select');
+      if (sel && sel.options.length > 0 && config.buffTimerSound) {
+        sel.value = config.buffTimerSound;
+      }
+
+      renderBuffList(); setupAddChip(); renderWarnChips(); refreshIcons();
+    });
+
+    window.onload = async () => {
+      refreshIcons();
+      if (window.bindEscapeClose) window.bindEscapeClose();
+
+      // 사운드 파일 목록은 로드 시점에 1회만 비동기로 가져옵니다.
+      if (window.loadSoundList) {
+        soundFiles = await window.loadSoundList();
+        const sel = document.getElementById('sound-select');
+        if (sel) {
+          sel.innerHTML = soundFiles.map(s => `<option value="${s.file}">${s.name}</option>`).join('');
+          if (cfg && cfg.buffTimerSound) {
+            sel.value = cfg.buffTimerSound;
+          }
+        }
+      }
+
+      window.bindChatLogStatusWarning();
+    };
+
+    window.addEventListener('beforeunload', () => window.electronAPI.buffTimerClearTest());
+</script>
+</body>
+
+</html>
+

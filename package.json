@@ -1,0 +1,82 @@
+{
+  "name": "tw-overlay",
+  "version": "2.6.7",
+  "description": "TalesWeaver Companion Browser",
+  "main": "dist/main.js",
+  "scripts": {
+    "build-tools": "tsc -p tsconfig.scripts.json",
+    "build": "npm run build-tools && node dist-tools/copy-resources.js && tsc",
+    "start": "npm run build && electron .",
+    "only-dev": "electron . --dev",
+    "dev": "npm run build && electron . --dev",
+    "dist": "npm run build && electron-builder --win",
+    "postinstall": "electron-builder install-app-deps",
+    "parse-equipment": "npm run build-tools && node dist-tools/parse-equipment.js",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "test:renderer": "electron dist-tools/check-renderer-behavior.js",
+    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer"
+  },
+  "build": {
+    "appId": "com.filbertlab.twoverlay",
+    "productName": "twOverlay",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "twliker",
+        "repo": "tw-overlay"
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/koffi/**"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "src/icons/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "files": [
+      "dist/**/*",
+      "dist/assets/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ]
+  },
+  "overrides": {
+    "fast-uri": "^3.1.5",
+    "js-yaml": "^4.3.1"
+  },
+  "keywords": [],
+  "author": "filbertlab",
+  "license": "MIT",
+  "dependencies": {
+    "adm-zip": "^0.6.0",
+    "better-sqlite3": "^13.0.3",
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.9",
+    "iconv-lite": "^0.7.2",
+    "koffi": "^3.1.4",
+    "tail": "^2.2.6"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.13.4",
+    "@types/tail": "^2.2.3",
+    "electron": "^42.9.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.7.3"
+  }
+}

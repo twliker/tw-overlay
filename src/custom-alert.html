@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <title>커스텀 알림</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body {
+      background: transparent;
+      color: white;
+      overflow: hidden;
+    }
+
+    .alert-card {
+      background: rgba(30, 35, 60, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .alert-card:hover {
+      background: rgba(236, 72, 153, 0.08);
+      border-color: rgba(236, 72, 153, 0.3);
+    }
+
+    .alert-card.disabled {
+      opacity: 0.5;
+      filter: grayscale(0.5);
+    }
+
+    select {
+      color-scheme: dark;
+    }
+
+    select option {
+      background: #1a1b2e;
+      color: white;
+    }
+
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    .offset-checkbox {
+      accent-color: #ec4899;
+    }
+
+    input[type="time"],
+    input[type="number"] {
+      color-scheme: dark;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .type-tab {
+      transition: all 0.2s;
+    }
+
+    .type-tab.active {
+      background: rgba(236, 72, 153, 0.2);
+      border-color: rgba(236, 72, 153, 0.5);
+      color: #f472b6;
+    }
+
+    .type-tab.inactive {
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.08);
+      color: #64748b;
+    }
+
+    .type-tab.inactive:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      color: #94a3b8;
+    }
+  </style>
+  <script>
+    window.bindElectronListenerCleanup();
+</script>
+</head>
+
+<body class="panel-glass p-0 h-screen flex flex-col">
+  <!-- Header -->
+  <div class="win-header">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-pink-500/10 border-pink-500/20">
+        <i data-lucide="megaphone" class="w-5 h-5 text-pink-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">커스텀 알림</span>
+        <span class="win-title-sub">Custom Alert</span>
+      </div>
+    </div>
+    <div class="win-controls">
+      <button id="add-btn" onclick="openAddForm()"
+        class="px-3.5 py-2 bg-pink-500/20 border border-pink-500/40 rounded-xl text-pink-400 hover:bg-pink-500/30 transition-all text-xs font-bold flex items-center gap-1.5 shadow-md">
+        <i data-lucide="plus" class="w-4 h-4"></i> 알림 추가
+      </button>
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="flex-1 overflow-hidden flex flex-col no-drag">
+    <!-- Add Form -->
+    <div id="add-form" class="hidden p-5 border-b border-pink-500/10 bg-white/[0.02] shadow-inner mb-4 transition-all duration-300">
+      <input type="hidden" id="form-id">
+      <div class="flex justify-between items-center mb-4">
+        <span id="form-title" class="text-xs font-black text-pink-400 uppercase tracking-widest flex items-center gap-1.5">
+          <i data-lucide="bell" class="w-4 h-4"></i> 새 알림 설정
+        </span>
+        <div class="h-px flex-1 bg-pink-500/10 ml-3"></div>
+      </div>
+      <div class="space-y-4">
+
+        <!-- 타입 선택 탭 -->
+        <div class="flex gap-2">
+          <button id="tab-daily" onclick="setFormType('daily')"
+            class="type-tab active flex-1 border rounded-xl py-2.5 text-xs font-bold flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="calendar-clock" class="w-4 h-4"></i> 매일 특정 시각
+          </button>
+          <button id="tab-hourly" onclick="setFormType('hourly')"
+            class="type-tab inactive flex-1 border rounded-xl py-2.5 text-xs font-bold flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="repeat" class="w-4 h-4"></i> 매시 특정 분
+          </button>
+        </div>
+
+        <!-- 입력 영역 -->
+        <div class="grid grid-cols-2 gap-4">
+          <!-- 시각 입력 (daily) -->
+          <div id="input-daily" class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <i data-lucide="clock" class="w-3.5 h-3.5 text-pink-400"></i> 목표 시각
+            </label>
+            <div class="bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 hover:border-pink-500/30 transition-colors">
+              <input type="time" id="form-time" value="09:00" class="w-full text-sm font-semibold text-white focus:outline-none">
+            </div>
+          </div>
+
+          <!-- 분 입력 (hourly) -->
+          <div id="input-hourly" class="hidden flex flex-col gap-1.5">
+            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <i data-lucide="clock" class="w-3.5 h-3.5 text-pink-400"></i> 매시 몇 분
+            </label>
+            <div class="bg-black/40 border border-white/10 rounded-xl px-3 py-2.5 hover:border-pink-500/30 transition-colors flex items-center gap-2">
+              <input type="number" id="form-minute" value="0" min="0" max="59" class="w-full text-sm font-semibold text-pink-400 focus:outline-none text-center">
+              <span class="text-xs text-slate-400 font-bold shrink-0">분</span>
+            </div>
+          </div>
+
+          <!-- 알림 메시지 -->
+          <div class="flex flex-col gap-1.5">
+            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <i data-lucide="message-square" class="w-3.5 h-3.5 text-pink-400"></i> 알림 메시지
+            </label>
+            <input type="text" id="form-message" placeholder="예: 일일퀘스트 시작!" maxlength="30"
+              class="bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-200 placeholder-slate-600 focus:outline-none focus:border-pink-500/40 transition-colors w-full h-[40px]">
+          </div>
+        </div>
+
+        <!-- 알림 시점 -->
+        <div class="flex flex-col gap-1.5">
+          <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+            <i data-lucide="bell-ring" class="w-3.5 h-3.5 text-pink-400"></i> 알림 시점 (중복 선택 가능)
+          </label>
+          <div class="flex justify-between items-center bg-black/40 border border-white/10 rounded-xl px-4 py-3">
+            <label class="flex items-center gap-2 cursor-pointer group">
+              <input type="checkbox" value="10" class="form-offset offset-checkbox w-4 h-4 rounded">
+              <span class="text-xs font-medium text-slate-400 group-hover:text-slate-200 transition-colors">10분 전</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer group">
+              <input type="checkbox" value="5" class="form-offset offset-checkbox w-4 h-4 rounded">
+              <span class="text-xs font-medium text-slate-400 group-hover:text-slate-200 transition-colors">5분 전</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer group">
+              <input type="checkbox" value="2" class="form-offset offset-checkbox w-4 h-4 rounded">
+              <span class="text-xs font-medium text-slate-400 group-hover:text-slate-200 transition-colors">2분 전</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer group">
+              <input type="checkbox" value="1" class="form-offset offset-checkbox w-4 h-4 rounded">
+              <span class="text-xs font-medium text-slate-400 group-hover:text-slate-200 transition-colors">1분 전</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer group">
+              <input type="checkbox" value="0" class="form-offset offset-checkbox w-4 h-4 rounded" checked>
+              <span class="text-xs font-medium text-slate-400 group-hover:text-slate-200 transition-colors">정각</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 사운드 + 볼륨 + 저장/취소 -->
+        <div class="grid grid-cols-12 gap-4 items-end">
+          <!-- 알림 사운드 선택 -->
+          <div class="col-span-4 flex flex-col gap-1.5">
+            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <i data-lucide="music" class="w-3.5 h-3.5 text-pink-400"></i> 알림 사운드
+            </label>
+            <div class="bg-black/40 border border-white/10 rounded-xl px-3 hover:border-pink-500/30 transition-colors h-[40px] flex items-center">
+              <select id="form-sound" class="bg-transparent w-full py-2 text-xs font-bold text-slate-300 focus:outline-none cursor-pointer"></select>
+            </div>
+          </div>
+
+          <!-- 미리듣기 버튼 단독 상자 -->
+          <div class="col-span-1 flex flex-col gap-1.5 justify-end">
+            <button onclick="previewFormSound()" 
+                    class="w-full h-[40px] flex items-center justify-center bg-pink-600/20 border border-pink-500/40 rounded-xl text-pink-400 hover:bg-pink-500 hover:text-white transition-all shadow-lg active:scale-95 shrink-0" 
+                    title="소리 듣기">
+              <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+            </button>
+          </div>
+
+          <!-- 볼륨 슬라이더 -->
+          <div class="col-span-4 flex flex-col gap-1.5">
+            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span class="flex items-center gap-1"><i data-lucide="volume-2" class="w-3.5 h-3.5 text-pink-400"></i> 알림 볼륨</span>
+              <span id="form-volume-val" class="font-mono text-pink-400 font-bold">80%</span>
+            </label>
+            <div class="flex items-center bg-black/40 border border-white/10 rounded-xl px-3 h-[40px]">
+              <input type="range" id="form-volume" min="0" max="100" value="80" 
+                     oninput="document.getElementById('form-volume-val').innerText = this.value + '%'"
+                     class="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-pink-500">
+            </div>
+          </div>
+
+          <div class="col-span-3 flex gap-2 h-[40px]">
+            <button onclick="cancelAddForm()"
+              class="flex-1 text-xs font-bold text-slate-400 hover:text-white transition-colors bg-white/5 border border-white/10 rounded-xl">취소</button>
+            <button id="save-btn" onclick="saveNewAlert()"
+              class="flex-1 text-xs font-bold bg-pink-500/20 border border-pink-500/40 text-pink-400 hover:bg-pink-500/30 rounded-xl transition-all">저장</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert List -->
+    <div class="flex-1 overflow-y-auto no-drag p-6 custom-scroll">
+      <div id="alert-list" class="space-y-4">
+        <!-- 알림 카드들이 여기에 렌더링됨 -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let config = null;
+    let soundFiles = [];
+    let currentFormType = 'daily';
+    let _soundReady = false;
+
+    window.onload = async () => {
+      soundFiles = await window.loadSoundList();
+      const sel = document.getElementById('form-sound');
+      if (sel) {
+        sel.innerHTML = '';
+        soundFiles.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.file; opt.textContent = s.name;
+          sel.appendChild(opt);
+        });
+      }
+      _soundReady = true;
+      if (config) render(); // 설정 데이터가 이미 와 있다면 즉시 렌더링
+      
+      window.bindEscapeClose();
+      window.refreshIcons();
+    };
+
+    window.electronAPI.onConfigData(async (data) => { 
+      config = data; 
+      if (window.loadSoundList) {
+        try {
+          soundFiles = await window.loadSoundList();
+          const sel = document.getElementById('form-sound');
+          if (sel) {
+            const prevVal = sel.value;
+            sel.innerHTML = '';
+            soundFiles.forEach(s => {
+              const opt = document.createElement('option');
+              opt.value = s.file; opt.textContent = s.name;
+              sel.appendChild(opt);
+            });
+            if (prevVal) sel.value = prevVal;
+          }
+        } catch (e) {
+          console.error('Failed to reload sound list:', e);
+        }
+      }
+      _soundReady = true;
+      render(); 
+    });
+
+    // --- 타입 탭 전환 ---
+    function setFormType(type) {
+      currentFormType = type;
+      document.getElementById('input-daily').classList.toggle('hidden', type !== 'daily');
+      document.getElementById('input-hourly').classList.toggle('hidden', type !== 'hourly');
+      document.getElementById('tab-daily').className = `type-tab ${type === 'daily' ? 'active' : 'inactive'} flex-1 border rounded-xl py-2.5 text-xs font-bold flex items-center justify-center gap-2`;
+      document.getElementById('tab-hourly').className = `type-tab ${type === 'hourly' ? 'active' : 'inactive'} flex-1 border rounded-xl py-2.5 text-xs font-bold flex items-center justify-center gap-2`;
+    }
+
+    // --- 렌더링 ---
+    function render() {
+      if (!config) return;
+      const list = document.getElementById('alert-list');
+      const alerts = config.customAlerts || [];
+
+      if (alerts.length === 0) {
+        list.innerHTML = `
+          <div class="flex flex-col items-center justify-center py-20 text-slate-600 gap-3">
+            <i data-lucide="clock" class="w-12 h-12 opacity-30 animate-pulse text-slate-400"></i>
+            <span class="text-xs font-bold text-slate-400">등록된 커스텀 알림이 없습니다</span>
+            <span class="text-xs text-slate-600">[알림 추가] 버튼으로 새 알림을 만드세요</span>
+          </div>`;
+        window.refreshIcons();
+        return;
+      }
+
+      list.innerHTML = '';
+      alerts.forEach(alert => {
+        const offsetLabels = (alert.offsets || [0]).map(o => o === 0 ? '정각' : `${o}분 전`).join(', ');
+        const isHourly = alert.type === 'hourly';
+        const timeDisplay = isHourly
+          ? `매시 <span class="text-pink-400 font-bold">${String(alert.minute ?? 0).padStart(2, '0')}분</span>`
+          : `<span class="text-pink-400 font-bold">${alert.time || '--:--'}</span>`;
+        const typeBadge = isHourly
+          ? `<span class="text-[9px] font-bold text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-lg">매시반복</span>`
+          : `<span class="text-[9px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-lg">매일 반복</span>`;
+
+        const div = document.createElement('div');
+        div.className = `alert-card p-4 rounded-2xl flex flex-col gap-3.5 shadow-md ${!alert.enabled ? 'disabled' : ''}`;
+        
+        const vol = alert.volume !== undefined ? alert.volume : 80;
+
+        div.innerHTML = `
+          <div class="flex justify-between items-start">
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center gap-2.5">
+                <i data-lucide="${isHourly ? 'repeat' : 'calendar-clock'}" class="w-4 h-4 ${isHourly ? 'text-purple-400' : 'text-blue-400'}"></i>
+                <span class="font-mono text-base font-black text-white leading-none">${timeDisplay}</span>
+                ${typeBadge}
+              </div>
+              <div class="flex flex-wrap items-center gap-2.5 pl-6.5">
+                <span class="text-sm font-bold text-slate-200">${escapeHtml(alert.message) || '<span class="text-slate-600 italic">메시지 없음</span>'}</span>
+                <span class="text-[10px] text-pink-400 bg-pink-500/10 border border-pink-500/10 px-2 py-0.5 rounded-lg font-bold">${offsetLabels}</span>
+              </div>
+            </div>
+            
+            <div class="flex items-center gap-2">
+              <button class="js-edit-alert w-8 h-8 flex items-center justify-center text-slate-400 hover:text-pink-400 transition-colors rounded-xl hover:bg-pink-500/10" title="수정">
+                <i data-lucide="edit-3" class="w-4 h-4"></i>
+              </button>
+              <label class="relative inline-flex items-center cursor-pointer no-drag px-1">
+                <input type="checkbox" class="js-toggle-alert sr-only peer" ${alert.enabled ? 'checked' : ''}>
+                <div class="w-9 h-5 bg-slate-800 rounded-full peer peer-checked:after:translate-x-[16px] after:content-[''] after:absolute after:top-[3px] after:left-[7px] after:bg-slate-400 after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-pink-500 peer-checked:after:bg-white"></div>
+              </label>
+              <button class="js-remove-alert w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-400 transition-colors rounded-xl hover:bg-red-500/10" title="삭제">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex gap-3.5 items-center pt-3 border-t border-white/5">
+            <!-- 사운드 드롭다운 -->
+            <div class="flex-1 bg-black/40 rounded-xl px-3 border border-white/5 hover:border-pink-500/30 transition-colors">
+              <select class="js-alert-sound w-full bg-transparent py-2.5 text-xs font-bold text-slate-300 focus:outline-none cursor-pointer">
+                ${soundFiles.map(s => `<option value="${window.escapeHtmlAttribute(s.file)}" ${alert.soundFile === s.file ? 'selected' : ''}>${window.escapeHtmlText(s.name)}</option>`).join('')}
+              </select>
+            </div>
+
+            <!-- 개별 볼륨 조절 슬라이더 -->
+            <div class="flex items-center gap-2 bg-black/40 rounded-xl px-3.5 py-1.5 border border-white/5 hover:border-pink-500/30 transition-colors w-44">
+              <i data-lucide="volume-2" class="w-4 h-4 text-pink-400 shrink-0"></i>
+              <input type="range" min="0" max="100" value="${vol}"
+                     class="js-alert-volume w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-pink-500">
+              <span class="font-mono text-xs text-pink-400 font-bold shrink-0 w-8 text-right">${vol}%</span>
+            </div>
+
+            <!-- 미리듣기 버튼 (지정한 볼륨 파라미터 전달) -->
+            <button class="js-preview-alert w-10 h-10 flex items-center justify-center bg-pink-600/20 border border-pink-500/40 rounded-xl text-pink-400 hover:bg-pink-500 hover:text-white transition-all shadow-lg active:scale-90 shrink-0" title="소리 테스트">
+              <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+            </button>
+          </div>
+        `;
+        div.querySelector('.js-edit-alert').addEventListener('click', () => openEditForm(alert.id));
+        div.querySelector('.js-toggle-alert').addEventListener('change', (event) => {
+          toggleAlert(alert.id, event.currentTarget.checked);
+        });
+        div.querySelector('.js-remove-alert').addEventListener('click', () => removeAlert(alert.id));
+        div.querySelector('.js-alert-sound').addEventListener('change', (event) => {
+          changeAlertSound(alert.id, event.currentTarget.value);
+        });
+        const volumeInput = div.querySelector('.js-alert-volume');
+        volumeInput.addEventListener('input', () => {
+          volumeInput.nextElementSibling.innerText = volumeInput.value + '%';
+        });
+        volumeInput.addEventListener('change', () => changeAlertVolume(alert.id, volumeInput.value));
+        div.querySelector('.js-preview-alert').addEventListener('click', () => {
+          window.playPreview(alert.soundFile, vol, alert.message);
+        });
+        list.appendChild(div);
+      });
+      window.refreshIcons();
+    }
+
+    // --- Add/Edit Form ---
+    function openAddForm() {
+      resetForm();
+      document.getElementById('add-form').classList.remove('hidden');
+      document.getElementById('add-btn').classList.add('hidden');
+      document.getElementById('save-btn').textContent = '저장';
+      document.getElementById('form-title').textContent = '새 알림 설정';
+    }
+
+    function openEditForm(id) {
+      const alert = config.customAlerts.find(a => a.id === id);
+      if (!alert) return;
+
+      document.getElementById('form-id').value = alert.id;
+      setFormType(alert.type || 'daily');
+
+      if (alert.type === 'hourly') {
+        document.getElementById('form-minute').value = alert.minute ?? 0;
+      } else {
+        document.getElementById('form-time').value = alert.time || '09:00';
+      }
+      
+      document.getElementById('form-message').value = alert.message || '';
+
+      const offsets = alert.offsets || [0];
+      document.querySelectorAll('.form-offset').forEach(cb => {
+        cb.checked = offsets.includes(parseInt(cb.value));
+      });
+
+      document.getElementById('form-sound').value = alert.soundFile || 'orb.mp3';
+      
+      const vol = alert.volume !== undefined ? alert.volume : 80;
+      document.getElementById('form-volume').value = vol;
+      document.getElementById('form-volume-val').innerText = vol + '%';
+
+      document.getElementById('add-form').classList.remove('hidden');
+      document.getElementById('add-btn').classList.add('hidden');
+      document.getElementById('save-btn').textContent = '수정';
+      document.getElementById('form-title').textContent = '알림 수정하기';
+    }
+
+    function cancelAddForm() {
+      document.getElementById('add-form').classList.add('hidden');
+      document.getElementById('add-btn').classList.remove('hidden');
+      resetForm();
+    }
+
+    function resetForm() {
+      document.getElementById('form-id').value = '';
+      setFormType('daily');
+      document.getElementById('form-time').value = '09:00';
+      document.getElementById('form-message').value = '';
+      document.getElementById('form-minute').value = '0';
+      document.querySelectorAll('.form-offset').forEach(cb => { cb.checked = cb.value === '0'; });
+      document.getElementById('form-volume').value = 80;
+      document.getElementById('form-volume-val').innerText = '80%';
+    }
+
+    function saveNewAlert() {
+      const editId = document.getElementById('form-id').value;
+      const offsets = [...document.querySelectorAll('.form-offset:checked')].map(cb => parseInt(cb.value));
+      const soundFile = document.getElementById('form-sound').value || 'orb.mp3';
+      const volume = parseInt(document.getElementById('form-volume').value);
+
+      if (offsets.length === 0) { alert('알림 시점을 하나 이상 선택해주세요.'); return; }
+      
+      const message = document.getElementById('form-message').value.trim();
+      if (!message) { alert('알림 메시지를 입력해주세요.'); return; }
+
+      let alertData;
+      if (currentFormType === 'hourly') {
+        const minute = parseInt(document.getElementById('form-minute').value);
+        if (isNaN(minute) || minute < 0 || minute > 59) { alert('0~59 사이의 분을 입력해주세요.'); return; }
+        alertData = { type: 'hourly', minute, offsets, message, soundFile, volume };
+      } else {
+        const time = document.getElementById('form-time').value;
+        if (!time) { alert('시각을 입력해주세요.'); return; }
+        alertData = { type: 'daily', time, offsets, message, soundFile, volume };
+      }
+
+      let alerts = config.customAlerts || [];
+      if (editId) {
+        // Update existing
+        alerts = alerts.map(a => a.id === editId ? { ...a, ...alertData } : a);
+      } else {
+        // Add new
+        alerts = [...alerts, { id: String(Date.now()), enabled: true, ...alertData }];
+      }
+
+      window.electronAPI.applySettings({ customAlerts: alerts });
+      cancelAddForm();
+    }
+
+    function previewFormSound() {
+      const sound = document.getElementById('form-sound').value;
+      const vol = parseInt(document.getElementById('form-volume').value);
+      const msg = document.getElementById('form-message').value.trim() || '미리보기';
+      window.playPreview(sound, vol, msg);
+    }
+
+    // --- Alert Actions ---
+    function toggleAlert(id, enabled) {
+      const alerts = (config.customAlerts || []).map(a => a.id === id ? { ...a, enabled } : a);
+      window.electronAPI.applySettings({ customAlerts: alerts });
+    }
+
+    function removeAlert(id) {
+      if (!confirm('해당 알림을 삭제하시겠습니까?')) return;
+      const alerts = (config.customAlerts || []).filter(a => a.id !== id);
+      window.electronAPI.applySettings({ customAlerts: alerts });
+    }
+
+    function changeAlertSound(id, soundFile) {
+      const alerts = (config.customAlerts || []).map(a => a.id === id ? { ...a, soundFile } : a);
+      window.electronAPI.applySettings({ customAlerts: alerts });
+    }
+
+    function changeAlertVolume(id, volume) {
+      const alerts = (config.customAlerts || []).map(a => a.id === id ? { ...a, volume: parseInt(volume) } : a);
+      window.electronAPI.applySettings({ customAlerts: alerts });
+    }
+</script>
+</body>
+
+</html>

@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .window-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      background: rgba(15, 18, 30, 0.98);
+      border-radius: 12px;
+    }
+
+    .header-section {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .scroll-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .keyword-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #818cf8;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    /* 히스토리 아이템 스타일 */
+    .history-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .history-item:hover {
+      border-color: rgba(99, 102, 241, 0.2);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .history-header {
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .history-context {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease-out;
+      background: rgba(0, 0, 0, 0.2);
+      border-top: 0px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .history-context.open {
+      max-height: 350px;
+      overflow-y: auto;
+      border-top-width: 1px;
+    }
+
+    .context-line {
+      padding: 6px 16px;
+      font-size: 11px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+      display: flex;
+      gap: 8px;
+    }
+
+    .context-time {
+      color: rgba(148, 163, 184, 0.5);
+      font-family: monospace;
+      flex-shrink: 0;
+    }
+
+    .context-sender {
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .context-msg {
+      word-break: break-all;
+    }
+
+    /* 토글 스위치 */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+      transition: .3s;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #94a3b8;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: rgba(99, 102, 241, 0.2);
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(20px);
+      background-color: #818cf8;
+    }
+
+    /* 하단 가이드 배너 */
+    .guide-banner {
+      background: rgba(99, 102, 241, 0.05);
+      border: 1px solid rgba(99, 102, 241, 0.15);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+  </style>
+</head>
+
+<body class="panel-glass overflow-hidden">
+  <div class="window-container">
+    <!-- 헤더 -->
+    <div class="header-section win-header !bg-transparent !border-none flex justify-between items-center">
+      <div class="win-title-area">
+        <div class="win-icon-box bg-indigo-500/10 border-indigo-500/20">
+          <i data-lucide="bell-ring" class="w-5 h-5 text-indigo-400"></i>
+        </div>
+        <div class="win-title-text">
+          <span class="win-title-main">지정 단어 알림</span>
+          <span class="win-title-sub">Word Alarm Settings</span>
+        </div>
+      </div>
+      <button onclick="window.close()" class="no-drag text-slate-400 hover:text-white p-1 transition-colors">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- 내용 스크롤 영역 -->
+    <div id="main-scroll" class="scroll-content custom-scroll">
+      <!-- 가이드 배너 -->
+      <div class="guide-banner">
+        <div class="flex gap-2 items-start">
+          <i data-lucide="help-circle" class="w-4 h-4 text-indigo-400 shrink-0 mt-0.5"></i>
+          <div>
+            <h4 class="text-xs font-bold text-slate-300">작동하지 않나요?</h4>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+              테일즈위버 인게임 <b>[옵션 > 게임 > 인터페이스]</b>에서 <b>채팅 로그</b> 항목이 <b>ON</b>으로 설정되어야 실시간 감지가 가능합니다.
+            </p>
+          </div>
+        </div>
+        <button onclick="goToChatLogSettings()" class="mt-2 py-2 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 font-bold text-xs rounded-xl border border-indigo-500/20 transition-all flex items-center justify-center gap-1.5">
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i> 환경설정 채팅로그 탭 바로가기
+        </button>
+      </div>
+
+      <!-- 1. 알림 On/Off 및 대화저장 토글 카드 -->
+      <div class="setting-card">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200">지정 단어 알림 사용</h3>
+            <p class="text-xs text-slate-500 mt-0.5">일반/클럽 채팅 중 지정한 단어 감지 시 알림</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="alarm-toggle" onchange="toggleAlarmEnabled(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="border-t border-white/5 pt-3 mt-1.5 flex justify-between items-center">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200">대화 내용(5분 이력) 저장</h3>
+            <p class="text-xs text-slate-500 mt-0.5">지정 단어 감지 전후 5분 동안의 대화 맥락 보관</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="history-save-toggle" onchange="toggleHistorySaveEnabled(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 2. 키워드 설정 카드 -->
+      <div class="setting-card">
+        <label class="section-label flex items-center gap-1.5 mb-1">
+          <i data-lucide="tag" class="w-4 h-4 text-indigo-400"></i> 감지할 키워드 등록
+        </label>
+        <div class="flex gap-2">
+          <input type="text" id="keyword-input" class="input-field flex-1 py-2 px-3 bg-black/40"
+            placeholder="예: 지원, 헬프, 대기..." onkeypress="if(event.key==='Enter')addKeyword()">
+          <button onclick="addKeyword()" class="btn-primary !bg-indigo-600 hover:!bg-indigo-500 px-4 font-bold text-xs">추가</button>
+        </div>
+        <div id="keyword-list" class="flex flex-wrap gap-2 p-3 bg-black/30 rounded-xl border border-white/5 min-h-[80px] align-content-start">
+          <!-- 키워드 태그가 동적 생성됨 -->
+        </div>
+      </div>
+
+      <!-- 3. 알림음 및 볼륨 설정 카드 -->
+      <div id="sound-settings-card" class="setting-card">
+        <label class="section-label flex items-center gap-1.5 mb-1">
+          <i data-lucide="volume-2" class="w-4 h-4 text-indigo-400"></i> 알림음 및 사운드 설정
+        </label>
+        <div class="flex gap-2 items-center">
+          <select id="sound-select" class="input-field flex-1 py-2 px-3 bg-black/40 text-xs font-bold" onchange="changeSound(this.value)">
+            <!-- soundFiles 동적 바인딩 -->
+          </select>
+          <button id="test-play-btn" onclick="testPlaySound()" 
+                  class="w-10 h-[40px] flex items-center justify-center bg-indigo-600/20 border border-indigo-500/40 rounded-xl text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all shadow-lg active:scale-90 shrink-0" 
+                  title="소리 테스트">
+            <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+          </button>
+        </div>
+        <div class="space-y-2 mt-2">
+          <div class="flex justify-between items-center text-xs font-bold text-slate-500">
+            <span>알림음 볼륨</span>
+            <span id="volume-val" class="text-indigo-400">70%</span>
+          </div>
+          <input type="range" id="volume-slider" min="0" max="100" class="w-full h-1.5 rounded-lg appearance-none bg-slate-800 accent-indigo-500" oninput="changeVolume(this.value)">
+        </div>
+      </div>
+
+      <!-- 4. 감지 히스토리 카드 -->
+      <div class="setting-card !bg-transparent !border-none !p-0">
+        <div class="flex justify-between items-center mb-3">
+          <label class="section-label flex items-center gap-1.5 !mb-0">
+            <i data-lucide="history" class="w-4 h-4 text-indigo-400"></i> 감지 히스토리 (최근 24시간)
+          </label>
+          <button onclick="clearHistory()" class="no-drag text-xs font-bold text-rose-400/80 hover:text-rose-400 transition-colors flex items-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-1.5 rounded-xl border border-rose-500/10">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 모두 비우기
+          </button>
+        </div>
+        <div id="history-list" class="space-y-2.5">
+          <!-- 히스토리 목록 동적 바인딩 -->
+        </div>
+      </div>
+
+
+    </div>
+  </div>
+
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <script src="shared/chatChannels.js"></script>
+  <script>
+    let openedAlarmId = null;
+    let appConfig = null;
+    let soundFiles = [];
+    let wordAlarmKeywords = [];
+    let wordAlarmEnabled = false;
+    let wordAlarmHistoryEnabled = true;
+    let wordAlarmSound = '';
+    let wordAlarmVolume = 70;
+    let alarmHistoryMap = {}; // alarmId -> historyItem 매핑 맵
+
+    async function init() {
+      window.bindEscapeClose();
+
+      // 초기 설정 바인딩 (레이스 컨디션을 예방하기 위해 가장 먼저 동기 등록)
+      window.electronAPI.onConfigData(async (config) => {
+        appConfig = config;
+        wordAlarmEnabled = !!config.wordAlarmEnabled;
+        wordAlarmKeywords = JSON.parse(JSON.stringify(config.wordAlarmKeywords || []));
+        wordAlarmSound = config.wordAlarmSound || 'orb.mp3';
+        wordAlarmVolume = config.wordAlarmVolume !== undefined ? config.wordAlarmVolume : 70;
+        wordAlarmHistoryEnabled = config.wordAlarmHistoryEnabled !== false;
+
+        document.getElementById('alarm-toggle').checked = wordAlarmEnabled;
+        document.getElementById('history-save-toggle').checked = wordAlarmHistoryEnabled;
+        
+        // 사운드 목록 동적 갱신
+        if (window.loadSoundList) {
+          try {
+            soundFiles = await window.loadSoundList();
+            const select = document.getElementById('sound-select');
+            if (select) {
+              const prevVal = select.value || wordAlarmSound;
+              select.innerHTML = '';
+              soundFiles.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.file;
+                opt.innerText = s.name;
+                select.appendChild(opt);
+              });
+              select.value = prevVal;
+            }
+          } catch (e) {
+            console.error('Failed to reload sound list:', e);
+          }
+        }
+        
+        // 사운드 셀렉트 박스 옵션이 이미 준비된 경우 설정값 지정
+        const select = document.getElementById('sound-select');
+        if (select && select.options.length > 0) {
+          select.value = wordAlarmSound;
+        }
+        
+        document.getElementById('volume-slider').value = wordAlarmVolume;
+        document.getElementById('volume-val').innerText = wordAlarmVolume + '%';
+
+        renderKeywords();
+      });
+
+      // 사운드 파일 목록 로드
+      if (window.loadSoundList) {
+        soundFiles = await window.loadSoundList();
+        const select = document.getElementById('sound-select');
+        select.innerHTML = '';
+        soundFiles.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.file;
+          opt.innerText = s.name;
+          select.appendChild(opt);
+        });
+        // 목록 로딩 완료 후 저장되어 있던 설정값 적용
+        if (wordAlarmSound) {
+          select.value = wordAlarmSound;
+        }
+      }
+
+      // DB 업데이트 시그널 리스너 (실시간 히스토리 갱신용)
+      if (window.electronAPI.onDiaryUpdated) {
+        window.electronAPI.onDiaryUpdated(() => {
+          loadHistory();
+        });
+      }
+
+      await loadHistory();
+      window.refreshIcons();
+    }
+
+    // 키워드 뱃지 렌더링
+    function renderKeywords() {
+      const list = document.getElementById('keyword-list');
+      list.innerHTML = '';
+      if (wordAlarmKeywords.length === 0) {
+        list.innerHTML = '<span class="text-[11px] text-slate-600 p-2">등록된 키워드가 없습니다.</span>';
+        return;
+      }
+      wordAlarmKeywords.forEach((kw, i) => {
+        const tag = document.createElement('span');
+        tag.className = 'keyword-tag';
+        tag.innerHTML = `${kw} <button onclick="removeKeyword(${i})"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>`;
+        list.appendChild(tag);
+      });
+      window.refreshIcons();
+    }
+
+    // 키워드 추가
+    function addKeyword() {
+      const input = document.getElementById('keyword-input');
+      const val = input.value.trim();
+      if (val && !wordAlarmKeywords.includes(val)) {
+        wordAlarmKeywords.push(val);
+        renderKeywords();
+        saveConfig();
+        input.value = '';
+      }
+    }
+
+    // 키워드 삭제
+    function removeKeyword(index) {
+      wordAlarmKeywords.splice(index, 1);
+      renderKeywords();
+      saveConfig();
+    }
+
+    // 설정 변경사항 저장
+    function saveConfig() {
+      const settings = {
+        wordAlarmEnabled,
+        wordAlarmKeywords,
+        wordAlarmSound,
+        wordAlarmVolume,
+        wordAlarmHistoryEnabled
+      };
+      window.electronAPI.applySettings(settings);
+    }
+
+    function toggleAlarmEnabled(checked) {
+      wordAlarmEnabled = checked;
+      saveConfig();
+    }
+
+    function toggleHistorySaveEnabled(checked) {
+      wordAlarmHistoryEnabled = checked;
+      saveConfig();
+    }
+
+    function changeSound(sound) {
+      wordAlarmSound = sound;
+      saveConfig();
+    }
+
+    function changeVolume(vol) {
+      wordAlarmVolume = parseInt(vol);
+      document.getElementById('volume-val').innerText = wordAlarmVolume + '%';
+      saveConfig();
+    }
+
+    // 테스트 알림음 재생
+    function testPlaySound() {
+      window.electronAPI.playSound(wordAlarmSound, wordAlarmVolume);
+    }
+
+    // 환경설정 탭으로 이동
+    function goToChatLogSettings() {
+      window.electronAPI.toggleSettings('chatlog');
+    }
+
+    if (window.electronAPI && window.electronAPI.onHighlightAlarmSettings) {
+      window.electronAPI.onHighlightAlarmSettings(() => {
+        window.highlightElement(document.getElementById('sound-settings-card'), {
+          borderColor: 'rgba(99, 102, 241, 0.8)',
+          boxShadow: '0 0 25px rgba(99, 102, 241, 0.5)',
+        });
+      });
+    }
+
+    // 히스토리 개별 삭제
+    async function deleteHistoryItem(id, event) {
+      if (event) {
+        event.stopPropagation();
+      }
+      if (confirm('이 알림 이력을 삭제하시겠습니까?')) {
+        window.electronAPI.deleteWordAlarmHistoryItem(id);
+      }
+    }
+
+    // 히스토리 전체 삭제
+    async function clearHistory() {
+      if (confirm('최근 24시간 동안의 모든 감지 이력을 삭제하시겠습니까?\n(연관된 5분 대화 맥락도 함께 영구 삭제됩니다.)')) {
+        window.electronAPI.clearWordAlarmHistory();
+      }
+    }
+
+    // 히스토리 로드 및 바인딩
+    async function loadHistory() {
+      try {
+        const mainScroll = document.getElementById('main-scroll');
+        const savedScrollTop = mainScroll ? mainScroll.scrollTop : 0;
+
+        const history = await window.electronAPI.getWordAlarmHistory(24);
+        const list = document.getElementById('history-list');
+        list.innerHTML = '';
+        alarmHistoryMap = {};
+
+        if (history.length === 0) {
+          list.innerHTML = '<div class="p-8 text-center text-slate-600 text-xs font-bold bg-white/5 rounded-2xl border border-white/5">알림 감지 이력이 없습니다.</div>';
+          return;
+        }
+
+        history.forEach(item => {
+          alarmHistoryMap[item.id] = item;
+          const div = document.createElement('div');
+          div.className = 'history-item';
+          
+          const timeStr = new Date(item.alarm_timestamp * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+          
+          const isOpen = item.id === openedAlarmId;
+          const contextClass = isOpen ? 'history-context custom-scroll open' : 'history-context custom-scroll';
+          const chevronClass = isOpen ? 'w-4 h-4 text-slate-500 transition-transform rotate-180' : 'w-4 h-4 text-slate-500 transition-transform';
+
+          div.innerHTML = `
+            <div class="history-header" onclick="toggleContext(${item.id})">
+              <div class="flex flex-col gap-1 flex-1 min-w-0 pr-2">
+                <span class="text-xs font-black text-slate-300">
+                  <span class="text-indigo-400 font-bold">[${item.keyword}]</span> ${item.sender} : ${item.message}
+                </span>
+                <span class="text-[9px] font-bold text-slate-500">${timeStr}</span>
+              </div>
+              <div class="flex items-center gap-2 no-drag">
+                <button onclick="deleteHistoryItem(${item.id}, event)" class="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors" title="삭제">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+                <i data-lucide="chevron-down" id="chevron-${item.id}" class="${chevronClass}"></i>
+              </div>
+            </div>
+            <div id="context-${item.id}" class="${contextClass}">
+              <div class="py-2" id="context-content-${item.id}">
+                <div class="text-center py-4 text-xs text-slate-500">대화 불러오는 중...</div>
+              </div>
+            </div>
+          `;
+          list.appendChild(div);
+        });
+        window.refreshIcons();
+
+        // 현재 펼쳐져 있는 아코디언이 있었다면 대화 데이터 로드 진행 (완료 대기)
+        if (openedAlarmId !== null) {
+          await loadContextData(openedAlarmId);
+        }
+
+        // 메인 스크롤 위치 복구
+        if (mainScroll) {
+          mainScroll.scrollTop = savedScrollTop;
+        }
+      } catch (e) {
+        console.error('Failed to load alarm history:', e);
+      }
+    }
+
+    // 아코디언 내용 로드 함수
+    async function loadContextData(alarmId) {
+      const contextDiv = document.getElementById(`context-${alarmId}`);
+      const contentDiv = document.getElementById(`context-content-${alarmId}`);
+      if (!contextDiv || !contentDiv) return;
+
+      try {
+        const context = await window.electronAPI.getWordAlarmContext(alarmId);
+        contentDiv.innerHTML = '';
+
+        if (context.length === 0) {
+          contentDiv.innerHTML = '<div class="text-center py-4 text-xs text-slate-500">저장된 대화 맥락이 없습니다.</div>';
+          return;
+        }
+
+        const alarmItem = alarmHistoryMap[alarmId];
+        let highlightedEl = null;
+
+        context.forEach(ctx => {
+          const time = new Date(ctx.timestamp * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+          const line = document.createElement('div');
+          line.className = 'context-line';
+          
+          // 색상 구분 (클럽대화와 일반대화)
+          const colorClass = ctx.color === window.chatChannels.COLORS.club ? 'text-cyan-400' : 'text-slate-200';
+          
+          // 감지된 로그인지 확인 (보낸이와 메시지가 같으면 하이라이트)
+          const isTriggerLine = alarmItem && ctx.sender === alarmItem.sender && ctx.message === alarmItem.message;
+          if (isTriggerLine) {
+            line.classList.add('bg-indigo-500/20', 'border-y', 'border-indigo-500/30');
+            highlightedEl = line;
+          }
+
+          line.innerHTML = `
+            <span class="context-time">${time}</span>
+            <span class="context-sender ${colorClass}">${ctx.sender} :</span>
+            <span class="context-msg ${colorClass}">${ctx.message}</span>
+          `;
+          contentDiv.appendChild(line);
+        });
+
+        // 감지된 로그로 스크롤 포커싱
+        if (highlightedEl) {
+          setTimeout(() => {
+            contextDiv.scrollTop = highlightedEl.offsetTop - contextDiv.offsetTop - 40;
+          }, 100);
+        } else {
+          contextDiv.scrollTop = contextDiv.scrollHeight;
+        }
+      } catch (e) {
+        console.error('Failed to load chat context:', e);
+      }
+    }
+
+    // 아코디언 토글 및 대화 맥락 바인딩
+    async function toggleContext(alarmId) {
+      const contextDiv = document.getElementById(`context-${alarmId}`);
+      const chevron = document.getElementById(`chevron-${alarmId}`);
+      if (!contextDiv || !chevron) return;
+
+      const isOpen = contextDiv.classList.contains('open');
+
+      // 모든 아코디언 닫기
+      document.querySelectorAll('.history-context').forEach(c => c.classList.remove('open'));
+      document.querySelectorAll('.history-header i').forEach(i => i.classList.remove('rotate-180'));
+
+      if (!isOpen) {
+        contextDiv.classList.add('open');
+        chevron.classList.add('rotate-180');
+        openedAlarmId = alarmId;
+
+        // 대화 맥락 불러오기
+        await loadContextData(alarmId);
+      } else {
+        openedAlarmId = null;
+      }
+    }
+
+    init();
+
+    window.bindChatLogStatusWarning();
+</script>
+</body>
+
+</html>

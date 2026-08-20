@@ -1,0 +1,82 @@
+﻿[
+    {
+        "folder":  "cursor_clicking",
+        "frames":  2,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "cursor_clicking.cur",
+        "animated":  "cursor_clicking.ani"
+    },
+    {
+        "folder":  "cursor_default",
+        "frames":  13,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "cursor_default.cur",
+        "animated":  "cursor_default.ani"
+    },
+    {
+        "folder":  "cursor_error_clicking",
+        "frames":  2,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "cursor_error_clicking.cur",
+        "animated":  "cursor_error_clicking.ani"
+    },
+    {
+        "folder":  "cursor_help",
+        "frames":  4,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "cursor_help.cur",
+        "animated":  "cursor_help.ani"
+    },
+    {
+        "folder":  "cursor_help_clicking",
+        "frames":  2,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "cursor_help_clicking.cur",
+        "animated":  "cursor_help_clicking.ani"
+    },
+    {
+        "folder":  "cursor_loading",
+        "frames":  16,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "cursor_loading.cur",
+        "animated":  "cursor_loading.ani"
+    },
+    {
+        "folder":  "cursor_loading_clicking",
+        "frames":  2,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "cursor_loading_clicking.cur",
+        "animated":  "cursor_loading_clicking.ani"
+    },
+    {
+        "folder":  "error_cursor",
+        "frames":  12,
+        "hotspotX":  0,
+        "hotspotY":  0,
+        "static":  "error_cursor.cur",
+        "animated":  "error_cursor.ani"
+    },
+    {
+        "folder":  "grab_cursor",
+        "frames":  3,
+        "hotspotX":  11,
+        "hotspotY":  11,
+        "static":  "grab_cursor.cur",
+        "animated":  "grab_cursor.ani"
+    },
+    {
+        "folder":  "scroll_cursor",
+        "frames":  4,
+        "hotspotX":  5,
+        "hotspotY":  15,
+        "static":  "scroll_cursor.cur",
+        "animated":  "scroll_cursor.ani"
+    }
+]

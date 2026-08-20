@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>사기꾼 탐지</title>
+  <link rel="stylesheet" href="style.css">
+    <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body {
+      background: #0f121e;
+      color: white;
+      overflow: hidden;
+      font-size: 13px;
+    }
+    .drag-region { -webkit-app-region: drag; }
+    .no-drag { -webkit-app-region: no-drag; }
+
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.running  { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.6); }
+    .status-dot.stopped  { background: #475569; }
+    .status-dot.starting { background: #f59e0b; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .card {
+      background: rgba(30,35,60,0.6);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .section-title {
+      font-size: 11px; font-weight: 800; color: #64748b;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      margin-bottom: 12px;
+      display: flex; align-items: center; gap: 5px;
+    }
+
+    /* 세션 카드 */
+    .session-card {
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.25);
+      transition: border-color 0.2s;
+    }
+    .session-card.analyzing  { border-color: rgba(245,158,11,0.4); }
+    .session-card.scam       { border-color: rgba(239,68,68,0.5); }
+    .session-card.suspicious { border-color: rgba(245,158,11,0.35); }
+
+    /* 판정 뱃지 */
+    .verdict-chip {
+      display: inline-flex; align-items: center;
+      padding: 2px 9px; border-radius: 999px;
+      font-size: 11px; font-weight: 800; flex-shrink: 0;
+    }
+    .verdict-chip.SCAM       { background:rgba(239,68,68,0.2);  color:#f87171; border:1px solid rgba(239,68,68,0.45); }
+    .verdict-chip.SUSPICIOUS { background:rgba(245,158,11,0.15);color:#fbbf24; border:1px solid rgba(245,158,11,0.4); }
+    .verdict-chip.SAFE       { background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.4); }
+    .verdict-chip.UNKNOWN    { background:rgba(71,85,105,0.2);  color:#94a3b8; border:1px solid rgba(71,85,105,0.35); }
+
+    /* 스트리밍 박스 */
+    .stream-box {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; line-height: 1.6;
+      color: #cbd5e1;
+      background: rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px;
+      padding: 8px 10px;
+      max-height: 120px;
+      overflow-y: auto;
+      word-break: break-all;
+      white-space: pre-wrap;
+      margin-top: 8px;
+    }
+    .stream-box::-webkit-scrollbar { width: 3px; }
+    .stream-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .cursor {
+      display: inline-block; width: 7px; height: 13px;
+      background: #f59e0b; border-radius: 1px;
+      vertical-align: middle; animation: blink 0.75s infinite; margin-left: 2px;
+    }
+
+    /* 분석 로그 */
+    .log-entry {
+      border-left: 2px solid; padding: 7px 10px;
+      border-radius: 0 8px 8px 0; background: rgba(0,0,0,0.22);
+      font-size: 12px;
+    }
+    .log-entry.SCAM       { border-color:#ef4444; }
+    .log-entry.SUSPICIOUS { border-color:#f59e0b; }
+    .log-entry.SAFE       { border-color:#22c55e; }
+    .log-entry.UNKNOWN    { border-color:#475569; }
+
+    /* 스크롤 */
+    .scroll-area { overflow-y: auto; }
+    .scroll-area::-webkit-scrollbar { width: 4px; }
+    .scroll-area::-webkit-scrollbar-track { background: transparent; }
+    .scroll-area::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    select { color-scheme: dark; }
+
+    /* 테스트 버튼 */
+    .test-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 10px;
+      font-size: 12px; font-weight: 700;
+      transition: all 0.15s; cursor: pointer;
+      border: 1px solid;
+      -webkit-app-region: no-drag;
+      width: 100%;
+    }
+    .test-btn:hover { filter: brightness(1.15); }
+    .test-btn.danger  { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.35); color:#f87171; }
+    .test-btn.warning { background:rgba(245,158,11,0.1); border-color:rgba(245,158,11,0.3); color:#fbbf24; }
+    .test-btn.success { background:rgba(34,197,94,0.1);  border-color:rgba(34,197,94,0.3);  color:#4ade80; }
+    .test-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .test-btn:disabled:hover { filter: none; }
+
+    details > summary { list-style: none; cursor: pointer; -webkit-app-region: no-drag; }
+    details > summary::-webkit-details-marker { display: none; }
+
+    /* ── 토글 스위치 ── */
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked+.toggle-slider {
+      background: #10b981;
+    }
+    .toggle-switch input:checked+.toggle-slider::before {
+      transform: translateX(16px);
+    }
+  </style>
+</head>
+<body class="flex flex-col h-screen">
+
+  <!-- 헤더 -->
+  <div class="drag-region flex items-center justify-between px-4 py-3 flex-shrink-0"
+       style="background:#0d1020; border-bottom:1px solid rgba(255,255,255,0.07);">
+    <div class="flex items-center gap-2.5">
+      <i data-lucide="shield-alert" class="w-4 h-4 text-red-400 no-drag"></i>
+      <span class="font-black text-white" style="font-size:14px;">사기꾼 탐지</span>
+      <span style="font-size:9px;font-weight:800;background:#f59e0b;color:#000;padding:1px 6px;border-radius:3px;letter-spacing:0.05em;">BETA</span>
+    </div>
+    <button class="no-drag text-slate-500 hover:text-white transition-colors p-1" onclick="window.close()">
+      <i data-lucide="x" class="w-4 h-4"></i>
+    </button>
+  </div>
+
+  <!-- 본문 -->
+  <div class="flex-1 scroll-area p-3 space-y-3" style="background:#0f121e;">
+
+    <!-- ① 탐지 제어 -->
+    <div class="card space-y-3">
+      <div class="section-title"><i data-lucide="activity" class="w-3.5 h-3.5"></i> 탐지 제어</div>
+
+      <!-- 1:1 대화 모니터링 토글 -->
+      <div class="flex items-start justify-between gap-4 pt-1">
+        <div class="flex-1">
+          <div class="font-bold text-slate-200 text-sm">1:1 대화 실시간 탐지</div>
+          <div class="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+            게임 내 1:1 대화방을 실시간으로 감시하여 대화 로그를 기록하고 상대방의 에타 레벨 배지를 자동으로 조회합니다.
+          </div>
+        </div>
+        <label class="flex items-center gap-2.5 no-drag cursor-pointer shrink-0 mt-0.5">
+          <div class="toggle-switch">
+            <input type="checkbox" id="scam-enabled-toggle" onchange="onToggleEnabled(this.checked)">
+            <span class="toggle-slider"></span>
+          </div>
+          <span id="scam-enabled-label" class="font-bold text-slate-400 text-xs" style="width:48px; text-align:right;">꺼짐</span>
+        </label>
+      </div>
+
+      <!-- AI 대화 위험도 분석 토글 -->
+      <div class="flex items-start justify-between gap-4 pt-2.5 border-t border-white/5">
+        <div class="flex-1">
+          <div class="font-bold text-slate-200 text-sm">AI 대화 위험도 분석</div>
+          <div class="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+            AI 모델(LLM)을 활용하여 대화 내용을 실시간 판독하고 사기 위험도(위험/의심/안전) 및 행동 지침을 자동으로 제공합니다.
+          </div>
+        </div>
+        <label class="flex items-center gap-2.5 no-drag cursor-pointer shrink-0 mt-0.5">
+          <div class="toggle-switch">
+            <input type="checkbox" id="scam-llm-enabled-toggle" onchange="onToggleLlmEnabled(this.checked)">
+            <span class="toggle-slider"></span>
+          </div>
+          <span id="scam-llm-enabled-label" class="font-bold text-slate-400 text-xs" style="width:48px; text-align:right;">꺼짐</span>
+        </label>
+      </div>
+
+      <!-- AI 미설치 경고 배너 -->
+      <div id="ai-status-banner" class="hidden p-2 rounded-lg text-slate-400 bg-yellow-950/20 border border-yellow-500/20 text-[11px] leading-relaxed">
+        <span class="text-yellow-500 font-bold">ℹ️ AI 미설치 상태</span>: 실시간 대화 기록 및 에타 레벨 조회는 작동하지만, 자동 사기 위험 분석은 동작하지 않습니다. (모델 다운로드 필요)
+      </div>
+
+      <div class="flex items-center justify-between pt-2.5 border-t border-white/5">
+        <div class="flex items-center gap-2.5">
+          <div id="server-dot" class="status-dot stopped"></div>
+          <div>
+            <div id="server-status-text" class="font-bold text-slate-400">서버 중지됨</div>
+            <div id="server-pid" class="hidden" style="font-size:11px; color:#475569;"></div>
+          </div>
+        </div>
+        <button id="server-stop-btn" onclick="stopServer()"
+          class="no-drag hidden px-3 py-1.5 font-bold rounded-lg transition-all flex items-center gap-1.5"
+          style="background:rgba(153,27,27,0.5); border:1px solid rgba(185,28,28,0.45); color:#fca5a5; font-size:12px;">
+          <i data-lucide="square" class="w-3.5 h-3.5"></i> 서버 종료
+        </button>
+      </div>
+    </div>
+
+    <!-- ② 활성 세션 -->
+    <div class="card space-y-2.5">
+      <div class="section-title justify-between">
+        <span class="flex items-center gap-1.5"><i data-lucide="messages-square" class="w-3.5 h-3.5"></i> 활성 세션</span>
+        <span id="session-count-badge" class="font-bold text-slate-500" style="font-size:12px;">0 / 5</span>
+      </div>
+      <div id="session-list">
+        <p class="italic py-1" style="font-size:12px; color:#475569;">감시 중인 대화가 없습니다.</p>
+      </div>
+    </div>
+
+    <!-- ③ 최근 분석 결과 -->
+    <div class="card space-y-2.5">
+      <div class="section-title justify-between">
+        <span class="flex items-center gap-1.5"><i data-lucide="list" class="w-3.5 h-3.5"></i> 최근 분석 결과</span>
+        <button onclick="clearLog()" class="no-drag font-bold text-slate-600 hover:text-slate-400 transition-colors" style="font-size:12px;">지우기</button>
+      </div>
+      <div id="analysis-log" class="space-y-1.5 max-h-36 overflow-y-auto scroll-area">
+        <p class="italic py-1" style="font-size:12px; color:#475569;">분석 결과가 없습니다.</p>
+      </div>
+    </div>
+
+    <!-- ④ AI 모델 -->
+    <div class="card space-y-3">
+      <div class="section-title"><i data-lucide="cpu" class="w-3.5 h-3.5"></i> AI 모델 (Gemma 4 E2B)</div>
+
+      <div id="model-status-text" class="text-slate-400">상태 확인 중...</div>
+      <div id="model-path-text" class="hidden break-all" style="font-size:11px; color:#334155;"></div>
+
+      <div id="gpu-badge" class="hidden">
+        <span id="gpu-badge-text" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold"
+          style="font-size:12px; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.3); color:#34d399;"></span>
+      </div>
+
+      <details class="group" open>
+        <summary class="flex items-center gap-1.5 font-bold text-slate-600 hover:text-slate-400 transition-colors" style="font-size:12px;">
+          <i data-lucide="chevron-right" class="w-3.5 h-3.5 transition-transform group-open:rotate-90"></i> 권장 사양
+        </summary>
+        <div class="mt-2 p-3 rounded-xl space-y-1.5" style="background:rgba(15,18,30,0.8); border:1px solid rgba(71,85,105,0.35);">
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1.5" style="font-size:12px;">
+            <div><span class="font-bold text-slate-500">RAM</span> <span class="text-slate-300 ml-1">16 GB 이상</span></div>
+            <div><span class="font-bold text-slate-500">CPU</span> <span class="text-slate-300 ml-1">6코어 이상</span></div>
+            <div><span class="font-bold text-slate-500">저장공간</span> <span class="text-slate-300 ml-1">4 GB 여유</span></div>
+            <div><span class="font-bold text-slate-500">GPU</span> <span class="text-slate-300 ml-1">Vulkan 지원 (선택)</span></div>
+          </div>
+          <p class="text-slate-500 pt-1.5 border-t border-white/5" style="font-size:11px;">⏱ CPU 전용 30~120초 · GPU 사용 시 5~20초</p>
+          <p class="font-bold" style="font-size:11px; color:rgba(251,191,36,0.75);">※ 1:1 메신저 <strong>로그 기록 활성화</strong> 필요</p>
+        </div>
+      </details>
+
+      <!-- 다운로드 영역 -->
+      <div id="download-area" class="hidden space-y-2.5 pt-2 border-t border-white/5">
+        <p class="text-slate-400" style="font-size:12px;">모델 ~3.15 GB · llama-server ~34 MB</p>
+        <p id="gpu-info-text" class="hidden font-bold" style="font-size:12px; color:#34d399;"></p>
+        <button id="download-btn" onclick="startDownload()"
+          class="no-drag w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-white transition-all"
+          style="background:#dc2626; font-size:13px;">
+          <i data-lucide="download" class="w-4 h-4"></i> 모델 다운로드
+        </button>
+      </div>
+
+      <!-- 진행률 -->
+      <div id="progress-area" class="hidden space-y-2 pt-2 border-t border-white/5">
+        <div class="flex justify-between text-slate-400" style="font-size:12px;">
+          <span id="progress-label">다운로드 중...</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="w-full rounded-full h-2" style="background:#1e293b;">
+          <div id="progress-bar" class="h-2 rounded-full transition-all" style="width:0%; background:#ef4444;"></div>
+        </div>
+      </div>
+
+      <!-- 바이너리 교체 (설치 완료 후 표시) -->
+      <div id="rebinary-area" class="hidden space-y-2.5 pt-2 border-t border-white/5">
+        <p class="font-bold text-slate-500" style="font-size:11px;">llama-server 바이너리 교체</p>
+        <p class="text-slate-500 leading-relaxed" style="font-size:11px;">내 그래픽카드 종류를 선택하면 최적의 바이너리를 자동으로 설치합니다. NVIDIA는 CUDA 버전을 자동 감지합니다.</p>
+        <div class="flex gap-2">
+          <select id="gpu-choice-select"
+            class="no-drag flex-1 py-2 px-3 rounded-lg font-bold text-slate-200"
+            style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); font-size:12px;">
+            <option value="nvidia">NVIDIA (CUDA 자동 감지)</option>
+            <option value="amd">AMD GPU (Vulkan)</option>
+            <option value="intel">Intel GPU (Vulkan)</option>
+            <option value="none">GPU 없음 (CPU 전용)</option>
+          </select>
+          <button onclick="redownloadBinary()"
+            class="no-drag px-3 py-2 rounded-lg font-bold transition-all flex items-center gap-1.5 shrink-0"
+            style="background:rgba(30,35,60,0.8); border:1px solid rgba(255,255,255,0.1); color:#94a3b8; font-size:12px;">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 교체
+          </button>
+        </div>
+        <p id="rebinary-status" class="hidden" style="font-size:11px; color:#94a3b8;"></p>
+      </div>
+    </div>
+
+    <!-- ④ 설정 -->
+    <div class="card space-y-3">
+      <div class="section-title"><i data-lucide="settings" class="w-3.5 h-3.5"></i> 설정</div>
+
+      <div class="space-y-1.5">
+        <label class="font-bold text-slate-400 flex items-center gap-1.5" style="font-size:12px;">
+          <i data-lucide="folder-search" class="w-3.5 h-3.5 text-red-400/70"></i> MsgerLog 폴더
+        </label>
+        <div class="flex gap-2">
+          <input type="text" id="msger-log-path-input" readonly
+            class="no-drag flex-1 py-2 px-3 rounded-lg text-slate-400"
+            style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); font-size:12px;"
+            placeholder="자동 탐색 중...">
+          <button onclick="selectMsgerLogFolder()"
+            class="no-drag px-3 py-2 rounded-lg font-bold transition-all flex items-center gap-1.5 shrink-0"
+            style="background:rgba(30,41,59,0.8); border:1px solid rgba(255,255,255,0.08); color:#cbd5e1; font-size:12px;">
+            <i data-lucide="folder-open" class="w-3.5 h-3.5"></i> 선택
+          </button>
+        </div>
+        <p style="font-size:11px; color:#334155;">비워두면 ChatLog 설정에서 자동 탐색합니다.</p>
+      </div>
+
+      <!-- 로그 기록 활성화 가이드 -->
+      <details class="group" open>
+        <summary class="flex items-center gap-1.5 font-bold text-slate-600 hover:text-slate-400 transition-colors" style="font-size:12px;">
+          <i data-lucide="chevron-right" class="w-3.5 h-3.5 transition-transform group-open:rotate-90"></i>
+          1:1 메신저 로그 기록 활성화 방법
+          <span class="ml-auto font-normal" style="font-size:11px; color:#ef4444aa;">필수</span>
+        </summary>
+        <div class="mt-2.5 space-y-2">
+          <p class="text-slate-400 leading-relaxed" style="font-size:12px;">
+            대화 내용을 AI가 분석하려면 아래와 같이 <span class="font-bold text-amber-400">Log 버튼</span>을 눌러 로그 기록을 활성화해야 합니다.
+            활성화하면 1:1 대화가 HTML 파일로 저장되어 실시간 분석이 가능합니다.
+          </p>
+          <div class="rounded-xl overflow-hidden" style="border:1px solid rgba(255,255,255,0.07);">
+            <img src="assets/img/msger-log.png" alt="1:1 메신저 로그 기록 활성화 방법"
+              style="width:100%; display:block; image-rendering:auto;">
+          </div>
+          <p class="text-slate-500 leading-relaxed" style="font-size:11px;">
+            💡 Log 버튼이 <span class="text-amber-400 font-bold">활성화(파란색)</span> 상태여야 대화가 파일로 저장됩니다.
+            대화 시작 <strong>전</strong>에 미리 켜두는 것을 권장합니다.
+          </p>
+        </div>
+      </details>
+
+      <div class="space-y-1.5">
+        <label class="font-bold text-slate-400 flex items-center gap-1.5" style="font-size:12px;">
+          <i data-lucide="volume-2" class="w-3.5 h-3.5 text-red-400/70"></i> 알람 사운드
+        </label>
+        <div class="flex gap-2">
+          <select id="scam-alert-sound-select"
+            class="no-drag flex-1 py-2 px-3 rounded-lg text-slate-200"
+            style="background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.08); font-size:12px;">
+          </select>
+          <button onclick="previewSound()"
+            class="no-drag px-3 py-2 rounded-lg font-bold transition-all flex items-center gap-1.5 shrink-0"
+            style="background:rgba(30,41,59,0.8); border:1px solid rgba(255,255,255,0.08); color:#cbd5e1; font-size:12px;">
+            <i data-lucide="play" class="w-3.5 h-3.5"></i> 미리듣기
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ⑥ 테스트 케이스 -->
+    <div class="card space-y-3">
+      <div class="section-title"><i data-lucide="flask-conical" class="w-3.5 h-3.5"></i> 테스트 케이스</div>
+      <p class="text-slate-400" style="font-size:12px;">샘플 대화를 주입해 탐지→알람 전체 흐름을 테스트합니다. 세션 목록에서 실시간 추론을 확인할 수 있습니다.</p>
+      <p id="test-buttons-hint" class="hidden font-bold" style="font-size:12px; color:#fbbf24;"></p>
+
+      <div class="space-y-2">
+        <button class="test-btn danger" onclick="injectTest('scam_keyword')">
+          <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+          <div class="text-left">
+            <div>🚨 [사기] 가중치 / 별전 / Ctrl+1 키워드</div>
+            <div class="font-normal opacity-70" style="font-size:11px;">존재하지 않는 시스템 언급 사기 수법</div>
+          </div>
+        </button>
+        <button class="test-btn danger" onclick="injectTest('scam_duo')">
+          <i data-lucide="users" class="w-4 h-4 shrink-0"></i>
+          <div class="text-left">
+            <div>🚨 [사기] 2인 1조 클럽장 사칭</div>
+            <div class="font-normal opacity-70" style="font-size:11px;">판매자 + 클럽장으로 위장한 협력 사기</div>
+          </div>
+        </button>
+        <button class="test-btn danger" onclick="injectTest('scam_seed')">
+          <i data-lucide="coins" class="w-4 h-4 shrink-0"></i>
+          <div class="text-left">
+            <div>🚨 [사기] 추가 시드 / 거래정지 유도</div>
+            <div class="font-normal opacity-70" style="font-size:11px;">시드가 막혔다 / 네냐플 추가 구매 유도</div>
+          </div>
+        </button>
+        <button class="test-btn danger" onclick="injectTest('scam_impersonation')">
+          <i data-lucide="shield-alert" class="w-4 h-4 shrink-0"></i>
+          <div class="text-left">
+            <div>🚨 [사칭] 특수문자(：) 사칭 사기</div>
+            <div class="font-normal opacity-70" style="font-size:11px;">닉네임 뒤에 특수문자 콜론을 붙인 사칭 수법</div>
+          </div>
+        </button>
+        <button class="test-btn warning" onclick="injectTest('suspicious')">
+          <i data-lucide="eye" class="w-4 h-4 shrink-0"></i>
+          <div class="text-left">
+            <div>🟡 [주의] 저레벨 + 아이템 미등록</div>
+            <div class="font-normal opacity-70" style="font-size:11px;">행동 이상 (3분 이상 아이템 미등록, 저레벨)</div>
+          </div>
+        </button>
+        <button class="test-btn success" onclick="injectTest('safe')">
+          <i data-lucide="check-circle" class="w-4 h-4 shrink-0"></i>
+          <div class="text-left">
+            <div>🟢 [안전] 정상 거래</div>
+            <div class="font-normal opacity-70" style="font-size:11px;">교환창 정상 진행, 문제 없는 대화</div>
+          </div>
+        </button>
+      </div>
+
+      <p id="test-result" class="hidden font-bold" style="font-size:12px;"></p>
+    </div>
+
+    <!-- 경고 -->
+    <div class="p-3 rounded-xl" style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.15);">
+      <p class="text-slate-400 leading-relaxed" style="font-size:12px;">
+        <span class="font-bold text-red-400/80">※ AI 판정은 참고용입니다.</span>
+        항상 상대방 레벨 310·에타 레벨 확인, 교환창 아이템 직접 확인 수칙을 지켜주세요.
+      </p>
+    </div>
+
+  </div>
+
+  <script>
+    const DEFAULT_SOUND = 'orb.mp3';
+    let ANALYSIS_INTERVAL_SEC = 60;
+
+    let _config = null;
+    let _modelReady = false;
+    let _statusInterval = null;
+    let _logEntries = [];
+    let _streamBuffers = {};     // filePath → 누적 스트리밍 텍스트
+    let _analyzingState = {};    // filePath → 이전 analyzing 상태
+
+    // ── IPC 수신 ──
+
+    window.electronAPI.onConfigData(async (cfg) => {
+      _config = cfg;
+      
+      // 사운드 목록 동적 갱신
+      if (window.loadSoundList) {
+        try {
+          const sounds = await window.loadSoundList();
+          const sel = document.getElementById('scam-alert-sound-select');
+          if (sel && sounds) {
+            const prevVal = sel.value || cfg.scamAlertSound || 'orb.mp3';
+            sel.innerHTML = sounds.map(s => `<option value="${s.file}">${s.name}</option>`).join('');
+            sel.value = prevVal;
+          }
+        } catch (e) {
+          console.error('Failed to reload sound list:', e);
+        }
+      }
+
+      applyConfig(cfg);
+    });
+
+    window.electronAPI.onScamAnalysisResult((result) => {
+      appendLog(result);
+      // 버퍼는 유지 — 다음 분석 시작 시 onScamSessionUpdate에서 초기화
+    });
+
+    window.electronAPI.onScamSessionUpdate((sessions, queueLength) => {
+      sessions.forEach(s => {
+        const wasAnalyzing = _analyzingState[s.filePath];
+        if (!wasAnalyzing && s.analyzing) {
+          // 새 분석 시작 → 이전 결과 버퍼 초기화
+          _streamBuffers[s.filePath] = '';
+        }
+        _analyzingState[s.filePath] = s.analyzing;
+      });
+      renderSessions(sessions, queueLength ?? 0);
+    });
+
+    window.electronAPI.onScamAnalysisToken(({ filePath, token }) => {
+      if (!_streamBuffers[filePath]) _streamBuffers[filePath] = '';
+      _streamBuffers[filePath] += token;
+      const boxId = makeBoxId(filePath);
+      const box = document.getElementById(boxId);
+      if (box) {
+        const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+        const cursor = box.querySelector('.cursor');
+        box.textContent = _streamBuffers[filePath];
+        if (cursor) box.appendChild(cursor);
+        if (nearBottom) box.scrollTop = box.scrollHeight;
+      }
+    });
+
+    // ── 초기화 ──
+
+    async function init() {
+      try {
+        const consts = await window.electronAPI.scamGetConstants();
+        ANALYSIS_INTERVAL_SEC = consts.analysisIntervalSec;
+      } catch (_) {}
+
+      await loadModelStatus();
+      await loadSoundFiles();
+      await loadMsgerLogPath();
+
+      try {
+        const sessions = await window.electronAPI.scamGetSessionStates();
+        const queueLen = await window.electronAPI.scamGetQueueLength();
+        renderSessions(sessions, queueLen);
+      } catch (_) {}
+
+      // 서버 상태는 3초마다 폴링
+      _statusInterval = setInterval(refreshServerStatus, 3000);
+
+      // 카운트다운 텍스트만 1초마다 인플레이스 업데이트
+      setInterval(updateTimers, 1000);
+    }
+
+    function updateAiStatusBanner() {
+      const banner = document.getElementById('ai-status-banner');
+      if (!banner) return;
+      const isEnabled = !!_config?.scamDetectorEnabled;
+      const isLlmDisabled = !!_config?.scamLlmDisabled;
+
+      if (isEnabled) {
+        if (isLlmDisabled) {
+          banner.innerHTML = `<span class="text-yellow-500 font-bold">ℹ️ AI 분석 비활성화 상태</span>: 실시간 대화 기록 및 에타 레벨 조회는 작동하지만, 자동 사기 분석은 건너뜁니다.`;
+          banner.classList.remove('hidden');
+        } else if (!_modelReady) {
+          banner.innerHTML = `<span class="text-yellow-500 font-bold">ℹ️ AI 미설치 상태</span>: 실시간 대화 기록 및 에타 레벨 조회는 작동하지만, 자동 사기 위험 분석은 동작하지 않습니다. (모델 다운로드 필요)`;
+          banner.classList.remove('hidden');
+        } else {
+          banner.classList.add('hidden');
+        }
+      } else {
+        banner.classList.add('hidden');
+      }
+    }
+
+    function applyConfig(cfg) {
+      _config = cfg;
+      const toggle = document.getElementById('scam-enabled-toggle');
+      const label = document.getElementById('scam-enabled-label');
+      if (toggle) {
+        toggle.checked = !!cfg.scamDetectorEnabled;
+        if (label) {
+          label.textContent = cfg.scamDetectorEnabled ? '켜짐' : '꺼짐';
+          label.style.color = cfg.scamDetectorEnabled ? '#4ade80' : '#64748b';
+        }
+      }
+
+      const llmToggle = document.getElementById('scam-llm-enabled-toggle');
+      const llmLabel = document.getElementById('scam-llm-enabled-label');
+      if (llmToggle) {
+        const enabled = !cfg.scamLlmDisabled;
+        llmToggle.checked = enabled;
+        if (llmLabel) {
+          llmLabel.textContent = enabled ? '켜짐' : '꺼짐';
+          llmLabel.style.color = enabled ? '#4ade80' : '#64748b';
+        }
+      }
+
+      const soundSel = document.getElementById('scam-alert-sound-select');
+      if (soundSel && cfg.scamAlertSound) {
+        for (const opt of soundSel.options) {
+          if (opt.value === cfg.scamAlertSound) { opt.selected = true; break; }
+        }
+      }
+
+      const pathInput = document.getElementById('msger-log-path-input');
+      if (pathInput && cfg.msgerLogPath) pathInput.value = cfg.msgerLogPath;
+
+      const gpuBadge = document.getElementById('gpu-badge');
+      const gpuBadgeText = document.getElementById('gpu-badge-text');
+      if (gpuBadge && cfg.scamGpuVariant) {
+        const labels = {
+          'cuda-13.1': '⚡ NVIDIA CUDA 13.x',
+          'cuda-12.4': '⚡ NVIDIA CUDA 12.x',
+          'vulkan':    '⚡ Vulkan GPU',
+          'cpu':       '🖥 CPU 전용',
+        };
+        gpuBadgeText.textContent = labels[cfg.scamGpuVariant] ?? cfg.scamGpuVariant;
+        gpuBadge.classList.remove('hidden');
+      }
+
+      updateTestButtons();
+      updateAiStatusBanner();
+    }
+
+    async function loadModelStatus() {
+      try {
+        const status = await window.electronAPI.scamGetModelStatus();
+        const statusEl = document.getElementById('model-status-text');
+        const pathEl = document.getElementById('model-path-text');
+        const downloadArea = document.getElementById('download-area');
+        const rebinaryArea = document.getElementById('rebinary-area');
+        const toggle = document.getElementById('scam-enabled-toggle');
+
+        if (status.downloading) {
+          _modelReady = false;
+          statusEl.textContent = `다운로드 중... ${status.progress}%`;
+          statusEl.style.color = '#fbbf24';
+          downloadArea.classList.add('hidden');
+          rebinaryArea.classList.add('hidden');
+          document.getElementById('progress-area').classList.remove('hidden');
+          if (toggle) toggle.disabled = true;
+        } else if (status.downloaded) {
+          _modelReady = true;
+          statusEl.textContent = '✅ 모델 및 llama-server 준비 완료';
+          statusEl.style.color = '#4ade80';
+          pathEl.textContent = status.modelPath;
+          pathEl.classList.remove('hidden');
+          downloadArea.classList.add('hidden');
+          document.getElementById('progress-area').classList.add('hidden');
+          rebinaryArea.classList.remove('hidden');
+          if (toggle) { toggle.disabled = false; toggle.title = ''; }
+        } else {
+          _modelReady = false;
+          statusEl.textContent = !status.serverBinaryReady
+            ? '⬇️ 모델 및 llama-server 다운로드 필요'
+            : '⬇️ llama-server 바이너리 다운로드 필요';
+          statusEl.style.color = '#94a3b8';
+          downloadArea.classList.remove('hidden');
+          document.getElementById('progress-area').classList.add('hidden');
+          rebinaryArea.classList.add('hidden');
+          if (toggle) {
+            toggle.disabled = false;
+            toggle.title = 'AI 모델이 없으므로 대화 기록 및 에타 조회만 동작합니다.';
+          }
+        }
+        updateTestButtons();
+        updateAiStatusBanner();
+      } catch (_) {}
+    }
+
+    async function refreshServerStatus() {
+      try {
+        const s = await window.electronAPI.scamGetServerStatus();
+        const dot = document.getElementById('server-dot');
+        const text = document.getElementById('server-status-text');
+        const pid = document.getElementById('server-pid');
+        const stopBtn = document.getElementById('server-stop-btn');
+
+        if (s.ready) {
+          dot.className = 'status-dot running';
+          text.textContent = 'llama-server 실행 중';
+          text.style.color = '#4ade80';
+        } else if (s.running) {
+          dot.className = 'status-dot starting';
+          text.textContent = '서버 시작 중...';
+          text.style.color = '#fbbf24';
+        } else {
+          dot.className = 'status-dot stopped';
+          text.textContent = '서버 중지됨';
+          text.style.color = '#64748b';
+        }
+
+        pid.textContent = s.pid ? `PID: ${s.pid}` : '';
+        pid.classList.toggle('hidden', !s.pid);
+        stopBtn.classList.toggle('hidden', !s.running);
+      } catch (_) {}
+    }
+
+    // ── 세션 렌더링 ──
+
+    function makeBoxId(fp) {
+      return 'stream-' + btoa(unescape(encodeURIComponent(fp))).replace(/[^a-zA-Z0-9]/g, '');
+    }
+
+    function renderSessions(sessions, queueLength = 0) {
+      const listEl = document.getElementById('session-list');
+      const badge = document.getElementById('session-count-badge');
+      badge.textContent = queueLength > 0
+        ? `${sessions.length} / 5 · 대기 ${queueLength}`
+        : `${sessions.length} / 5`;
+
+      if (sessions.length === 0) {
+        listEl.innerHTML = '<p class="italic py-1" style="font-size:12px;color:#475569;">감시 중인 대화가 없습니다.</p>';
+        return;
+      }
+
+      const now = Date.now();
+      listEl.innerHTML = sessions.map(s => {
+        const boxId = makeBoxId(s.filePath);
+        const cardClass = s.analyzing ? 'analyzing' : (s.lastVerdict !== 'UNKNOWN' ? s.lastVerdict.toLowerCase() : '');
+        const dotClass  = s.analyzing ? 'starting' : 'stopped';
+
+        const elapsed = Math.floor((now - s.lastAnalysisAt) / 1000);
+        const remaining = Math.max(0, ANALYSIS_INTERVAL_SEC - elapsed);
+        const timerText = s.analyzing
+          ? '🔍 AI 분석 중...'
+          : s.newSinceLastAnalysis === 0
+            ? '새 메시지 대기 중'
+            : remaining > 0
+              ? `신규 ${s.newSinceLastAnalysis}개 · ${remaining}초 후 분석`
+              : `신규 ${s.newSinceLastAnalysis}개 · 분석 대기 중`;
+
+        const streamContent = _streamBuffers[s.filePath] ?? '';
+        const streamBox = (s.analyzing || streamContent)
+          ? `<div class="stream-box" id="${boxId}">${window.escapeHtmlText(streamContent)}${s.analyzing ? '<span class="cursor"></span>' : ''}</div>`
+          : '';
+
+        const verdictIcon  = { SCAM:'🚨', SUSPICIOUS:'🟡', SAFE:'🟢', UNKNOWN:'❓' }[s.lastVerdict] ?? '❓';
+        const verdictLabel = { SCAM:'위험', SUSPICIOUS:'주의', SAFE:'안전', UNKNOWN:'대기중' }[s.lastVerdict] ?? '대기중';
+
+        const fpEncoded = encodeURIComponent(s.filePath);
+        const canAnalyze = !s.analyzing && s.messageCount > 0;
+
+        // 대화 메시지 목록 포맷팅
+        let messagesHtml = '';
+        if (s.messages && s.messages.length > 0) {
+          messagesHtml = s.messages.map(msg => {
+            if (msg.isSystem) {
+              return `<div class="text-center text-[11px] text-slate-500 my-1 bg-slate-900/40 py-0.5 px-2 rounded-md border border-white/5 select-none">${window.escapeHtmlText(msg.content)}</div>`;
+            }
+
+            const timeStr = msg.timestamp ? `<span class="text-xs text-slate-600 select-none">${msg.timestamp}</span>` : '';
+
+            if (msg.isSelf) {
+              // 내 메시지 (우측 정렬, 연두색 테두리)
+              return `<div class="flex flex-col items-end gap-1 my-1.5">
+                <div class="flex items-center gap-1 text-[11px]">
+                  ${timeStr}
+                  <span class="font-bold text-emerald-400 select-none">${window.escapeHtmlText(msg.sender)}</span>
+                </div>
+                <div class="bg-emerald-950/20 border border-emerald-500/20 text-emerald-100 rounded-lg rounded-tr-none px-2.5 py-1.5 max-w-[85%] text-left text-[13px] break-all leading-relaxed">
+                  ${window.escapeHtmlText(msg.content)}
+                </div>
+              </div>`;
+            } else {
+              // 상대방 메시지 (좌측 정렬, 에타 레벨 배지)
+              let etaBadge = '';
+              if (msg.etaLevel !== undefined && msg.etaLevel !== null) {
+                etaBadge = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-black text-white bg-gradient-to-r from-violet-500 to-indigo-500 border border-indigo-500/30 shadow-[0_0_4px_rgba(99,102,241,0.2)] select-none">에타 ${msg.etaLevel}</span>`;
+              } else {
+                etaBadge = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-500 bg-slate-900 border border-slate-800 select-none">에타 -</span>`;
+              }
+
+              const hasSuspiciousColon = msg.sender && msg.sender.includes('：');
+              const shouldHighlight = hasSuspiciousColon && (_config?.chatOverlayHighlightScamNicknames !== false);
+
+              let senderHtml = '';
+              if (shouldHighlight) {
+                senderHtml = `<span class="suspicious-badge select-none">⚠️ 사칭주의</span><span class="chat-sender suspicious-sender font-bold select-none">${window.escapeHtmlText(msg.sender)}</span>`;
+              } else {
+                senderHtml = `<span class="font-bold text-slate-300 select-none">${window.escapeHtmlText(msg.sender)}</span>`;
+              }
+
+              return `<div class="flex flex-col items-start gap-1 my-1.5">
+                <div class="flex items-center gap-1.5 text-[11px]">
+                  ${etaBadge}
+                  ${senderHtml}
+                  ${timeStr}
+                </div>
+                <div class="bg-slate-800/40 border border-slate-700/40 text-slate-200 rounded-lg rounded-tl-none px-2.5 py-1.5 max-w-[85%] text-left text-[13px] break-all leading-relaxed">
+                  ${window.escapeHtmlText(msg.content)}
+                </div>
+              </div>`;
+            }
+          }).join('');
+        } else {
+          messagesHtml = `<p class="text-slate-600 italic text-[11px] text-center py-2 select-none">수집된 메시지가 없습니다.</p>`;
+        }
+
+        const detailsId = 'details-' + boxId;
+        const detailsBox = `
+        <details id="${detailsId}" class="mt-2.5 border-t border-white/5 pt-2 no-drag" open>
+          <summary class="flex items-center gap-1 text-slate-500 hover:text-slate-300 text-[11px] font-bold select-none cursor-pointer py-1">
+            <i data-lucide="message-square" class="w-3 h-3 shrink-0"></i>
+            <span>대화 로그 보기 (${s.messageCount})</span>
+          </summary>
+          <div class="mt-1.5 space-y-1 max-h-[160px] overflow-y-auto pr-1 scroll-area">
+            ${messagesHtml}
+          </div>
+        </details>`;
+
+        return `<div class="session-card ${cardClass} mb-2">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-start gap-2 min-w-0">
+              <div class="status-dot ${dotClass} mt-1.5 shrink-0"></div>
+              <div class="min-w-0">
+                <div class="font-bold text-slate-200 truncate" style="font-size:12px;">${window.escapeHtmlText(s.fileName)}</div>
+                <div class="text-slate-500 mt-0.5" style="font-size:11px;">메시지 ${s.messageCount}개</div>
+                <div class="text-slate-400 mt-0.5" style="font-size:11px;"
+                  data-timer="${fpEncoded}"
+                  data-last-analysis="${s.lastAnalysisAt}"
+                  data-new-count="${s.newSinceLastAnalysis}"
+                  data-analyzing="${s.analyzing}"
+                  data-debounce="${s.debounceActive}"
+                >${timerText}</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span class="verdict-chip ${s.lastVerdict}">${verdictIcon} ${verdictLabel}</span>
+              <button id="btn-analyze-${fpEncoded}" onclick="triggerAnalyze('${fpEncoded}')"
+                title="즉시 분석" ${canAnalyze ? '' : 'disabled'}
+                class="no-drag font-bold rounded-lg transition-all flex items-center gap-1"
+                style="font-size:11px; padding:2px 7px; background:rgba(59,130,246,0.12); border:1px solid rgba(59,130,246,0.3); color:${canAnalyze ? '#60a5fa' : '#334155'}; cursor:${canAnalyze ? 'pointer' : 'default'};">
+                ▶ 분석
+              </button>
+              <button onclick="closeSession('${fpEncoded}')" title="세션 닫기"
+                class="no-drag text-slate-600 hover:text-red-400 transition-colors rounded"
+                style="font-size:15px; line-height:1; padding:0 2px;">×</button>
+            </div>
+          </div>
+          ${streamBox}
+          ${detailsBox}
+        </div>`;
+      }).join('');
+
+      // 아이콘 새로고침
+      if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+      }
+    }
+
+    // ── 타이머 인플레이스 업데이트 ──
+
+    function updateTimers() {
+      const now = Date.now();
+      document.querySelectorAll('[data-timer]').forEach(el => {
+        const fpEncoded    = el.dataset.timer;
+        const analyzing    = el.dataset.analyzing === 'true';
+        const debounce     = el.dataset.debounce  === 'true';
+        const lastAt       = parseInt(el.dataset.lastAnalysis, 10) || 0;
+        const newCount     = parseInt(el.dataset.newCount, 10) || 0;
+
+        // 타이머 텍스트 업데이트
+        if (analyzing) {
+          el.textContent = '🔍 AI 분석 중...';
+        } else if (newCount === 0) {
+          el.textContent = '새 메시지 대기 중';
+        } else if (debounce) {
+          el.textContent = `신규 ${newCount}개 · 잠시 후 분석`;
+        } else {
+          const elapsed   = Math.floor((now - lastAt) / 1000);
+          const remaining = Math.max(0, ANALYSIS_INTERVAL_SEC - elapsed);
+          el.textContent = remaining > 0
+            ? `신규 ${newCount}개 · ${remaining}초 후 분석`
+            : `신규 ${newCount}개 · 분석 대기 중`;
+        }
+
+        // 즉시 분석 버튼 활성/비활성
+        const btn = document.getElementById(`btn-analyze-${fpEncoded}`);
+        if (btn) {
+          const isLlmDisabled = !!_config?.scamLlmDisabled;
+          const canAnalyze = !analyzing && !isLlmDisabled;
+          btn.disabled = !canAnalyze;
+          btn.style.color  = canAnalyze ? '#60a5fa' : '#334155';
+          btn.style.cursor = canAnalyze ? 'pointer' : 'default';
+        }
+      });
+    }
+
+    // ── 테스트 버튼 잠금 ──
+
+    function updateTestButtons() {
+      const isLlmDisabled = !!_config?.scamLlmDisabled;
+      // 실시간 사기 탐지만 활성화되어 있으면 테스트 실행 가능 (AI 비활성화나 모델 미준수 시 가상 분석으로 대체됨)
+      const canTest = !!_config?.scamDetectorEnabled;
+      document.querySelectorAll('.test-btn').forEach(btn => { btn.disabled = !canTest; });
+      const hint = document.getElementById('test-buttons-hint');
+      if (!hint) return;
+      
+      if (!_config?.scamDetectorEnabled) {
+        hint.textContent = '⚠️ 실시간 탐지를 활성화해야 테스트를 실행할 수 있습니다.';
+        hint.classList.remove('hidden');
+      } else if (isLlmDisabled) {
+        hint.textContent = 'ℹ️ AI 분석(LLM)이 비활성화되어 가상 분석(Mock)으로 테스트가 실행됩니다.';
+        hint.classList.remove('hidden');
+      } else if (!_modelReady) {
+        hint.textContent = 'ℹ️ AI 모델이 준비되지 않아 가상 분석(Mock)으로 테스트가 실행됩니다.';
+        hint.classList.remove('hidden');
+      } else {
+        hint.classList.add('hidden');
+      }
+    }
+
+    // ── 이벤트 핸들러 ──
+
+    function onToggleEnabled(enabled) {
+      window.electronAPI.scamSetEnabled(enabled);
+      const label = document.getElementById('scam-enabled-label');
+      if (label) {
+        label.textContent = enabled ? '켜짐' : '꺼짐';
+        label.style.color = enabled ? '#4ade80' : '#64748b';
+      }
+      if (!_config) _config = {};
+      _config.scamDetectorEnabled = enabled;
+      updateAiStatusBanner();
+      updateTestButtons();
+    }
+
+    function onToggleLlmEnabled(enabled) {
+      const disabled = !enabled;
+      window.electronAPI.applySettings({ scamLlmDisabled: disabled });
+      const label = document.getElementById('scam-llm-enabled-label');
+      if (label) {
+        label.textContent = enabled ? '켜짐' : '꺼짐';
+        label.style.color = enabled ? '#4ade80' : '#64748b';
+      }
+      if (!_config) _config = {};
+      _config.scamLlmDisabled = disabled;
+      updateAiStatusBanner();
+      updateTestButtons();
+      updateTimers();
+    }
+
+    function stopServer() {
+      window.electronAPI.scamStopServer();
+      setTimeout(refreshServerStatus, 600);
+    }
+
+    async function startDownload() {
+      const btn = document.getElementById('download-btn');
+      const progressArea = document.getElementById('progress-area');
+      const downloadArea = document.getElementById('download-area');
+      const gpuInfoEl = document.getElementById('gpu-info-text');
+      const statusEl = document.getElementById('model-status-text');
+
+      btn.disabled = true;
+      statusEl.textContent = '🔍 그래픽카드 감지 중...';
+      statusEl.style.color = '#fbbf24';
+
+      const gpu = await window.electronAPI.scamDetectGpu();
+      const vLabel = { 'cuda-13.1':'CUDA 13.1','cuda-12.4':'CUDA 12.4','vulkan':'Vulkan','cpu':'CPU 전용' }[gpu.binaryVariant] ?? gpu.binaryVariant;
+      const cudaInfo = gpu.cudaVersion ? ` (CUDA ${gpu.cudaVersion})` : '';
+
+      gpuInfoEl.textContent = `감지됨: ${gpu.gpuName}${cudaInfo} → ${vLabel}`;
+      gpuInfoEl.classList.remove('hidden');
+      downloadArea.classList.add('hidden');
+      progressArea.classList.remove('hidden');
+      document.getElementById('progress-label').textContent = `다운로드 중... (${vLabel})`;
+      statusEl.textContent = `⬇️ 다운로드 중...`;
+
+      window.electronAPI.onScamProgress((pct) => {
+        document.getElementById('progress-pct').textContent = `${pct}%`;
+        document.getElementById('progress-bar').style.width = `${pct}%`;
+      });
+
+      const result = await window.electronAPI.scamDownloadModel();
+      if (result.success) {
+        await loadModelStatus();
+      } else {
+        progressArea.classList.add('hidden');
+        downloadArea.classList.remove('hidden');
+        btn.disabled = false;
+        alert(`다운로드 실패: ${result.error}`);
+      }
+    }
+
+    async function redownloadBinary() {
+      const variant = document.getElementById('gpu-choice-select').value;
+      const statusEl = document.getElementById('rebinary-status');
+      const progressArea = document.getElementById('progress-area');
+
+      statusEl.textContent = `⬇️ ${variant} 바이너리 다운로드 중...`;
+      statusEl.style.color = '#fbbf24';
+      statusEl.classList.remove('hidden');
+      progressArea.classList.remove('hidden');
+      document.getElementById('progress-label').textContent = `바이너리 교체 중... (${variant})`;
+
+      window.electronAPI.onScamProgress((pct) => {
+        document.getElementById('progress-pct').textContent = `${pct}%`;
+        document.getElementById('progress-bar').style.width = `${pct}%`;
+      });
+
+      const result = await window.electronAPI.scamDownloadBinaryVariant(variant);
+      progressArea.classList.add('hidden');
+      if (result.success) {
+        const variantLabels = {
+          'cuda-13.1': '⚡ NVIDIA CUDA 13.x',
+          'cuda-12.4': '⚡ NVIDIA CUDA 12.x',
+          'vulkan':    '⚡ Vulkan GPU',
+          'cpu':       '🖥 CPU 전용',
+        };
+        const installed = result.binaryVariant ?? variant;
+        statusEl.textContent = `✅ ${variantLabels[installed] ?? installed} 교체 완료`;
+        statusEl.style.color = '#4ade80';
+
+        const gpuBadge = document.getElementById('gpu-badge');
+        const gpuBadgeText = document.getElementById('gpu-badge-text');
+        if (gpuBadge && gpuBadgeText) {
+          gpuBadgeText.textContent = variantLabels[installed] ?? installed;
+          gpuBadge.classList.remove('hidden');
+        }
+
+        await loadModelStatus();
+      } else {
+        statusEl.textContent = `❌ 실패: ${result.error}`;
+        statusEl.style.color = '#f87171';
+      }
+    }
+
+    async function selectMsgerLogFolder() {
+      const result = await window.electronAPI.openMsgerLogFolderDialog();
+      if (result) {
+        document.getElementById('msger-log-path-input').value = result;
+        window.electronAPI.applySettings({ msgerLogPath: result });
+      }
+    }
+
+    function previewSound() {
+      const sel = document.getElementById('scam-alert-sound-select');
+      if (sel?.value) window.electronAPI.playSound(sel.value, 50);
+    }
+
+    function closeSession(encodedPath) {
+      window.electronAPI.scamCloseSession(decodeURIComponent(encodedPath));
+    }
+
+    function triggerAnalyze(encodedPath) {
+      window.electronAPI.scamTriggerAnalyze(decodeURIComponent(encodedPath));
+    }
+
+    async function injectTest(scenario) {
+      const resultEl = document.getElementById('test-result');
+      const labels = {
+        scam_keyword: '가중치/별전 사기',
+        scam_duo: '2인 1조 사칭',
+        scam_seed: '추가 시드 유도',
+        scam_impersonation: '특수문자 사칭',
+        suspicious: '의심 행동',
+        safe: '정상 거래',
+      };
+      resultEl.textContent = `⏳ [${labels[scenario]}] 테스트 파일 주입 중...`;
+      resultEl.style.color = '#94a3b8';
+      resultEl.classList.remove('hidden');
+
+      const result = await window.electronAPI.scamInjectTest(scenario);
+      if (result.success) {
+        resultEl.textContent = `✅ [${labels[scenario]}] 주입 완료. 세션 목록에서 AI 추론을 확인하세요.`;
+        resultEl.style.color = '#4ade80';
+      } else {
+        resultEl.textContent = `❌ 실패: ${result.error}`;
+        resultEl.style.color = '#f87171';
+      }
+    }
+
+    async function loadSoundFiles() {
+      try {
+        const files = await window.loadSoundList();  // [{name, file}, ...]
+        const sel = document.getElementById('scam-alert-sound-select');
+        sel.innerHTML = '';
+        files.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.file;
+          opt.textContent = s.name;
+          sel.appendChild(opt);
+        });
+        // 저장된 값 또는 기본값 선택
+        const target = _config?.scamAlertSound ?? DEFAULT_SOUND;
+        for (const opt of sel.options) {
+          if (opt.value === target) { opt.selected = true; break; }
+        }
+        sel.onchange = () => window.electronAPI.applySettings({ scamAlertSound: sel.value });
+      } catch (_) {}
+    }
+
+    async function loadMsgerLogPath() {
+      try {
+        const p = await window.electronAPI.scamGetMsgerLogPath();
+        const input = document.getElementById('msger-log-path-input');
+        if (p && input && !input.value) input.placeholder = p;
+      } catch (_) {}
+    }
+
+    // ── 분석 로그 ──
+
+    function appendLog(result) {
+      _logEntries.unshift(result);
+      if (_logEntries.length > 20) _logEntries.pop();
+      renderLog();
+    }
+
+    function clearLog() { _logEntries = []; renderLog(); }
+
+    function renderLog() {
+      const el = document.getElementById('analysis-log');
+      if (_logEntries.length === 0) {
+        el.innerHTML = '<p class="italic py-1" style="font-size:12px;color:#475569;">분석 결과가 없습니다.</p>';
+        return;
+      }
+      el.innerHTML = _logEntries.map(r => {
+        const icon  = { SCAM:'🚨', SUSPICIOUS:'🟡', SAFE:'🟢', UNKNOWN:'❓' }[r.verdict] ?? '❓';
+        const label = { SCAM:'위험', SUSPICIOUS:'주의', SAFE:'안전', UNKNOWN:'대기중' }[r.verdict] ?? '대기중';
+        const time = new Date(r.analyzedAt).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        const file = r.filePath.split(/[\\/]/).pop() ?? r.filePath;
+        return `<div class="log-entry ${r.verdict} mb-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-bold">${icon} ${label}</span>
+            <span class="text-slate-500">${time}</span>
+          </div>
+          <div class="text-slate-500 mt-0.5" style="font-size:11px;">${window.escapeHtmlText(file)}</div>
+          ${r.detectedScamTypes ? `<div class="text-slate-400 mt-0.5" style="font-size:11px;">${window.escapeHtmlText(r.detectedScamTypes)}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    // ── 부트 ──
+    document.addEventListener('DOMContentLoaded', () => {
+      window.refreshIcons?.();
+      window.bindEscapeClose?.();
+
+      window.bindChatLogStatusWarning();
+
+      init();
+    });
+
+    window.addEventListener('beforeunload', () => {
+      if (_statusInterval) clearInterval(_statusInterval);
+    });
+</script>
+</body>
+</html>

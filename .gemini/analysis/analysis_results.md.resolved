@@ -1,0 +1,183 @@
+# TW-Overlay 프로젝트 종합 분석 보고서
+
+> 분석 기준 버전: **v1.10.2** | 분석 일시: 2026-03-30
+
+---
+
+## 📊 종합 평가
+
+| 분류 | 평점 (10점) | 비고 |
+|---|---|---|
+| 코드 구조/아키텍처 | 7 | 모듈화 잘 되어 있으나 일부 God Object 존재 |
+| 타입 안전성 | 7 | strict 모드 사용 중, 일부 `any` 캐스팅 잔존 |
+| 보안 | 6 | GA API 키 노출 위험, IPC 입력 검증 부족 |
+| 에러 처리 | 6 | 일관성 부족, 일부 silent catch 패턴 |
+| 성능 | 8 | 폴링 최적화, 디바운스 등 잘 적용됨 |
+| 테스트 | 1 | 테스트 코드 완전 부재 |
+| 빌드/배포 | 7 | 기능은 하나 커스텀 빌드 스크립트가 취약 |
+| 유지보수성 | 6 | 일부 파일 크기가 과도, 코드 스타일 불일치 |
+
+---
+
+## 🔴 심각도 높음 (즉시 개선 권장)
+
+### 1. 테스트 코드가 전혀 없음
+```json
+// package.json
+"test": "echo \"Error: no test specified\" && exit 1"
+```
+- 단위 테스트, 통합 테스트, E2E 테스트가 **모두 부재**합니다.
+- SQLite 로직([diaryDb.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/diaryDb.ts)), 설정 관리([config.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts)), 보스 알림 시간 계산 등 핵심 비즈니스 로직에 대한 검증 수단이 없습니다.
+- **권장**: Vitest 또는 Jest 도입 후 최소한 [config.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts), [diaryDb.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/diaryDb.ts), [contentsChecker.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/contentsChecker.ts) 등 핵심 모듈에 대한 유닛 테스트를 추가해야 합니다.
+
+### 2. [windowManager.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts) — God Object 문제 (586줄)
+- 하나의 파일에 **12개 이상의 창** 생성/관리/토글/동기화 로직이 모두 집중되어 있습니다.
+- 줄 487~555에서 **인덴트가 비정상적**으로 바뀌어 코드 스타일이 불일치합니다.
+- 줄 555에서 [hideOverlayWindows](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts#539-556) 함수 끝 `}` 뒤에 **줄바꿈 없이** [showGameExitReminder](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts#555-585)가 바로 시작됩니다.
+
+```typescript
+// 문제: 닫는 괄호와 다음 함수가 같은 줄에 붙어있음
+    }export function showGameExitReminder(): void {
+```
+
+### 3. 백업 복구 시 .old 파일 롤백 미구현
+[backupManager.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/backupManager.ts#L97-L100)에서 복구 실패 시 `.old` 파일로의 롤백 로직이 주석만 달려있고 **실제 구현이 없습니다**:
+
+```typescript
+} catch (error) {
+    log(`[BACKUP] Restore failed: ${error}`);
+    // 실패 시 .old 파일 복구 시도 (생략 가능하나 안전을 위해 고려)
+    return false;
+}
+```
+- 복구 중 오류가 발생하면 원본 데이터(config.json, diary.db)가 모두 `.old`로 rename된 상태에서 새 파일도 없는 **데이터 유실** 상태가 됩니다.
+
+---
+
+## 🟡 심각도 중간 (개선 권장)
+
+### 4. AppConfig `positions` 타입에 일부 창 누락
+[types.ts](file:///c:/git/trendlog2day/tw-overlay/src/shared/types.ts#L103-L114)의 `positions` 필드에 `evolutionCalculator`, `magicStoneCalculator`, `customAlert`, [diary](file:///c:/git/trendlog2day/tw-overlay/src/preload.ts#75-77) 창의 위치가 정의되어 있지 않습니다. `windowRegistry`에는 12개 창이 있지만, 타입에는 10개만 정의:
+
+```typescript
+positions?: {
+    overlay?: WindowPosition;
+    settings?: WindowPosition;
+    // ... coefficientCalculator, contentsChecker 까지만 정의
+    // evolutionCalculator, magicStoneCalculator, customAlert, diary 누락!
+};
+```
+
+### 5. [analytics.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/analytics.ts) — `any` 캐스팅과 타입 안전성
+```typescript
+let savedClientId = (store as any).get('ga_client_id') as string | undefined;
+(store as any).set('ga_client_id', savedClientId);
+```
+- `electron-store`의 타입을 `any`로 캐스팅하여 사용하고 있습니다. `Store<Schema>` 제네릭을 활용하면 타입 안전하게 사용할 수 있습니다.
+
+### 6. IPC 핸들러 입력 검증 부족
+[ipcHandlers.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/ipcHandlers.ts)에서 렌더러로부터 받는 데이터에 대한 **유효성 검증이 대부분 없습니다**:
+- `apply-settings`: `Partial<AppConfig>` 타입 보장이 런타임에 안 됨
+- `diary-add-activity`: [date](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts#234-241), `time`, `type` 등의 형식이 검증되지 않음
+- `contents-add-custom`: `rule` 파라미터가 `any` 타입
+- SQL 인젝션은 prepared statement로 방어되지만, 잘못된 데이터 형식이 들어갈 위험이 있음
+
+### 7. [diaryDb.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/diaryDb.ts) — 동시성 및 트랜잭션 미사용
+- [addActivityLog](file:///c:/git/trendlog2day/tw-overlay/src/modules/diaryDb.ts#131-145), [addHomeworkLog](file:///c:/git/trendlog2day/tw-overlay/src/modules/diaryDb.ts#162-181) 등에서 `INSERT` → `UPDATE(addScore)` 두 개의 SQL이 트랜잭션 없이 실행됩니다.
+- 중간에 오류가 발생하면 포인트만 누적되고 로그가 없거나, 로그만 삽입되고 포인트가 누적되지 않는 **데이터 불일치**가 발생할 수 있습니다.
+
+```typescript
+// 현재: 트랜잭션 없음
+stmt.run(date, type, content, time);
+if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
+
+// 권장: 트랜잭션 추가
+const transaction = db.transaction(() => {
+    stmt.run(date, type, content, time);
+    if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
+});
+transaction();
+```
+
+### 8. [config.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts) — 디바운스 저장 중 앱 종료 위험
+- [save()](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts#31-56) 함수에서 `SAVE_DEBOUNCE_MS(300ms)` 동안 기다린 후 저장합니다.
+- [main.ts](file:///c:/git/trendlog2day/tw-overlay/src/main.ts)의 `before-quit`에서 [hasPending()](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts#73-77) 체크 후 [saveImmediate()](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts#57-72)를 호출하지만, 이때 전달하는 인자가 없어 **현재 pending 데이터가 아닌** 기존 로드 데이터가 저장될 수 있습니다.
+
+```typescript
+// main.ts L94 - 문제
+if (config.hasPending()) config.saveImmediate();
+// saveImmediate()는 newConfig: Partial<AppConfig> = {} 이므로
+// _pendingConfig 내용을 그대로 저장하기는 하지만, 명시적이지 않음
+```
+
+### 9. `globalShortcut` import 미사용
+[main.ts L1](file:///c:/git/trendlog2day/tw-overlay/src/main.ts#L1)에서 `globalShortcut`을 import하지만 실제로 사용되지 않음:
+```typescript
+import { app, globalShortcut } from 'electron';
+// globalShortcut은 어디에서도 사용되지 않음
+```
+
+### 10. 로거 동기-비동기 혼용
+[logger.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/logger.ts)에서 로그 크기 체크는 `statSync`(동기), 로그 쓰기는 `appendFile`(비동기)로 혼용됩니다:
+- 비동기 쓰기 후 곧바로 동기 크기 체크 시 **경쟁 조건**으로 크기 초과 감지가 누락될 수 있습니다.
+- `SIZE_CHECK_INTERVAL` 최적화가 근본적 해결은 아닙니다.
+
+---
+
+## 🟢 심각도 낮음 (장기 개선 사항)
+
+### 11. `electron-store`와 [config.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts) 이중 사용
+- [analytics.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/analytics.ts)에서는 `electron-store`를 사용하고, 설정 저장은 자체 [config.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/config.ts)(`fs.readFileSync/writeFileSync`)를 사용합니다.
+- 두 가지 저장 메커니즘이 혼재하여 혼란을 줍니다.
+
+### 12. 빌드 스크립트 견고성 부족
+- [scripts/copy-resources.js](file:///c:/git/trendlog2day/tw-overlay/scripts/copy-resources.js)에서 [.ts](file:///c:/git/trendlog2day/tw-overlay/src/main.ts) 파일이 실수로 복사되는 것을 차단하는 로직이 없습니다.
+- `dist` 디렉토리의 **기존 orphan 파일**을 정리하는 로직이 `icons`, `assets` 폴더만 대상이고, HTML/CSS orphan은 제거되지 않습니다.
+
+### 13. [setAllAlwaysOnTop()](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts#391-392) 빈 함수
+```typescript
+export function setAllAlwaysOnTop(_enabled: boolean): void { }
+```
+- [windowManager.ts L391](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts#L391)에 빈 함수가 남아있으며, [pollingLoop.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/pollingLoop.ts)에서 여전히 호출되고 있습니다.
+
+### 14. [package.json](file:///c:/git/trendlog2day/tw-overlay/package.json) — `author` 필드 비어있음
+```json
+"author": "",
+```
+- 배포되는 앱이므로 작성자 정보가 있는 것이 좋습니다.
+
+### 15. `asarUnpack` 배열이 비어있음
+```json
+"asarUnpack": [],
+```
+- `better-sqlite3`, `koffi` 등 네이티브 모듈은 asar 패키징 시 문제가 생길 수 있어 `asarUnpack`에 명시해야 할 수 있습니다.
+- 현재 정상 동작 중이라면 문제없으나, 네이티브 바인딩 업데이트 시 주의가 필요합니다.
+
+### 16. ESLint/Prettier 미적용
+- 프로젝트에 린터나 포맷터 설정이 전혀 없습니다.
+- [windowManager.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts)처럼 인덴트와 스타일이 불일치하는 부분이 발생하는 원인입니다.
+
+### 17. `CONTENTS_DATA_PATH` 정적 경로 문제
+```typescript
+export const CONTENTS_DATA_PATH = path.join(__dirname, '..', 'assets', 'data', 'contents.json');
+```
+- asar 패키징 환경에서 `__dirname`이 예상과 다를 수 있습니다. 다른 리소스 경로는 [get_RESOURCE_PATH()](file:///c:/git/trendlog2day/tw-overlay/src/modules/constants.ts#43-47)를 사용하는데 이것만 다릅니다.
+
+---
+
+## 📝 요약 및 우선순위 로드맵
+
+| 우선순위 | 항목 | 작업량 |
+|---|---|---|
+| **P0** | 백업 복구 실패 시 .old 롤백 구현 | 소 |
+| **P0** | [windowManager.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts) 코드 포맷팅 오류 수정 | 소 |
+| **P1** | DiaryDb 트랜잭션 적용 | 소 |
+| **P1** | `positions` 타입에 누락된 창 추가 | 소 |
+| **P1** | 미사용 import 제거 (`globalShortcut`) | 소 |
+| **P1** | 빈 함수 [setAllAlwaysOnTop](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts#391-392) 정리 | 소 |
+| **P2** | ESLint + Prettier 도입 | 중 |
+| **P2** | 테스트 프레임워크 도입 (핵심 모듈) | 중~대 |
+| **P2** | [analytics.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/analytics.ts) `any` 캐스팅 해소 | 소 |
+| **P3** | IPC 입력 검증 레이어 추가 | 중 |
+| **P3** | [windowManager.ts](file:///c:/git/trendlog2day/tw-overlay/src/modules/windowManager.ts) 분리 리팩토링 | 대 |
+| **P3** | 저장소 메커니즘 통합 결정 | 중 |

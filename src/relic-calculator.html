@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>렐릭 강화 시뮬레이션</title>
+  <link rel="stylesheet" href="style.css"><script src="assets/tailwind.min.js"></script><script src="assets/lucide.min.js"></script><script src="assets/ui-utils.js"></script>
+  <style>
+    body{margin:0;background:#0b1020;color:#e2e8f0;overflow:hidden}.wrap{height:100vh;display:flex;flex-direction:column}.body{flex:1;overflow:auto;padding:20px}.card{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);border-radius:16px}.field{background:#090d18;border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 12px;color:#fff;width:100%}.tab.active{background:rgba(99,102,241,.25);color:#c7d2fe;border-color:rgba(99,102,241,.45)}.metric{background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:14px}.no-drag{-webkit-app-region:no-drag}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="win-header !h-16 !px-5 shrink-0">
+    <div class="win-title-area"><div class="win-icon-box bg-indigo-500/10 border-indigo-500/20"><i data-lucide="gem" class="w-5 h-5 text-indigo-400"></i></div><div class="win-title-text"><span class="win-title-main">렐릭 강화</span><span class="win-title-sub">Enhancement Simulator</span></div></div>
+    <div class="win-controls"><button onclick="window.close()" class="win-btn win-close-btn"><i data-lucide="x"></i></button></div>
+  </header>
+  <main class="body custom-scroll">
+    <section class="card p-5 grid grid-cols-5 gap-3 mb-4">
+      <label class="text-xs font-bold text-slate-400">렐릭 종류<select id="side" class="field mt-2"><option value="right">펜던트 (렐릭 오른쪽)</option><option value="left">브라이슬릿 (렐릭 왼쪽)</option></select></label>
+      <label class="text-xs font-bold text-slate-400">현재 단계<select id="current-stage" class="field mt-2"></select></label>
+      <label class="text-xs font-bold text-slate-400">목표 단계<select id="target-stage" class="field mt-2"></select></label>
+      <label class="text-xs font-bold text-slate-400">성소 난이도<select id="difficulty" class="field mt-2"></select></label>
+      <div class="text-xs font-bold text-slate-400">현재 스탯 합계<div class="field mt-2 text-center"><span id="current-total-display" class="text-indigo-300 font-black">0</span></div><input id="current-total" type="hidden" value="0"></div>
+      <div id="stat-inputs" class="col-span-5 grid grid-cols-5 gap-3"></div>
+      <div class="col-span-5 flex justify-between text-xs text-slate-500"><span id="current-guide"></span><span id="probability-guide" class="text-indigo-300 font-bold"></span></div>
+    </section>
+    <div class="flex gap-2 mb-4">
+      <button class="tab active no-drag px-5 py-2.5 rounded-xl border border-white/10 text-sm font-bold" data-tab="simulation">시뮬레이션</button>
+      <button class="tab no-drag px-5 py-2.5 rounded-xl border border-white/10 text-sm font-bold" data-tab="expectation">기댓값 조회</button>
+    </div>
+    <section id="simulation-panel" class="card p-5">
+      <div class="flex items-center justify-between mb-5"><div><h2 class="font-black">한 번 직접 강화하기</h2><p class="text-xs text-slate-500 mt-1">공식 단계·난이도 확률로 목표 MAX까지 한 번 시뮬레이션합니다.</p></div><button id="simulate-btn" class="no-drag px-5 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-black text-sm">시뮬레이션 실행</button></div>
+      <div id="simulation-result" class="grid grid-cols-4 gap-3"></div>
+    </section>
+    <section id="expectation-panel" class="card p-5 hidden">
+      <div class="flex items-center justify-between mb-5"><div><h2 class="font-black">목표까지 평균 소모량</h2><p class="text-xs text-slate-500 mt-1">진화는 100% 성공하며 단계별 MAX 능력치가 계승됩니다.</p></div><button id="expectation-btn" class="no-drag px-5 py-3 bg-violet-600 hover:bg-violet-500 rounded-xl font-black text-sm">기댓값 계산</button></div>
+      <div id="expectation-result" class="grid grid-cols-4 gap-3"></div>
+    </section>
+    <p class="mt-4 text-xs text-slate-500">확률 출처: 테일즈위버 공식 확률형 아이템 정보 · 어빌리티 및 부가 옵션은 계산하지 않습니다.</p>
+  </main>
+</div>
+<script src="shared/relicCalculator.js"></script><script src="relic-calculator-renderer.js"></script>
+</body></html>

@@ -1,0 +1,641 @@
+{
+  "evolutionSystem": {
+    "equipment": {
+      "evolutionChain": [
+        "엔키라",
+        "엔키라 칼라그",
+        "인퍼널",
+        "아퀼루스",
+        "어비스",
+        "이클립스"
+      ],
+      "parts": {
+        "helm": {
+          "EnkiriaToShinEnkiria": {
+            "materials": [
+              {
+                "name": "에리두 합금",
+                "quantity": 500
+              }
+            ]
+          },
+          "ShinEnkiriaToInfernal": {
+            "materials": [
+              {
+                "name": "광전사의 투구 파편",
+                "quantity": 2
+              },
+              {
+                "name": "환상초",
+                "quantity": 10
+              }
+            ]
+          },
+          "InfernalToAquilus": {
+            "materials": [
+              {
+                "name": "시트린",
+                "quantity": 10
+              },
+              {
+                "name": "태청금액신단",
+                "quantity": 6
+              },
+              {
+                "name": "프시키의 파편 - 분리",
+                "quantity": 4
+              }
+            ]
+          },
+          "AquilusToAbyss": {
+            "materials": [
+              {
+                "name": "고대 기사의 투구 파편",
+                "quantity": 5
+              },
+              {
+                "name": "요새 수호자의 보호구 조각",
+                "quantity": 3
+              },
+              {
+                "name": "아크론 혈투의 증표",
+                "quantity": 50
+              }
+            ]
+          },
+          "AbyssToEclipse": {
+            "materials": [
+              {
+                "name": "가짜 달여왕 군단의 투구 장식",
+                "quantity": 3
+              },
+              {
+                "name": "가공된 달의 광물",
+                "quantity": 1
+              },
+              {
+                "name": "룬의 원석",
+                "quantity": 20
+              },
+              {
+                "name": "달의 약초",
+                "quantity": 100
+              },
+              {
+                "name": "가짜 달여왕 군단의 인장",
+                "quantity": 6
+              }
+            ]
+          }
+        },
+        "armor": {
+          "EnkiriaToShinEnkiria": {
+            "materials": [
+              {
+                "name": "에리두 합금",
+                "quantity": 500
+              }
+            ]
+          },
+          "ShinEnkiriaToInfernal": {
+            "materials": [
+              {
+                "name": "집행인의 해골 장식",
+                "quantity": 2
+              },
+              {
+                "name": "환상초",
+                "quantity": 10
+              }
+            ]
+          },
+          "InfernalToAquilus": {
+            "materials": [
+              {
+                "name": "시트린",
+                "quantity": 10
+              },
+              {
+                "name": "태청금액신단",
+                "quantity": 6
+              },
+              {
+                "name": "프시키의 파편 - 단절",
+                "quantity": 4
+              }
+            ]
+          },
+          "AquilusToAbyss": {
+            "materials": [
+              {
+                "name": "고대 기사의 갑옷 파편",
+                "quantity": 5
+              },
+              {
+                "name": "요새 문양이 새겨진 판금 조각",
+                "quantity": 3
+              },
+              {
+                "name": "아크론 혈투의 증표",
+                "quantity": 50
+              }
+            ]
+          },
+          "AbyssToEclipse": {
+            "materials": [
+              {
+                "name": "가짜 달여왕 군단의 갑옷 파편",
+                "quantity": 3
+              },
+              {
+                "name": "가공된 달의 광물",
+                "quantity": 1
+              },
+              {
+                "name": "룬의 원석",
+                "quantity": 20
+              },
+              {
+                "name": "달의 약초",
+                "quantity": 100
+              },
+              {
+                "name": "가짜 달여왕 군단의 인장",
+                "quantity": 6
+              }
+            ]
+          }
+        },
+        "gloves": {
+          "EnkiriaToShinEnkiria": {
+            "materials": [
+              {
+                "name": "에리두 합금",
+                "quantity": 500
+              }
+            ]
+          },
+          "ShinEnkiriaToInfernal": {
+            "materials": [
+              {
+                "name": "용암 거인의 건틀릿 파편",
+                "quantity": 2
+              },
+              {
+                "name": "환상초",
+                "quantity": 10
+              }
+            ]
+          },
+          "InfernalToAquilus": {
+            "materials": [
+              {
+                "name": "시트린",
+                "quantity": 10
+              },
+              {
+                "name": "태청금액신단",
+                "quantity": 6
+              },
+              {
+                "name": "프시키의 파편 - 고정",
+                "quantity": 4
+              }
+            ]
+          },
+          "AquilusToAbyss": {
+            "materials": [
+              {
+                "name": "고대 기사의 건틀릿 파편",
+                "quantity": 5
+              },
+              {
+                "name": "요새 문양이 새겨진 가죽 조각",
+                "quantity": 3
+              },
+              {
+                "name": "아크론 혈투의 증표",
+                "quantity": 50
+              }
+            ]
+          },
+          "AbyssToEclipse": {
+            "materials": [
+              {
+                "name": "가짜 달여왕 군단의 건틀렛 파편",
+                "quantity": 3
+              },
+              {
+                "name": "가공된 달의 광물",
+                "quantity": 1
+              },
+              {
+                "name": "룬의 원석",
+                "quantity": 20
+              },
+              {
+                "name": "달의 약초",
+                "quantity": 100
+              },
+              {
+                "name": "가짜 달여왕 군단의 인장",
+                "quantity": 6
+              }
+            ]
+          }
+        },
+        "boots": {
+          "EnkiriaToShinEnkiria": {
+            "materials": [
+              {
+                "name": "에리두 합금",
+                "quantity": 500
+              }
+            ]
+          },
+          "ShinEnkiriaToInfernal": {
+            "materials": [
+              {
+                "name": "수감자의 기둥 파편",
+                "quantity": 2
+              },
+              {
+                "name": "환상초",
+                "quantity": 10
+              }
+            ]
+          },
+          "InfernalToAquilus": {
+            "materials": [
+              {
+                "name": "시트린",
+                "quantity": 10
+              },
+              {
+                "name": "태청금액신단",
+                "quantity": 6
+              },
+              {
+                "name": "프시키의 파편 - 구원",
+                "quantity": 4
+              }
+            ]
+          },
+          "AquilusToAbyss": {
+            "materials": [
+              {
+                "name": "고대 기사의 각갑 파편",
+                "quantity": 5
+              },
+              {
+                "name": "요새 수호자의 부츠 조각",
+                "quantity": 3
+              },
+              {
+                "name": "아크론 혈투의 증표",
+                "quantity": 50
+              }
+            ]
+          },
+          "AbyssToEclipse": {
+            "materials": [
+              {
+                "name": "가짜 달여왕 군단의 각갑 파편",
+                "quantity": 3
+              },
+              {
+                "name": "가공된 달의 광물",
+                "quantity": 1
+              },
+              {
+                "name": "룬의 원석",
+                "quantity": 20
+              },
+              {
+                "name": "달의 약초",
+                "quantity": 100
+              },
+              {
+                "name": "가짜 달여왕 군단의 인장",
+                "quantity": 6
+              }
+            ]
+          }
+        },
+        "wings": {
+          "EnkiriaToShinEnkiria": {
+            "materials": [
+              {
+                "name": "에리두 합금",
+                "quantity": 500
+              }
+            ]
+          },
+          "ShinEnkiriaToInfernal": {
+            "materials": [
+              {
+                "name": "파괴자의 어깨 장식",
+                "quantity": 2
+              },
+              {
+                "name": "환상초",
+                "quantity": 10
+              }
+            ]
+          },
+          "InfernalToAquilus": {
+            "materials": [
+              {
+                "name": "시트린",
+                "quantity": 10
+              },
+              {
+                "name": "태청금액신단",
+                "quantity": 6
+              },
+              {
+                "name": "프시키의 파편 - 안정",
+                "quantity": 4
+              }
+            ]
+          },
+          "AquilusToAbyss": {
+            "materials": [
+              {
+                "name": "고대 기사의 휘장 조각",
+                "quantity": 5
+              },
+              {
+                "name": "요새 수호자의 장식 깃털",
+                "quantity": 3
+              },
+              {
+                "name": "아크론 혈투의 증표",
+                "quantity": 50
+              }
+            ]
+          },
+          "AbyssToEclipse": {
+            "materials": [
+              {
+                "name": "가짜 달여왕 군단의 휘장 장식",
+                "quantity": 3
+              },
+              {
+                "name": "가공된 달의 광물",
+                "quantity": 1
+              },
+              {
+                "name": "룬의 원석",
+                "quantity": 20
+              },
+              {
+                "name": "달의 약초",
+                "quantity": 100
+              },
+              {
+                "name": "가짜 달여왕 군단의 인장",
+                "quantity": 6
+              }
+            ]
+          }
+        },
+        "amulet": {
+          "EnkiriaToShinEnkiria": {
+            "materials": [
+              {
+                "name": "에리두 합금",
+                "quantity": 500
+              }
+            ]
+          },
+          "ShinEnkiriaToInfernal": {
+            "materials": [
+              {
+                "name": "사서의 보석 파편",
+                "quantity": 2
+              },
+              {
+                "name": "환상초",
+                "quantity": 10
+              }
+            ]
+          },
+          "InfernalToAquilus": {
+            "materials": [
+              {
+                "name": "시트린",
+                "quantity": 10
+              },
+              {
+                "name": "태청금액신단",
+                "quantity": 6
+              },
+              {
+                "name": "프시키의 파편 - 형성",
+                "quantity": 4
+              }
+            ]
+          },
+          "AquilusToAbyss": {
+            "materials": [
+              {
+                "name": "고대 기사의 펜던트 파편",
+                "quantity": 5
+              },
+              {
+                "name": "요새 문양이 새겨진 목걸이 조각",
+                "quantity": 3
+              },
+              {
+                "name": "아크론 혈투의 증표",
+                "quantity": 50
+              }
+            ]
+          },
+          "AbyssToEclipse": {
+            "materials": [
+              {
+                "name": "가짜 달여왕 군단의 펜던트 파편",
+                "quantity": 3
+              },
+              {
+                "name": "가공된 달의 광물",
+                "quantity": 1
+              },
+              {
+                "name": "룬의 원석",
+                "quantity": 20
+              },
+              {
+                "name": "달의 약초",
+                "quantity": 100
+              },
+              {
+                "name": "가짜 달여왕 군단의 인장",
+                "quantity": 6
+              }
+            ]
+          }
+        },
+        "shield": {
+          "EnkiriaToShinEnkiria": {
+            "materials": [
+              {
+                "name": "에리두 합금",
+                "quantity": 100
+              }
+            ]
+          },
+          "ShinEnkiriaToInfernal": {
+            "materials": [
+              {
+                "name": "환상초",
+                "quantity": 1
+              }
+            ]
+          },
+          "InfernalToAquilus": {
+            "materials": [
+              {
+                "name": "시트린",
+                "quantity": 10
+              },
+              {
+                "name": "태청금액신단",
+                "quantity": 6
+              },
+              {
+                "name": "프시키의 파편 - 인도",
+                "quantity": 4
+              }
+            ]
+          },
+          "AquilusToAbyss": {
+            "materials": [
+              {
+                "name": "고대 기사의 방패 조각",
+                "quantity": 5
+              },
+              {
+                "name": "요새 문양이 새겨진 금속 파편",
+                "quantity": 3
+              },
+              {
+                "name": "아크론 혈투의 증표",
+                "quantity": 50
+              }
+            ]
+          },
+          "AbyssToEclipse": {
+            "materials": [
+              {
+                "name": "가짜 달여왕 군단의 방패 조각",
+                "quantity": 3
+              },
+              {
+                "name": "가공된 달의 광물",
+                "quantity": 1
+              },
+              {
+                "name": "룬의 원석",
+                "quantity": 20
+              },
+              {
+                "name": "달의 약초",
+                "quantity": 100
+              },
+              {
+                "name": "가짜 달여왕 군단의 인장",
+                "quantity": 6
+              }
+            ]
+          }
+        }
+      }
+    },
+    "weapon": {
+      "evolutionChain": [
+        "아카드",
+        "인퍼널",
+        "아퀼루스",
+        "어비스",
+        "이클립스"
+      ],
+      "recipes": {
+        "AcadToInfernal": {
+          "materials": [
+            {
+              "name": "수르트의 무기 파편",
+              "quantity": 2
+            },
+            {
+              "name": "환상초",
+              "quantity": 10
+            }
+          ]
+        },
+        "InfernalToAquilus": {
+          "materials": [
+            {
+              "name": "시트린",
+              "quantity": 10
+            },
+            {
+              "name": "태청금액신단",
+              "quantity": 6
+            },
+            {
+              "name": "프시키의 파편 - 파괴",
+              "quantity": 4
+            }
+          ]
+        },
+        "AquilusToAbyss": {
+          "materials": [
+            {
+              "name": "고대 기사의 무기 파편",
+              "quantity": 5
+            },
+            {
+              "name": "요새 수호자의 보석 파편",
+              "quantity": 3
+            },
+            {
+              "name": "심연의 핵",
+              "quantity": 1
+            },
+            {
+              "name": "아크론 혈투의 증표",
+              "quantity": 100
+            }
+          ]
+        },
+        "AbyssToEclipse": {
+          "materials": [
+            {
+              "name": "가짜 달여왕 군단의 무기 파편",
+              "quantity": 3
+            },
+            {
+              "name": "가공된 달의 광물",
+              "quantity": 1
+            },
+            {
+              "name": "룬의 원석",
+              "quantity": 20
+            },
+            {
+              "name": "달의 약초",
+              "quantity": 100
+            },
+            {
+              "name": "가짜 달여왕 군단의 인장",
+              "quantity": 6
+            }
+          ]
+        }
+      }
+    }
+  }
+}

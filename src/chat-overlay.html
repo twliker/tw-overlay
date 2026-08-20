@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>채팅 오버레이</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    :root {
+      --bg-overlay: rgba(15, 14, 26, 0.4);
+      --bg-overlay-hover: rgba(15, 14, 26, 0.75);
+      --border-overlay: rgba(255, 255, 255, 0.08);
+      --border-overlay-hover: rgba(255, 255, 255, 0.15);
+      --tab-active: #34d399;
+      --tab-inactive: #94a3b8;
+      --text-main: #f8fafc;
+      --font-size-base: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: transparent !important;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      user-select: none;
+    }
+
+    /* 전체 오버레이 글래스모피즘 박스 */
+    .overlay-panel {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-overlay);
+      border: 1px solid var(--border-overlay);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      backdrop-filter: blur(4px);
+      transition: background 0.3s, border-color 0.3s, backdrop-filter 0.3s;
+    }
+
+    .overlay-panel.hover-active {
+      background: var(--bg-overlay-hover);
+      border-color: var(--border-overlay-hover);
+      backdrop-filter: blur(12px);
+    }
+
+    /* 드래그 툴바 */
+    .drag-header {
+      height: 28px;
+      background: rgba(0, 0, 0, 0.2);
+      border-bottom: 0px solid var(--border-overlay);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      -webkit-app-region: drag;
+      opacity: 0;
+      transform: translateY(-5px);
+      max-height: 0;
+      overflow: hidden;
+      transition: opacity 0.25s, transform 0.25s, max-height 0.25s, border-width 0.25s;
+    }
+
+    .drag-header.visible {
+      opacity: 1;
+      transform: translateY(0);
+      max-height: 28px;
+      border-bottom-width: 1px;
+    }
+
+    .drag-header-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--tab-inactive);
+      letter-spacing: 0.05em;
+    }
+
+    .drag-header-actions {
+      -webkit-app-region: no-drag;
+    }
+
+    .close-btn {
+      color: var(--tab-inactive);
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+
+    .close-btn:hover {
+      color: #ef4444;
+    }
+
+    .new-win-btn {
+      color: var(--tab-inactive);
+      cursor: pointer;
+      transition: color 0.15s;
+      background: transparent;
+      border: none;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .new-win-btn:hover {
+      color: var(--tab-active);
+    }
+
+    /* 탭 메뉴 */
+    .tabs-bar {
+      display: flex;
+      background: rgba(0, 0, 0, 0.15);
+      border-bottom: 0px solid var(--border-overlay);
+      overflow-x: auto;
+      flex-shrink: 0;
+      scrollbar-width: none;
+      opacity: 0;
+      transform: translateY(-5px);
+      max-height: 0;
+      overflow-y: hidden;
+      transition: opacity 0.25s, transform 0.25s, max-height 0.25s, border-width 0.25s;
+    }
+
+    .tabs-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tabs-bar.visible {
+      opacity: 1;
+      transform: translateY(0);
+      max-height: 40px;
+      border-bottom-width: 1px;
+    }
+
+    .tab-item {
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--tab-inactive);
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .tab-item:hover {
+      color: var(--text-main);
+    }
+
+    .tab-item.active {
+      color: var(--tab-active);
+      border-bottom-color: var(--tab-active);
+      background: rgba(52, 211, 153, 0.05);
+    }
+
+    /* 채팅 스크롤 영역 */
+    .chat-scroll-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .chat-scroll-area::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    .chat-scroll-area::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.25);
+    }
+
+    .chat-scroll-area::-webkit-scrollbar-thumb {
+      background: rgba(52, 211, 153, 0.3);
+      border-radius: 10px;
+      border: 2px solid #0f0e1a;
+    }
+
+    .chat-scroll-area::-webkit-scrollbar-thumb:hover {
+      background: rgba(52, 211, 153, 0.55);
+    }
+
+    /* 개별 채팅 항목 */
+    .chat-message-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      line-height: 1.4;
+      font-size: var(--font-size-base);
+      word-break: break-all;
+    }
+
+    .chat-timestamp {
+      font-size: 0.8em;
+      color: rgba(255, 255, 255, 0.35);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* 에타 배지 */
+    .eta-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #a855f7, #3b82f6);
+      color: #ffffff;
+      font-size: 0.85em;
+      font-weight: 900;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-right: 3px;
+      vertical-align: middle;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 0 6px rgba(168, 85, 247, 0.4);
+      flex-shrink: 0;
+    }
+
+    .chat-sender {
+      font-weight: 700;
+      color: #94a3b8;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: opacity 0.1s;
+    }
+
+    .chat-sender:hover {
+      opacity: 0.85;
+      text-decoration: underline;
+    }
+
+
+
+    .chat-text {
+      color: var(--text-main);
+    }
+
+    /* 복사 토스트 알림 */
+    .copy-toast {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(10px);
+      background: rgba(16, 185, 129, 0.9);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 6px 14px;
+      border-radius: 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    }
+
+    .copy-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* 리사이즈 핸들 */
+    .resize-handle {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      width: 14px;
+      height: 14px;
+      cursor: se-resize;
+      z-index: 101;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+      background-image: linear-gradient(135deg, 
+        transparent 50%, 
+        rgba(255, 255, 255, 0.3) 50%, rgba(255, 255, 255, 0.3) 60%, 
+        transparent 60%, transparent 75%, 
+        rgba(255, 255, 255, 0.3) 75%, rgba(255, 255, 255, 0.3) 85%, 
+        transparent 85%
+      );
+    }
+    .resize-handle.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* 채널별 글래스모피즘 그라데이션 배지 */
+    .channel-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: 0.85em;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-right: 4px;
+      vertical-align: middle;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      flex-shrink: 0;
+    }
+    .badge-general {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+    }
+    .badge-team {
+      background: linear-gradient(135deg, #10b981, #047857);
+      box-shadow: 0 0 4px rgba(16, 185, 129, 0.3);
+    }
+    .badge-club {
+      background: linear-gradient(135deg, #ec4899, #be185d);
+      box-shadow: 0 0 4px rgba(236, 72, 153, 0.3);
+    }
+    .badge-shout {
+      background: linear-gradient(135deg, #f97316, #d97706);
+      box-shadow: 0 0 4px rgba(249, 115, 22, 0.3);
+    }
+    .badge-system {
+      background: linear-gradient(135deg, #4b5563, #1f2937);
+      box-shadow: 0 0 4px rgba(75, 85, 99, 0.2);
+    }
+    .badge-whisper {
+      background: linear-gradient(135deg, #22c55e, #15803d);
+      box-shadow: 0 0 4px rgba(34, 197, 94, 0.3);
+    }
+
+    /* ─── 검색 영역 스타일 ─── */
+    .search-container {
+      background: rgba(15, 23, 42, 0.85);
+      border-bottom: 1px solid var(--border-overlay);
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      backdrop-filter: blur(8px);
+      flex-shrink: 0;
+      -webkit-app-region: no-drag;
+    }
+    .search-container.hidden {
+      display: none !important;
+    }
+    .search-input-wrapper {
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .search-input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      color: #f8fafc;
+      font-size: 11.5px;
+      padding: 4px 26px 4px 8px;
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .search-input:focus {
+      border-color: #38bdf8;
+      background: rgba(0, 0, 0, 0.55);
+    }
+    .search-action-btn {
+      background: transparent;
+      border: none;
+      color: var(--tab-inactive);
+      cursor: pointer;
+      padding: 3px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s, background 0.15s;
+    }
+    .search-action-btn:hover {
+      color: #f8fafc;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    .search-status-bar {
+      background: rgba(56, 189, 248, 0.1);
+      border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+      padding: 4px 10px;
+      font-size: 11px;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      -webkit-app-region: no-drag;
+    }
+    .search-status-bar.hidden {
+      display: none !important;
+    }
+    .search-highlight {
+      background: rgba(234, 179, 8, 0.35);
+      color: #fef08a;
+      padding: 0 2px;
+      border-radius: 2px;
+      font-weight: 700;
+      border-bottom: 1px solid rgba(234, 179, 8, 0.6);
+    }
+
+    /* ─── 탭바 반응형 미디어 쿼리 ─── */
+    @media (max-width: 520px) {
+      .tab-item {
+        padding: 8px 8px;
+        font-size: 10.5px;
+        letter-spacing: 0.02em;
+      }
+    }
+    @media (max-width: 440px) {
+      .tab-item {
+        padding: 8px 6px;
+        font-size: 10px;
+        letter-spacing: 0;
+      }
+      .tab-item .tab-text {
+        display: none; /* 가로가 좁아지면 채팅로그, 설정 텍스트 숨김 */
+      }
+    }
+    @media (max-width: 360px) {
+      .tab-item {
+        padding: 8px 5px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="overlay-panel" id="overlayPanel">
+    
+    <!-- 드래그 헤더 -->
+    <div class="drag-header" id="dragHeader">
+      <div class="drag-header-title flex items-center gap-1.5">
+        <i data-lucide="message-square" class="w-3.5 h-3.5 text-emerald-400"></i>
+        <span id="dragHeaderTitleText">CHAT HISTORY</span>
+      </div>
+      <div class="drag-header-actions flex items-center gap-2">
+        <button id="btnOpenSub1" class="new-win-btn text-xs font-bold px-1.5 py-0.5 rounded border border-white/10" title="Sub 1 창 열기" style="display: none;">
+          SUB 1
+        </button>
+        <button id="btnOpenSub2" class="new-win-btn text-xs font-bold px-1.5 py-0.5 rounded border border-white/10" title="Sub 2 창 열기" style="display: none;">
+          SUB 2
+        </button>
+        <button id="btnCloseOverlay" class="close-btn" title="오버레이 닫기">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- 탭바 -->
+    <div class="tabs-bar" id="tabsBar">
+      <div class="tab-item active" data-tab="Basic">통합</div>
+      <div class="tab-item" data-tab="General">일반</div>
+      <div class="tab-item" data-tab="Whisper">귓속말</div>
+      <div class="tab-item" data-tab="Team">팀</div>
+      <div class="tab-item" data-tab="Club">클럽</div>
+      <div class="tab-item" data-tab="Shout">외치기</div>
+      <div class="tab-item" data-tab="System">시스템</div>
+      <div class="tab-item" data-tab="OpenLog" style="color: #60a5fa; display: inline-flex; align-items: center; gap: 4px;">
+        <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+        <span class="tab-text">채팅로그</span>
+      </div>
+      <div class="tab-item" id="btnToggleSearch" style="color: #38bdf8; display: inline-flex; align-items: center; gap: 4px;" title="채팅 검색 (Ctrl+F)">
+        <i data-lucide="search" class="w-3.5 h-3.5"></i>
+        <span class="tab-text">검색</span>
+      </div>
+      <div class="tab-item" data-tab="Settings" style="margin-left: auto; color: var(--tab-active); display: inline-flex; align-items: center; gap: 4px;">
+        <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+        <span class="tab-text">설정</span>
+      </div>
+    </div>
+
+    <!-- 검색 입력창 영역 -->
+    <div class="search-container hidden" id="searchContainer">
+      <div class="search-input-wrapper">
+        <input type="text" id="searchInput" class="search-input" placeholder="전체 채팅 검색 (내용, 보낸사람)..." spellcheck="false" autocomplete="off" />
+        <button id="btnClearSearchInput" class="search-action-btn" style="position: absolute; right: 4px; display: none;" title="검색어 지우기">
+          <i data-lucide="x" class="w-3 h-3"></i>
+        </button>
+      </div>
+      <button id="btnExecuteSearch" class="search-action-btn" title="검색 (Enter)">
+        <i data-lucide="search" class="w-3.5 h-3.5 text-sky-400"></i>
+      </button>
+      <button id="btnCloseSearch" class="search-action-btn" title="검색 닫기 (Esc)">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+
+    <!-- 검색 상태 안내 바 -->
+    <div class="search-status-bar hidden" id="searchStatusBar">
+      <div class="flex items-center gap-1.5 overflow-hidden text-ellipsis whitespace-nowrap">
+        <i data-lucide="info" class="w-3 h-3 flex-shrink-0"></i>
+        <span id="searchResultText">검색 결과: 0건</span>
+      </div>
+      <button id="btnExitSearchMode" class="text-xs text-sky-300 hover:text-white underline cursor-pointer flex-shrink-0 ml-2">
+        실시간 복귀
+      </button>
+    </div>
+
+    <!-- 채팅 스크롤 영역 -->
+    <div class="chat-scroll-area" id="chatArea">
+      <!-- 동적 채팅 목록 주입 -->
+    </div>
+
+    <!-- 리사이즈 핸들 -->
+    <div class="resize-handle" id="resizeHandle"></div>
+
+  </div>
+
+  <!-- 복사 안내 토스트 -->
+  <div class="copy-toast" id="copyToast">닉네임이 복사되었습니다.</div>
+
+  <!-- 렌더러 스크립트 연결 -->
+  <script src="shared/chatConstants.js"></script>
+  <script src="shared/chatChannels.js"></script>
+  <script src="chatOverlayRenderer.js"></script>
+  <script>
+    window.bindChatLogStatusWarning({ variant: 'overlay' });
+</script>
+
+</body>
+</html>

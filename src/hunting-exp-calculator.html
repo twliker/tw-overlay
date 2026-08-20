@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>사냥 경험치 계산기</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow: hidden; background: transparent; color: #e2e8f0; font-family: Pretendard, sans-serif; }
+    button, input, select { font: inherit; }
+    .app-shell { height: 100vh; background: radial-gradient(circle at 86% 0%, rgba(16,185,129,.11), transparent 35%), #0b1120; border: 1px solid rgba(148,163,184,.18); border-radius: 14px; overflow: hidden; }
+    .workspace { height: calc(100vh - 56px); display: grid; grid-template-columns: minmax(430px, 1.45fr) minmax(330px, .9fr); min-height: 0; }
+    .left-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid rgba(255,255,255,.07); background: rgba(2,6,23,.22); }
+    .right-pane { min-width: 0; overflow-y: auto; padding: 18px; }
+    .toolbar { padding: 14px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.06); background: rgba(15,23,42,.72); }
+    .search-box { position: relative; flex: 1; }
+    .search-box i, .search-box svg { position: absolute; left: 11px; top: 50%; z-index: 1; transform: translateY(-50%); pointer-events: none; color: #64748b; }
+    .field { width: 100%; border: 1px solid rgba(100,116,139,.42); border-radius: 10px; background: rgba(15,23,42,.72); color: #f8fafc; outline: none; padding: 10px 12px; transition: .18s; }
+    .search-box .field { padding-left: 34px; }
+    .field:focus { border-color: rgba(45,212,191,.7); box-shadow: 0 0 0 3px rgba(20,184,166,.1); }
+    .field:disabled { opacity: .5; }
+    .doping-list { flex: 1 1 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px 18px; }
+    .doping-list::-webkit-scrollbar, .right-pane::-webkit-scrollbar { width: 6px; }
+    .doping-list::-webkit-scrollbar-thumb, .right-pane::-webkit-scrollbar-thumb { background: rgba(148,163,184,.18); border-radius: 10px; }
+    .doping-row { display: grid; grid-template-columns: 22px 34px minmax(0,1fr) auto auto; align-items: center; gap: 9px; min-height: 55px; padding: 8px 10px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,.055); border-radius: 11px; background: rgba(30,41,59,.34); transition: .16s; }
+    .doping-row:hover { background: rgba(30,41,59,.62); border-color: rgba(148,163,184,.2); }
+    .doping-row.active { background: linear-gradient(90deg, rgba(13,148,136,.13), rgba(30,41,59,.38)); border-color: rgba(45,212,191,.22); }
+    .doping-check { width: 17px; height: 17px; accent-color: #14b8a6; cursor: pointer; }
+    .doping-icon { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; overflow: hidden; border: 1px solid rgba(148,163,184,.15); border-radius: 8px; background: rgba(15,23,42,.75); color: #64748b; font: 900 8px 'JetBrains Mono', monospace; }
+    .doping-icon img { width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
+    .doping-info { min-width: 0; }
+    .doping-name { overflow: hidden; color: #e2e8f0; font-size: 13px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .doping-meta { overflow: hidden; margin-top: 3px; color: #64748b; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .percent-badge { min-width: 67px; border: 1px solid rgba(45,212,191,.16); border-radius: 8px; background: rgba(20,184,166,.1); color: #5eead4; font: 800 12px 'JetBrains Mono', monospace; text-align: center; padding: 5px 7px; }
+    .percent-input-wrap { display: inline-flex; align-items: center; gap: 2px; border: 1px solid rgba(45,212,191,.35); border-radius: 8px; background: rgba(15,23,42,.85); color: #5eead4; font: 800 12px 'JetBrains Mono', monospace; padding: 2px 6px; transition: .16s; }
+    .percent-input-wrap:focus-within { border-color: rgba(45,212,191,.8); box-shadow: 0 0 0 2px rgba(20,184,166,.2); background: rgba(13,148,136,.15); }
+    .percent-input { width: 52px; border: none; background: transparent; color: #5eead4; font: 800 12px 'JetBrains Mono', monospace; text-align: right; outline: none; padding: 2px 0; -moz-appearance: textfield; }
+    .percent-input::-webkit-inner-spin-button, .percent-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .row-actions { display: flex; gap: 3px; opacity: .35; transition: .16s; }
+    .doping-row:hover .row-actions { opacity: 1; }
+    .row-action { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 7px; color: #94a3b8; transition: .16s; }
+    .row-action:hover { background: rgba(148,163,184,.12); color: #f8fafc; }
+    .row-action.danger:hover { background: rgba(244,63,94,.12); color: #fb7185; }
+    .empty-state { padding: 48px 12px; color: #64748b; font-size: 13px; font-weight: 700; text-align: center; }
+    .soft-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid rgba(148,163,184,.16); border-radius: 9px; background: rgba(51,65,85,.38); color: #cbd5e1; font-size: 11px; font-weight: 800; padding: 7px 10px; transition: .16s; }
+    .soft-btn:hover { background: rgba(71,85,105,.58); color: #fff; }
+    .soft-btn:disabled { cursor: not-allowed; opacity: .3; }
+    .soft-btn.accent { border-color: rgba(20,184,166,.28); background: rgba(13,148,136,.16); color: #5eead4; }
+    .soft-btn.accent:hover { background: rgba(13,148,136,.28); }
+    .soft-btn.danger { color: #fda4af; }
+    .panel { margin-bottom: 12px; border: 1px solid rgba(255,255,255,.07); border-radius: 14px; background: rgba(15,23,42,.63); padding: 14px; }
+    .panel-title { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; color: #cbd5e1; font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .field-label { display: block; margin-bottom: 6px; color: #64748b; font-size: 10px; font-weight: 850; letter-spacing: .04em; }
+    .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .ground-actions { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; }
+    .icon-btn { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgba(148,163,184,.16); border-radius: 9px; background: rgba(51,65,85,.35); color: #94a3b8; }
+    .icon-btn:hover:not(:disabled) { color: #fff; background: rgba(71,85,105,.55); }
+    .icon-btn:disabled { opacity: .25; }
+    .happy-card { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 11px 12px; border: 1px solid rgba(250,204,21,.14); border-radius: 11px; background: rgba(234,179,8,.055); }
+    .switch { position: relative; width: 40px; height: 22px; }
+    .switch input { position: absolute; opacity: 0; }
+    .switch-track { position: absolute; inset: 0; border-radius: 20px; background: #334155; transition: .2s; cursor: pointer; }
+    .switch-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: .2s; }
+    .switch input:checked + .switch-track { background: #d97706; }
+    .switch input:checked + .switch-track::after { transform: translateX(18px); }
+    .result-hero { position: relative; overflow: hidden; border-color: rgba(45,212,191,.22); background: linear-gradient(145deg, rgba(13,148,136,.17), rgba(15,23,42,.82) 68%); }
+    .result-hero::after { content: ''; position: absolute; right: -34px; top: -45px; width: 125px; height: 125px; border-radius: 50%; background: rgba(45,212,191,.07); }
+    .hero-value { color: #5eead4; font: 900 28px 'JetBrains Mono', monospace; letter-spacing: -.04em; }
+    .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .result-card { min-width: 0; border: 1px solid rgba(255,255,255,.065); border-radius: 11px; background: rgba(2,6,23,.32); padding: 11px; }
+    .result-label { color: #64748b; font-size: 10px; font-weight: 850; }
+    .result-value { overflow: hidden; margin-top: 5px; color: #f8fafc; font: 850 15px 'JetBrains Mono', monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .essence-card { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .essence-label { display: flex; align-items: center; gap: 7px; }
+    .essence-icon { width: 24px; height: 24px; object-fit: contain; filter: drop-shadow(0 2px 5px rgba(251,191,36,.18)); }
+    .essence-card .result-value { flex: 0 0 auto; margin-top: 0; color: #fbbf24; }
+    .formula { margin-top: 10px; border-radius: 9px; background: rgba(2,6,23,.4); color: #64748b; font: 650 10px 'JetBrains Mono', monospace; padding: 8px 9px; word-break: break-all; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(2,6,23,.78); backdrop-filter: blur(7px); }
+    .modal-backdrop.hidden { display: none; }
+    .modal-card { width: min(430px, calc(100vw - 40px)); border: 1px solid rgba(148,163,184,.2); border-radius: 16px; background: #111827; box-shadow: 0 24px 80px rgba(0,0,0,.55); padding: 18px; }
+    .modal-fields { display: grid; gap: 12px; margin-top: 16px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    @media (max-width: 760px) { .workspace { grid-template-columns: 1fr; overflow-y: auto; } .left-pane { min-height: 560px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.07); } .right-pane { overflow: visible; } }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="win-header">
+      <div class="win-title-area">
+        <div class="win-icon-box bg-teal-500/10 border-teal-500/20"><i data-lucide="sparkles" class="w-5 h-5 text-teal-400"></i></div>
+        <div class="win-title-text">
+          <span class="win-title-main">사냥 도핑 & 예상 경험치</span>
+          <span class="win-title-sub">Hunting EXP Calculator</span>
+        </div>
+      </div>
+      <div class="win-controls"><button id="close-window-btn" type="button" class="win-btn win-close-btn" title="닫기"><i data-lucide="x" class="w-5 h-5"></i></button></div>
+    </header>
+
+    <div class="workspace no-drag">
+      <section class="left-pane" aria-label="경험치 도핑 목록">
+        <div class="toolbar">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <div class="text-sm font-black text-slate-100">경험치 도핑 목록</div>
+              <div id="doping-count" class="text-[11px] text-teal-400 font-bold mt-0.5">0/0개 적용</div>
+            </div>
+            <div class="flex gap-1.5">
+              <button id="enable-all-btn" type="button" class="soft-btn">전체 적용</button>
+              <button id="disable-all-btn" type="button" class="soft-btn">전체 해제</button>
+              <button id="reset-dopings-btn" type="button" class="soft-btn" title="기본 목록 복원"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i></button>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <div class="search-box"><i data-lucide="search" class="w-4 h-4"></i><input id="doping-search" class="field text-xs" placeholder="도핑 이름 또는 메모 검색"></div>
+            <button id="add-doping-btn" type="button" class="soft-btn accent shrink-0"><i data-lucide="plus" class="w-4 h-4"></i>도핑 추가</button>
+          </div>
+        </div>
+        <div id="doping-list" class="doping-list"></div>
+      </section>
+
+      <aside class="right-pane" aria-label="예상 경험치 계산 결과">
+        <section class="panel">
+          <div class="panel-title"><i data-lucide="map-pin" class="w-4 h-4 text-sky-400"></i>사냥 조건</div>
+          <label class="field-label" for="ground-select">사냥터</label>
+          <div class="ground-actions">
+            <select id="ground-select" class="field text-xs"></select>
+            <button id="add-ground-btn" type="button" class="icon-btn" title="사냥터 추가"><i data-lucide="plus" class="w-4 h-4"></i></button>
+            <button id="edit-ground-btn" type="button" class="icon-btn" title="사냥터 수정"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+            <button id="delete-ground-btn" type="button" class="icon-btn" title="사냥터 삭제"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+          </div>
+          <div class="flex items-center justify-between mt-2 px-1">
+            <span class="text-[10px] text-slate-500 font-bold">기본 경험치 <strong id="selected-base-xp" class="text-slate-300 ml-1">0</strong></span>
+            <button id="reset-grounds-btn" type="button" class="text-[10px] font-bold text-slate-500 hover:text-slate-300">기본 사냥터 복원</button>
+          </div>
+          <div class="mt-4">
+            <label class="field-label" for="kills-per-hour">시간당 처치 수</label>
+            <input id="kills-per-hour" type="number" min="0" max="10000000" step="100" class="field font-mono text-sm" inputmode="numeric">
+          </div>
+          <div class="happy-card">
+            <div>
+              <div class="flex items-center gap-1.5 text-xs font-black text-amber-300"><i data-lucide="party-popper" class="w-4 h-4"></i>해피아워 이벤트</div>
+              <div class="text-[10px] text-slate-500 font-semibold mt-1">최종 경험치 1.5배</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="happy-hour-multiplier" class="text-xs font-black text-amber-400">× 1.5</span>
+              <label class="switch"><input id="happy-hour-input" type="checkbox"><span class="switch-track"></span></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel result-hero">
+          <div class="relative z-10">
+            <div class="text-[10px] font-black tracking-[.16em] text-teal-300/70 uppercase">시간당 예상 경험치</div>
+            <div id="xp-per-hour-eok" class="hero-value mt-2">0억</div>
+            <div id="xp-per-hour" class="text-[11px] font-mono font-bold text-slate-400 mt-1">0</div>
+            <div class="result-grid">
+              <div class="result-card"><div class="result-label">적용 도핑 합계</div><div id="applied-percent" class="result-value text-teal-300">0%</div></div>
+              <div class="result-card"><div class="result-label">1마리 예상 경험치</div><div id="xp-per-kill" class="result-value">0</div></div>
+              <div class="result-card essence-card"><div class="essence-label"><img src="assets/img/경험의정수.png" alt="" class="essence-icon"><div class="result-label">시간당 경험의 정수 환산</div></div><div id="essence-per-hour" class="result-value">약 0개</div></div>
+            </div>
+            <div id="formula-text" class="formula">0 × (1 + 0 ÷ 100)</div>
+          </div>
+        </section>
+
+        <div class="flex items-start gap-2 px-2 text-[10px] leading-relaxed text-slate-500">
+          <i data-lucide="info" class="w-3.5 h-3.5 shrink-0 mt-0.5 text-slate-400"></i>
+          <span>지속시간은 참고 정보이며 계산에는 포함되지 않습니다. 도핑 증가율은 합산하고, 해피아워는 최종 경험치에 1.5배로 적용합니다. 경험의 정수는 1개당 100억 경험치로 환산합니다.</span>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <div id="editor-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="editor-title">
+    <form id="editor-form" class="modal-card">
+      <div class="flex items-center justify-between">
+        <div id="editor-title" class="text-sm font-black text-white">항목 추가</div>
+        <button id="close-editor-btn" type="button" class="row-action"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+      <div class="modal-fields">
+        <label><span class="field-label">이름</span><input id="editor-name" required maxlength="100" class="field" placeholder="항목 이름"></label>
+        <label><span id="editor-value-label" class="field-label">경험치 증가율 (%)</span><input id="editor-value" required type="number" min="0" max="9007199254740991" class="field" inputmode="numeric"></label>
+        <label id="editor-duration-wrap"><span class="field-label">지속시간</span><input id="editor-duration" maxlength="100" class="field" placeholder="예: 30분, 무제한"></label>
+        <label id="editor-note-wrap"><span class="field-label">메모</span><input id="editor-note" maxlength="100" class="field" placeholder="획득처, 제한사항 등"></label>
+      </div>
+      <div class="modal-actions">
+        <button id="cancel-editor-btn" type="button" class="soft-btn">취소</button>
+        <button type="submit" class="soft-btn accent px-5">저장</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="shared/huntingExpCalculator.js"></script>
+  <script src="renderer/hunting-exp-calculator.js"></script>
+  <script>lucide.createIcons(); window.bindElectronListenerCleanup();</script>
+</body>
+</html>

@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
+  <title>장비 사전</title>
+  <link rel="stylesheet" href="style.css">
+    <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body { background: transparent; color: var(--text-main); overflow: hidden; font-family: 'Inter', 'Noto Sans KR', sans-serif; }
+    
+    /* Category Chips style */
+    .cat-chip {
+      padding: 6px 12px; border-radius: 8px; font-size: 11px; font-weight: 700;
+      background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
+      color: var(--text-muted); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .cat-chip:hover { 
+      background: rgba(244, 114, 182, 0.08); color: white; border-color: rgba(244, 114, 182, 0.2);
+    }
+    .cat-chip.active { 
+      background: #db2777; border-color: #fbcfe8; color: white; 
+      box-shadow: 0 4px 12px rgba(219, 39, 119, 0.2);
+    }
+
+    /* Sub-category Dropdown Option Items */
+    .sub-opt-item {
+      width: 100%; text-align: left; padding: 7px 10px; border-radius: 6px;
+      font-size: 11px; font-weight: 600; color: var(--text-muted);
+      transition: all 0.15s ease; background: transparent; border: none;
+      outline: none; cursor: pointer;
+    }
+    .sub-opt-item:hover {
+      background: rgba(255, 255, 255, 0.05); color: var(--text-main);
+    }
+    .sub-opt-item.active {
+      background: rgba(244, 114, 182, 0.15); color: #fbcfe8;
+    }
+
+    /* Item Card on Left List */
+    .item-card {
+      background: rgba(30, 41, 59, 0.2); border: 1px solid rgba(255, 255, 255, 0.03);
+      border-radius: 12px; padding: 10px; transition: all 0.2s ease;
+      cursor: pointer; display: flex; align-items: center; gap: 12px;
+    }
+    .item-card:hover { 
+      background: rgba(30, 41, 59, 0.45); border-color: rgba(244, 114, 182, 0.2);
+      transform: translateX(2px);
+    }
+    .item-card.active {
+      background: rgba(244, 114, 182, 0.12); border-color: rgba(244, 114, 182, 0.4);
+      box-shadow: inset 0 0 10px rgba(244, 114, 182, 0.1);
+    }
+
+    /* Search Box styling */
+    .search-box-inner {
+      background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px; transition: all 0.2s;
+    }
+    .search-box-inner:focus-within {
+      background: rgba(0, 0, 0, 0.4); border-color: #f472b6;
+      box-shadow: 0 0 0 3px rgba(244, 114, 182, 0.1);
+    }
+
+    .no-drag { -webkit-app-region: no-drag; }
+    .drag { -webkit-app-region: drag; }
+    
+    /* Scrollbar style */
+    .custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+    /* Stat Table Style */
+    .stat-row {
+      transition: background-color 0.15s ease;
+    }
+    .stat-row:hover {
+      background-color: rgba(255, 255, 255, 0.02);
+    }
+    .stat-label-col {
+      color: #94a3b8; font-weight: 600; font-size: 13px;
+    }
+    .stat-val-col {
+      font-weight: 700; font-size: 13px;
+    }
+  </style>
+  <script>
+    window.bindElectronListenerCleanup();
+</script>
+</head>
+<body class="panel-glass p-0 h-screen flex flex-col select-none">
+  <!-- Unified Header (Standard) -->
+  <div class="win-header shrink-0 drag">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-pink-500/10 border-pink-500/20">
+        <i data-lucide="shield" class="w-5 h-5 text-pink-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">장비 사전</span>
+        <span class="win-title-sub">Equipment Dictionary</span>
+      </div>
+    </div>
+    <div class="win-controls no-drag">
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Split Layout -->
+  <div class="flex-1 overflow-hidden flex flex-row no-drag">
+    <!-- Left Pane: Search & List (Widened to 380px) -->
+    <div class="w-[380px] flex flex-col border-r border-white/5 h-full overflow-hidden bg-slate-950/20 shrink-0">
+      <!-- Search Input -->
+      <div class="p-4 pb-2 shrink-0">
+        <div class="search-box-inner relative group">
+          <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-pink-400 transition-colors"></i>
+          <input id="search-input" class="w-full bg-transparent pl-11 pr-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 font-medium" 
+                 placeholder="장비 이름이나 카테고리 검색..." autocomplete="off">
+        </div>
+      </div>
+
+      <!-- Main Group Category Chips -->
+      <div class="px-4 pb-3 shrink-0 flex flex-wrap gap-1.5 border-b border-white/5 overflow-x-auto custom-scroll whitespace-nowrap">
+        <button class="cat-chip active" data-group="전체">전체</button>
+        <button class="cat-chip" data-group="무기">무기</button>
+        <button class="cat-chip" data-group="갑옷">갑옷</button>
+        <button class="cat-chip" data-group="손목">손목</button>
+        <button class="cat-chip" data-group="아티팩트">아티팩트</button>
+        <button class="cat-chip" data-group="세트">세트</button>
+      </div>
+
+      <!-- Sub Category Searchable Dropdown Container -->
+      <div id="sub-category-dropdown-container" class="px-4 py-2.5 shrink-0 border-b border-white/5 relative hidden">
+        <div class="text-xs text-slate-500 font-extrabold mb-1 uppercase tracking-wider">세부 카테고리 필터</div>
+        
+        <!-- Trigger Button -->
+        <button id="sub-category-trigger" class="w-full flex items-center justify-between bg-black/25 border border-white/5 hover:border-pink-500/40 rounded-lg px-3 py-2.5 text-xs font-bold text-slate-300 transition-colors">
+          <span id="sub-category-trigger-text">전체</span>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500"></i>
+        </button>
+
+        <!-- Dropdown Layer -->
+        <div id="sub-category-layer" class="absolute left-4 right-4 top-full mt-1 bg-slate-900 border border-white/10 rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden hidden max-h-60">
+          <div class="p-2 border-b border-white/5 bg-black/20">
+            <input id="sub-category-search" class="w-full bg-slate-950 border border-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none placeholder:text-slate-600 focus:border-pink-500" 
+                   placeholder="카테고리명 검색..." autocomplete="off">
+          </div>
+          <div id="sub-category-options" class="flex-1 overflow-y-auto custom-scroll p-1 space-y-0.5 max-h-40">
+            <!-- Dynamically populated options -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Item Count Indicator -->
+      <div class="px-4 pt-2.5 pb-1 text-[11px] text-slate-500 font-bold tracking-wider uppercase shrink-0 flex justify-between">
+        <span>아이템 목록</span>
+        <span id="item-count">0개</span>
+      </div>
+
+      <!-- Result List -->
+      <div id="result-list" class="flex-1 custom-scroll overflow-y-auto p-4 pt-1 space-y-2">
+        <!-- Loaded dynamically -->
+      </div>
+    </div>
+
+    <!-- Right Pane: Detail View -->
+    <div id="detail-pane" class="flex-1 flex flex-col h-full overflow-y-auto custom-scroll p-8 bg-slate-900/10 relative">
+      <!-- Comparison Status Bar -->
+      <div id="compare-bar" class="bg-pink-600/10 border border-pink-500/20 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3 text-xs hidden shrink-0">
+        <div class="flex items-center gap-2 text-slate-300 overflow-hidden">
+          <i data-lucide="git-compare" class="w-4 h-4 text-pink-400 shrink-0"></i>
+          <span class="font-bold shrink-0">비교함: <strong id="compare-count" class="text-pink-400">0</strong>/4</span>
+          <div id="compare-items-list" class="flex gap-1.5 ml-2 overflow-x-auto custom-scroll py-0.5 whitespace-nowrap">
+            <!-- Badge format items -->
+          </div>
+        </div>
+        <div class="flex gap-2 shrink-0">
+          <button id="btn-show-compare" class="bg-pink-600 hover:bg-pink-500 text-white font-black px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1">
+            비교표 보기
+          </button>
+          <button id="btn-clear-compare" class="bg-white/5 hover:bg-white/10 text-slate-400 font-bold px-2 py-1.5 rounded-lg transition-colors">
+            비우기
+          </button>
+        </div>
+      </div>
+
+      <!-- Unselected State -->
+      <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-slate-600 gap-3 py-20">
+        <i data-lucide="info" class="w-12 h-12 opacity-20"></i>
+        <span class="text-xs font-bold tracking-widest uppercase">Select an item to view details</span>
+      </div>
+
+      <!-- Selected State (Hidden initially) -->
+      <div id="detail-content" class="space-y-6 hidden">
+        <!-- Item Header Card -->
+        <div class="flex items-start justify-between bg-white/5 border border-white/5 rounded-2xl p-6 gap-4">
+          <div class="flex items-center gap-5">
+            <div class="w-24 h-24 bg-black/30 border border-white/10 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+              <img id="detail-image" src="" alt="" class="max-w-[80%] max-h-[80%] object-contain" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23475569%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 class=%22lucide lucide-shield%22><path d=%22M20 13c0 5-3.5 7.5-7.66 9.7a1 1 0 0 1-.68 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 .76-.97l8-2a1 1 0 0 1 .48 0l8 2A1 1 0 0 1 20 6z%22/></svg>'">
+            </div>
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span id="detail-category-badge" class="text-xs text-pink-400 font-extrabold bg-pink-500/10 px-2 py-0.5 rounded border border-pink-500/20 uppercase tracking-wide">Category</span>
+                <span id="detail-group-badge" class="text-xs text-slate-400 font-bold bg-white/5 px-2 py-0.5 rounded border border-white/5 uppercase">Group</span>
+              </div>
+              <h2 id="detail-name" class="text-2xl font-black text-slate-100 tracking-tight leading-tight">아이템 이름</h2>
+              <p id="detail-subcategory" class="text-[11px] text-slate-500 font-bold hidden">서브 카테고리</p>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2 shrink-0 self-start">
+            <button id="btn-add-to-compare" class="w-full bg-pink-600/20 hover:bg-pink-600/35 text-pink-400 hover:text-pink-300 border border-pink-500/20 hover:border-pink-500/40 font-black px-4 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 text-xs">
+              <i data-lucide="git-compare" class="w-4 h-4"></i>비교 추가
+            </button>
+            <button id="btn-calc-evolution" class="w-full bg-lime-600/20 hover:bg-lime-600/35 text-lime-400 hover:text-lime-300 border border-lime-500/20 hover:border-lime-500/40 font-black px-4 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 text-xs hidden">
+              <i data-lucide="trending-up" class="w-4 h-4"></i>진화 비용 계산
+            </button>
+            <button id="btn-send-to-coefficient" class="w-full bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-400 hover:text-indigo-300 border border-indigo-500/20 hover:border-indigo-500/40 font-black px-4 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 text-xs hidden">
+              <i data-lucide="calculator" class="w-4 h-4"></i>계수 계산기 입력
+            </button>
+          </div>
+        </div>
+
+        <!-- Requirements & Meta Information Grid -->
+        <div class="grid grid-cols-4 gap-4">
+          <div class="bg-black/20 border border-white/5 rounded-xl p-4 text-center space-y-1">
+            <span class="text-[9px] font-extrabold text-slate-500 block tracking-wider uppercase">장착 레벨</span>
+            <span id="meta-level" class="text-sm font-bold text-slate-300">-</span>
+          </div>
+          <div class="bg-black/20 border border-white/5 rounded-xl p-4 text-center space-y-1">
+            <span class="text-[9px] font-extrabold text-slate-500 block tracking-wider uppercase">요구 능력치</span>
+            <span id="meta-stat" class="text-sm font-bold text-slate-300">-</span>
+          </div>
+          <div class="bg-black/20 border border-white/5 rounded-xl p-4 text-center space-y-1">
+            <span class="text-[9px] font-extrabold text-slate-500 block tracking-wider uppercase">합성 횟수 (Synth)</span>
+            <span id="meta-synth" class="text-sm font-bold text-slate-300">-</span>
+          </div>
+          <div class="bg-black/20 border border-white/5 rounded-xl p-4 text-center space-y-1">
+            <span class="text-[9px] font-extrabold text-slate-500 block tracking-wider uppercase">딜레이</span>
+            <span id="meta-delay" class="text-sm font-bold text-slate-300">-</span>
+          </div>
+        </div>
+
+        <!-- Stats Block -->
+        <div id="stats-section" class="bg-black/15 border border-white/5 rounded-2xl p-6 space-y-4">
+          <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+            <i data-lucide="sliders" class="w-4 h-4 text-pink-400"></i>능력치 상세
+          </h3>
+          
+          <!-- Equipment Stats Table -->
+          <div id="equipment-stats-table-container" class="overflow-hidden border border-white/5 rounded-xl">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-white/5 text-xs text-slate-400 font-extrabold uppercase tracking-wider">
+                  <th class="py-3 px-5 font-black">능력치</th>
+                  <th class="py-3 px-5 text-center font-black">기본 범위 (최소 - 최대)</th>
+                  <th class="py-3 px-5 text-center font-black">보정/맥스 한계치</th>
+                </tr>
+              </thead>
+              <tbody id="detail-stats-tbody" class="divide-y divide-white/5">
+                <!-- Loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Ability Info Container (Alternative to table) -->
+          <div id="ability-stats-container" class="space-y-4 hidden">
+            <div class="p-4 bg-purple-500/5 border border-purple-500/10 rounded-xl space-y-1">
+              <span class="text-xs font-black text-purple-400 block tracking-widest uppercase">슬롯 수 (Slots)</span>
+              <p id="ability-slots" class="text-sm font-bold text-slate-200">-</p>
+            </div>
+            <div class="p-4 bg-black/25 border border-white/5 rounded-xl space-y-2">
+              <span class="text-xs font-black text-slate-400 block tracking-widest uppercase">기본 효과</span>
+              <p id="ability-main-effect" class="text-[13px] leading-relaxed text-slate-200 font-medium whitespace-pre-wrap">-</p>
+            </div>
+            <div class="p-4 bg-black/25 border border-white/5 rounded-xl space-y-2">
+              <span class="text-xs font-black text-slate-400 block tracking-widest uppercase">추가 효과 / 설명</span>
+              <p id="ability-effects" class="text-[13px] leading-relaxed text-slate-300 font-normal whitespace-pre-wrap">-</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Comparison Table View (Hidden initially) -->
+      <div id="compare-table-view" class="space-y-6 hidden">
+        <div class="flex items-center justify-between border-b border-white/5 pb-3">
+          <h2 class="text-lg font-black text-slate-100 flex items-center gap-2">
+            <i data-lucide="git-compare" class="w-5 h-5 text-pink-400"></i>장비 능력치 비교표
+          </h2>
+          <button id="btn-close-compare" class="bg-white/5 hover:bg-white/10 text-slate-300 px-4 py-2 rounded-xl text-xs font-black transition-colors flex items-center gap-1.5">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i>상세 보기로 돌아가기
+          </button>
+        </div>
+
+        <!-- Scrollable Comparison Grid Table -->
+        <div class="overflow-x-auto custom-scroll border border-white/5 rounded-2xl bg-black/10">
+          <table class="text-left border-collapse table-fixed min-w-max">
+            <thead id="compare-table-thead" class="bg-white/5 text-xs text-slate-400 font-extrabold uppercase tracking-wider">
+              <!-- Dynamically generated headers (item images, names, delete buttons) -->
+            </thead>
+            <tbody id="compare-table-tbody" class="divide-y divide-white/5">
+              <!-- Dynamically generated rows for stats -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="utils/hangul.js"></script>
+  <script src="equipment-dic-renderer.js"></script>
+</body>
+</html>

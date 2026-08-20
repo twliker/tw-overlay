@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body {
+      background: transparent;
+      overflow: hidden;
+      margin: 0;
+    }
+
+    .splash-container {
+      background: rgba(15, 18, 30, 0.85);
+      backdrop-filter: blur(32px);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(168, 85, 247, 0.15);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .splash-container::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle at center, rgba(168, 85, 247, 0.1) 0%, transparent 70%);
+      animation: rotate 12s linear infinite;
+    }
+
+    @keyframes rotate {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    .floating {
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translateY(0) scale(1);
+      }
+
+      50% {
+        transform: translateY(-10px) scale(1.02);
+      }
+    }
+
+    .shimmer-text {
+      background: linear-gradient(90deg, #64748b 0%, #fff 50%, #64748b 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: shimmer 3s linear infinite;
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: -200% center;
+      }
+
+      100% {
+        background-position: 200% center;
+      }
+    }
+
+    .loading-bar-inner {
+      background: linear-gradient(90deg, #7c3aed, #a855f7, #7c3aed);
+      background-size: 200% auto;
+      animation: loading-move 1.8s ease-in-out infinite;
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.6);
+    }
+
+    @keyframes loading-move {
+      0% {
+        width: 0%;
+        left: -10%;
+      }
+
+      50% {
+        width: 45%;
+        left: 30%;
+      }
+
+      100% {
+        width: 0%;
+        left: 110%;
+      }
+    }
+
+    /* 업데이트 진행률 바 */
+    .progress-bar-fill {
+      background: linear-gradient(90deg, #7c3aed, #a855f7, #c084fc);
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.6);
+      transition: width 0.3s ease;
+    }
+  </style>
+
+  <script>
+    window.bindElectronListenerCleanup();
+  </script>
+</head>
+
+<body class="flex items-center justify-center h-screen w-screen select-none">
+  <div class="splash-container w-80 p-12 rounded-[48px] flex flex-col items-center gap-8 border border-white/5">
+    <!-- Logo Section -->
+    <div class="relative floating">
+      <div
+        class="w-28 h-28 bg-white/5 rounded-[36px] flex items-center justify-center border border-white/10 shadow-2xl overflow-hidden backdrop-blur-md">
+        <img src="icons/icon.ico" alt="App Icon" class="w-20 h-20 drop-shadow-[0_0_20px_rgba(168,85,247,0.6)]">
+      </div>
+      <div id="spinnerBadge"
+        class="absolute -bottom-1 -right-1 bg-[#131728]/90 backdrop-blur-md p-2 rounded-xl border border-purple-500/40 shadow-xl">
+        <div class="w-4 h-4 border-2 border-purple-500/20 border-t-purple-400 rounded-full animate-spin"></div>
+      </div>
+    </div>
+
+    <!-- Text Section -->
+    <div class="text-center space-y-2 relative z-10 w-full">
+      <h1 class="text-3xl font-black text-white tracking-tighter drop-shadow-2xl">TW-Overlay</h1>
+      <p id="statusText" class="text-xs shimmer-text font-bold tracking-tight opacity-90 h-5 flex items-center justify-center whitespace-nowrap">업데이트 확인 중...</p>
+    </div>
+
+    <!-- Progress Section -->
+    <div class="w-full space-y-3 relative z-10">
+      <!-- 기본 무한 로딩 바 -->
+      <div id="defaultProgress"
+        class="w-full bg-black/40 h-2 rounded-full overflow-hidden border border-white/5 relative">
+        <div class="loading-bar-inner h-full absolute rounded-full"></div>
+      </div>
+      <!-- 업데이트 실제 진행률 바 -->
+      <div id="updateProgress"
+        class="w-full bg-black/40 h-2 rounded-full overflow-hidden border border-white/5 relative hidden">
+        <div id="updateProgressFill" class="progress-bar-fill h-full rounded-full" style="width: 0%"></div>
+      </div>
+      <div class="flex justify-between items-center px-1">
+        <span id="statusLabel" class="text-[9px] text-slate-400 font-bold tracking-wider uppercase">Auto Updater</span>
+        <span id="statusAction" class="text-[9px] text-purple-400 font-black tracking-wider uppercase">Checking</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const statusText = document.getElementById('statusText');
+    const defaultProgress = document.getElementById('defaultProgress');
+    const updateProgress = document.getElementById('updateProgress');
+    const updateProgressFill = document.getElementById('updateProgressFill');
+    const statusLabel = document.getElementById('statusLabel');
+    const statusAction = document.getElementById('statusAction');
+
+    if (window.splashAPI) {
+      window.splashAPI.onUpdateStatus((data) => {
+        if (data.state === 'checking') {
+          statusText.textContent = '업데이트 확인 중...';
+          statusLabel.textContent = 'Auto Updater';
+          statusAction.textContent = 'Checking';
+        }
+
+        if (data.state === 'latest') {
+          statusText.textContent = '최신 버전입니다. 앱을 시작합니다';
+          statusLabel.textContent = 'System Engine';
+          statusAction.textContent = 'Ready';
+        }
+
+        if (data.state === 'mandatory' || data.state === 'available') {
+          statusText.textContent = `새 버전 v${data.version || ''} 발견! 다운로드 준비 중...`;
+          statusLabel.textContent = data.isMandatory ? 'Mandatory Update' : 'Auto Update';
+          statusAction.textContent = 'Updating';
+        }
+
+        if (data.state === 'downloading') {
+          const percent = data.percent || 0;
+          defaultProgress.classList.add('hidden');
+          updateProgress.classList.remove('hidden');
+          updateProgressFill.style.width = percent + '%';
+          statusText.textContent = `업데이트 다운로드 중... ${percent}%`;
+          statusLabel.textContent = data.isMandatory ? 'Mandatory Update' : 'Downloading';
+          statusAction.textContent = percent + '%';
+        }
+
+        if (data.state === 'ready') {
+          defaultProgress.classList.add('hidden');
+          updateProgress.classList.remove('hidden');
+          updateProgressFill.style.width = '100%';
+          statusText.textContent = '업데이트 설치 중... 잠시만 기다려주세요';
+          statusLabel.textContent = 'Update Complete';
+          statusAction.textContent = 'Restarting';
+          statusAction.style.color = 'rgba(34, 197, 94, 0.8)';
+        }
+
+        if (data.state === 'error') {
+          statusText.textContent = '업데이트 확인 완료 — 앱을 시작합니다';
+          statusLabel.textContent = 'System Engine';
+          statusAction.textContent = 'Starting';
+        }
+      });
+    }
+  </script>
+</body>
+
+</html>

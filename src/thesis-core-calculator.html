@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
+  <title>테시스 코어 계산기</title>
+  <link rel="stylesheet" href="style.css">
+    <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body {
+      font-family: 'Pretendard', sans-serif;
+      letter-spacing: -0.02em;
+    }
+
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    .drag {
+      -webkit-app-region: drag;
+    }
+
+    .no-drag {
+      -webkit-app-region: no-drag;
+    }
+
+    /* Tabs Styling */
+    .tab-btn {
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 800;
+      color: #64748b;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .tab-btn.active {
+      color: #22d3ee;
+      border-bottom-color: #22d3ee;
+      background-color: rgba(34, 211, 238, 0.05);
+    }
+
+    .tab-btn:hover:not(.active) {
+      color: #94a3b8;
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+    /* Glassmorphism Controls Card */
+    .control-card {
+      background: rgba(30, 35, 60, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    /* Option Toggle buttons */
+    .opt-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 8px;
+      border: 1px solid rgba(51, 65, 85, 1);
+      color: #94a3b8;
+      background: rgba(15, 23, 42, 0.6);
+      transition: all 0.15s;
+    }
+
+    .opt-btn.active {
+      color: #22d3ee;
+      border-color: rgba(34, 211, 238, 0.5);
+      background: rgba(34, 211, 238, 0.08);
+      box-shadow: 0 0 10px rgba(34, 211, 238, 0.1);
+    }
+
+    .opt-btn:hover:not(.active) {
+      color: #cbd5e1;
+      border-color: rgba(100, 116, 139, 0.5);
+    }
+
+    /* Dropdowns styling */
+    .step-select {
+      background: rgba(15, 23, 42, 1);
+      border: 1px solid rgba(51, 65, 85, 1);
+      border-radius: 8px;
+      padding: 6px 10px;
+      color: #f1f5f9;
+      font-size: 12px;
+      font-weight: 600;
+      outline: none;
+      flex: 1;
+      transition: border-color 0.15s;
+    }
+
+    .step-select:focus {
+      border-color: rgba(34, 211, 238, 0.5);
+    }
+
+    /* Custom Scrollbar */
+    .custom-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+    }
+
+    /* Detail Row */
+    .detail-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      transition: all 0.15s;
+    }
+
+    .detail-row:hover {
+      border-color: rgba(34, 211, 238, 0.3);
+      background: rgba(15, 23, 42, 0.6);
+    }
+
+    .step-badge {
+      font-size: 9px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 select-none h-screen flex flex-col border border-slate-800 rounded-xl overflow-hidden">
+
+  <!-- Header -->
+  <div class="win-header shrink-0 drag">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-cyan-500/10 border-cyan-500/20">
+        <i data-lucide="cpu" class="w-5 h-5 text-cyan-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">테시스 코어 계산기</span>
+        <span class="win-title-sub">Tesis Core Expectation Calc</span>
+      </div>
+    </div>
+    <div class="win-controls no-drag">
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Region Tabs -->
+  <div class="flex bg-slate-900 px-4 no-drag border-b border-slate-800 shrink-0">
+    <button class="tab-btn active" id="tab-mercurial" onclick="selectRegion('mercurial_abyss')">
+      머큐리얼 / 어비스
+    </button>
+    <button class="tab-btn" id="tab-eclipse" onclick="selectRegion('eclipse_rubicona')">
+      이클립스 / 루비코나
+    </button>
+  </div>
+
+  <!-- Option Selection & Controls -->
+  <div class="p-4 bg-slate-950/60 border-b border-slate-800/80 no-drag shrink-0 space-y-3">
+    <div class="grid grid-cols-2 gap-3">
+      <!-- Left side options -->
+      <div class="control-card space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black text-slate-400">조각 타입</span>
+          <div class="flex gap-1">
+            <button class="opt-btn active" id="stat-main" onclick="selectStatType('main')">주스탯</button>
+            <button class="opt-btn" id="stat-sub" onclick="selectStatType('sub')">부스탯</button>
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black text-slate-400">화폐 버전</span>
+          <div class="flex gap-1">
+            <button class="opt-btn active" id="curr-seed" onclick="selectCurrency('seed')">시드</button>
+            <button class="opt-btn" id="curr-elso" onclick="selectCurrency('elso')">엘소</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right side options -->
+      <div class="control-card space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black text-slate-400">계산 수량</span>
+          <div class="flex gap-1">
+            <button class="opt-btn active" id="qty-1" onclick="selectPieceQty(1)">1조각</button>
+            <button class="opt-btn" id="qty-6" onclick="selectPieceQty(6)">6조각 전체</button>
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black text-slate-400">강화 비용 할인율</span>
+          <div class="flex items-center gap-1.5">
+            <button onclick="applyEventDiscount()" class="px-2 py-1 bg-slate-900/60 border border-slate-700/60 hover:bg-slate-800/60 text-slate-300 hover:text-cyan-400 font-bold rounded-lg text-[10px] transition-colors">이벤트 할인(20%)</button>
+            <button onclick="resetDiscount()" class="px-2 py-1 bg-slate-900/60 border border-slate-700/60 hover:bg-slate-800/60 text-slate-400 hover:text-red-400 font-bold rounded-lg text-[10px] transition-colors">초기화</button>
+            <input type="number" id="discount-input" min="0" max="100" value="0" oninput="updateDiscount(this.value)"
+              class="w-14 bg-black/40 border border-slate-700/80 focus:border-cyan-500 rounded-lg py-1 px-1.5 text-center text-xs font-bold text-cyan-400 outline-none transition-colors">
+            <span class="text-xs font-bold text-slate-500">%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step Range Selectors -->
+    <div class="control-card flex items-center justify-between gap-4">
+      <div class="flex items-center gap-2 flex-1">
+        <span class="text-xs font-black text-slate-400 shrink-0">시작 단계</span>
+        <select id="step-from" class="step-select" onchange="onStepChange()"></select>
+      </div>
+      <i data-lucide="arrow-right" class="w-4 h-4 text-cyan-400 shrink-0"></i>
+      <div class="flex items-center gap-2 flex-1">
+        <span class="text-xs font-black text-slate-400 shrink-0">목표 단계</span>
+        <select id="step-to" class="step-select" onchange="onStepChange()"></select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Middle area: Calculation Results & Set Info -->
+  <div class="flex-1 min-h-0 flex flex-col no-drag">
+    
+    <!-- Expectation summary cards -->
+    <div class="px-4 py-3 bg-slate-900/30 border-b border-slate-800/60 grid grid-cols-3 gap-3 shrink-0">
+      <!-- Powder Expectation -->
+      <div class="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+        <div class="flex items-center gap-1.5">
+          <img src="assets/img/tesis-core/powder.png" class="w-4 h-4 object-contain">
+          <span class="text-[10px] font-black text-slate-500 uppercase tracking-wider">가루 소모 기댓값</span>
+        </div>
+        <div class="flex items-baseline gap-1 mt-1">
+          <span id="res-powder" class="text-xl font-black text-slate-100">0</span>
+          <span class="text-xs font-bold text-slate-500">개</span>
+        </div>
+      </div>
+      <!-- Crystal Expectation -->
+      <div class="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between">
+        <div class="flex items-center gap-1.5">
+          <img src="assets/img/tesis-core/crystal.png" class="w-4 h-4 object-contain">
+          <span class="text-[10px] font-black text-slate-500 uppercase tracking-wider">결정 소모 기댓값</span>
+        </div>
+        <div class="flex items-baseline gap-1 mt-1">
+          <span id="res-crystal" class="text-xl font-black text-slate-100">0</span>
+          <span class="text-xs font-bold text-slate-500">개</span>
+        </div>
+      </div>
+      <!-- Currency Expectation -->
+      <div class="bg-cyan-950/20 border border-cyan-500/15 rounded-xl p-3 flex flex-col justify-between">
+        <span id="res-currency-label" class="text-[10px] font-black text-cyan-400/80 uppercase tracking-wider">시드 소모 기댓값</span>
+        <div class="flex flex-col mt-1">
+          <div class="flex items-baseline gap-1">
+            <span id="res-currency" class="text-xl font-black text-cyan-400">0</span>
+            <span id="res-currency-unit" class="text-xs font-bold text-cyan-600">만 시드</span>
+          </div>
+          <span id="res-currency-korean" class="text-[10px] font-bold text-slate-500 leading-none mt-0.5"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error or Warning message container -->
+    <div id="warning-box" class="hidden mx-4 my-2 px-3 py-2 bg-red-950/40 border border-red-500/20 text-red-300 rounded-lg text-xs font-bold flex items-center gap-2 shrink-0">
+      <i data-lucide="alert-circle" class="w-4 h-4 text-red-400 shrink-0"></i>
+      <span id="warning-text">시작 단계가 목표 단계보다 높거나 같습니다. 올바른 범위를 선택하십시오.</span>
+    </div>
+
+    <!-- Stats & Set Effects changes -->
+    <div class="mx-4 my-2 bg-slate-900/50 border border-slate-800/50 rounded-xl py-2 px-3 shrink-0 flex items-center justify-between gap-4 text-xs font-medium">
+      <div class="flex items-center gap-2">
+        <i data-lucide="sparkles" class="w-4 h-4 text-cyan-400 shrink-0"></i>
+        <span class="text-slate-400 font-bold">도달 시 스탯 효과:</span>
+        <span class="text-slate-100 font-bold" id="effect-stat-change">1조각 스탯 +1.0</span>
+      </div>
+      <div class="h-4 w-px bg-slate-800"></div>
+      <div class="flex items-center gap-2 flex-1 min-w-0">
+        <i data-lucide="layers" class="w-4 h-4 text-cyan-400 shrink-0"></i>
+        <span class="text-slate-400 font-bold shrink-0">6세트 효과:</span>
+        <span class="text-slate-100 font-bold truncate" id="effect-set-change">최종 댐증+800</span>
+      </div>
+    </div>
+
+    <!-- Box Cost Calculation Card -->
+    <div class="mx-4 mb-2 bg-slate-900/40 border border-slate-800/80 rounded-xl p-2.5 space-y-2 shrink-0">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-1.5">
+          <img src="assets/img/tesis-core/core_box.png" class="w-4 h-4 object-contain">
+          <span class="text-xs font-black text-slate-300">상자 구매 & 최종 비용 계산 (가루)</span>
+        </div>
+      </div>
+      
+      <div class="grid grid-cols-2 gap-3">
+        <div class="flex items-center justify-between bg-black/20 px-3 py-1.5 rounded-lg border border-slate-800">
+          <span class="text-[11px] font-bold text-slate-400">상자 구매 수량</span>
+          <div class="flex items-center gap-1">
+            <input type="number" id="box-qty" value="0" min="0" oninput="onBoxCostInputChange()" class="w-20 bg-black/40 border border-slate-700/80 focus:border-cyan-500 rounded px-1.5 py-0.5 text-right text-xs font-bold text-cyan-400 outline-none">
+            <span class="text-[11px] font-bold text-slate-500">개</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between bg-black/20 px-3 py-1.5 rounded-lg border border-slate-800">
+          <span class="text-[11px] font-bold text-slate-400">상자 개당 가격</span>
+          <div class="flex items-center gap-1">
+            <input type="number" id="box-price" value="0" min="0" oninput="onBoxCostInputChange()" class="w-20 bg-black/40 border border-slate-700/80 focus:border-cyan-500 rounded px-1.5 py-0.5 text-right text-xs font-bold text-cyan-400 outline-none">
+            <span class="text-[11px] font-bold text-slate-500">만 시드</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-cyan-950/10 border border-cyan-500/10 rounded-lg p-3 flex flex-col gap-1.5 text-xs">
+        <div class="flex justify-between items-center text-slate-400 font-medium">
+          <div class="flex items-center gap-1.5">
+            <img src="assets/img/tesis-core/core_box.png" class="w-4 h-4 object-contain">
+            <span>상자 총 구매 비용:</span>
+          </div>
+          <span id="total-box-cost" class="text-slate-200 font-bold">0 만 시드</span>
+        </div>
+        <div class="flex justify-between items-center text-slate-400 font-medium">
+          <div class="flex items-center gap-1.5">
+            <img src="assets/items/금화주머니.png" class="w-4 h-4 object-contain">
+            <span>강화 소모 비용 기댓값:</span>
+          </div>
+          <span id="total-reinforce-cost" class="text-slate-200 font-bold">0 만 시드</span>
+        </div>
+        <div class="h-px bg-slate-800 my-1"></div>
+        <div class="flex justify-between items-baseline">
+          <div class="flex items-center gap-1.5">
+            <img src="assets/items/금화주머니.png" class="w-4 h-4 object-contain">
+            <span class="font-black text-cyan-400">최종 합산 비용:</span>
+          </div>
+          <div class="flex flex-col items-end">
+            <div class="flex items-baseline gap-0.5">
+              <span id="final-total-cost" class="text-base font-black text-cyan-300">0</span>
+              <span id="final-total-unit" class="text-[10px] font-black text-cyan-500">만 시드</span>
+            </div>
+            <span id="final-total-korean" class="text-[9px] font-bold text-slate-500"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Details list (Fixed header, scrollable body) -->
+    <div class="flex-1 min-h-0 flex flex-col px-4 pb-4" id="detail-list-container">
+      <!-- Column Header -->
+      <div class="flex items-center gap-2 px-3 pb-2 text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 border-b border-slate-800/40">
+        <span class="w-40 text-left shrink-0">진화/강화 단계</span>
+        <span class="w-16 text-right shrink-0">성공 확률</span>
+        <span class="w-28 text-right shrink-0">시도당 재료</span>
+        <span class="w-24 text-right shrink-0">시도당 비용</span>
+        <span class="flex-1 text-right min-w-0">단계 기댓값</span>
+      </div>
+      <!-- Items will be injected here -->
+      <div id="detail-list" class="flex-1 overflow-y-auto custom-scroll space-y-1.5 pt-2 pr-1"></div>
+    </div>
+  </div>
+
+  <script>
+    // ----------------------------------------------------
+    // 데이터 정의 및 초기 상태 설정
+    // ----------------------------------------------------
+    
+    // 상태 리스트 (0진화 0강 ~ 4진화 4강)
+    const STATES = [];
+    const STAT_UPGRADES = [];
+    const SET_EFFECTS = [];
+
+    // 0진화 0강~4강
+    for (let g = 0; g <= 4; g++) {
+      STATES.push({ tier: 0, step: g, label: `0진화 ${g}단계` });
+      STAT_UPGRADES.push(1.0 + g * 1.0);
+      SET_EFFECTS.push("최종 댐증+800");
+    }
+    // 1진화 0강~4강
+    for (let g = 0; g <= 4; g++) {
+      STATES.push({ tier: 1, step: g, label: `1진화 ${g}단계` });
+      STAT_UPGRADES.push(6.0 + g * 1.0);
+      SET_EFFECTS.push("최종 댐증+1,400");
+    }
+    // 2진화 0강~4강
+    for (let g = 0; g <= 4; g++) {
+      STATES.push({ tier: 2, step: g, label: `2진화 ${g}단계` });
+      STAT_UPGRADES.push(12.0 + g * 2.0);
+      SET_EFFECTS.push("최종 댐증 1%");
+    }
+    // 3진화 0강~4강
+    for (let g = 0; g <= 4; g++) {
+      STATES.push({ tier: 3, step: g, label: `3진화 ${g}단계` });
+      STAT_UPGRADES.push(23.0 + g * 3.0);
+      SET_EFFECTS.push("최종 댐증 2%");
+    }
+    // 4진화 0강~4강
+    for (let g = 0; g <= 4; g++) {
+      STATES.push({ tier: 4, step: g, label: `4진화 ${g}단계` });
+      STAT_UPGRADES.push(40.0 + g * 10.0);
+      SET_EFFECTS.push("최종 댐증 5%");
+    }
+
+    // 성공 확률 데이터
+    const SUCCESS_RATES = {
+      mercurial_abyss: {
+        0: [1.0, 0.8, 0.6, 0.35],
+        1: [0.25, 0.2, 0.2, 0.2, 0.2],
+        2: [0.15, 0.15, 0.15, 0.15, 0.15],
+        3: [0.08, 0.08, 0.08, 0.08, 0.08],
+        4: [0.05, 0.05, 0.05, 0.05, 0.05]
+      },
+      eclipse_rubicona: {
+        0: [1.0, 0.7, 0.5, 0.2],
+        1: [0.1, 0.07, 0.07, 0.07, 0.07],
+        2: [0.05, 0.05, 0.05, 0.05, 0.05],
+        3: [0.02, 0.02, 0.02, 0.02, 0.02],
+        4: [0.01, 0.01, 0.01, 0.01, 0.01]
+      }
+    };
+
+    // 소모 재료 데이터 (이클/머큐 공통)
+    const TRANSITIONS = [
+      // 0진 0강 -> 0진 4강
+      { powder: 10, crystal: 0, seed: 400, elso: 600, rateTier: 0, rateIdx: 0 },
+      { powder: 20, crystal: 0, seed: 440, elso: 660, rateTier: 0, rateIdx: 1 },
+      { powder: 30, crystal: 0, seed: 480, elso: 720, rateTier: 0, rateIdx: 2 },
+      { powder: 40, crystal: 0, seed: 520, elso: 780, rateTier: 0, rateIdx: 3 },
+
+      // 0진 4강 -> 1진 4강
+      { powder: 50, crystal: 0, seed: 560, elso: 840, rateTier: 1, rateIdx: 0 },
+      { powder: 60, crystal: 0, seed: 600, elso: 900, rateTier: 1, rateIdx: 1 },
+      { powder: 70, crystal: 0, seed: 640, elso: 960, rateTier: 1, rateIdx: 2 },
+      { powder: 80, crystal: 0, seed: 680, elso: 1020, rateTier: 1, rateIdx: 3 },
+      { powder: 90, crystal: 0, seed: 720, elso: 1060, rateTier: 1, rateIdx: 4 },
+
+      // 1진 4강 -> 2진 4강
+      { powder: 100, crystal: 0, seed: 760, elso: 1140, rateTier: 2, rateIdx: 0 },
+      { powder: 110, crystal: 0, seed: 800, elso: 1200, rateTier: 2, rateIdx: 1 },
+      { powder: 120, crystal: 0, seed: 840, elso: 1260, rateTier: 2, rateIdx: 2 },
+      { powder: 130, crystal: 0, seed: 880, elso: 1320, rateTier: 2, rateIdx: 3 },
+      { powder: 140, crystal: 0, seed: 920, elso: 1380, rateTier: 2, rateIdx: 4 },
+
+      // 2진 4강 -> 3진 4강
+      { powder: 200, crystal: 5, seed: 1200, elso: 1800, rateTier: 3, rateIdx: 0 },
+      { powder: 210, crystal: 5, seed: 1240, elso: 1860, rateTier: 3, rateIdx: 1 },
+      { powder: 220, crystal: 5, seed: 1280, elso: 1920, rateTier: 3, rateIdx: 2 },
+      { powder: 230, crystal: 5, seed: 1320, elso: 1980, rateTier: 3, rateIdx: 3 },
+      { powder: 240, crystal: 5, seed: 1360, elso: 2040, rateTier: 3, rateIdx: 4 },
+
+      // 3진 4강 -> 4진 4강
+      { powder: 250, crystal: 5, seed: 1400, elso: 2100, rateTier: 4, rateIdx: 0 },
+      { powder: 260, crystal: 5, seed: 1440, elso: 2160, rateTier: 4, rateIdx: 1 },
+      { powder: 270, crystal: 5, seed: 1480, elso: 2220, rateTier: 4, rateIdx: 2 },
+      { powder: 290, crystal: 5, seed: 1520, elso: 2280, rateTier: 4, rateIdx: 3 },
+      { powder: 290, crystal: 5, seed: 1560, elso: 2340, rateTier: 4, rateIdx: 4 }
+    ];
+
+    // 현재 사용자 선택 상태
+    let selectedRegion = 'mercurial_abyss';
+    let selectedStatType = 'main';
+    let selectedCurrency = 'seed';
+    let selectedPieceQty = 1;
+    let discountRate = 0;
+
+    // ----------------------------------------------------
+    // 초기화 및 드롭다운 생성
+    // ----------------------------------------------------
+    function init() {
+      const fromSel = document.getElementById('step-from');
+      const toSel = document.getElementById('step-to');
+
+      fromSel.innerHTML = STATES.slice(0, STATES.length - 1).map((s, idx) => 
+        `<option value="${idx}">${s.label}</option>`
+      ).join('');
+
+      toSel.innerHTML = STATES.slice(1).map((s, idx) => 
+        `<option value="${idx + 1}" ${idx + 1 === STATES.length - 1 ? 'selected' : ''}>${s.label}</option>`
+      ).join('');
+
+      loadSettings();
+      calculate();
+    }
+
+    function saveSettings() {
+      localStorage.setItem('tc_region', selectedRegion);
+      localStorage.setItem('tc_stat_type', selectedStatType);
+      localStorage.setItem('tc_currency', selectedCurrency);
+      localStorage.setItem('tc_qty', selectedPieceQty.toString());
+      localStorage.setItem('tc_discount', discountRate.toString());
+      localStorage.setItem('tc_from', document.getElementById('step-from').value);
+      localStorage.setItem('tc_to', document.getElementById('step-to').value);
+      
+      localStorage.setItem('tc_box_price', document.getElementById('box-price').value);
+      localStorage.setItem('tc_box_qty', document.getElementById('box-qty').value);
+    }
+
+    function loadSettings() {
+      const reg = localStorage.getItem('tc_region');
+      if (reg) selectRegion(reg);
+      const st = localStorage.getItem('tc_stat_type');
+      if (st) selectStatType(st);
+      const curr = localStorage.getItem('tc_currency');
+      if (curr) selectCurrency(curr);
+      const qty = localStorage.getItem('tc_qty');
+      if (qty) selectPieceQty(parseInt(qty));
+      const disc = localStorage.getItem('tc_discount');
+      if (disc) {
+        discountRate = parseInt(disc);
+        document.getElementById('discount-input').value = discountRate;
+      }
+      const fromVal = localStorage.getItem('tc_from');
+      if (fromVal) document.getElementById('step-from').value = fromVal;
+      const toVal = localStorage.getItem('tc_to');
+      if (toVal) document.getElementById('step-to').value = toVal;
+
+      const boxPrice = localStorage.getItem('tc_box_price');
+      if (boxPrice) {
+        document.getElementById('box-price').value = boxPrice;
+      }
+      const boxQty = localStorage.getItem('tc_box_qty');
+      if (boxQty) {
+        document.getElementById('box-qty').value = boxQty;
+      }
+    }
+
+    // ----------------------------------------------------
+    // UI 이벤트 핸들러
+    // ----------------------------------------------------
+    function selectRegion(region) {
+      selectedRegion = region;
+      document.getElementById('tab-mercurial').classList.remove('active');
+      document.getElementById('tab-eclipse').classList.remove('active');
+      
+      if (region === 'mercurial_abyss') {
+        document.getElementById('tab-mercurial').classList.add('active');
+      } else {
+        document.getElementById('tab-eclipse').classList.add('active');
+      }
+      saveSettings();
+      calculate();
+    }
+
+    function selectStatType(type) {
+      selectedStatType = type;
+      document.getElementById('stat-main').classList.remove('active');
+      document.getElementById('stat-sub').classList.remove('active');
+      document.getElementById(`stat-${type}`).classList.add('active');
+      saveSettings();
+      calculate();
+    }
+
+    function selectCurrency(curr) {
+      selectedCurrency = curr;
+      document.getElementById('curr-seed').classList.remove('active');
+      document.getElementById('curr-elso').classList.remove('active');
+      document.getElementById(`curr-${curr}`).classList.add('active');
+
+      const labelEl = document.getElementById('res-currency-label');
+      const unitEl = document.getElementById('res-currency-unit');
+      if (curr === 'seed') {
+        labelEl.textContent = '시드 소모 기댓값';
+        unitEl.textContent = '만 시드';
+        document.getElementById('res-currency-korean').style.display = 'block';
+      } else {
+        labelEl.textContent = '엘소 소모 기댓값';
+        unitEl.textContent = '엘소';
+        document.getElementById('res-currency-korean').style.display = 'none';
+      }
+      saveSettings();
+      calculate();
+    }
+
+    function selectPieceQty(qty) {
+      selectedPieceQty = qty;
+      document.getElementById('qty-1').classList.remove('active');
+      document.getElementById('qty-6').classList.remove('active');
+      document.getElementById(`qty-${qty}`).classList.add('active');
+      saveSettings();
+      calculate();
+    }
+
+    function updateDiscount(val) {
+      let rate = parseInt(val);
+      if (isNaN(rate) || rate < 0) rate = 0;
+      if (rate > 100) rate = 100;
+      discountRate = rate;
+      saveSettings();
+      calculate();
+    }
+
+    function onStepChange() {
+      saveSettings();
+      calculate();
+    }
+
+    // ----------------------------------------------------
+    // 핵심 기댓값 계산 및 렌더링 엔진
+    // ----------------------------------------------------
+    function formatKoreanWon(valueInTenThousand) {
+      if (!valueInTenThousand || valueInTenThousand <= 0) return '';
+      const totalSeed = valueInTenThousand * 10000;
+      const units = [
+        { value: 1000000000000, name: '조' },
+        { value: 100000000, name: '억' },
+        { value: 10000, name: '만' }
+      ];
+      let result = '';
+      let remain = totalSeed;
+      for (const unit of units) {
+        const quotient = Math.floor(remain / unit.value);
+        if (quotient > 0) {
+          result += quotient + unit.name + ' ';
+          remain %= unit.value;
+        }
+      }
+      if (remain > 0) {
+        result += window.formatLocaleNumber(remain);
+      } else {
+        result = result.trim();
+      }
+      return `= 약 ${result} 시드`;
+    }
+
+    function calculate() {
+      const fromIdx = parseInt(document.getElementById('step-from').value);
+      const toIdx = parseInt(document.getElementById('step-to').value);
+
+      const warningBox = document.getElementById('warning-box');
+      
+      if (fromIdx >= toIdx) {
+        warningBox.classList.remove('hidden');
+        document.getElementById('res-powder').textContent = '0';
+        document.getElementById('res-crystal').textContent = '0';
+        document.getElementById('res-currency').textContent = '0';
+        document.getElementById('res-currency-korean').textContent = '';
+        document.getElementById('detail-list').innerHTML = `
+          <div class="text-center text-slate-500 py-8 text-xs font-bold">
+            올바른 진화 범위를 선택해 주세요. (시작 단계 < 목표 단계)
+          </div>
+        `;
+        document.getElementById('effect-stat-change').textContent = '-';
+        document.getElementById('effect-set-change').textContent = '-';
+        return;
+      }
+      warningBox.classList.add('hidden');
+
+      let totalPowder = 0;
+      let totalCrystal = 0;
+      let totalCurrency = 0;
+
+      const statMultiplier = selectedStatType === 'sub' ? 0.5 : 1.0;
+      const costDiscountMultiplier = 1 - (discountRate / 100);
+
+      const tableRows = [];
+
+      for (let i = fromIdx; i < toIdx; i++) {
+        const trans = TRANSITIONS[i];
+        const stateFrom = STATES[i];
+        const stateTo = STATES[i + 1];
+
+        const rate = SUCCESS_RATES[selectedRegion][trans.rateTier][trans.rateIdx];
+
+        const powderUnit = trans.powder * statMultiplier;
+        const crystalUnit = trans.crystal * statMultiplier;
+        const costBase = selectedCurrency === 'seed' ? trans.seed : trans.elso;
+        const costUnit = costBase * costDiscountMultiplier * statMultiplier;
+
+        const powderExpect = rate > 0 ? (powderUnit / rate) : 0;
+        const crystalExpect = rate > 0 ? (crystalUnit / rate) : 0;
+        const costExpect = rate > 0 ? (costUnit / rate) : 0;
+
+        totalPowder += powderExpect;
+        totalCrystal += crystalExpect;
+        totalCurrency += costExpect;
+
+        tableRows.push({
+          label: `${stateFrom.label.replace("단계", "강")} ➔ ${stateTo.label.replace("단계", "강")}`,
+          rate: (rate * 100).toFixed(rate < 0.1 ? 1 : 0) + '%',
+          materialUnit: `${powderUnit}가루 / ${crystalUnit > 0 ? crystalUnit + '결정' : '-'}`,
+          costUnit: window.formatLocaleNumber(Math.round(costUnit)) + (selectedCurrency === 'seed' ? '만' : ''),
+          expectStr: `${Math.round(powderExpect)}가루 / ${crystalExpect > 0 ? Math.round(crystalExpect) + '결정 / ' : ''}${window.formatLocaleNumber(Math.round(costExpect))}${selectedCurrency === 'seed' ? '만' : ''}`
+        });
+      }
+
+      const roundedPowder = Math.round(totalPowder) * selectedPieceQty;
+      const roundedCrystal = Math.round(totalCrystal) * selectedPieceQty;
+      const roundedCurrency = Math.round(totalCurrency) * selectedPieceQty;
+
+      document.getElementById('res-powder').textContent = window.formatLocaleNumber(roundedPowder);
+      document.getElementById('res-crystal').textContent = window.formatLocaleNumber(roundedCrystal);
+      document.getElementById('res-currency').textContent = window.formatLocaleNumber(roundedCurrency);
+
+      if (selectedCurrency === 'seed') {
+        document.getElementById('res-currency-korean').textContent = formatKoreanWon(roundedCurrency);
+      }
+
+      // 최종 비용 업데이트
+      updateBoxCosts(roundedCurrency);
+
+      const statFrom = STAT_UPGRADES[fromIdx];
+      const statTo = STAT_UPGRADES[toIdx];
+      const statDiff = (statTo - statFrom).toFixed(1);
+      
+      const setFrom = SET_EFFECTS[fromIdx];
+      const setTo = SET_EFFECTS[toIdx];
+
+      document.getElementById('effect-stat-change').textContent = `1조각 스탯 +${statDiff} (${statFrom.toFixed(1)} ➔ ${statTo.toFixed(1)})`;
+      document.getElementById('effect-set-change').textContent = setFrom === setTo ? `${setTo} (변화 없음)` : `${setFrom} ➔ ${setTo}`;
+
+      const detailList = document.getElementById('detail-list');
+      detailList.innerHTML = tableRows.map(row => `
+        <div class="detail-row">
+          <div class="w-40 shrink-0">
+            <span class="text-xs font-bold text-slate-200 truncate block">${row.label}</span>
+          </div>
+          <div class="w-16 text-right shrink-0">
+            <span class="text-xs font-bold text-cyan-400">${row.rate}</span>
+          </div>
+          <div class="w-28 text-right shrink-0">
+            <span class="text-[11px] font-medium text-slate-400 block truncate">${row.materialUnit}</span>
+          </div>
+          <div class="w-24 text-right shrink-0">
+            <span class="text-[11px] font-medium text-slate-400 block truncate">${row.costUnit}</span>
+          </div>
+          <div class="flex-1 text-right min-w-0">
+            <span class="text-xs font-black text-cyan-300 block truncate">${row.expectStr}</span>
+          </div>
+        </div>
+      `).join('');
+
+      lucide.createIcons();
+    }
+
+    function applyEventDiscount() {
+      const discountInput = document.getElementById('discount-input');
+      if (discountInput) {
+        discountInput.value = 20;
+        updateDiscount(20);
+      }
+    }
+
+    function resetDiscount() {
+      const discountInput = document.getElementById('discount-input');
+      if (discountInput) {
+        discountInput.value = 0;
+        updateDiscount(0);
+      }
+    }
+
+
+
+    function onBoxCostInputChange() {
+      const fromIdx = parseInt(document.getElementById('step-from').value);
+      const toIdx = parseInt(document.getElementById('step-to').value);
+      if (fromIdx >= toIdx) return;
+
+      const reinforceCostStr = document.getElementById('res-currency').textContent.replace(/,/g, '');
+      const reinforceCost = parseInt(reinforceCostStr) || 0;
+      updateBoxCosts(reinforceCost);
+      
+      localStorage.setItem('tc_box_price', document.getElementById('box-price').value);
+      localStorage.setItem('tc_box_qty', document.getElementById('box-qty').value);
+    }
+
+    function updateBoxCosts(reinforceCost) {
+      const boxQty = parseInt(document.getElementById('box-qty').value) || 0;
+      const boxPrice = parseInt(document.getElementById('box-price').value) || 0;
+      const totalBoxCost = boxQty * boxPrice;
+
+      document.getElementById('total-box-cost').textContent = window.formatLocaleNumber(totalBoxCost) + ' 만 시드';
+      document.getElementById('total-reinforce-cost').textContent = window.formatLocaleNumber(reinforceCost) + (selectedCurrency === 'seed' ? ' 만 시드' : ' 엘소');
+
+      const finalTotalEl = document.getElementById('final-total-cost');
+      const finalUnitEl = document.getElementById('final-total-unit');
+      const finalKoreanEl = document.getElementById('final-total-korean');
+
+      if (selectedCurrency === 'seed') {
+        const finalCost = totalBoxCost + reinforceCost;
+        finalTotalEl.textContent = window.formatLocaleNumber(finalCost);
+        finalUnitEl.textContent = '만 시드';
+        finalKoreanEl.textContent = formatKoreanWon(finalCost);
+      } else {
+        finalTotalEl.textContent = `${window.formatLocaleNumber(totalBoxCost)}만 시드 + ${window.formatLocaleNumber(reinforceCost)}`;
+        finalUnitEl.textContent = '엘소';
+        finalKoreanEl.textContent = '';
+      }
+    }
+
+    window.bindEscapeClose();
+
+    init();
+</script>
+</body>
+</html>

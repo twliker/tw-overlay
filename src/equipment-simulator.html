@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>장비 강화 · 인챈트 · 인크립트 시뮬레이터</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body {
+      margin: 0;
+      background: #0b1020;
+      color: #e2e8f0;
+      overflow: hidden;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      letter-spacing: -0.02em;
+    }
+    .wrap { height: 100vh; display: flex; flex-direction: column; }
+    .body { flex: 1; overflow-y: auto; padding: 16px 20px 24px; }
+    .card {
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+    }
+    .field {
+      background: #090d18;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: #fff;
+      width: 100%;
+      font-size: 13px;
+      transition: all 0.15s ease;
+    }
+    .field:focus {
+      border-color: #6366f1;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    }
+    .nav-tab {
+      background: rgba(255, 255, 255, 0.03);
+      color: #94a3b8;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      transition: all 0.2s ease;
+    }
+    .nav-tab:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: #e2e8f0;
+    }
+    .nav-tab.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.25));
+      color: #c7d2fe;
+      border-color: rgba(99, 102, 241, 0.5);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+    }
+    .sub-tab {
+      background: rgba(0, 0, 0, 0.2);
+      color: #94a3b8;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .sub-tab.active {
+      background: rgba(99, 102, 241, 0.2);
+      color: #a5b4fc;
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+    .metric {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .log-box {
+      background: #060913;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      height: 180px;
+      overflow-y: auto;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 10px 14px;
+    }
+    .no-drag { -webkit-app-region: no-drag; }
+    /* Custom Scrollbar */
+    .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <!-- Window Header -->
+  <header class="win-header !h-14 !px-5 shrink-0">
+    <div class="win-title-area">
+      <div class="win-icon-box bg-indigo-500/10 border-indigo-500/20">
+        <i data-lucide="calculator" class="w-5 h-5 text-indigo-400"></i>
+      </div>
+      <div class="win-title-text">
+        <span class="win-title-main">장비 기댓값 계산기</span>
+        <span class="win-title-sub">강화 · 인챈트 · 인크립트 수학적 정밀 비용 분석</span>
+      </div>
+    </div>
+    <div class="win-controls">
+      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기 (ESC)">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main 3-Tab Selector -->
+  <div class="px-5 pt-3 pb-2 flex gap-2 border-b border-white/5 bg-[#090d19]/80 shrink-0">
+    <button class="nav-tab active no-drag flex-1 py-2.5 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2" data-main-tab="enhance">
+      <i data-lucide="hammer" class="w-4 h-4 text-amber-400"></i> 장비 강화 기댓값
+    </button>
+    <button class="nav-tab no-drag flex-1 py-2.5 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2" data-main-tab="enchant">
+      <i data-lucide="wand-2" class="w-4 h-4 text-cyan-400"></i> 인챈트 기댓값
+    </button>
+    <button class="nav-tab no-drag flex-1 py-2.5 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2" data-main-tab="incrypt">
+      <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400"></i> 인크립트 기댓값
+    </button>
+  </div>
+
+  <!-- Body Content -->
+  <main class="body custom-scroll">
+
+    <!-- ======================================================== -->
+    <!-- 1. 장비 강화 패널 -->
+    <!-- ======================================================== -->
+    <div id="panel-enhance" class="main-panel space-y-4">
+      <!-- 강화 기본 설정 카드 -->
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2 font-bold text-amber-300">
+            <i data-lucide="settings" class="w-4 h-4"></i> 강화 옵션 및 단가 설정
+          </div>
+          <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer no-drag">
+            <input type="checkbox" id="enhance-nopenalty-toggle" class="rounded border-slate-600 bg-slate-800 text-amber-500">
+            노패널티 강화권 사용
+          </label>
+        </div>
+
+        <div class="grid grid-cols-4 gap-3">
+          <label class="text-xs font-bold text-slate-400">
+            현재 단계
+            <select id="enhance-current-stage" class="field mt-1.5"></select>
+          </label>
+          <label class="text-xs font-bold text-slate-400">
+            목표 단계
+            <select id="enhance-target-stage" class="field mt-1.5"></select>
+          </label>
+          <label id="enhance-lucky-box" class="text-xs font-bold text-slate-400">
+            장비 강화 행운석
+            <select id="enhance-lucky-stone" class="field mt-1.5">
+              <option value="0">미사용 (0개)</option>
+              <option value="1">1개 (+1%p)</option>
+              <option value="2">2개 (+2%p)</option>
+              <option value="3">3개 (+3%p)</option>
+              <option value="4">4개 (+4%p)</option>
+              <option value="5" selected>5개 (+5%p)</option>
+            </select>
+          </label>
+          <label id="enhance-talisman-box" class="text-xs font-bold text-slate-400">
+            장비 강화 부적 (7강~)
+            <select id="enhance-talisman" class="field mt-1.5">
+              <option value="0">미사용 (0개)</option>
+              <option value="1">1개 (페널티 -10%p)</option>
+              <option value="2">2개 (페널티 -20%p)</option>
+              <option value="3">3개 (페널티 -30%p)</option>
+              <option value="4">4개 (페널티 -40%p)</option>
+              <option value="5" selected>5개 (페널티 -50%p)</option>
+            </select>
+          </label>
+          <label id="enhance-nopenalty-rate-box" class="text-xs font-bold text-amber-400 hidden">
+            강화권 확률
+            <select id="enhance-nopenalty-rate" class="field mt-1.5 border-amber-500/40 text-amber-200">
+              <option value="1.0">100% 노패널티 강화권</option>
+              <option value="0.10">10% 노패널티 강화권</option>
+              <option value="0.05">5% 노패널티 강화권</option>
+              <option value="0.0001">0.01% 노패널티 강화권</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- 항상 노출되는 수수료 및 단가 설정 -->
+        <div class="mt-4 pt-3 border-t border-white/10">
+          <div class="flex items-center gap-1.5 text-xs font-bold text-slate-300 mb-2">
+            <i data-lucide="coins" class="w-3.5 h-3.5 text-amber-400"></i> 강화 수수료 재화 및 재료 단가 설정
+          </div>
+          <div class="grid grid-cols-5 gap-2.5">
+            <label class="text-xs text-slate-400 font-medium">수수료 지불 재화
+              <select id="enhance-currency-type" class="field mt-1">
+                <option value="seed" selected>SEED (시드)</option>
+                <option value="elso">엘소 (귀속재화)</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-400 font-medium"><span id="enhance-fee-label">1회 수수료 (SEED)</span>
+              <input type="number" id="enhance-price-fee" class="field mt-1 text-right" placeholder="0" min="0" step="10000">
+            </label>
+            <label class="text-xs text-slate-400 font-medium">행운석 개당 가격 (SEED)
+              <input type="number" id="enhance-price-stone" class="field mt-1 text-right" placeholder="0" min="0" step="100000">
+            </label>
+            <label class="text-xs text-slate-400 font-medium">부적 개당 가격 (SEED)
+              <input type="number" id="enhance-price-talisman" class="field mt-1 text-right" placeholder="0" min="0" step="100000">
+            </label>
+            <label class="text-xs text-slate-400 font-medium">강화권 장당 가격 (SEED)
+              <input type="number" id="enhance-price-scroll" class="field mt-1 text-right" placeholder="0" min="0" step="100000">
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 강화 기댓값 패널 -->
+      <section class="card p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 font-bold text-indigo-300">
+            <i data-lucide="trending-up" class="w-4 h-4"></i> 마르코프 흡수 연쇄 기댓값 분석
+          </div>
+          <span class="text-xs text-slate-500">옵션 변경 시 실시간 자동 계산</span>
+        </div>
+
+        <div id="enhance-exp-metrics" class="grid grid-cols-4 gap-2.5"></div>
+        <div id="enhance-exp-stage-table" class="overflow-x-auto pt-1"></div>
+      </section>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- 2. 인챈트 패널 -->
+    <!-- ======================================================== -->
+    <div id="panel-enchant" class="main-panel space-y-4 hidden">
+      <!-- 인챈트 설정 카드 -->
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2 font-bold text-cyan-300">
+            <i data-lucide="settings" class="w-4 h-4"></i> 인챈트 옵션 및 단가 설정
+          </div>
+          <span id="enchant-rate-summary-badge" class="text-xs text-cyan-300 font-bold bg-cyan-500/10 px-2.5 py-0.5 rounded-full border border-cyan-500/20">기본 성공률 2% · 실패 시 축복치 누적</span>
+        </div>
+
+        <div class="grid grid-cols-4 gap-3">
+          <label class="text-xs font-bold text-slate-400 col-span-2">
+            주문서 종류 (공식 프리셋)
+            <select id="enchant-preset-select" class="field mt-1.5"></select>
+          </label>
+          <label class="text-xs font-bold text-slate-400">
+            대상 능력치
+            <select id="enchant-stat-type" class="field mt-1.5">
+              <option value="stab">찌르기 공격력 (STAB)</option>
+              <option value="hack">베기 공격력 (HACK)</option>
+              <option value="int">마법 공격력 (INT)</option>
+              <option value="def">물리 방어력 (DEF)</option>
+              <option value="mr">마법 방어력 (MR)</option>
+              <option value="hit">명중률 보정 (HIT)</option>
+              <option value="crit">크리티컬 (CRIT)</option>
+              <option value="eva">회피율 보정 (EVA)</option>
+              <option value="agi">민첩성 보정 (AGI)</option>
+            </select>
+          </label>
+          <label id="enchant-scroll-count-box" class="text-xs font-bold text-slate-400">
+            인챈트 강화 주문서 (보조제)
+            <select id="enchant-scroll-count" class="field mt-1.5">
+              <option value="0">0개 사용</option>
+              <option value="1">1개 사용</option>
+              <option value="2">2개 사용</option>
+              <option value="3">3개 사용</option>
+              <option value="4">4개 사용</option>
+              <option value="5" selected>5개 사용 (최대 확률)</option>
+            </select>
+          </label>
+          <label class="text-xs font-bold text-slate-400">
+            시작 축복치 (%)
+            <input type="number" id="enchant-initial-blessing" class="field mt-1.5" value="0" min="0" max="100" step="1">
+          </label>
+          <label class="text-xs font-bold text-slate-400">
+            목표 성공 횟수
+            <input type="number" id="enchant-target-success" class="field mt-1.5" value="1" min="1" max="100">
+          </label>
+        </div>
+
+        <div id="enchant-prob-distribution-guide" class="mt-2.5 text-xs text-indigo-300 font-semibold"></div>
+
+        <!-- 항상 노출되는 수수료 및 단가 설정 -->
+        <div class="mt-4 pt-3 border-t border-white/10">
+          <div class="flex items-center gap-1.5 text-xs font-bold text-slate-300 mb-2">
+            <i data-lucide="coins" class="w-3.5 h-3.5 text-cyan-400"></i> 인챈트 수수료 재화 및 주문서 단가 설정
+          </div>
+          <div class="grid grid-cols-4 gap-2.5">
+            <label class="text-xs text-slate-400 font-medium">수수료 지불 재화
+              <select id="enchant-currency-type" class="field mt-1">
+                <option value="seed" selected>SEED (시드)</option>
+                <option value="elso">엘소 (귀속재화)</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-400 font-medium"><span id="enchant-fee-label">1회 수수료 (SEED)</span>
+              <input type="number" id="enchant-price-fee" class="field mt-1 text-right" placeholder="0" min="0" step="10000">
+            </label>
+            <label class="text-xs text-slate-400 font-medium">인챈트 주문서 가격 (SEED)
+              <input type="number" id="enchant-price-scroll" class="field mt-1 text-right" placeholder="0" min="0" step="100000">
+            </label>
+            <label id="enchant-price-enhance-box" class="text-xs text-slate-400 font-medium">강화 주문서 가격 (SEED)
+              <input type="number" id="enchant-price-enhance-scroll" class="field mt-1 text-right" placeholder="0" min="0" step="100000">
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 인챈트 기댓값 패널 -->
+      <section class="card p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 font-bold text-cyan-300">
+            <i data-lucide="sparkles" class="w-4 h-4"></i> 축복치 누적 기댓값 분석
+          </div>
+          <span class="text-xs text-slate-500">실패 시 축복치 누적 기하분포 기댓값</span>
+        </div>
+
+        <div id="enchant-exp-metrics" class="grid grid-cols-4 gap-2.5"></div>
+      </section>
+    </div>
+
+    <!-- ======================================================== -->
+    <!-- 3. 인크립트 패널 -->
+    <!-- ======================================================== -->
+    <div id="panel-incrypt" class="main-panel space-y-4 hidden">
+      <!-- 인크립트 설정 카드 -->
+      <section class="card p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2 font-bold text-rose-300">
+            <i data-lucide="settings" class="w-4 h-4"></i> 인크립트 옵션 및 단가 설정
+          </div>
+          <span id="incrypt-scroll-rate-badge" class="text-xs text-rose-300 font-bold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20"></span>
+        </div>
+
+        <div class="grid grid-cols-4 gap-3">
+          <label class="text-xs font-bold text-slate-400">
+            인크립트 종류
+            <select id="incrypt-scroll-type" class="field mt-1.5">
+              <option value="lord">로드 인크립트 (21%)</option>
+              <option value="guardian">가호의 인크립트 (26%)</option>
+              <option value="blessed">축복받은 인크립트 (31%)</option>
+              <option value="royal">왕실 인크립트 (36%)</option>
+              <option value="vianu">비아누의 인크립트 (0.07%~)</option>
+              <option value="eta">에타 인크립트 (1%)</option>
+              <option value="nopenalty_1pct">1% 노패널티 인크립트</option>
+              <option value="nopenalty_001pct">0.01% 노패널티 인크립트</option>
+            </select>
+          </label>
+          <label id="incrypt-protect-box" class="text-xs font-bold text-slate-400">
+            장비 파괴 보호 주문서 (장파보)
+            <div class="flex items-center gap-2 mt-1.5">
+              <input type="number" id="incrypt-protect-count" class="field" value="0" min="0" max="60">
+              <span id="incrypt-protect-max-label" class="text-[11px] text-slate-500 shrink-0">/ 60장</span>
+            </div>
+          </label>
+          <label class="text-xs font-bold text-slate-400">
+            목표 인크립트 횟수
+            <input type="number" id="incrypt-target-success" class="field mt-1.5" value="1" min="1" max="20">
+          </label>
+          <label class="text-xs font-bold text-slate-400 flex flex-col justify-between">
+            장비 파괴 시 교체 지속
+            <div class="flex items-center gap-2 mt-2">
+              <input type="checkbox" id="incrypt-replace-equip" checked class="rounded border-slate-600 bg-slate-800 text-rose-500">
+              <span class="text-xs text-slate-300">새 장비로 계속 시도</span>
+            </div>
+          </label>
+        </div>
+
+        <div id="incrypt-rates-guide" class="mt-2.5 flex items-center justify-between text-xs text-slate-400"></div>
+
+        <!-- 항상 노출되는 수수료 및 단가 설정 -->
+        <div class="mt-4 pt-3 border-t border-white/10">
+          <div class="flex items-center gap-1.5 text-xs font-bold text-slate-300 mb-2">
+            <i data-lucide="coins" class="w-3.5 h-3.5 text-rose-400"></i> 인크립트 수수료 재화 및 장비/주문서 단가 설정
+          </div>
+          <div class="grid grid-cols-5 gap-2.5">
+            <label class="text-xs text-slate-400 font-medium">수수료 지불 재화
+              <select id="incrypt-currency-type" class="field mt-1">
+                <option value="seed" selected>SEED (시드)</option>
+                <option value="elso">엘소 (귀속재화)</option>
+              </select>
+            </label>
+            <label class="text-xs text-slate-400 font-medium"><span id="incrypt-fee-label">1회 수수료 (SEED)</span>
+              <input type="number" id="incrypt-price-fee" class="field mt-1 text-right" placeholder="0" min="0" step="10000">
+            </label>
+            <label class="text-xs text-slate-400 font-medium">인크립트 스크롤 (SEED)
+              <input type="number" id="incrypt-price-scroll" class="field mt-1 text-right" placeholder="0" min="0" step="100000">
+            </label>
+            <label class="text-xs text-slate-400 font-medium">장파보 1장 가격 (SEED)
+              <input type="number" id="incrypt-price-protect" class="field mt-1 text-right" placeholder="0" min="0" step="100000">
+            </label>
+            <label class="text-xs text-slate-400 font-medium">장비 본체 원가 (SEED)
+              <input type="number" id="incrypt-price-equip" class="field mt-1 text-right" placeholder="0" min="0" step="1000000">
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 인크립트 기댓값 패널 -->
+      <section class="card p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 font-bold text-rose-300">
+            <i data-lucide="shield-check" class="w-4 h-4"></i> 인크립트 기댓값 및 생존율 분석
+          </div>
+          <span class="text-xs text-slate-500">성공률 및 파괴 보호율 적용 기댓값</span>
+        </div>
+
+        <div id="incrypt-exp-metrics" class="grid grid-cols-4 gap-2.5"></div>
+      </section>
+    </div>
+
+    <!-- 하단 공식 출처 안내 -->
+    <p class="mt-4 text-[11px] text-slate-500 text-center">
+      확률 출처: 테일즈위버 공식 확률형 아이템 정보 (장비강화 Game/1 · 인챈트 Game/2 · 인크립트 Game/3)
+    </p>
+  </main>
+</div>
+
+<!-- Scripts -->
+<script src="shared/equipmentSimulator.js"></script>
+<script src="renderer/equipment-simulator.js"></script>
+</body>
+</html>

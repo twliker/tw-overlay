@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .window-container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      background: rgba(15, 18, 30, 0.98);
+      border-radius: 12px;
+    }
+
+    .header-section {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .scroll-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .rule-card {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .rule-card:hover {
+      border-color: rgba(34, 211, 238, 0.2);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    /* 토글 스위치 */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+      transition: .3s;
+      border-radius: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: #94a3b8;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: rgba(34, 211, 238, 0.2);
+      border-color: rgba(34, 211, 238, 0.4);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(20px);
+      background-color: #22d3ee;
+    }
+
+    /* 가이드 배너 */
+    .guide-banner {
+      background: rgba(34, 211, 238, 0.05);
+      border: 1px solid rgba(34, 211, 238, 0.15);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body class="panel-glass overflow-hidden">
+  <div class="window-container">
+    <!-- 헤더 -->
+    <div class="header-section win-header !bg-transparent !border-none flex justify-between items-center">
+      <div class="win-title-area">
+        <div class="win-icon-box bg-cyan-500/10 border-cyan-500/20">
+          <i data-lucide="send" class="w-5 h-5 text-cyan-400"></i>
+        </div>
+        <div class="win-title-text">
+          <span class="win-title-main">디스코드 알림 설정</span>
+          <span class="win-title-sub">Discord Webhook Settings</span>
+        </div>
+      </div>
+      <button onclick="window.close()" class="no-drag text-slate-400 hover:text-white p-1 transition-colors">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- 내용 스크롤 영역 -->
+    <div id="main-scroll" class="scroll-content custom-scroll">
+      <!-- 가이드 배너 -->
+      <div class="guide-banner">
+        <div class="flex gap-2 items-start">
+          <i data-lucide="help-circle" class="w-4 h-4 text-cyan-400 shrink-0 mt-0.5"></i>
+          <div>
+            <h4 class="text-xs font-bold text-slate-300">디스코드 웹훅 알림 가이드</h4>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+              등록된 단어와 발송 필터 조건에 부합하는 채팅 감지 시 복사한 웹훅 URL을 통해 실시간 알림 카드를 전달합니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1. 알림 On/Off 토글 카드 -->
+      <div class="setting-card">
+        <div class="flex justify-between items-center">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200">디스코드 알림 사용</h3>
+            <p class="text-xs text-slate-500 mt-0.5">지정 단어 감지 시 디스코드 웹훅 메시지 발송</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="alarm-toggle" onchange="toggleAlarmEnabled(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 2. 웹훅 URL 설정 카드 -->
+      <div class="setting-card">
+        <label class="section-label flex items-center gap-1.5 mb-1">
+          <i data-lucide="link" class="w-4 h-4 text-cyan-400"></i> 디스코드 Webhook URL
+        </label>
+        <div class="flex gap-2">
+          <input type="text" id="webhook-url-input" class="input-field flex-1 py-2 px-3 bg-black/40 text-xs text-slate-300"
+            placeholder="https://discord.com/api/webhooks/..." onchange="changeWebhookUrl(this.value)">
+          <button onclick="testWebhook()" class="btn-primary !bg-slate-800 hover:!bg-slate-700 border border-white/10 px-3 font-bold text-xs shrink-0 flex items-center gap-1">
+            <i data-lucide="send" class="w-3.5 h-3.5"></i> 테스트
+          </button>
+        </div>
+      </div>
+
+      <!-- 3. 키워드 및 세부 조건 등록 카드 -->
+      <div class="setting-card">
+        <label class="section-label flex items-center gap-1.5 mb-1">
+          <i data-lucide="tag" class="w-4 h-4 text-cyan-400"></i> 디스코드 발송용 지정 단어 등록
+        </label>
+        
+        <!-- 한 묶음 폼 영역 -->
+        <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4 text-slate-400">
+          <div class="space-y-1.5">
+            <span class="text-xs font-bold text-slate-500 block">1) 감지 대상 선택 (다중 선택 가능)</span>
+            <div class="flex gap-4">
+              <label class="flex items-center gap-1.5 cursor-pointer text-xs font-bold">
+                <input type="checkbox" id="target-normal-check" checked class="w-4 h-4 accent-cyan-600"> 일반 대화 (나 포함)
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer text-xs font-bold">
+                <input type="checkbox" id="target-club-check" checked class="w-4 h-4 accent-cyan-600"> 클럽 대화
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer text-xs font-bold">
+                <input type="checkbox" id="target-shout-check" checked class="w-4 h-4 accent-cyan-600"> 외치기 대화
+              </label>
+            </div>
+          </div>
+          
+          <div class="space-y-1.5">
+            <span class="text-xs font-bold text-slate-500 block">2) 특정 보낸 사람 필터 (선택)</span>
+            <input type="text" id="target-sender-input" class="input-field w-full py-1.5 px-3 bg-black/40 text-xs" 
+              placeholder="비워두면 모든 닉네임의 채팅을 감지">
+          </div>
+
+          <div class="space-y-1.5 pt-1">
+            <span class="text-xs font-bold text-slate-500 block">3) 감지 단어 입력 및 등록</span>
+            <div class="flex gap-2">
+              <input type="text" id="keyword-input" class="input-field flex-1 py-2 px-3 bg-black/40"
+                placeholder="예: 단어 입력 후 엔터..." onkeypress="if(event.key==='Enter')addRule()">
+              <button onclick="addRule()" class="btn-primary !bg-cyan-600 hover:!bg-cyan-500 px-4 font-bold text-xs shrink-0">추가</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 등록된 조건 목록 -->
+        <div id="rule-list" class="space-y-2.5 mt-3 min-h-[120px] max-h-[300px] overflow-y-auto custom-scroll pr-1">
+          <!-- 키워드 규칙 카드가 동적 생성됨 -->
+        </div>
+      </div>
+
+
+
+    </div>
+  </div>
+
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <script>
+    let appConfig = null;
+    let discordRules = [];
+    let discordAlertEnabled = false;
+    let discordWebhookUrl = '';
+
+    async function init() {
+      window.bindEscapeClose();
+
+      // 설정 수신 바인딩
+      window.electronAPI.onConfigData((config) => {
+        appConfig = config;
+        discordAlertEnabled = !!config.discordAlertEnabled;
+        discordWebhookUrl = config.discordWebhookUrl || '';
+
+        // 기존 discordKeywords 설정의 하위 호환 마이그레이션 처리
+        if ((!config.discordRules || config.discordRules.length === 0) && config.discordKeywords && config.discordKeywords.length > 0) {
+          discordRules = config.discordKeywords.map(kw => ({
+            keyword: kw,
+            targetNormal: true,
+            targetClub: true,
+            targetShout: true
+          }));
+        } else {
+          // 기존 규칙 로드 시 누락되었을 수 있는 targetShout 필드 보정 및 targetMe 마이그레이션
+          const rawRules = config.discordRules || [];
+          discordRules = rawRules.map(r => ({
+            keyword: r.keyword,
+            targetNormal: r.targetNormal || !!r.targetMe,
+            targetClub: r.targetClub,
+            targetShout: r.targetShout !== undefined ? r.targetShout : false,
+            targetSender: r.targetSender
+          }));
+        }
+
+        document.getElementById('alarm-toggle').checked = discordAlertEnabled;
+        document.getElementById('webhook-url-input').value = discordWebhookUrl;
+
+        renderKeywords();
+      });
+
+      window.refreshIcons();
+    }
+
+    // 키워드 규칙 카드 렌더링
+    function renderKeywords() {
+      const list = document.getElementById('rule-list');
+      list.innerHTML = '';
+      if (discordRules.length === 0) {
+        list.innerHTML = '<div class="text-center py-8 text-[11px] text-slate-600 bg-white/5 rounded-xl border border-white/5">등록된 키워드 알림 조건이 없습니다.</div>';
+        return;
+      }
+      discordRules.forEach((rule, i) => {
+        const card = document.createElement('div');
+        card.className = 'rule-card';
+
+        // 감지 대상 텍스트 조립
+        const targets = [];
+        if (rule.targetNormal) targets.push('일반');
+        if (rule.targetClub) targets.push('클럽');
+        if (rule.targetShout) targets.push('외치기');
+        const targetStr = targets.join(', ');
+
+        const senderStr = rule.targetSender ? `@${rule.targetSender}` : '모두';
+
+        card.innerHTML = `
+          <div class="flex justify-between items-start">
+            <span class="font-black text-cyan-400 text-xs">${rule.keyword}</span>
+            <button onclick="removeRule(${i})" class="text-slate-500 hover:text-rose-400 transition-colors">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+          <div class="flex gap-4 text-[9px] font-bold text-slate-500">
+            <span>🎯 대상: <span class="text-slate-300 font-black">${targetStr}</span></span>
+            <span>👤 발신인: <span class="text-slate-300 font-black">${senderStr}</span></span>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+      window.refreshIcons();
+    }
+
+    // 키워드 규칙 추가
+    function addRule() {
+      const input = document.getElementById('keyword-input');
+      const keyword = input.value.trim();
+      if (!keyword) return;
+
+      // 키워드 중복 체크
+      if (discordRules.some(r => r.keyword.toLowerCase() === keyword.toLowerCase())) {
+        alert('이미 등록된 키워드입니다.');
+        return;
+      }
+
+      const targetNormal = document.getElementById('target-normal-check').checked;
+      const targetClub = document.getElementById('target-club-check').checked;
+      const targetShout = document.getElementById('target-shout-check').checked;
+      const targetSender = document.getElementById('target-sender-input').value.trim();
+
+      if (!targetNormal && !targetClub && !targetShout) {
+        alert('최소 하나 이상의 감지 대상을 선택해 주세요.');
+        return;
+      }
+
+      discordRules.push({
+        keyword,
+        targetNormal,
+        targetClub,
+        targetShout,
+        targetSender: targetSender || undefined
+      });
+
+      renderKeywords();
+      saveConfig(); // 추가 즉시 자동 저장
+
+      // 입력란 폼 초기화
+      input.value = '';
+      document.getElementById('target-sender-input').value = '';
+      document.getElementById('target-normal-check').checked = true;
+      document.getElementById('target-club-check').checked = true;
+      document.getElementById('target-shout-check').checked = true;
+    }
+
+    // 키워드 규칙 삭제
+    function removeRule(index) {
+      discordRules.splice(index, 1);
+      renderKeywords();
+      saveConfig(); // 삭제 즉시 자동 저장
+    }
+
+    function toggleAlarmEnabled(checked) {
+      discordAlertEnabled = checked;
+      saveConfig(); // 변경 즉시 자동 저장
+    }
+
+    function changeWebhookUrl(url) {
+      discordWebhookUrl = url.trim();
+      saveConfig(); // 변경 즉시 자동 저장
+    }
+
+    // 테스트 전송
+    async function testWebhook() {
+      const urlInput = document.getElementById('webhook-url-input').value.trim();
+      if (!urlInput) {
+        alert('디스코드 Webhook URL을 입력해 주세요.');
+        return;
+      }
+      try {
+        const success = await window.electronAPI.testDiscordWebhook(urlInput);
+        if (success) {
+          alert('테스트 알림이 전송되었습니다! 디스코드 채널을 확인하세요.');
+        } else {
+          alert('전송 실패: 올바른 Webhook URL인지 확인해 주세요.');
+        }
+      } catch (e) {
+        alert('에러 발생: ' + e.message);
+      }
+    }
+
+    // 설정 변경사항 자동 저장
+    function saveConfig() {
+      const settings = {
+        discordAlertEnabled,
+        discordWebhookUrl,
+        discordRules,
+        discordKeywords: discordRules.map(r => r.keyword) // 하위 호환성 필드 유지
+      };
+      window.electronAPI.applySettings(settings);
+    }
+
+    init();
+
+    window.bindChatLogStatusWarning();
+</script>
+</body>
+</html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+    <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    .toolbar-glass {
+      background: rgba(15, 18, 30, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .url-container {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .url-container:focus-within {
+      background: rgba(0, 0, 0, 0.5);
+      border-color: rgba(168, 85, 247, 0.4);
+      box-shadow: 0 0 15px rgba(168, 85, 247, 0.15);
+    }
+
+    input[type="range"] {
+      appearance: none;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      background: #a855f7;
+      border-radius: 50%;
+      /* cursor: pointer removed, handled by style.css */
+      box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+    }
+  </style>
+
+    <script>
+        window.bindElectronListenerCleanup();
+</script>
+</head>
+
+<body class="bg-transparent text-white overflow-hidden select-none">
+
+  <nav id="control-bar" class="toolbar-glass h-[70px] flex flex-col relative z-[5000]">
+    <div id="loading-bar"
+      class="absolute bottom-0 left-0 h-[1.5px] bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.8)] transition-all duration-500 opacity-0 w-0">
+    </div>
+
+    <!-- 1층: 타이틀 바 (드래그 가능) -->
+    <div class="w-full h-[30px] flex items-center justify-between px-3 drag-region select-none border-b border-white/5">
+      <div class="flex items-center gap-1.5 text-slate-300">
+        <i data-lucide="globe" class="w-3.5 h-3.5 text-purple-400"></i>
+        <span class="text-xs font-black tracking-tight text-slate-400 uppercase">Browser Overlay</span>
+      </div>
+      <button onclick="window.electronAPI.toggleOverlay()"
+        class="no-drag w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all active:scale-90"
+        title="오버레이 닫기">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+
+    <!-- 2층: 컨트롤 및 주소 바 (드래그 불가) -->
+    <div class="w-full h-[40px] flex items-center px-3 gap-3 no-drag">
+      <div class="flex-1 flex items-center url-container rounded-lg overflow-hidden h-7">
+        <input type="text" id="url-input" placeholder="주소 입력 또는 검색..."
+          class="bg-transparent w-full px-3 py-1 text-[11px] font-medium text-slate-200 outline-none placeholder:text-slate-600">
+        <button id="go-btn"
+          class="px-2.5 h-full text-slate-500 hover:text-purple-400 transition-all border-l border-white/5 hover:bg-white/5 active:scale-90">
+          <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-3 shrink-0">
+        <div class="flex items-center gap-2 px-2 py-1 bg-white/5 rounded-lg border border-white/5 group">
+          <i data-lucide="sun" class="w-3.5 h-3.5 text-slate-500 group-hover:text-purple-400 transition-colors"></i>
+          <input type="range" id="opacity-slider" min="0.2" max="1.0" step="0.05" value="1.0" class="w-14">
+        </div>
+        <div id="status-indicator"
+          class="text-[9px] font-black px-2 py-0.5 rounded border border-white/10 uppercase tracking-tighter transition-all">
+          NORMAL</div>
+      </div>
+    </div>
+  </nav>
+
+  <script>
+    const urlInput = document.getElementById('url-input');
+    const goBtn = document.getElementById('go-btn');
+    const opacitySlider = document.getElementById('opacity-slider');
+    window.electronAPI.onConfigData((config) => { opacitySlider.value = config.opacity || 1.0; });
+    window.electronAPI.onUrlChange((u) => { urlInput.value = u; });
+    window.electronAPI.onLoadStatus((l) => {
+      const lb = document.getElementById('loading-bar');
+      lb.style.width = l ? '100%' : '0%'; lb.style.opacity = l ? '1' : '0';
+    });
+    const fixUrl = (url) => {
+      if (!url) return '';
+      let t = url.trim();
+      if (!t.startsWith('http://') && !t.startsWith('https://')) t = 'https://' + t;
+      return t;
+    };
+    const nav = () => {
+      let t = fixUrl(urlInput.value);
+      if (t) window.electronAPI.navigate(t);
+    };
+    urlInput.onkeypress = (e) => { if (e.key === 'Enter') nav(); };
+    goBtn.onclick = nav;
+    opacitySlider.oninput = (e) => { window.electronAPI.setOpacity(parseFloat(e.target.value)); };
+    window.electronAPI.onClickThroughStatus((s) => {
+      const si = document.getElementById('status-indicator');
+      si.innerText = s ? 'PASS' : 'NORMAL';
+      si.className = 'text-[9px] font-black px-2 py-0.5 rounded border uppercase tracking-tighter transition-all ' +
+        (s ? 'bg-purple-600/20 border-purple-500/40 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]' : 'bg-slate-800/50 border-white/10 text-slate-500');
+    });
+    window.onload = refreshIcons;
+    document.addEventListener('DOMContentLoaded', refreshIcons);
+    document.addEventListener('mouseenter', () => window.electronAPI.toolbarMouseEnter());
+    document.addEventListener('mouseleave', () => window.electronAPI.toolbarMouseLeave());
+</script>
+</body>
+
+</html>
