@@ -224,6 +224,19 @@
       padding: 0;
       color: #e2e8f0;
     }
+    .markdown-body img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 14px;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      margin: 20px 0;
+      display: block;
+      transition: transform 0.2s;
+    }
+    .markdown-body img:hover {
+      transform: scale(1.01);
+    }
     .markdown-body blockquote {
       background: rgba(56, 189, 248, 0.08);
       border-left: 4px solid var(--accent);
@@ -402,7 +415,9 @@
       try {
         const res = await fetch(`../${docName}.md`);
         if (!res.ok) throw new Error(`문서를 찾을 수 없습니다 (${res.status})`);
-        const mdText = await res.text();
+        let mdText = await res.text();
+        // 이미지 경로 정규화: ../screenshot/ 또는 ./screenshot/ 모두 올바르게 렌더링되도록 보정
+        mdText = mdText.replace(/!\[(.*?)\]\((?:\.\/|\.\.\/)?screenshot\/(.*?)\)/g, '![$1](../screenshot/$2)');
         contentEl.innerHTML = marked.parse(mdText);
         document.getElementById('main-content').scrollTop = 0;
       } catch (err) {
