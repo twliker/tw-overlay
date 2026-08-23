@@ -2190,6 +2190,71 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
     assert.equal(fileColorlessEssenceCount, 2, '실제 로그 파일에서 색을 잃은 땅 경험의 정수 획득이 2개여야 합니다.');
     assert.ok(fileArchitectEntries > 0, '실제 로그 파일에서 설계자의 채굴장(하급 조합 조각)이 감지되어야 합니다.');
   }
+
+  // ── 과거 채팅 히스토리 분류 및 색상 보정 회귀 검증 ──
+  const { classifyHistoryMessage } = require(
+    path.join(projectRoot, 'dist/modules/chatLogManager.js'),
+  ) as {
+    classifyHistoryMessage(color: string, message: string): {
+      category: string;
+      type: string;
+      sender: string;
+      message: string;
+      color: string;
+    };
+  };
+
+  // 1. 클럽 채팅에서 "시드" 단어가 포함되어 있어도 클럽 채널 및 색상이 유지되어야 함
+  const clubChatResult = classifyHistoryMessage(
+    '#94ddfa',
+    '니요 : 근데 5각하면 전투력말고 시드를 더 벌어준다던가 그런게 있음?',
+  );
+  assert.deepEqual(clubChatResult, {
+    category: 'Club',
+    type: 'club',
+    sender: '니요',
+    message: '근데 5각하면 전투력말고 시드를 더 벌어준다던가 그런게 있음?',
+    color: '#94ddfa',
+  });
+
+  // 2. 일반 채팅에서 "시드" 단어가 포함되어 있어도 일반 채널 및 색상이 유지되어야 함
+  const generalChatResult = classifyHistoryMessage(
+    '#ffffff',
+    '홍길동 : 시드 얼마 있어?',
+  );
+  assert.deepEqual(generalChatResult, {
+    category: 'General',
+    type: 'general',
+    sender: '홍길동',
+    message: '시드 얼마 있어?',
+    color: '#ffffff',
+  });
+
+  // 3. 실제 SEED 획득 시스템 메시지는 시스템 채널로 분류되고 시스템 색상으로 보정되어야 함
+  const seedGainResult = classifyHistoryMessage(
+    '#ffffff',
+    '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.',
+  );
+  assert.deepEqual(seedGainResult, {
+    category: 'System',
+    type: 'system',
+    sender: '시스템',
+    message: '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.',
+    color: '#a8a8a8',
+  });
+
+  // 4. 실제 아이템 획득 시스템 메시지는 노란색(#ffd700) 시스템 채널로 분류되어야 함
+  const itemGainResult = classifyHistoryMessage(
+    '#ffffff',
+    '[달여왕 군단 훈장] 을(를) 1개 획득하였습니다.',
+  );
+  assert.deepEqual(itemGainResult, {
+    category: 'System',
+    type: 'system',
+    sender: '시스템',
+    message: '[달여왕 군단 훈장] 을(를) 1개 획득하였습니다.',
+    color: '#ffd700',
+  });
 }
 
 function checkTodaySummary(): void {

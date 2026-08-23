@@ -24,19 +24,25 @@ const { COLORS: CHAT_COLORS } = require('../shared/chatChannels') as ChatChannel
 type HistoryCategory = 'General' | 'Team' | 'Club' | 'Whisper' | 'System';
 type HistoryMessageType = 'general' | 'team' | 'club' | 'whisper' | 'system';
 
-function classifyHistoryMessage(
-  color: string,
+function isSeedGainMessage(message: string): boolean {
+  return /SEED|Seed|시드/i.test(message) && /(?:획득|습득|입수|얻었|받았|지급|증가|올랐|주웠)/.test(message);
+}
+
+export function classifyHistoryMessage(
+  rawColor: string,
   cleanMessage: string
 ): {
   category: HistoryCategory;
   type: HistoryMessageType;
   sender: string;
   message: string;
+  color: string;
 } {
   let category: HistoryCategory = 'System';
   let type: HistoryMessageType = 'system';
   let sender = '시스템';
   let message = cleanMessage;
+  let color = rawColor;
 
   const chatMatch = cleanMessage.match(/^(.+?)\s*:\s*(.*)$/);
   if (color === CHAT_COLORS.club) {
@@ -65,21 +71,27 @@ function classifyHistoryMessage(
       sender = chatMatch[1].trim();
       message = chatMatch[2].trim();
     }
-  } else if ((color === CHAT_COLORS.general || color === CHAT_COLORS.selfGeneral) && chatMatch) {
-    const parsedSender = chatMatch[1].trim();
-    if (
-      !parsedSender.includes(' ') &&
-      !parsedSender.includes(',') &&
-      !isLegacyNpcSender(parsedSender)
-    ) {
-      category = 'General';
-      type = 'general';
-      sender = parsedSender;
-      message = chatMatch[2].trim();
+  } else if (
+    (color === CHAT_COLORS.general || color === CHAT_COLORS.selfGeneral) &&
+    chatMatch &&
+    !chatMatch[1].trim().includes(' ') &&
+    !chatMatch[1].trim().includes(',') &&
+    !isLegacyNpcSender(chatMatch[1].trim())
+  ) {
+    category = 'General';
+    type = 'general';
+    sender = chatMatch[1].trim();
+    message = chatMatch[2].trim();
+  } else {
+    // 시스템 로그 영역: SEED 획득 / 아이템 획득 색상 보정
+    if (isSeedGainMessage(cleanMessage)) {
+      color = CHAT_COLORS.system;
+    } else if (parseItemAcquisition(cleanMessage, { isSelfChat: color === CHAT_COLORS.selfGeneral })?.isOwn) {
+      color = '#ffd700';
     }
   }
 
-  return { category, type, sender, message };
+  return { category, type, sender, message, color };
 }
 
 class ChatLogManager {
@@ -369,13 +381,6 @@ class ChatLogManager {
       // 회복 로그는 스킵 (성능 최적화)
       if (cleanMsg.includes('회복되었습니다')) continue;
 
-      // 획득 로그 색상 일관성 보정 (실시간 감시와 동일하게 일치)
-      if (cleanMsg.includes('SEED를') || cleanMsg.includes('Seed를') || cleanMsg.includes('시드를')) {
-        color = CHAT_COLORS.system;
-      } else if (parseItemAcquisition(cleanMsg, { isSelfChat: color === CHAT_COLORS.selfGeneral })?.isOwn) {
-        color = '#ffd700';
-      }
-
       // 4. 외치기
       if (rawLine.includes(`color="${CHAT_COLORS.shout}"`) && cleanMsg.includes('외치기 :')) {
         const shoutContent = cleanMsg.replace('외치기 :', '').trim();
@@ -411,13 +416,13 @@ class ChatLogManager {
       const catFinalName = classified.category;
       const type: 'normal' | 'system' =
         classified.type === 'system' ? 'system' : 'normal';
-      const { sender, message } = classified;
+      const { sender, message, color: finalColor } = classified;
 
       const finalNeedForCat = categoryCounts[catFinalName] < limit;
       const finalNeedForBasic = categoryCounts.Basic < limit;
 
       const chatItem: ChatItemData = {
-        type, timestamp, sender, message, color, serverCode
+        type, timestamp, sender, message, color: finalColor, serverCode
       };
 
       if (finalNeedForCat) {
@@ -515,14 +520,7 @@ class ChatLogManager {
         color = colorMatch[1].toLowerCase();
       }
 
-      // 획득 로그 색상 일관성 보정 (실시간 감시와 동일하게 일치)
-      if (cleanMsg.includes('SEED를') || cleanMsg.includes('Seed를') || cleanMsg.includes('시드를')) {
-        color = CHAT_COLORS.system;
-      } else if (parseItemAcquisition(cleanMsg, { isSelfChat: color === CHAT_COLORS.selfGeneral })?.isOwn) {
-        color = '#ffd700';
-      }
-
-      const { type, sender, message } = classifyHistoryMessage(color, cleanMsg);
+      const { type, sender, message, color: finalColor } = classifyHistoryMessage(color, cleanMsg);
 
       // 타겟 카테고리 필터 매칭 여부 판정
       if (targetType && targetType !== type) {
@@ -535,7 +533,7 @@ class ChatLogManager {
 
       collected.push({
         id: `more-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        type, timestamp, sender, message, color,
+        type, timestamp, sender, message, color: finalColor,
         level,
         characterCode
       });
@@ -621,13 +619,7 @@ class ChatLogManager {
         color = colorMatch[1].toLowerCase();
       }
 
-      if (cleanMsg.includes('SEED를') || cleanMsg.includes('Seed를') || cleanMsg.includes('시드를')) {
-        color = CHAT_COLORS.system;
-      } else if (parseItemAcquisition(cleanMsg, { isSelfChat: color === CHAT_COLORS.selfGeneral })?.isOwn) {
-        color = '#ffd700';
-      }
-
-      const { type, sender, message } = classifyHistoryMessage(color, cleanMsg);
+      const { type, sender, message, color: finalColor } = classifyHistoryMessage(color, cleanMsg);
 
       if (targetType && targetType !== type) {
         continue;
@@ -648,7 +640,7 @@ class ChatLogManager {
           timestamp,
           sender,
           message,
-          color,
+          color: finalColor,
           level,
           characterCode
         });
