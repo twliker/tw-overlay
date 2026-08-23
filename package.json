@@ -19,7 +19,7 @@
   },
   "build": {
     "appId": "com.filbertlab.twoverlay",
-    "productName": "tw-overlay",
+    "productName": "twOverlay",
     "directories": {
       "output": "dist_electron"
     },
