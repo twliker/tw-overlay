@@ -254,6 +254,7 @@
         <span>TW-Overlay</span>
       </a>
       <div class="nav-links">
+        <a href="./guide/">📖 기능 가이드</a>
         <a href="#features">주요 기능</a>
         <a href="./privacy/">개인정보처리방침</a>
         <a href="https://github.com/twliker/tw-overlay" target="_blank" class="btn-github">GitHub</a>
@@ -267,7 +268,7 @@
       <p>일일/주간 숙제 체크리스트 자동 리셋부터 Google Drive 클라우드 동기화, 실시간 채팅 & 득템 알림 HUD까지 테일즈위버 플레이어를 위한 필수 도구입니다.</p>
       <div class="cta-buttons">
         <a href="https://github.com/twliker/tw-overlay/releases" target="_blank" class="btn-primary">무료 다운로드 (GitHub)</a>
-        <a href="./privacy/" class="btn-secondary">🔒 개인정보처리방침</a>
+        <a href="./guide/" class="btn-secondary">📖 전체 사용 설명서</a>
       </div>
     </header>
 
@@ -277,43 +278,52 @@
         <h3>☁️ Google Drive AppData 안전 동기화</h3>
         <p>집 PC, 노트북, 서브 컴퓨터 어디서든 구글 계정으로 로그인만 하면 나의 숙제 완료 상태와 캐릭터 설정이 안전하게 자동 동기화됩니다. (개인 드라이브 격리 저장으로 100% 안전 보장)</p>
       </div>
-      <a href="./privacy/" class="btn-secondary" style="background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.2);">동기화 보안 정책 보기</a>
+      <a href="./guide/?doc=google-drive-sync" class="btn-secondary" style="background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.2);">클라우드 동기화 가이드 보기</a>
     </div>
 
     <!-- 주요 기능 그리드 -->
     <section class="features-section" id="features">
-      <h2 class="section-title">주요 핵심 기능</h2>
+      <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+        <div>
+          <h2 class="section-title" style="text-align: left; margin-bottom: 4px;">주요 핵심 기능</h2>
+          <p style="color: var(--text-muted); font-size: 14px; margin: 0;">카드를 클릭하시면 해당 기능의 상세 매뉴얼(.md)을 바로 읽어보실 수 있습니다.</p>
+        </div>
+        <a href="./guide/" style="color: var(--accent); font-size: 13px; font-weight: 700; text-decoration: none;">전체 24개 기능 보기 →</a>
+      </div>
       <div class="grid">
-        <div class="card">
+        <a href="./guide/?doc=contents-checker" class="card" style="text-decoration: none;">
           <div class="card-icon">📋</div>
           <h3>스마트 숙제 체크리스트</h3>
           <p>일일(06시), 주간(월요일), 월간 리셋 주기에 맞춰 캐릭터별 숙제 진행 상황을 자동으로 관리하고 직관적으로 체크합니다.</p>
-        </div>
-        <div class="card">
+        </a>
+        <a href="./guide/?doc=chat-overlay" class="card" style="text-decoration: none;">
           <div class="card-icon">💬</div>
           <h3>실시간 채팅 & 득템 알림 HUD</h3>
           <p>게임 화면 위에 반투명 Glassmorphism 오버레이로 띄워, 중요한 득템, 단어 알림, 외치기 로그를 게임 중 놓치지 않습니다.</p>
-        </div>
-        <div class="card">
+        </a>
+        <a href="./guide/?doc=diary" class="card" style="text-decoration: none;">
           <div class="card-icon">📊</div>
           <h3>다이어리 & 활동 통계 요약</h3>
           <p>일일 사냥 경험치, 획득한 SEED, 엘소 포인트와 보스 클리어 기록을 자동으로 수집하여 보기 쉽게 요약해 줍니다.</p>
-        </div>
-        <div class="card">
+        </a>
+        <a href="./guide/?doc=intelligent-buff-timer" class="card" style="text-decoration: none;">
           <div class="card-icon">⏱️</div>
-          <h3>버프 타이머 & 보스 시간표</h3>
+          <h3>지능형 버프 타이머</h3>
           <p>경험치 군고구마, 이자벨 등 주요 버프의 남은 지속 시간을 추적하고 보스 젠 시간을 카운트다운합니다.</p>
-        </div>
-        <div class="card">
+        </a>
+        <a href="./guide/?doc=coefficient-calculator" class="card" style="text-decoration: none;">
+          <div class="card-icon">🧮</div>
+          <h3>대미지 계수 & 마석 계산기</h3>
+          <p>복잡한 대미지 계수 공식과 마석 강화 성공 확률을 손쉽게 시뮬레이션하고 최적의 세팅을 계산합니다.</p>
+        </a>
+        <a href="./guide/?doc=scam-detector" class="card" style="text-decoration: none;">
           <div class="card-icon">🛡️</div>
-          <h3>개인정보 보호 & 오픈소스</h3>
-          <p>모든 데이터는 사용자 로컬 PC 또는 본인 구글 드라이브에만 저장되며, 별도의 회원가입이나 외부 서버 수집이 일체 없습니다.</p>
-        </div>
-        <div class="card">
-          <div class="card-icon">⚡</div>
-          <h3>최적화된 가벼운 성능</h3>
-          <p>게임 프레임 드랍이 없도록 비동기 파싱과 가벼운 Electron 구조로 설계되어 쾌적하게 동작합니다.</p>
-        </div>
+          <h3>사기 외치기 거래 탐지기</h3>
+          <p>외치기 채팅 패턴을 실시간 분석하여 사기꾼 의심 닉네임과 거래 위험도를 자동으로 감지하고 경고합니다.</p>
+        </a>
+      </div>
+      <div style="text-align: center; margin-top: 36px;">
+        <a href="./guide/" class="btn-primary" style="display: inline-block;">📖 전체 24개 기능 매뉴얼 보러가기</a>
       </div>
     </section>
 
