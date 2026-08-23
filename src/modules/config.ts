@@ -81,6 +81,23 @@ export function load(): AppConfig {
           log(`[CONFIG] 득템 키워드 마이그레이션 실패: ${errMsg}`);
         }
       }
+      // 퀵슬롯 2차 마이그레이션 (기존 유저에게 TW DB 링크 1회 자동 추가)
+      if (parsed.quickSlotsMigratedV2 !== true) {
+        if (Array.isArray(parsed.quickSlots)) {
+          const hasTwDb = parsed.quickSlots.some(s => s && s.url && s.url.includes('twhome-git.github.io/TWPage'));
+          if (!hasTwDb) {
+            parsed.quickSlots.push({
+              label: "TW DB",
+              icon: "database",
+              url: "https://twhome-git.github.io/TWPage/",
+              external: true,
+              iconType: "icon"
+            });
+          }
+        }
+        parsed.quickSlotsMigratedV2 = true;
+        migrated = true;
+      }
 
       _cachedConfig = {
         ...DEFAULT_CONFIG,

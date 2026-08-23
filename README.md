@@ -5,20 +5,18 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Version](https://img.shields.io/badge/version-2.6.8-violet.svg)
+![Version](https://img.shields.io/badge/version-2.6.9-violet.svg)
 
 ## 📸 스크린샷
 
 ![App Screenshot](./screenshot/screen1.png)
 
-## 🚀 최신 버전: [Mandatory Update] v2.6.8 (2026.08.23)
-이번 업데이트는 게임 창 활성화 시 오버레이가 게임 뒤로 가려지던 Z-Order 은폐 버그 해결, 재실행 시 도핑 HUD 위치 보존, 창모드 전체화면 및 독모드 작업표시줄 간섭 완벽 해소가 적용된 **v2.6.8** 필수 안정화 업데이트입니다.
+## 🚀 최신 버전: v2.6.9 (2026.08.23)
+이번 업데이트는 테일즈위버 종합 데이터베이스 **TW DB (TWPage)** 퀵슬롯 링크 추가 및 기존 사용자 자동 마이그레이션이 적용된 **v2.6.9** 업데이트입니다.
 
-- **🛡️ 게임 화면 클릭/포커스 시 오버레이 Z-Order 은폐 현상 완전 해결 (에토스 기믹 화살표 및 경험치 HUD 정상 표시)**
-- **🧪 게임 재실행 시 도핑/경험치/어벤던로드 HUD 위치 초기화 방지 (초기 뷰포트 안전 가드 적용)**
-- **🖥️ 창모드 전체화면 플레이 중 작업표시줄 노출 간섭 제거 (엄격한 Z-Order 멱등성 및 불필요한 SetWindowPos 차단)**
-- **⚓ 독모드(Dock Mode) 토글(`Ctrl + Shift + D`) 시 작업표시줄 팝업 방지 (`skipTaskbar: true` 적용)**
-- **⚡ 경험치 HUD 세션 단축키(`Ctrl + Shift + Z`) 실행 시 스크립트 스코프 오류 수정**
+- **🌐 테일즈 종합 DB 'TW DB' 퀵슬롯 추가:** 에타 순위/계산기, 장비 DB, 대미지 계산기 등을 제공하는 TW DB(https://twhome-git.github.io/TWPage/) 사이트 바로가기가 퀵슬롯에 추가되었습니다.
+- **🔄 기존 사용자 자동 마이그레이션:** 기존 사용자가 앱을 업데이트하면 퀵슬롯에 TW DB 링크가 1회 안전하게 자동 추가됩니다. (추후 삭제 시 사용자 설정 유지)
+- **⚔️ 미니게임 메뉴 명칭 개선:** 사이드바 미니게임 메뉴 레이블을 '테일즈위버 무기 강화하기'로 명확하게 정비했습니다.
 
 *(이전 버전의 변경 사항은 [release-note](release-note/) 폴더의 릴리즈 노트를 참조해 주세요.)*
 
@@ -73,7 +71,7 @@
 ## 🚀 시작하기 (테일즈위버 오버레이 프로그램 설치 및 다운로드)
 
 ### 설치 방법
-[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-2.6.8.exe` 파일을 다운로드하여 실행하세요.
+[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-2.6.9.exe` 파일을 다운로드하여 실행하세요.
 
 ### 단축키 및 팁
 - **단축키:** 

@@ -93,8 +93,16 @@ export const DEFAULT_CONFIG: AppConfig = {
       url: "https://gall.dcinside.com/mini/board/view/?id=talesweaver&no=209726",
       external: true,
       iconType: "icon"
+    },
+    {
+      label: "TW DB",
+      icon: "database",
+      url: "https://twhome-git.github.io/TWPage/",
+      external: true,
+      iconType: "icon"
     }
   ],
+  quickSlotsMigratedV2: true,
   autoUpdateEnabled: true,
   lastNoticeVersion: '',
   fieldBossNotifyEnabled: true,

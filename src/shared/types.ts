@@ -397,6 +397,7 @@ export interface AppConfig {
     diaryKeepDays?: number;
     lootKeywords?: string[];
     lootKeywordsMigratedV2?: boolean;
+    quickSlotsMigratedV2?: boolean;
     shoutKeywords?: string[];
     ethosAlertEnabled?: boolean;
     abyssApostleAlertEnabled?: boolean;

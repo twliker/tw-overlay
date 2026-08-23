@@ -172,10 +172,10 @@
   },
   {
     "id": "sword-enhance-btn",
-    "label": "검 강화하기",
+    "label": "테일즈위버 무기 강화하기",
     "icon": "sword",
     "image": "assets/img/검강화하기.png",
-    "tooltip": "검 강화하기 게임 (twliker)",
+    "tooltip": "테일즈위버 무기 강화하기 게임",
     "color": "amber-400",
     "api": "toggleSwordEnhance",
     "category": "minigame",
