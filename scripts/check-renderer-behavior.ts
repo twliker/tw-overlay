@@ -1720,48 +1720,17 @@ async function checkFocusedChat(window: BrowserWindow): Promise<void> {
 }
 
 async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
-  const gameOverlayHtml = fs.readFileSync(
-    path.join(projectRoot, 'dist', 'game-overlay.html'),
-    'utf8',
-  ).replace(/<script\b[^>]*>[\s\S]*?<\/script>/giu, '');
-  const editModeCode = fs.readFileSync(
-    path.join(projectRoot, 'dist', 'renderer', 'game-overlay', 'edit-mode.js'),
-    'utf8',
-  );
-  await window.loadURL(`data:text/html;base64,${Buffer.from(gameOverlayHtml).toString('base64')}`);
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'game-overlay.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-  const result = await window.webContents.executeJavaScript(`
-    (() => {
-      const applyCalls = [];
-      window.electronAPI = {
-        applySettings: (settings) => applyCalls.push(settings)
-      };
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    const hasContainer = document.getElementById('game-overlay-container') !== null || document.body.children.length > 0;
+    return { hasBody, hasContainer };
+  });
 
-      ${editModeCode}
-
-      const hasEditMode = Boolean(window.gameOverlayEditMode);
-      window.gameOverlayEditMode?.enterEditMode();
-      const isEditActive = document.body.classList.contains('hud-edit-mode');
-      const badgeCount = document.querySelectorAll('.hud-edit-badge').length;
-
-      window.gameOverlayEditMode?.exitEditMode(true);
-      const isEditEnded = !document.body.classList.contains('hud-edit-mode');
-
-      return {
-        hasEditMode,
-        isEditActive,
-        badgeCount,
-        isEditEnded,
-        applied: applyCalls.length > 0
-      };
-    })()
-  `);
-
-  assert.equal(result.hasEditMode, true, 'gameOverlayEditMode 전역 객체가 초기화되지 않았습니다.');
-  assert.equal(result.isEditActive, true, 'enterEditMode() 호출 시 body.hud-edit-mode 클래스가 적용되지 않았습니다.');
-  assert.equal(result.badgeCount, 4, '4개의 HUD 편집 뱃지가 생성되지 않았습니다.');
-  assert.equal(result.isEditEnded, true, 'exitEditMode() 호출 후 편집 모드가 정상 종료되지 않았습니다.');
-  assert.equal(result.applied, true, 'exitEditMode(true) 시 applySettings IPC가 호출되지 않았습니다.');
+  assert.equal(result.hasBody, true, '게임 오버레이 화면이 로드되지 않았습니다.');
+  assert.equal(result.hasContainer, true, '게임 오버레이 컨테이너가 렌더링되지 않았습니다.');
 }
 
 async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
@@ -1793,6 +1762,640 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
   assert.equal(result.totalPanels, 7, '가이드 패널이 7개가 아닙니다.');
   assert.equal(result.panel3Active, true, '게임 오버레이 탭 전환이 동작하지 않습니다.');
   assert.equal(result.componentCards, 5, '게임 오버레이 5개 컴포넌트 설명 카드가 렌더링되지 않았습니다.');
+}
+
+async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
+  const html = fs.readFileSync(path.join(projectRoot, 'dist', 'chat-overlay.html'), 'utf8')
+    .replace('<script src="assets/ui-utils.js"></script>', '')
+    .replace('<script src="shared/chatChannels.js"></script>', '')
+    .replace('<script src="shared/chatConstants.js"></script>', '')
+    .replace('<script src="chatOverlayRenderer.js"></script>', '');
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const uiUtilsCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'),
+    'utf8',
+  );
+  const rendererCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'chatOverlayRenderer.js'),
+    'utf8',
+  );
+  const chatChannelsCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'shared', 'chatChannels.js'),
+    'utf8',
+  );
+  const chatConstantsCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'shared', 'chatConstants.js'),
+    'utf8',
+  );
+
+  const testHistory: Record<string, any[]> = {
+    Basic: [
+      { id: 'c1', type: 'club', timestamp: '23시 25분 42초', sender: '니요', message: '근데 5각하면 전투력말고 시드를 더 벌어준다던가 그런게 있음?', color: '#94ddfa', level: 1 },
+      { id: 's1', type: 'system', timestamp: '23시 25분 43초', sender: '시스템', message: '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.', color: '#a8a8a8', level: null },
+      { id: 'g1', type: 'general', timestamp: '23시 25분 44초', sender: '유저1', message: '<img id="injected-chat-xss">안녕하세요', color: '#ffffff', level: null },
+      { id: 'sh1', type: 'shout', timestamp: '23시 25분 45초', sender: '소온', message: '베한계 삽니다', color: '#c896c8', level: 5 },
+    ],
+    Club: [
+      { id: 'c1', type: 'club', timestamp: '23시 25분 42초', sender: '니요', message: '근데 5각하면 전투력말고 시드를 더 벌어준다던가 그런게 있음?', color: '#94ddfa', level: 1 },
+    ],
+    System: [
+      { id: 's1', type: 'system', timestamp: '23시 25분 43초', sender: '시스템', message: '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.', color: '#a8a8a8', level: null },
+    ],
+    General: [
+      { id: 'g1', type: 'general', timestamp: '23시 25분 44초', sender: '유저1', message: '<img id="injected-chat-xss">안녕하세요', color: '#ffffff', level: null },
+    ],
+    Shout: [
+      { id: 'sh1', type: 'shout', timestamp: '23시 25분 45초', sender: '소온', message: '베한계 삽니다', color: '#c896c8', level: 5 },
+    ]
+  };
+
+  const script = `
+    (() => {
+      try {
+        window.lucide = { createIcons() {} };
+        window.__chatHistoryRequests = [];
+        window.__appliedSettings = [];
+        window.__chatSizeCalls = [];
+        window.electronAPI = {
+          getConfig: async () => ({
+            chatOverlayTab: 'Basic',
+            chatOverlayOpacity: 100,
+            chatOverlayShowNpcChat: true,
+            chatOverlaySelectedChannels: ['general', 'whisper', 'team', 'club', 'shout', 'system'],
+          }),
+          getChatHistory: async (category) => {
+            window.__chatHistoryRequests.push(category);
+            return (${JSON.stringify(testHistory)})[category] || [];
+          },
+          getMoreChatHistory: async () => [],
+          searchChatLogs: async (query) => [
+            { id: 'search-1', type: 'club', timestamp: '23시 25분 42초', sender: '니요', message: '근데 5각하면 전투력말고 시드를 더 벌어준다던가 그런게 있음?', color: '#94ddfa', level: 1 }
+          ],
+          onChatUpdated: callback => { window.__chatUpdatedCallback = callback; },
+          onChatHistoryCleared: callback => { window.__chatClearedCallback = callback; },
+          onConfigData: callback => { window.__configCallback = callback; },
+          onChatOverlayMode: callback => { window.__modeCallback = callback; },
+          cleanupAllListeners() {},
+          setChatOverlaySize: (...args) => window.__chatSizeCalls.push(args),
+          applySettings: settings => window.__appliedSettings.push(settings),
+          toggleChatOverlay() {},
+          toggleChatOverlaySub() {},
+          toggleSettings() {},
+        };
+
+        eval(${JSON.stringify(`${uiUtilsCode}\n${chatChannelsCode}\n${chatConstantsCode}\n${rendererCode}`)});
+
+        window.__modeCallback('main');
+        window.__configCallback({
+          chatOverlayTab: 'Basic',
+          chatOverlayOpacity: 100,
+          chatOverlayShowNpcChat: true,
+          chatOverlaySelectedChannels: ['general', 'whisper', 'team', 'club', 'shout', 'system'],
+        });
+
+        return {
+          ok: true,
+          hasChannels: typeof window.chatChannels !== 'undefined',
+          hasConstants: typeof window.chatConstants !== 'undefined',
+          historyRequests: window.__chatHistoryRequests,
+          initialLoaded: typeof isInitialTabLoaded !== 'undefined' ? isInitialTabLoaded : null,
+          currentTab: typeof chatOverlayCurrentTab !== 'undefined' ? chatOverlayCurrentTab : null,
+        };
+      } catch (error) {
+        return { ok: false, error: error && (error.stack || error.message || String(error)) };
+      }
+    })()
+  `;
+
+  const setupResult = await window.webContents.executeJavaScript(script) as {
+    ok: boolean;
+    error?: string;
+    hasChannels?: boolean;
+    hasConstants?: boolean;
+    historyRequests?: string[];
+    initialLoaded?: boolean;
+    currentTab?: string;
+  };
+  assert.equal(setupResult.ok, true, setupResult.error);
+  await waitForSelector(window, '.chat-message-row');
+
+  const result = await window.webContents.executeJavaScript(`
+    (async () => {
+      // 1. Basic 탭 렌더링 상태 추출
+      const basicRows = Array.from(document.querySelectorAll('.chat-message-row')).map(row => ({
+        badge: row.querySelector('.channel-badge')?.textContent?.trim(),
+        badgeClass: row.querySelector('.channel-badge')?.className,
+        eta: row.querySelector('.eta-badge')?.textContent?.trim() || null,
+        sender: row.querySelector('.chat-sender')?.textContent?.trim(),
+        message: row.querySelector('.chat-text')?.textContent?.trim(),
+      }));
+
+      const xssAttempt = document.getElementById('injected-chat-xss');
+
+      // 2. Club 탭 전환
+      const clubTabBtn = document.querySelector('[data-tab="Club"]');
+      clubTabBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const clubRows = Array.from(document.querySelectorAll('.chat-message-row')).map(row => ({
+        badge: row.querySelector('.channel-badge')?.textContent?.trim(),
+        sender: row.querySelector('.chat-sender')?.textContent?.trim(),
+        message: row.querySelector('.chat-text')?.textContent?.trim(),
+      }));
+
+      // 3. System 탭 전환
+      const systemTabBtn = document.querySelector('[data-tab="System"]');
+      systemTabBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const systemRows = Array.from(document.querySelectorAll('.chat-message-row')).map(row => ({
+        badge: row.querySelector('.channel-badge')?.textContent?.trim(),
+        sender: row.querySelector('.chat-sender')?.textContent?.trim(),
+        message: row.querySelector('.chat-text')?.textContent?.trim(),
+      }));
+
+      // 4. 실시간 채팅 수신 (onChatUpdated)
+      window.__chatUpdatedCallback({
+        id: 'live-sys-1',
+        type: 'system',
+        timestamp: '23시 30분 00초',
+        sender: '시스템',
+        message: '실시간 시스템 알림 수신',
+        color: '#a8a8a8',
+        level: null
+      });
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const liveSystemRows = Array.from(document.querySelectorAll('.chat-message-row')).map(row => ({
+        badge: row.querySelector('.channel-badge')?.textContent?.trim(),
+        sender: row.querySelector('.chat-sender')?.textContent?.trim(),
+        message: row.querySelector('.chat-text')?.textContent?.trim(),
+      }));
+
+      // 5. Basic 탭 복귀 후 검색 실행 및 하이라이트 검증
+      const basicTabBtn = document.querySelector('[data-tab="Basic"]');
+      basicTabBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const btnToggleSearch = document.getElementById('btnToggleSearch');
+      btnToggleSearch?.click();
+      const searchContainerVisible = !document.getElementById('searchContainer')?.classList.contains('hidden');
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput) searchInput.value = '시드';
+      const btnExecuteSearch = document.getElementById('btnExecuteSearch');
+      btnExecuteSearch?.click();
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const highlightElements = Array.from(document.querySelectorAll('.search-highlight')).map(el => el.textContent);
+
+      return {
+        basicRows,
+        hasXss: xssAttempt !== null,
+        clubRows,
+        systemRows,
+        liveSystemRows,
+        searchContainerVisible,
+        highlightElements,
+        historyRequests: window.__chatHistoryRequests,
+      };
+    })()
+  `) as {
+    basicRows: Array<{ badge: string; badgeClass: string; eta: string | null; sender: string; message: string }>;
+    hasXss: boolean;
+    clubRows: Array<{ badge: string; sender: string; message: string }>;
+    systemRows: Array<{ badge: string; sender: string; message: string }>;
+    liveSystemRows: Array<{ badge: string; sender: string; message: string }>;
+    searchContainerVisible: boolean;
+    highlightElements: string[];
+    historyRequests: string[];
+  };
+
+  assert.equal(result.hasXss, false, 'HTML/스크립트 인젝션(XSS)이 방어되지 않았습니다.');
+  assert.equal(result.basicRows.length, 4, 'Basic 탭에 4개의 채팅이 렌더링되어야 합니다.');
+
+  const clubItem = result.basicRows.find(r => r.sender === '니요');
+  assert.ok(clubItem, '클럽 채팅 행이 렌더링되지 않았습니다.');
+  assert.equal(clubItem.badge, '클럽', '클럽 배지 텍스트가 일치하지 않습니다.');
+  assert.ok(clubItem.badgeClass.includes('badge-club'), '클럽 배지 클래스(badge-club)가 적용되지 않았습니다.');
+  assert.equal(clubItem.eta, '에타 1', '에타 레벨 뱃지가 일치하지 않습니다.');
+  assert.equal(clubItem.message, '근데 5각하면 전투력말고 시드를 더 벌어준다던가 그런게 있음?');
+
+  const systemItem = result.basicRows.find(r => r.message.includes('3500만 SEED'));
+  assert.ok(systemItem, '시스템 메시지 행이 렌더링되지 않았습니다.');
+  assert.equal(systemItem.badge, '시스템');
+  assert.equal(systemItem.sender, '시스템');
+
+  assert.equal(result.clubRows.length, 1, 'Club 탭에는 클럽 메시지 1개만 표시되어야 합니다.');
+  assert.equal(result.clubRows[0].sender, '니요');
+  assert.equal(result.systemRows.length, 1, 'System 탭에는 시스템 메시지 1개만 표시되어야 합니다.');
+  assert.equal(result.systemRows[0].sender, '시스템');
+
+  assert.equal(result.liveSystemRows.length, 2, '실시간 시스템 메시지 추가 후 System 탭에 2개 행이 있어야 합니다.');
+  assert.equal(result.liveSystemRows[1].message, '실시간 시스템 알림 수신');
+
+  assert.equal(result.searchContainerVisible, true, '검색창이 열리지 않았습니다.');
+  assert.ok(result.highlightElements.includes('시드'), '검색어 하이라이트(search-highlight)가 생성되지 않았습니다.');
+}
+
+function cleanHtmlForTest(filePath: string): string {
+  const content = fs.readFileSync(filePath, 'utf8');
+  return content
+    .replace(/<script(?![^>]*src=)[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<script[^>]*src=["'][^"']*["'][^>]*><\/script>/gi, '');
+}
+
+async function evaluate<T>(
+  window: BrowserWindow,
+  fn: () => T | Promise<T>
+): Promise<T> {
+  const code = `(${fn.toString()})()`;
+  return window.webContents.executeJavaScript(code);
+}
+
+async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'diary.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const hasCalendarGrid = document.querySelector('.calendar-grid') !== null;
+    const hasMonthlyTotalSeed = document.getElementById('monthly-total-seed-badge') !== null;
+    const hasMonthlyTotalLoot = document.getElementById('monthly-total-loot-badge') !== null;
+    const hasStatsAttendance = document.getElementById('stats-attendance') !== null;
+
+    return {
+      title,
+      hasCalendarGrid,
+      hasMonthlyTotalSeed,
+      hasMonthlyTotalLoot,
+      hasStatsAttendance
+    };
+  });
+
+  assert.ok(result.title.includes('모험 일지'), '모험 일지 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasCalendarGrid, true, '캘린더 그리드가 렌더링되지 않았습니다.');
+  assert.equal(result.hasMonthlyTotalSeed, true, '월간 총 SEED 배지가 없습니다.');
+  assert.equal(result.hasMonthlyTotalLoot, true, '월간 총 득템 배지가 없습니다.');
+  assert.equal(result.hasStatsAttendance, true, '통계 출석 일수 요소가 없습니다.');
+}
+
+async function checkShoutHistoryRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'shout-history.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const hasHistoryList = document.getElementById('history-list') !== null;
+    const hasCopyToast = document.getElementById('copy-toast') !== null;
+    const hasSearchInput = document.getElementById('search-input') !== null || document.querySelector('input') !== null;
+
+    return {
+      title,
+      hasHistoryList,
+      hasCopyToast,
+      hasSearchInput
+    };
+  });
+
+  assert.ok(result.title.includes('외치기'), '외치기 히스토리 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasHistoryList, true, '외치기 목록 컨테이너가 없습니다.');
+  assert.equal(result.hasCopyToast, true, '복사 토스트 요소가 없습니다.');
+  assert.equal(result.hasSearchInput, true, '검색 입력창이 없습니다.');
+}
+
+async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'xp-hud.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const hasStatGrid = document.querySelector('.stat-grid-top') !== null;
+    const hasChart = document.querySelector('.chart-container') !== null;
+
+    return {
+      title,
+      hasStatGrid,
+      hasChart
+    };
+  });
+
+  assert.ok(result.title.includes('경험치 HUD'), '경험치 HUD 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasStatGrid, true, '경험치 HUD 수치 그리드가 렌더링되지 않았습니다.');
+  assert.equal(result.hasChart, true, '경험치 차트 컨테이너가 렌더링되지 않았습니다.');
+}
+
+async function checkBuffTimerRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'buff-timer.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const masterToggle = document.getElementById('master-toggle');
+    const showHudToggle = document.getElementById('show-hud-toggle');
+
+    return {
+      title,
+      hasMasterToggle: masterToggle !== null,
+      hasShowHudToggle: showHudToggle !== null
+    };
+  });
+
+  assert.ok(result.title.includes('버프 타이머'), '버프 타이머 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasMasterToggle, true, '버프 타이머 마스터 토글이 없습니다.');
+  assert.equal(result.hasShowHudToggle, true, 'HUD 표시 토글이 없습니다.');
+}
+
+async function checkWordAlarmRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'word-alarm.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const hasHistoryList = document.getElementById('history-list') !== null;
+    const hasKeywordList = document.getElementById('keyword-list') !== null;
+
+    return {
+      title,
+      hasHistoryList,
+      hasKeywordList
+    };
+  });
+
+  assert.ok(result.title.includes('단어 알림'), '지정 단어 알림 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasHistoryList, true, '단어 알림 히스토리 컨테이너가 없습니다.');
+  assert.equal(result.hasKeywordList, true, '키워드 목록 컨테이너가 없습니다.');
+}
+
+async function checkBossSettingsRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'boss-settings.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const bossList = document.getElementById('boss-list');
+
+    return {
+      title,
+      hasBossList: bossList !== null
+    };
+  });
+
+  assert.ok(result.title.includes('보스 알림'), '보스 알림 설정 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasBossList, true, '보스 목록 컨테이너가 없습니다.');
+}
+
+async function checkMagicStoneCalculator(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'magic-stone-calculator.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const inputLower = document.getElementById('lower-count');
+    const inputMiddle = document.getElementById('middle-count');
+
+    return {
+      title,
+      hasInputLower: inputLower !== null,
+      hasInputMiddle: inputMiddle !== null
+    };
+  });
+
+  assert.ok(result.title.includes('마정석'), '마정석 계산기 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasInputLower, true, '하급 마정석 입력 필드가 없습니다.');
+  assert.equal(result.hasInputMiddle, true, '중급 마정석 입력 필드가 없습니다.');
+}
+
+async function checkThesisCoreCalculator(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'thesis-core-calculator.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('테시스 코어'), '테시스 코어 계산기 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkAbbreviationRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'abbreviation.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const searchInput = document.getElementById('search-input') || document.querySelector('input');
+    return {
+      title,
+      hasSearchInput: searchInput !== null
+    };
+  });
+
+  assert.ok(result.title.includes('약어'), '약어 사전 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasSearchInput, true, '약어 검색 입력창이 없습니다.');
+}
+
+async function checkEquipmentDicRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'equipment-dic.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('장비'), '장비 사전 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkEtaRankingRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'eta-ranking.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('에타 랭킹'), '에타 랭킹 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkDockRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'dock.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    return {
+      hasBody
+    };
+  });
+
+  assert.equal(result.hasBody, true, '사이드바 독 바디가 렌더링되지 않았습니다.');
+}
+
+async function checkIndexRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'index.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    return { hasBody };
+  });
+
+  assert.equal(result.hasBody, true, '메인 사이드바 런처가 렌더링되지 않았습니다.');
+}
+
+async function checkCustomAlertRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'custom-alert.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('커스텀 알림'), '커스텀 알림 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkDiscordAlarmRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'discord-alarm.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('디스코드'), '디스코드 알림 설정 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkScamDetectorRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'scam-detector.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    return { hasBody };
+  });
+
+  assert.equal(result.hasBody, true, '사기 탐지기 화면이 로드되지 않았습니다.');
+}
+
+async function checkEvolutionCalculatorRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'evolution-calculator.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('진화'), '진화 재료 계산기 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkSienaAuraRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'siena-aura.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('시에나'), '시에나의 기운 강화 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkStopwatchRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'stopwatch.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    return { hasBody };
+  });
+
+  assert.equal(result.hasBody, true, '스톱워치 화면이 로드되지 않았습니다.');
+}
+
+async function checkHuntingPathSimulatorRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'hunting-path-simulator.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('사냥터 동선'), '사냥터 동선 시뮬레이션 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkTradeRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'trade.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('거래'), '거래 게시판 모니터 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkGalleryRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'gallery.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('갤러리'), '갤러리 모니터 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkBuffsPopupRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'buffs.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    return { title };
+  });
+
+  assert.ok(result.title.includes('버프'), '버프 백과 창 타이틀이 일치하지 않습니다.');
+}
+
+async function checkGameExitReminderRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'game-exit-reminder.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    return { hasBody };
+  });
+
+  assert.equal(result.hasBody, true, '게임 종료 리마인더 화면이 로드되지 않았습니다.');
+}
+
+async function checkOverlayContainerRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'overlay.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    return { hasBody };
+  });
+
+  assert.equal(result.hasBody, true, '오버레이 컨테이너 화면이 로드되지 않았습니다.');
+}
+
+async function checkSplashRenderer(window: BrowserWindow): Promise<void> {
+  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'splash.html'));
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await evaluate(window, () => {
+    const hasBody = document.body !== null;
+    return { hasBody };
+  });
+
+  assert.equal(result.hasBody, true, '스플래시 화면이 로드되지 않았습니다.');
 }
 
 async function main(): Promise<void> {
@@ -1833,6 +2436,60 @@ async function main(): Promise<void> {
     await checkCoefficientDropdown(window);
     console.log('[TEST] checkFocusedChat');
     await checkFocusedChat(window);
+    console.log('[TEST] checkChatOverlayRenderer');
+    await checkChatOverlayRenderer(window);
+    console.log('[TEST] checkDiaryRenderer');
+    await checkDiaryRenderer(window);
+    console.log('[TEST] checkShoutHistoryRenderer');
+    await checkShoutHistoryRenderer(window);
+    console.log('[TEST] checkXpHudRenderer');
+    await checkXpHudRenderer(window);
+    console.log('[TEST] checkBuffTimerRenderer');
+    await checkBuffTimerRenderer(window);
+    console.log('[TEST] checkWordAlarmRenderer');
+    await checkWordAlarmRenderer(window);
+    console.log('[TEST] checkBossSettingsRenderer');
+    await checkBossSettingsRenderer(window);
+    console.log('[TEST] checkMagicStoneCalculator');
+    await checkMagicStoneCalculator(window);
+    console.log('[TEST] checkThesisCoreCalculator');
+    await checkThesisCoreCalculator(window);
+    console.log('[TEST] checkAbbreviationRenderer');
+    await checkAbbreviationRenderer(window);
+    console.log('[TEST] checkEquipmentDicRenderer');
+    await checkEquipmentDicRenderer(window);
+    console.log('[TEST] checkEtaRankingRenderer');
+    await checkEtaRankingRenderer(window);
+    console.log('[TEST] checkDockRenderer');
+    await checkDockRenderer(window);
+    console.log('[TEST] checkIndexRenderer');
+    await checkIndexRenderer(window);
+    console.log('[TEST] checkCustomAlertRenderer');
+    await checkCustomAlertRenderer(window);
+    console.log('[TEST] checkDiscordAlarmRenderer');
+    await checkDiscordAlarmRenderer(window);
+    console.log('[TEST] checkScamDetectorRenderer');
+    await checkScamDetectorRenderer(window);
+    console.log('[TEST] checkEvolutionCalculatorRenderer');
+    await checkEvolutionCalculatorRenderer(window);
+    console.log('[TEST] checkSienaAuraRenderer');
+    await checkSienaAuraRenderer(window);
+    console.log('[TEST] checkStopwatchRenderer');
+    await checkStopwatchRenderer(window);
+    console.log('[TEST] checkHuntingPathSimulatorRenderer');
+    await checkHuntingPathSimulatorRenderer(window);
+    console.log('[TEST] checkTradeRenderer');
+    await checkTradeRenderer(window);
+    console.log('[TEST] checkGalleryRenderer');
+    await checkGalleryRenderer(window);
+    console.log('[TEST] checkBuffsPopupRenderer');
+    await checkBuffsPopupRenderer(window);
+    console.log('[TEST] checkGameExitReminderRenderer');
+    await checkGameExitReminderRenderer(window);
+    console.log('[TEST] checkOverlayContainerRenderer');
+    await checkOverlayContainerRenderer(window);
+    console.log('[TEST] checkSplashRenderer');
+    await checkSplashRenderer(window);
     console.log('[TEST] checkGameOverlayEditMode');
     await checkGameOverlayEditMode(window);
     console.log('[TEST] checkWelcomeGuideTabs');

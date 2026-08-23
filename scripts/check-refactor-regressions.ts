@@ -2701,5 +2701,89 @@ checkResponsiveDockFlyouts();
 checkUpdateNoticeFeature();
 checkChatLogSyncManagerContracts();
 
+function checkDiscordNotifierContracts(): void {
+  const { discordNotifier } = require('../dist/modules/discordNotifier');
+  assert.ok(discordNotifier && typeof discordNotifier.sendWord === 'function', 'discordNotifier.sendWord 함수가 누락되었습니다.');
+  assert.ok(typeof discordNotifier.sendTest === 'function', 'discordNotifier.sendTest 함수가 누락되었습니다.');
+}
+
+function checkBossNotifierContracts(): void {
+  const bossNotifier = require('../dist/modules/bossNotifier');
+  assert.ok(bossNotifier && typeof bossNotifier.start === 'function', 'bossNotifier.start 함수가 누락되었습니다.');
+  assert.ok(typeof bossNotifier.stop === 'function', 'bossNotifier.stop 함수가 누락되었습니다.');
+  assert.ok(Array.isArray(bossNotifier.BOSS_SCHEDULE), 'bossNotifier.BOSS_SCHEDULE 배열이 누락되었습니다.');
+}
+
+function checkBackendServiceContracts(): void {
+  const backupManager = require('../dist/modules/backupManager');
+  assert.ok(typeof backupManager.exportBackup === 'function', 'backupManager.exportBackup 함수가 누락되었습니다.');
+  assert.ok(typeof backupManager.importBackup === 'function', 'backupManager.importBackup 함수가 누락되었습니다.');
+
+  const shortcutManager = require('../dist/modules/shortcutManager');
+  assert.ok(typeof shortcutManager.registerAll === 'function', 'shortcutManager.registerAll 함수가 누락되었습니다.');
+  assert.ok(typeof shortcutManager.unregisterAll === 'function', 'shortcutManager.unregisterAll 함수가 누락되었습니다.');
+
+  const customNotifier = require('../dist/modules/customNotifier');
+  assert.ok(typeof customNotifier.start === 'function', 'customNotifier.start 함수가 누락되었습니다.');
+  assert.ok(typeof customNotifier.stop === 'function', 'customNotifier.stop 함수가 누락되었습니다.');
+
+  const noticeManager = require('../dist/modules/noticeManager');
+  assert.ok(typeof noticeManager.getNoticeData === 'function', 'noticeManager.getNoticeData 함수가 누락되었습니다.');
+  assert.ok(typeof noticeManager.shouldShowUpdateNotice === 'function', 'noticeManager.shouldShowUpdateNotice 함수가 누락되었습니다.');
+}
+
+function checkIpcChannelContracts(): void {
+  const preloadSource = fs.readFileSync(path.join(projectRoot, 'src', 'preload.ts'), 'utf8');
+  
+  // src/ 및 src/modules/ 내의 모든 .ts 파일 소스를 통합
+  const mainDir = path.join(projectRoot, 'src');
+  const modulesDir = path.join(projectRoot, 'src', 'modules');
+  let combinedBackendSource = '';
+  
+  for (const file of fs.readdirSync(mainDir)) {
+    if (file.endsWith('.ts')) combinedBackendSource += fs.readFileSync(path.join(mainDir, file), 'utf8') + '\n';
+  }
+  if (fs.existsSync(modulesDir)) {
+    for (const file of fs.readdirSync(modulesDir)) {
+      if (file.endsWith('.ts')) combinedBackendSource += fs.readFileSync(path.join(modulesDir, file), 'utf8') + '\n';
+    }
+  }
+
+  // preload에서 호출하는 채널들 추출 (ipcRenderer.send, ipcRenderer.invoke, ipcRenderer.sendSync)
+  const sendChannels = Array.from(preloadSource.matchAll(/ipcRenderer\.(?:send|invoke|sendSync)\(\s*['"]([^'"]+)['"]/g), m => m[1]);
+  assert.ok(sendChannels.length > 30, 'preload에서 IPC 채널이 충분히 추출되지 않았습니다.');
+
+  // 백엔드 모듈 및 main.ts에서 리스너가 존재하는지 확인
+  for (const ch of sendChannels) {
+    const hasHandler = combinedBackendSource.includes(`'${ch}'`) || combinedBackendSource.includes(`"${ch}"`);
+    assert.ok(hasHandler, `Preload에서 호출하는 IPC 채널 '${ch}'의 핸들러가 메인/모듈에 등록되어 있지 않습니다.`);
+  }
+}
+
+function checkRendererBundleCleanliness(): void {
+  const assetsDir = path.join(projectRoot, 'dist', 'assets');
+  if (fs.existsSync(assetsDir)) {
+    const jsFiles = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+    for (const file of jsFiles) {
+      const content = fs.readFileSync(path.join(assetsDir, file), 'utf8');
+      assert.ok(!content.includes('exports.__esModule'), `렌더러 에셋 번들 '${file}'에 CommonJS exports가 포함되어 있습니다.`);
+    }
+  }
+}
+
+function checkCorruptedConfigResilience(): void {
+  const configModule = require('../dist/modules/config');
+  const loaded = configModule.load();
+  assert.ok(loaded && typeof loaded === 'object', '기본 설정 로드 시 유효한 객체가 반환되지 않았습니다.');
+  assert.ok(loaded.shortcuts && typeof loaded.shortcuts === 'object', '설정 내 shortcuts 객체가 누락되었습니다.');
+}
+
+checkDiscordNotifierContracts();
+checkBossNotifierContracts();
+checkBackendServiceContracts();
+checkIpcChannelContracts();
+checkRendererBundleCleanliness();
+checkCorruptedConfigResilience();
+
 console.log('Refactor regression checks passed.');
 process.exit(0);

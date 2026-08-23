@@ -11,6 +11,10 @@
     "rootDir": "scripts",
     "types": [
       "node"
+    ],
+    "lib": [
+      "ES2020",
+      "DOM"
     ]
   },
   "include": [
