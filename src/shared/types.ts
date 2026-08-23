@@ -525,6 +525,50 @@ export interface AppConfig {
     questHudPos?: HudPosition;
     showSidebarToastOnOverlay?: boolean;
     setupCompleted?: boolean;
+
+    // --- Google Drive Sync Settings ---
+    googleSyncEnabled?: boolean;
+    googleSyncAutoSync?: boolean;
+    googleSyncLastTime?: number;
+    googleSyncUserEmail?: string;
+}
+
+export interface GoogleUserProfile {
+    email: string;
+    name?: string;
+    picture?: string;
+}
+
+export interface GoogleAuthTokens {
+    access_token: string;
+    refresh_token?: string;
+    expiry_date?: number;
+    token_type?: string;
+    scope?: string;
+}
+
+export interface GoogleSyncStatus {
+    isLinked: boolean;
+    email?: string;
+    lastSyncedAt?: number;
+    isSyncing?: boolean;
+    autoSync?: boolean;
+    error?: string;
+}
+
+export interface GoogleSyncPayload {
+    schemaVersion: number;
+    appVersion: string;
+    lastSyncedAt: number;
+    updatedBy: string;
+    data: Partial<AppConfig>;
+}
+
+export interface GoogleSyncResult {
+    success: boolean;
+    message?: string;
+    lastSyncedAt?: number;
+    error?: string;
 }
 
 export interface SyncProgressInfo {

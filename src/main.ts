@@ -34,6 +34,7 @@ import { chatLogProcessor } from './modules/chatLogProcessor';
 import { buffTimerManager } from './modules/buffTimerManager';
 import * as scamMonitor from './modules/scamMonitor';
 import { etaCacheManager } from './modules/etaCacheManager';
+import * as cloudSync from './modules/cloudSyncManager';
 
 // ── 에러 트래킹 세팅 ──
 process.on('uncaughtException', (error) => {
@@ -210,6 +211,14 @@ app.whenReady().then(() => {
       trade.updateWindows(wm.getMainWindow(), wm.getTradeWindow());
     });
 
+    // 구글 드라이브 자동 동기화 (로그인 상태일 때 백그라운드 다운로드)
+    const syncStatus = cloudSync.getSyncStatus();
+    if (syncStatus.isLinked && syncStatus.autoSync !== false) {
+      cloudSync.syncFromCloud(false).catch((err) => {
+        log(`[BOOT] 구글 드라이브 시작 동기화 실패: ${err}`);
+      });
+    }
+
     // 스플래시 창 닫기 (웰컴 가이드 / 공지 창 연동)
     wm.closeSplashWindow();
   }
@@ -220,6 +229,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   appState.isQuitting = true;
+  void cloudSync.flushPendingSync();
   if (config.hasPending()) config.saveImmediate();
   diaryDb.flushPendingElso();
   diaryDb.closeDb();

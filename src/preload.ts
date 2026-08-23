@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, ChatItem, TimerRecord, EquipmentDictionaryItem, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult } from './shared/types';
+import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, ChatItem, TimerRecord, EquipmentDictionaryItem, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload } from './shared/types';
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
 
 // sandbox preload은 로컬 모듈 require가 제한되므로 메인 프로세스의 단일 기본값 원본을 동기 조회합니다.
@@ -169,6 +169,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   backupExport: () => ipcRenderer.invoke('backup-export'),
   backupImport: () => ipcRenderer.invoke('backup-import'),
   testDiscordWebhook: (webhookUrl: string) => ipcRenderer.invoke('test-discord-webhook', webhookUrl),
+
+  // Google Drive 동기화
+  googleSyncLogin: (): Promise<{ success: boolean; status: GoogleSyncStatus; error?: string }> =>
+    ipcRenderer.invoke('google-sync-login'),
+  googleSyncLogout: (): Promise<GoogleSyncStatus> =>
+    ipcRenderer.invoke('google-sync-logout'),
+  googleSyncGetStatus: (): Promise<GoogleSyncStatus> =>
+    ipcRenderer.invoke('google-sync-get-status'),
+  googleSyncBackup: (): Promise<GoogleSyncResult> =>
+    ipcRenderer.invoke('google-sync-backup'),
+  googleSyncRestore: (): Promise<GoogleSyncResult> =>
+    ipcRenderer.invoke('google-sync-restore'),
+  googleSyncPreview: (): Promise<{ success: boolean; payload?: GoogleSyncPayload; error?: string }> =>
+    ipcRenderer.invoke('google-sync-preview'),
+  googleSyncToggleAuto: (enabled: boolean): Promise<GoogleSyncStatus> =>
+    ipcRenderer.invoke('google-sync-toggle-auto', enabled),
 
   // 채팅 로그
   openChatLogFolderDialog: () => ipcRenderer.invoke('dialog:openChatLogFolder'),
@@ -393,6 +409,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('game-overlay-edit-mode', callback),
   onGameOverlayResetPositions: (callback: () => void) =>
     bindIpcListener('game-overlay-reset-positions', callback),
+  onGoogleSyncStatusChanged: (callback: (status: GoogleSyncStatus) => void) =>
+    bindIpcListener('google-sync-status-changed', callback),
 
   cleanupAllListeners: () => {
     const events = [
@@ -408,7 +426,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
       'trigger-jellyppy-rain', 'trigger-firework', 'chat-log-status-changed',
       'alarm-logs-updated', 'highlight-alarm-settings', 'timer-toggle', 'timer-updated',
-      'game-overlay-edit-mode', 'game-overlay-reset-positions'
+      'game-overlay-edit-mode', 'game-overlay-reset-positions', 'google-sync-status-changed'
     ];
     events.forEach(event => ipcRenderer.removeAllListeners(event));
   }

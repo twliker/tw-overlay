@@ -23,6 +23,7 @@ import * as tracker from './tracker';
 import { FOCUS_RESTORE_DELAY_MS } from './constants';
 import * as diaryDb from './diaryDb';
 import * as backup from './backupManager';
+import * as cloudSync from './cloudSyncManager';
 import { buffTimerManager } from './buffTimerManager';
 import * as scam from './scamMonitor';
 import * as noticeManager from './noticeManager';
@@ -659,6 +660,22 @@ export function register(): void {
   ipcMain.handle('backup-import', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win ? await backup.importBackup(win) : false;
+  });
+
+  // --- Google Drive Sync ---
+  ipcMain.handle('google-sync-login', async () => cloudSync.loginAndInit());
+  ipcMain.handle('google-sync-logout', async () => cloudSync.logout());
+  ipcMain.handle('google-sync-get-status', async () => cloudSync.getSyncStatus());
+  ipcMain.handle('google-sync-backup', async () => cloudSync.syncToCloud(true));
+  ipcMain.handle('google-sync-restore', async () => cloudSync.syncFromCloud(true));
+  ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
+  ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
+    const cfg = config.load();
+    cfg.googleSyncAutoSync = enabled;
+    config.save(cfg);
+    const status = cloudSync.getSyncStatus();
+    broadcastToAllWindows('google-sync-status-changed', status);
+    return status;
   });
 
   // 채팅 로그 폴더 선택 다이얼로그

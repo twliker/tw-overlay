@@ -13,6 +13,27 @@ let _cachedConfig: AppConfig | null = null;
 let _loadWarning: string | null = null;
 const _storedPositionKeys = new Set<WindowPositionKey>();
 
+type ConfigChangeListener = (changedConfig: Partial<AppConfig>) => void;
+const _changeListeners: ConfigChangeListener[] = [];
+
+export function addConfigChangeListener(listener: ConfigChangeListener): () => void {
+  _changeListeners.push(listener);
+  return () => {
+    const idx = _changeListeners.indexOf(listener);
+    if (idx !== -1) _changeListeners.splice(idx, 1);
+  };
+}
+
+function notifyConfigChange(changedConfig: Partial<AppConfig>): void {
+  for (const listener of _changeListeners) {
+    try {
+      listener(changedConfig);
+    } catch (err) {
+      log(`[CONFIG] 리스너 호출 에러: ${err}`);
+    }
+  }
+}
+
 /** 설정 파일 로드 (메모리 캐시 우선, 없으면 디스크 읽기) */
 export function load(): AppConfig {
   if (_cachedConfig) return { ..._cachedConfig };
@@ -149,6 +170,7 @@ export function save(newConfig: Partial<AppConfig>): void {
     _pendingConfig = { ..._pendingConfig, ...newConfig, storedPositionKeys: [..._storedPositionKeys] };
     // 메모리 캐시도 즉시 업데이트 (디스크 쓰기 전에도 최신 상태 반영)
     _cachedConfig = { ..._pendingConfig };
+    notifyConfigChange(newConfig);
     if (_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = setTimeout(() => {
       try {
@@ -178,6 +200,7 @@ export function saveImmediate(newConfig: Partial<AppConfig> = {}): void {
     _cachedConfig = merged;
     _pendingConfig = null;
     _saveTimer = null;
+    notifyConfigChange(newConfig);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     log(`[CONFIG] 즉시 저장 실패: ${msg}`);

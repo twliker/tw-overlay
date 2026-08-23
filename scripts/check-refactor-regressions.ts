@@ -1604,6 +1604,7 @@ function checkPreloadDefaultConfigCompatibility() {
     'chat-history-cleared', 'chat-overlay-mode', 'chat-log-status-changed',
     'alarm-logs-updated', 'timer-toggle', 'timer-updated',
     'game-overlay-edit-mode', 'game-overlay-reset-positions',
+    'google-sync-status-changed',
   ]);
 }
 
