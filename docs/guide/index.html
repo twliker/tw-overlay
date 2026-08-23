@@ -313,6 +313,12 @@
     </div>
 
     <nav class="nav-list" id="nav-list">
+      <!-- 시작하기 -->
+      <div class="nav-group">
+        <div class="nav-group-title">시작하기</div>
+        <a class="nav-item" data-doc="quickstart" onclick="loadDoc('quickstart')">🚀 빠른 시작 (Quick Start)</a>
+      </div>
+
       <!-- 카테고리별 전체 24개 기능 목차 -->
       <div class="nav-group">
         <div class="nav-group-title">숙제 & 클라우드 동기화</div>
@@ -388,7 +394,7 @@
   </main>
 
   <script>
-    const DEFAULT_DOC = 'contents-checker';
+    const DEFAULT_DOC = 'quickstart';
 
     function getDocFromUrl() {
       const params = new URLSearchParams(window.location.search);
