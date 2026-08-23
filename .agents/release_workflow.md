@@ -165,3 +165,34 @@ Draft Release의 제목 또는 본문에 다음 태그를 포함하여 배포합
 3. 다운로드 완료 시 1.5초 후 자동 재시작 및 강제 설치 완료
 
 > Draft Release를 최종 **게시(Publish)**해야 사용자에게 실제로 적용됩니다.
+
+## 9. Microsoft Store (AppX/MSIX) 배포 절차
+
+Microsoft Store 등록 및 배포는 다음 순서로 진행합니다.
+
+### 1. MS Store 전용 패키지 빌드
+
+```powershell
+npm run dist:appx
+```
+
+* **빌드 결과**: `dist_electron/twOverlay-X.Y.Z.appx`
+* **패키지 식별자**: `package.json`의 `appx` 설정(`applicationId: twOverlay`, `identityName: FilbertLab.TW-Overlay`, `publisher: CN=6BAF7511-7890-43A4-8630-498F620A5370`)을 참조합니다.
+
+### 2. Microsoft Partner Center 등록 및 제출
+
+1. **[Microsoft Partner Center 대시보드](https://partner.microsoft.com/dashboard)** 에 로그인합니다.
+2. **TW-Overlay** 앱을 선택하고 **[새 제출 시작 (Start submission)]** 을 클릭합니다.
+3. **[패키지 (Packages)]** 단계에서:
+   * 생성된 `dist_electron/twOverlay-X.Y.Z.appx` 파일을 업로드합니다.
+4. **[스토어 등록정보 (Store listings)]** 단계에서:
+   * **설명 / 기능 목록**: 릴리즈 노트 및 주요 기능 요약 입력
+   * **개인정보처리방침 URL**: `https://twliker.github.io/tw-overlay/privacy/` 입력
+   * **스크린샷**: `screenshot/` 폴더의 대표 기능 스크린샷 이미지 업로드
+5. 검토 완료 후 **[스토어에 제출 (Submit to the Store)]** 을 클릭합니다.
+
+### 3. MS Store 업데이트 동작 특이사항
+
+* MS Store를 통해 설치한 사용자는 **Windows OS의 Microsoft Store 서비스가 백그라운드에서 자동으로 최신 버전 패키지를 갱신**합니다.
+* 앱 내부의 자체 GitHub 업데이터는 MS Store 환경(`process.windowsStore === true`)에서 안전하게 비활성화되어 스토어 샌드박스 충돌 및 앱 중복 설치를 원천 방지합니다.
+

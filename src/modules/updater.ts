@@ -75,8 +75,8 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     }
   };
 
-  if (!app.isPackaged) {
-    log('Development mode: skipping update check');
+  if (!app.isPackaged || process.windowsStore) {
+    log(`[UPDATER] ${process.windowsStore ? 'Windows Store (AppX)' : 'Development'} mode: skipping internal GitHub update check`);
     setTimeout(() => {
       notifyReady();
     }, 1200);
@@ -238,6 +238,12 @@ export async function manualCheckForUpdate(mainWindow: BrowserWindow | null) {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update-status', { state: 'dev-mode' });
     }
+    return;
+  }
+
+  if (process.windowsStore) {
+    log('[UPDATER] Manual check requested in Windows Store mode. Reporting latest.');
+    broadcastStatus({ state: 'latest' });
     return;
   }
 
