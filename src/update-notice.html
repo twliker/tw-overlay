@@ -435,6 +435,21 @@
       border: 1px solid rgba(255, 255, 255, 0.15);
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8);
       user-select: none;
+      transform-origin: center center;
+      transition: transform 0.15s ease-out;
+      cursor: default;
+    }
+
+    .lightbox-zoom-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: #c084fc;
+      background: rgba(168, 85, 247, 0.2);
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      padding: 1px 6px;
+      border-radius: 6px;
+      margin-left: 6px;
+      display: none;
     }
     
     .lightbox-nav-btn {
@@ -592,6 +607,7 @@
         <div class="lightbox-title">
           <i data-lucide="maximize-2" style="width: 15px; height: 15px; color: #c084fc;"></i>
           <span id="lightbox-counter">이미지 1 / 1</span>
+          <span id="lightbox-zoom-badge" class="lightbox-zoom-badge">100%</span>
         </div>
         <button id="lightbox-close-btn" class="lightbox-close-btn" title="닫기 (Esc)">
           <i data-lucide="x" style="width: 18px; height: 18px;"></i>
@@ -602,14 +618,14 @@
         <button id="lightbox-prev-btn" class="lightbox-nav-btn lightbox-prev" title="이전 이미지 (←)">
           <i data-lucide="chevron-left" style="width: 22px; height: 22px;"></i>
         </button>
-        <img id="lightbox-img" class="lightbox-img" src="" alt="확대 이미지" />
+        <img id="lightbox-img" class="lightbox-img" src="" alt="확대 이미지" draggable="false" />
         <button id="lightbox-next-btn" class="lightbox-nav-btn lightbox-next" title="다음 이미지 (→)">
           <i data-lucide="chevron-right" style="width: 22px; height: 22px;"></i>
         </button>
       </div>
 
       <div class="lightbox-footer">
-        <span>키보드 방향키(←, →)로 이동하거나 Esc 키로 닫을 수 있습니다.</span>
+        <span>휠 스크롤(확대/축소) · 드래그(이동) · 더블클릭(초기화) · 방향키(←, →) · Esc(닫기)</span>
       </div>
     </div>
   </div>
@@ -618,6 +634,15 @@
     let currentGalleryImages = [];
     let currentLightboxIndex = 0;
     let isLightboxOpen = false;
+
+    // Zoom & Pan State
+    let lightboxScale = 1.0;
+    let lightboxPanX = 0;
+    let lightboxPanY = 0;
+    let isLightboxPanning = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let isMouseDragged = false;
 
     document.addEventListener('DOMContentLoaded', async () => {
       // Lucide Icons
@@ -631,6 +656,8 @@
       const lightboxCloseBtn = document.getElementById('lightbox-close-btn');
       const lightboxPrevBtn = document.getElementById('lightbox-prev-btn');
       const lightboxNextBtn = document.getElementById('lightbox-next-btn');
+      const lightboxImg = document.getElementById('lightbox-img');
+      const lightboxBody = document.getElementById('lightbox-body');
 
       const handleClose = () => {
         if (window.electronAPI && window.electronAPI.updateNoticeClose) {
@@ -646,9 +673,23 @@
       if (lightboxPrevBtn) lightboxPrevBtn.addEventListener('click', prevLightboxImage);
       if (lightboxNextBtn) lightboxNextBtn.addEventListener('click', nextLightboxImage);
 
-      // Click outside image in lightbox to close
+      // Mouse Wheel Zoom
+      if (lightboxBody) {
+        lightboxBody.addEventListener('wheel', handleLightboxWheel, { passive: false });
+        lightboxBody.addEventListener('mousedown', handleLightboxMouseDown);
+        lightboxBody.addEventListener('dblclick', handleLightboxDoubleClick);
+      }
+
+      window.addEventListener('mousemove', handleLightboxMouseMove);
+      window.addEventListener('mouseup', handleLightboxMouseUp);
+
+      // Click outside image in lightbox to close (only if not dragged)
       if (lightboxModal) {
         lightboxModal.addEventListener('click', (e) => {
+          if (isMouseDragged) {
+            isMouseDragged = false;
+            return;
+          }
           if (e.target === lightboxModal || e.target.id === 'lightbox-body') {
             closeLightbox();
           }
@@ -685,6 +726,99 @@
         console.error('Failed to load update notice data:', err);
       }
     });
+
+    // ── Zoom & Pan Handlers ──
+    function handleLightboxWheel(e) {
+      if (!isLightboxOpen) return;
+      e.preventDefault();
+
+      const zoomFactor = 0.2;
+      const prevScale = lightboxScale;
+
+      if (e.deltaY < 0) {
+        // Zoom In (up to 4.0x)
+        lightboxScale = Math.min(4.0, lightboxScale + zoomFactor);
+      } else {
+        // Zoom Out (down to 1.0x)
+        lightboxScale = Math.max(1.0, lightboxScale - zoomFactor);
+      }
+
+      if (lightboxScale === 1.0) {
+        lightboxPanX = 0;
+        lightboxPanY = 0;
+      }
+
+      updateLightboxTransform(true);
+    }
+
+    function handleLightboxMouseDown(e) {
+      if (!isLightboxOpen || e.button !== 0) return;
+      if (lightboxScale <= 1.0) return; // No pan needed at 1.0x
+
+      isLightboxPanning = true;
+      isMouseDragged = false;
+      panStartX = e.clientX - lightboxPanX;
+      panStartY = e.clientY - lightboxPanY;
+      e.preventDefault();
+      updateLightboxTransform(false);
+    }
+
+    function handleLightboxMouseMove(e) {
+      if (!isLightboxPanning) return;
+      isMouseDragged = true;
+      lightboxPanX = e.clientX - panStartX;
+      lightboxPanY = e.clientY - panStartY;
+      updateLightboxTransform(false);
+    }
+
+    function handleLightboxMouseUp() {
+      if (isLightboxPanning) {
+        isLightboxPanning = false;
+        updateLightboxTransform(true);
+      }
+    }
+
+    function handleLightboxDoubleClick(e) {
+      if (!isLightboxOpen) return;
+      e.preventDefault();
+
+      if (lightboxScale > 1.0) {
+        resetLightboxZoom();
+      } else {
+        lightboxScale = 2.0;
+        lightboxPanX = 0;
+        lightboxPanY = 0;
+        updateLightboxTransform(true);
+      }
+    }
+
+    function resetLightboxZoom() {
+      lightboxScale = 1.0;
+      lightboxPanX = 0;
+      lightboxPanY = 0;
+      isLightboxPanning = false;
+      isMouseDragged = false;
+      updateLightboxTransform(false);
+    }
+
+    function updateLightboxTransform(animate = true) {
+      const img = document.getElementById('lightbox-img');
+      const badge = document.getElementById('lightbox-zoom-badge');
+      if (!img) return;
+
+      img.style.transition = animate ? 'transform 0.15s ease-out' : 'none';
+      img.style.transform = `translate(${lightboxPanX}px, ${lightboxPanY}px) scale(${lightboxScale})`;
+      img.style.cursor = lightboxScale > 1.0 ? (isLightboxPanning ? 'grabbing' : 'grab') : 'default';
+
+      if (badge) {
+        if (lightboxScale > 1.0) {
+          badge.textContent = `${Math.round(lightboxScale * 100)}%`;
+          badge.style.display = 'inline-block';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+    }
 
     function renderNotice(data) {
       if (data.version) {
@@ -823,6 +957,7 @@
     function openLightbox(index) {
       if (!currentGalleryImages || currentGalleryImages.length === 0) return;
       currentLightboxIndex = Math.max(0, Math.min(index, currentGalleryImages.length - 1));
+      resetLightboxZoom();
       updateLightboxDisplay();
 
       const modal = document.getElementById('lightbox-modal');
@@ -859,12 +994,14 @@
     function prevLightboxImage() {
       if (currentGalleryImages.length <= 1) return;
       currentLightboxIndex = (currentLightboxIndex - 1 + currentGalleryImages.length) % currentGalleryImages.length;
+      resetLightboxZoom();
       updateLightboxDisplay();
     }
 
     function nextLightboxImage() {
       if (currentGalleryImages.length <= 1) return;
       currentLightboxIndex = (currentLightboxIndex + 1) % currentGalleryImages.length;
+      resetLightboxZoom();
       updateLightboxDisplay();
     }
 
@@ -873,6 +1010,7 @@
       if (modal) {
         modal.classList.remove('active');
         isLightboxOpen = false;
+        resetLightboxZoom();
       }
     }
   </script>
