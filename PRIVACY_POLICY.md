@@ -46,6 +46,7 @@ TW-Overlay의 Google API 사용은 **[Google API 서비스 사용자 데이터 �
 ---
 
 ## 6. 문의처
-개인정보 보호와 관련된 문의사항이나 요청은 아래의 공식 GitHub 저장소를 통해 문의해 주시기 바랍니다.
+개인정보 보호와 관련된 문의사항이나 건의사항은 아래의 공식 창구를 통해 문의해 주시기 바랍니다.
 
+* **버그 제보 & 개선 제안 설문**: [https://forms.gle/n5u4shgfF6unQR8N6](https://forms.gle/n5u4shgfF6unQR8N6)
 * **GitHub 이슈**: [https://github.com/twliker/tw-overlay/issues](https://github.com/twliker/tw-overlay/issues)
