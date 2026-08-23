@@ -10,6 +10,7 @@
     "only-dev": "electron . --dev",
     "dev": "npm run build && electron . --dev",
     "dist": "npm run build && electron-builder --win",
+    "dist:appx": "npm run build && electron-builder --win appx",
     "postinstall": "electron-builder install-app-deps",
     "parse-equipment": "npm run build-tools && node dist-tools/parse-equipment.js",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
@@ -40,6 +41,15 @@
       ],
       "icon": "src/icons/icon.ico",
       "requestedExecutionLevel": "requireAdministrator"
+    },
+    "appx": {
+      "applicationId": "twOverlay",
+      "identityName": "FilbertLab.TW-Overlay",
+      "publisher": "CN=6BAF7511-7890-43A4-8630-498F620A5370",
+      "publisherDisplayName": "FilbertLab",
+      "displayName": "TW-Overlay",
+      "backgroundColor": "#0b0f19",
+      "artifactName": "${productName}-${version}.${ext}"
     },
     "nsis": {
       "oneClick": true,
