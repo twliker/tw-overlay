@@ -3,145 +3,333 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TW-Overlay 개인정보처리방침 (Privacy Policy)</title>
+  <title>TW-Overlay - 테일즈위버 올인원 게임 오버레이</title>
+  <meta name="description" content="테일즈위버 모험가를 위한 스마트 숙제 체크리스트, Google Drive 클라우드 동기화, 실시간 채팅 & 득템 알림 오버레이 도구">
   <style>
     :root {
-      --bg-color: #0f172a;
-      --card-bg: #1e293b;
+      --bg-color: #0b0f19;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --accent: #38bdf8;
+      --accent-purple: #a855f7;
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
-      --accent: #38bdf8;
-      --border: rgba(255, 255, 255, 0.1);
     }
+    * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background-color: var(--bg-color);
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg-color) 70%);
       color: var(--text-main);
-      line-height: 1.7;
       margin: 0;
-      padding: 40px 20px;
+      padding: 0;
+      line-height: 1.6;
+      min-height: 100vh;
     }
     .container {
-      max-width: 800px;
+      max-width: 1000px;
       margin: 0 auto;
-      background: var(--card-bg);
-      padding: 40px;
-      border-radius: 16px;
-      border: 1px solid var(--border);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      padding: 40px 20px 80px;
     }
-    h1 {
-      color: var(--accent);
-      font-size: 28px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 16px;
-      margin-top: 0;
+    /* 네비게이션 */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 40px;
     }
-    h2 {
-      color: #60a5fa;
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
       font-size: 20px;
-      margin-top: 32px;
-      border-left: 4px solid var(--accent);
-      padding-left: 12px;
-    }
-    p, li {
-      color: var(--text-muted);
-      font-size: 15px;
-    }
-    strong {
+      font-weight: 800;
       color: var(--text-main);
+      text-decoration: none;
     }
-    ul {
-      padding-left: 20px;
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
     }
-    li {
-      margin-bottom: 8px;
+    .nav-links {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--accent);
+    }
+    .btn-github {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--card-border);
+      padding: 8px 16px;
+      border-radius: 10px;
+      color: var(--text-main) !important;
+      transition: background 0.2s;
+    }
+    .btn-github:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 40px 0 60px;
     }
     .badge {
-      display: inline-block;
-      padding: 4px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
       background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
       color: var(--accent);
-      border-radius: 6px;
+      border-radius: 20px;
       font-size: 13px;
-      font-weight: bold;
-      margin-bottom: 20px;
+      font-weight: 700;
+      margin-bottom: 24px;
     }
-    .notice-box {
-      background: rgba(56, 189, 248, 0.08);
-      border: 1px solid rgba(56, 189, 248, 0.2);
+    .hero h1 {
+      font-size: 44px;
+      font-weight: 900;
+      line-height: 1.2;
+      margin: 0 0 20px;
+      background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 680px;
+      margin: 0 auto 36px;
+    }
+    .cta-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #fff;
+      padding: 14px 28px;
       border-radius: 12px;
-      padding: 16px 20px;
-      margin: 24px 0;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.3);
+      transition: transform 0.2s, box-shadow 0.2s;
     }
-    .notice-box p {
-      color: #bae6fd;
-      margin: 0;
-      font-size: 14px;
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 15px 30px rgba(37, 99, 235, 0.4);
     }
-    footer {
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 14px 24px;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Features Grid */
+    .features-section {
       margin-top: 40px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
+    }
+    .section-title {
       text-align: center;
+      font-size: 26px;
+      font-weight: 800;
+      margin-bottom: 36px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 28px;
+      backdrop-filter: blur(12px);
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+    .card-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+      display: inline-block;
+      padding: 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0 0 10px;
+      color: var(--text-main);
+    }
+    .card p {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    /* Google Sync Callout */
+    .cloud-callout {
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(99, 102, 241, 0.15));
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 20px;
+      padding: 32px;
+      margin-top: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .cloud-callout-text h3 {
+      font-size: 20px;
+      font-weight: 800;
+      margin: 0 0 8px;
+      color: #bae6fd;
+    }
+    .cloud-callout-text p {
+      font-size: 14px;
+      color: #e0f2fe;
+      margin: 0;
+      max-width: 600px;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 80px;
+      padding-top: 30px;
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
       font-size: 13px;
       color: #64748b;
+    }
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .footer-links {
+      display: flex;
+      gap: 20px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="badge">TW-Overlay Official Privacy Policy</div>
-    <h1>개인정보처리방침 (Privacy Policy)</h1>
-    <p><strong>시행일자</strong>: 2026년 8월 24일</p>
+    <!-- 네비게이션 -->
+    <nav>
+      <a href="./" class="logo">
+        <div class="logo-icon">🍊</div>
+        <span>TW-Overlay</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">주요 기능</a>
+        <a href="./privacy/">개인정보처리방침</a>
+        <a href="https://github.com/twliker/tw-overlay" target="_blank" class="btn-github">GitHub</a>
+      </div>
+    </nav>
 
-    <div class="notice-box">
-      <p>💡 <strong>요약</strong>: <strong>TW-Overlay</strong>는 사용자의 개인정보를 외부 서버에 수집·저장하지 않으며, 클라우드 동기화 기능 사용 시 모든 데이터는 사용자의 개인 <strong>Google Drive 전용 숨김 폴더(AppData)</strong>에만 안전하게 보관됩니다.</p>
+    <!-- Hero 섹션 -->
+    <header class="hero">
+      <div class="badge">✨ 테일즈위버 올인원 스마트 오버레이 v2.6.9</div>
+      <h1>게임에만 온전히 집중하세요<br>숙제와 정보는 오버레이가 챙겨드립니다</h1>
+      <p>일일/주간 숙제 체크리스트 자동 리셋부터 Google Drive 클라우드 동기화, 실시간 채팅 & 득템 알림 HUD까지 테일즈위버 플레이어를 위한 필수 도구입니다.</p>
+      <div class="cta-buttons">
+        <a href="https://github.com/twliker/tw-overlay/releases" target="_blank" class="btn-primary">무료 다운로드 (GitHub)</a>
+        <a href="./privacy/" class="btn-secondary">🔒 개인정보처리방침</a>
+      </div>
+    </header>
+
+    <!-- Google Drive Sync 하이라이트 -->
+    <div class="cloud-callout">
+      <div class="cloud-callout-text">
+        <h3>☁️ Google Drive AppData 안전 동기화</h3>
+        <p>집 PC, 노트북, 서브 컴퓨터 어디서든 구글 계정으로 로그인만 하면 나의 숙제 완료 상태와 캐릭터 설정이 안전하게 자동 동기화됩니다. (개인 드라이브 격리 저장으로 100% 안전 보장)</p>
+      </div>
+      <a href="./privacy/" class="btn-secondary" style="background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.2);">동기화 보안 정책 보기</a>
     </div>
 
-    <h2>1. 수집하는 개인정보 항목 및 수집 방법</h2>
-    <p>TW-Overlay는 별도의 회원가입 없이 사용할 수 있는 오픈소스 데스크톱 애플리케이션입니다. 구글 드라이브 동기화 기능을 사용할 때에 한하여 다음과 같은 정보가 활용됩니다:</p>
-    <ul>
-      <li><strong>Google 계정 이메일 주소</strong>: 사용자가 연동된 계정을 식별하고 앱 내에 표시하기 위한 목적으로만 사용됩니다.</li>
-      <li><strong>인게임 설정 및 숙제 진행 데이터</strong>: 일일/주간 숙제 체크리스트 완료 상태, 캐릭터 목록, 득템/단어 알림 키워드, 단축키 설정 등.</li>
-    </ul>
+    <!-- 주요 기능 그리드 -->
+    <section class="features-section" id="features">
+      <h2 class="section-title">주요 핵심 기능</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="card-icon">📋</div>
+          <h3>스마트 숙제 체크리스트</h3>
+          <p>일일(06시), 주간(월요일), 월간 리셋 주기에 맞춰 캐릭터별 숙제 진행 상황을 자동으로 관리하고 직관적으로 체크합니다.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">💬</div>
+          <h3>실시간 채팅 & 득템 알림 HUD</h3>
+          <p>게임 화면 위에 반투명 Glassmorphism 오버레이로 띄워, 중요한 득템, 단어 알림, 외치기 로그를 게임 중 놓치지 않습니다.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📊</div>
+          <h3>다이어리 & 활동 통계 요약</h3>
+          <p>일일 사냥 경험치, 획득한 SEED, 엘소 포인트와 보스 클리어 기록을 자동으로 수집하여 보기 쉽게 요약해 줍니다.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⏱️</div>
+          <h3>버프 타이머 & 보스 시간표</h3>
+          <p>경험치 군고구마, 이자벨 등 주요 버프의 남은 지속 시간을 추적하고 보스 젠 시간을 카운트다운합니다.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🛡️</div>
+          <h3>개인정보 보호 & 오픈소스</h3>
+          <p>모든 데이터는 사용자 로컬 PC 또는 본인 구글 드라이브에만 저장되며, 별도의 회원가입이나 외부 서버 수집이 일체 없습니다.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>최적화된 가벼운 성능</h3>
+          <p>게임 프레임 드랍이 없도록 비동기 파싱과 가벼운 Electron 구조로 설계되어 쾌적하게 동작합니다.</p>
+        </div>
+      </div>
+    </section>
 
-    <h2>2. 개인정보의 이용 목적</h2>
-    <p>수집·활용되는 정보는 다음의 목적 이외의 용도로는 사용되지 않습니다:</p>
-    <ul>
-      <li>다중 PC 환경(집 PC, 노트북, PC방 등) 간 숙제 체크리스트 및 사용자 환경설정 동기화</li>
-      <li>사용자 본인의 구글 드라이브에 안전한 백업 파일 생성 및 복원</li>
-    </ul>
-
-    <h2>3. 개인정보의 보관 및 제3자 제공</h2>
-    <ul>
-      <li><strong>외부 서버 미전송</strong>: TW-Overlay는 자체 데이터베이스나 중앙 서버를 운영하지 않습니다. 모든 동기화 데이터는 사용자 본인의 개인 Google Drive 내 앱 전용 격리 공간(<code>appDataFolder</code>)에만 직접 저장됩니다.</li>
-      <li><strong>제3자 제공 없음</strong>: 개발자를 포함한 어떠한 제3자에게도 사용자의 개인정보나 인게임 데이터를 제공, 공유, 판매하지 않습니다.</li>
-    </ul>
-
-    <h2>4. Google API 사용자 데이터 정책 준수 (Google API Services User Data Policy)</h2>
-    <p>TW-Overlay의 Google API 사용은 <strong><a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" style="color: #38bdf8;">Google API 서비스 사용자 데이터 정책</a></strong>(Limited Use 요건 포함)을 엄격히 준수합니다:</p>
-    <ul>
-      <li>요청하는 권한(<code>.../auth/drive.appdata</code>)은 오직 TW-Overlay가 생성한 설정 파일에만 접근하며, 사용자의 일반 Google Drive 파일(사진, 문서 등)에는 접근하지 않습니다.</li>
-      <li>사용자의 구글 데이터를 AI 모델 훈련 또는 광고 타겟팅 등의 다른 용도로 일체 사용하지 않습니다.</li>
-    </ul>
-
-    <h2>5. 개인정보의 파기 및 권한 철회 방법</h2>
-    <p>사용자는 언제든지 데이터 동기화를 중단하고 개인정보 및 저장된 데이터를 영구 파기할 수 있습니다:</p>
-    <ul>
-      <li><strong>앱 내 연동 해제</strong>: 설정 > 데이터 관리에서 <code>[연동 해제]</code> 버튼을 클릭하면 로컬에 저장된 암호화 인증 토큰이 즉시 영구 삭제됩니다.</li>
-      <li><strong>Google 계정에서 권한 삭제</strong>: <a href="https://myaccount.google.com/permissions" target="_blank" style="color: #38bdf8;">Google 계정 권한 관리 페이지</a>에서 언제든지 TW-Overlay의 접근 권한을 철회할 수 있습니다.</li>
-      <li><strong>클라우드 데이터 영구 삭제</strong>: Google Drive 웹 접속 > 우측 상단 [설정] ⚙️ > [앱 관리] > TW-Overlay > [숨겨진 앱 데이터 삭제]를 선택하여 드라이브 내 동기화 파일을 영구 삭제할 수 있습니다.</li>
-    </ul>
-
-    <h2>6. 문의처</h2>
-    <p>개인정보 보호와 관련된 문의사항이나 요청은 아래의 공식 GitHub 저장소를 통해 문의해 주시기 바랍니다.</p>
-    <ul>
-      <li><strong>GitHub 이슈</strong>: <a href="https://github.com/twliker/tw-overlay/issues" target="_blank" style="color: #38bdf8;">https://github.com/twliker/tw-overlay/issues</a></li>
-    </ul>
-
+    <!-- 푸터 -->
     <footer>
-      &copy; 2026 TW-Overlay. All rights reserved.
+      <div>
+        &copy; 2026 TW-Overlay. Created by <a href="https://github.com/twliker" target="_blank">twliker</a>.<br>
+        <span style="font-size: 11px; color: #475569;">TW-Overlay는 넥슨과 무관한 비공식 팬 제작 도구이며, 테일즈위버의 저작권은 ㈜넥슨코리아에 있습니다.</span>
+      </div>
+      <div class="footer-links">
+        <a href="./privacy/">개인정보처리방침 (Privacy Policy)</a>
+        <a href="https://github.com/twliker/tw-overlay/issues" target="_blank">버그 제보 & 문의</a>
+      </div>
     </footer>
   </div>
 </body>
