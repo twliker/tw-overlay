@@ -2216,6 +2216,16 @@
     function recoverHudPosition(element, position) {
       const left = Number(position?.left);
       const bottom = Number(position?.bottom);
+
+      // 뷰포트 크기가 아직 게임 해상도로 렌더링되지 않은 초기화/과도기(0x0 또는 축소 상태)인 경우 복구 검사를 건너뛰고 기존 좌표를 그대로 유지
+      if (window.innerWidth < 400 || window.innerHeight < 300) {
+        return {
+          left: Number.isFinite(left) ? left : 200,
+          bottom: Number.isFinite(bottom) ? bottom : 0,
+          recovered: false,
+        };
+      }
+
       const size = measureHud(element);
       const width = Math.max(1, size.width);
       const height = Math.max(1, size.height);
@@ -3273,6 +3283,31 @@
       });
     }
 
+    function refreshXpStats() {
+      if (window.electronAPI && window.electronAPI.getXpStats) {
+        window.electronAPI.getXpStats().then(stats => {
+          if (stats) {
+            if (stats.startTime !== undefined) {
+              sessionStartTime = stats.startTime;
+            }
+            if (stats.accumulatedTime !== undefined) {
+              sessionAccumulatedTime = stats.accumulatedTime;
+            }
+            if (stats.isActive !== undefined) {
+              sessionIsActive = stats.isActive;
+            }
+            const totalEl = document.getElementById('xp-total');
+            const epmEl = document.getElementById('xp-epm');
+            const killsEl = document.getElementById('xp-kills');
+            if (totalEl) totalEl.innerText = formatXP(stats.total || 0);
+            if (epmEl) epmEl.innerText = formatXP(stats.epm || 0);
+            if (killsEl) killsEl.innerText = (stats.kills || 0).toLocaleString();
+            updateXpElapsedDisplay();
+          }
+        }).catch(err => console.error('Failed to get initial XP stats:', err));
+      }
+    }
+
     window.onload = () => {
       refreshIcons();
       if (window.electronAPI?.DEFAULT_CONFIG) {
@@ -3282,28 +3317,6 @@
         window.electronAPI.abandonedGetState().then(state => {
           updateAbandonedUI(state);
         }).catch(err => console.error('Failed to get abandoned state:', err));
-      }
-
-      function refreshXpStats() {
-        if (window.electronAPI && window.electronAPI.getXpStats) {
-          window.electronAPI.getXpStats().then(stats => {
-            if (stats) {
-              if (stats.startTime !== undefined) {
-                sessionStartTime = stats.startTime;
-              }
-              if (stats.accumulatedTime !== undefined) {
-                sessionAccumulatedTime = stats.accumulatedTime;
-              }
-              if (stats.isActive !== undefined) {
-                sessionIsActive = stats.isActive;
-              }
-              document.getElementById('xp-total').innerText = formatXP(stats.total || 0);
-              document.getElementById('xp-epm').innerText = formatXP(stats.epm || 0);
-              document.getElementById('xp-kills').innerText = (stats.kills || 0).toLocaleString();
-              updateXpElapsedDisplay();
-            }
-          }).catch(err => console.error('Failed to get initial XP stats:', err));
-        }
       }
 
       // 경험치 초기 데이터 가져오기 (경과 시간 시작 시점 동기화)

@@ -163,22 +163,26 @@ export function restoreAndFocusGameWindow(): boolean {
         }
         if (!cachedHwnd) return false;
 
-        // Alt 키 트릭 (SetForegroundWindow 제약 우회)
-        if (win32.keybd_event) {
-            win32.keybd_event(win32.VK_MENU, 0, 0, 0);
-            win32.keybd_event(win32.VK_MENU, 0, win32.KEYEVENTF_KEYUP, 0);
-        }
-
         if (win32.IsIconic && win32.IsIconic(cachedHwnd)) {
             if (win32.ShowWindow) {
                 win32.ShowWindow(cachedHwnd, win32.SW_RESTORE);
             }
         }
+        if (win32.BringWindowToTop) {
+            win32.BringWindowToTop(cachedHwnd);
+        }
         if (win32.SetForegroundWindow) {
             win32.SetForegroundWindow(cachedHwnd);
         }
-        if (win32.BringWindowToTop) {
-            win32.BringWindowToTop(cachedHwnd);
+
+        // 일반 포커스 실패 시에만 최후 수단으로 Alt 키 트릭 시도
+        const fgHwnd = parseHwnd(win32.GetForegroundWindow());
+        if (fgHwnd !== cachedHwnd && win32.keybd_event) {
+            win32.keybd_event(win32.VK_MENU, 0, 0, 0);
+            win32.keybd_event(win32.VK_MENU, 0, win32.KEYEVENTF_KEYUP, 0);
+            if (win32.SetForegroundWindow) {
+                win32.SetForegroundWindow(cachedHwnd);
+            }
         }
         return true;
     } catch (e) {
@@ -293,18 +297,26 @@ export function promoteWindows(gameHwndStr: string | undefined, electronHwnds: s
 
         isFocused = isGameFocused || isOurAppFocused;
 
+        // 다른 일반 앱(크롬, 디스코드 등)이 포커스를 가진 상태라면 오버레이가 외부 앱 위로 튀어나오지 않도록 절대 Z-Order를 승격하지 않음
+        if (!isFocused && !force) {
+            return { isGameOrAppFocused: false };
+        }
+
         // 항상 샌드위치 배치: 게임 창 바로 앞(Z+1)에 오버레이 배치
         const prevHwnd = parseHwnd(win32.GetWindow(gameHwnd, win32.GW_HWNDPREV));
-        const isAlreadySandwiched = electronHwndBigInts.some(h => h === prevHwnd);
+        const lastElectronHwnd = electronHwndBigInts[electronHwndBigInts.length - 1];
+
+        // 스택의 가장 바닥 창(gameOverlay 등)이 이미 게임 창 바로 앞(prevHwnd)에 정렬되어 있는지 확인
+        const isAlreadySandwiched = (prevHwnd !== 0n && prevHwnd === lastElectronHwnd);
 
         if (force || !isAlreadySandwiched) {
-            if (prevHwnd !== 0n) {
-                let hwndInsertAfter = prevHwnd;
-                for (let i = 0; i < electronHwndBigInts.length; i++) {
-                    const hBigInt = electronHwndBigInts[i];
-                    win32.SetWindowPos(hBigInt, hwndInsertAfter, 0, 0, 0, 0, flags);
-                    hwndInsertAfter = hBigInt;
-                }
+            let hwndInsertAfter: bigint = prevHwnd;
+            // 게임이 Non-Topmost 최상위여서 바로 앞 일반 창이 없는 경우(prevHwnd === 0n),
+            // HWND_TOP(0n)을 기준점으로 오버레이들을 게임 창 위로 순차 배치
+            for (let i = 0; i < electronHwndBigInts.length; i++) {
+                const hBigInt = electronHwndBigInts[i];
+                win32.SetWindowPos(hBigInt, hwndInsertAfter, 0, 0, 0, 0, flags);
+                hwndInsertAfter = hBigInt;
             }
         }
 
@@ -369,12 +381,25 @@ export function focusGameWindow(): void {
         const fgHwnd = parseHwnd(win32.GetForegroundWindow());
         if (fgHwnd === cachedHwnd) return;
 
-        // Alt 키 트릭 (SetForegroundWindow 제약 우회)
-        win32.keybd_event(win32.VK_MENU, 0, 0, 0);
-        win32.keybd_event(win32.VK_MENU, 0, win32.KEYEVENTF_KEYUP, 0);
+        if (win32.ShowWindow) {
+            win32.ShowWindow(cachedHwnd, win32.SW_RESTORE);
+        }
+        if (win32.BringWindowToTop) {
+            win32.BringWindowToTop(cachedHwnd);
+        }
+        if (win32.SetForegroundWindow) {
+            win32.SetForegroundWindow(cachedHwnd);
+        }
 
-        win32.ShowWindow(cachedHwnd, win32.SW_RESTORE);
-        win32.SetForegroundWindow(cachedHwnd);
+        // 일반 포커스 실패 시에만 최후 수단으로 Alt 키 트릭 시도
+        const newFgHwnd = parseHwnd(win32.GetForegroundWindow());
+        if (newFgHwnd !== cachedHwnd && win32.keybd_event) {
+            win32.keybd_event(win32.VK_MENU, 0, 0, 0);
+            win32.keybd_event(win32.VK_MENU, 0, win32.KEYEVENTF_KEYUP, 0);
+            if (win32.SetForegroundWindow) {
+                win32.SetForegroundWindow(cachedHwnd);
+            }
+        }
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRACKER] Focus failed: ${msg}`);

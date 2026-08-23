@@ -827,7 +827,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       equipmentSimulator: ['equipment-simulator.html', 960, 820, false],
       stopwatch: ['stopwatch.html', 870, 750, false],
       chatOverlay: ['chat-overlay.html', 450, 400, true], chatOverlaySub: ['chat-overlay.html', 450, 400, true],
-      chatOverlaySub2: ['chat-overlay.html', 450, 400, true], dock: ['dock.html', 800, 380, false],
+      chatOverlaySub2: ['chat-overlay.html', 450, 400, true], dock: ['dock.html', 800, 380, true],
     },
     '관리 창의 HTML·기본 크기·작업 표시줄 정책이 변경되었습니다.',
   );

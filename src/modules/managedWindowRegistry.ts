@@ -53,7 +53,7 @@ const STATIC_WINDOW_DEFINITIONS: readonly StaticWindowDefinition[] = [
   { key: 'chatOverlay', html: 'chat-overlay.html', width: 450, height: 400, skipTaskbar: true },
   { key: 'chatOverlaySub', html: 'chat-overlay.html', width: 450, height: 400, skipTaskbar: true },
   { key: 'chatOverlaySub2', html: 'chat-overlay.html', width: 450, height: 400, skipTaskbar: true },
-  { key: 'dock', html: 'dock.html', width: 800, height: 380 },
+  { key: 'dock', html: 'dock.html', width: 800, height: 380, skipTaskbar: true },
 ];
 
 /** 새 런타임 상태를 가진 창 레지스트리를 생성합니다. */

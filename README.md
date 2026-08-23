@@ -5,19 +5,20 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Version](https://img.shields.io/badge/version-2.6.6-violet.svg)
+![Version](https://img.shields.io/badge/version-2.6.8-violet.svg)
 
 ## 📸 스크린샷
 
 ![App Screenshot](./screenshot/screen1.png)
 
-## 🚀 최신 버전: v2.6.6 (2026.08.19)
-이번 업데이트는 채팅 오버레이 제외 필터 추가 및 최소 세로 크기 완화, 숫자 UI tabular-nums 적용, 앱 정보 넥슨 저작권 고지가 추가된 **v2.6.6** 패치 업데이트입니다.
+## 🚀 최신 버전: [Mandatory Update] v2.6.8 (2026.08.23)
+이번 업데이트는 게임 창 활성화 시 오버레이가 게임 뒤로 가려지던 Z-Order 은폐 버그 해결, 재실행 시 도핑 HUD 위치 보존, 창모드 전체화면 및 독모드 작업표시줄 간섭 완벽 해소가 적용된 **v2.6.8** 필수 안정화 업데이트입니다.
 
-- **💬 채팅 오버레이 제외 필터 기능 추가** (특정 키워드가 포함된 채팅을 오버레이에서 숨기는 블랙리스트 필터, 최소 5글자 이상, 즉시 적용)
-- **📏 채팅 오버레이 최소 세로 크기 완화** (200px → 80px로 더 얇게 조절 가능)
-- **🔢 숫자 UI 흔들림 방지 개선** (전역 및 팝업 화면에 `tabular-nums` 적용으로 숫자 자릿수 변경 시 레이아웃 흔들림 제거)
-- **⚖️ 앱 정보 저작권 고지 추가** (테일즈위버 리소스 넥슨 저작권 고지 추가)
+- **🛡️ 게임 화면 클릭/포커스 시 오버레이 Z-Order 은폐 현상 완전 해결 (에토스 기믹 화살표 및 경험치 HUD 정상 표시)**
+- **🧪 게임 재실행 시 도핑/경험치/어벤던로드 HUD 위치 초기화 방지 (초기 뷰포트 안전 가드 적용)**
+- **🖥️ 창모드 전체화면 플레이 중 작업표시줄 노출 간섭 제거 (엄격한 Z-Order 멱등성 및 불필요한 SetWindowPos 차단)**
+- **⚓ 독모드(Dock Mode) 토글(`Ctrl + Shift + D`) 시 작업표시줄 팝업 방지 (`skipTaskbar: true` 적용)**
+- **⚡ 경험치 HUD 세션 단축키(`Ctrl + Shift + Z`) 실행 시 스크립트 스코프 오류 수정**
 
 *(이전 버전의 변경 사항은 [release-note](release-note/) 폴더의 릴리즈 노트를 참조해 주세요.)*
 
@@ -72,7 +73,7 @@
 ## 🚀 시작하기 (테일즈위버 오버레이 프로그램 설치 및 다운로드)
 
 ### 설치 방법
-[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-2.6.7.exe` 파일을 다운로드하여 실행하세요.
+[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-2.6.8.exe` 파일을 다운로드하여 실행하세요.
 
 ### 단축키 및 팁
 - **단축키:** 
