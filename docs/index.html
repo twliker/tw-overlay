@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TW-Overlay - 테일즈위버 올인원 게임 오버레이</title>
   <meta name="description" content="테일즈위버 모험가를 위한 스마트 숙제 체크리스트, Google Drive 클라우드 동기화, 실시간 채팅 & 득템 알림 오버레이 도구">
+  <link rel="icon" type="image/png" href="./icon.png">
   <style>
     :root {
       --bg-color: #0b0f19;
@@ -46,15 +47,11 @@
       color: var(--text-main);
       text-decoration: none;
     }
-    .logo-icon {
-      width: 36px;
-      height: 36px;
-      background: linear-gradient(135deg, #38bdf8, #818cf8);
+    .logo-img {
+      width: 40px;
+      height: 40px;
       border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     }
     .nav-links {
       display: flex;
@@ -253,7 +250,7 @@
     <!-- 네비게이션 -->
     <nav>
       <a href="./" class="logo">
-        <div class="logo-icon">🍊</div>
+        <img src="./icon.png" alt="TW-Overlay Logo" class="logo-img">
         <span>TW-Overlay</span>
       </a>
       <div class="nav-links">
