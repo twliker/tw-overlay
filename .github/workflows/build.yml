@@ -33,13 +33,15 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=critical
 
-      - name: Inject Analytics Secrets
+      - name: Inject Secrets
         env:
           GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
           GA_API_SECRET: ${{ secrets.GA_API_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         shell: bash
         run: |
-          echo "{\"MEASUREMENT_ID\": \"$GA_MEASUREMENT_ID\", \"API_SECRET\": \"$GA_API_SECRET\"}" > dist/env.json
+          echo "{\"MEASUREMENT_ID\": \"$GA_MEASUREMENT_ID\", \"API_SECRET\": \"$GA_API_SECRET\", \"GOOGLE_CLIENT_ID\": \"$GOOGLE_CLIENT_ID\", \"GOOGLE_CLIENT_SECRET\": \"$GOOGLE_CLIENT_SECRET\"}" > dist/env.json
 
       - name: Package Electron app
         run: npm exec electron-builder -- --win --publish never
