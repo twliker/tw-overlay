@@ -5,6 +5,7 @@
 ## 기준 문서
 
 - 프로젝트 개요, 기술 스택, 디렉터리 역할과 핵심 실행 흐름은 [PROJECT_GUIDE.md](./PROJECT_GUIDE.md)를 기준으로 합니다.
+- 채팅 파싱 및 시스템 메시지 색상 처리 파이프라인은 [CHAT_SYSTEM_COLOR_PIPELINE.md](./CHAT_SYSTEM_COLOR_PIPELINE.md)를 기준으로 합니다.
 - UI를 추가하거나 변경하기 전에 반드시 [DESIGN_TOKENS.md](./DESIGN_TOKENS.md)를 읽고 기존 색상, 글꼴, 간격, 창 크기, Glassmorphism 규격을 유지합니다.
 - 버전 변경, 설치 파일 생성, 태그 및 GitHub Release 작업은 [release_workflow.md](./release_workflow.md)를 따릅니다.
 - `.gemini`는 과거 조사 자료 보관용이며 개발 규칙과 릴리즈 기준의 원본으로 사용하지 않습니다.

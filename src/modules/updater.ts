@@ -9,27 +9,96 @@ import * as path from 'path';
 
 let isSetup = false;
 let isMandatory = false;
+let isFeedSwitched = false;
 
 import type { UpdateStatusInfo } from '../shared/types';
 
 let currentUpdateInfo: UpdateStatusInfo | null = null;
 
-/** 릴리즈 노트에서 [Mandatory Update] 태그 확인 */
-function checkMandatory(info: any): boolean {
-  const tag = '[Mandatory Update]';
-  // releaseName (릴리즈 제목) 확인
-  if (typeof info.releaseName === 'string' && info.releaseName.includes(tag)) {
-    return true;
-  }
-  // releaseNotes가 문자열인 경우 (단일 릴리즈 노트)
-  if (typeof info.releaseNotes === 'string' && info.releaseNotes.includes(tag)) {
-    return true;
-  }
-  // releaseNotes가 배열인 경우 (다중 릴리즈 노트 형식)
-  if (Array.isArray(info.releaseNotes)) {
-    return info.releaseNotes.some((n: any) => (n.note || '').includes(tag));
+/** 릴리즈 노트 및 텍스트에서 [Mandatory Update] 태그 확인 (대소문자/공백 무시) */
+export function hasMandatoryTag(text: unknown): boolean {
+  if (typeof text !== 'string') return false;
+  return /\[\s*mandatory\s+update\s*\]/i.test(text);
+}
+
+/** 릴리즈 정보에서 특정 릴리즈 항목의 태그 확인 */
+function isReleaseMandatory(item: any): boolean {
+  if (!item) return false;
+  if (typeof item === 'string') return hasMandatoryTag(item);
+  if (typeof item === 'object') {
+    return hasMandatoryTag(item.note) || hasMandatoryTag(item.title) || hasMandatoryTag(item.name) || hasMandatoryTag(item.releaseName);
   }
   return false;
+}
+
+export interface MandatoryReleaseTarget {
+  version: string;
+  tag: string;
+  note?: string;
+}
+
+/** 
+ * 현재 버전보다 상위 버전 목록 중 가장 최신의 강제 업데이트 릴리즈를 탐색
+ * (v1 사용자 환경에서 v2강제, v3강제, v4일반, v5강제, v6일반인 경우 -> v5 반환)
+ */
+export function findLatestMandatoryRelease(info: any, currentVersion?: string): MandatoryReleaseTarget | null {
+  if (!info) return null;
+
+  // 1. releaseNotes가 배열인 경우 (fullChangelog=true 상태로 최신 버전부터 역순 정렬됨)
+  if (Array.isArray(info.releaseNotes) && info.releaseNotes.length > 0) {
+    for (const item of info.releaseNotes) {
+      if (isReleaseMandatory(item)) {
+        const ver = (item.version || (item.tag ? String(item.tag).replace(/^v/i, '') : '') || info.version || '').trim();
+        const tag = item.tag || (ver ? (ver.startsWith('v') ? ver : `v${ver}`) : (info.version ? `v${info.version}` : ''));
+        return {
+          version: ver || info.version,
+          tag,
+          note: item.note || undefined
+        };
+      }
+    }
+  }
+
+  // 2. 단일 릴리즈 정보인 경우 (최신 릴리즈의 releaseName 또는 releaseNotes 검사)
+  if (hasMandatoryTag(info.releaseName) || (typeof info.releaseNotes === 'string' && hasMandatoryTag(info.releaseNotes))) {
+    const ver = String(info.version || '').trim();
+    const tag = info.tag || (ver ? (ver.startsWith('v') ? ver : `v${ver}`) : '');
+    return {
+      version: ver,
+      tag,
+      note: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined
+    };
+  }
+
+  return null;
+}
+
+/** 릴리즈 노트에서 [Mandatory Update] 태그 존재 여부 확인 */
+export function checkMandatory(info: any): boolean {
+  if (!info) return false;
+  return findLatestMandatoryRelease(info) !== null;
+}
+
+/** 릴리즈 노트(문자열 또는 배열)를 HTML UI 표시용 문자열로 안전하게 변환 */
+export function formatReleaseNotes(releaseNotes: any): string | undefined {
+  if (!releaseNotes) return undefined;
+  if (typeof releaseNotes === 'string') return releaseNotes;
+  if (Array.isArray(releaseNotes)) {
+    const formatted = releaseNotes
+      .map((item: any) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const title = item.version ? `<h3>v${item.version}</h3>` : '';
+          const note = item.note || '';
+          return title ? `${title}\n${note}` : note;
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n\n<hr class="border-white/10 my-3" />\n\n');
+    return formatted || undefined;
+  }
+  return String(releaseNotes);
 }
 
 /** 모든 관련 창에 업데이트 상태 전송 */
@@ -51,6 +120,17 @@ function broadcastStatus(data: UpdateStatusInfo) {
       splashWin.webContents.send('update-status', data);
     }
   });
+}
+
+function resetDefaultFeed() {
+  if (isFeedSwitched) {
+    isFeedSwitched = false;
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'twliker',
+      repo: 'tw-overlay'
+    });
+  }
 }
 
 export function setupUpdater(onReadyToLaunch?: () => void) {
@@ -84,6 +164,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
   }
 
   autoUpdater.autoDownload = false;
+  autoUpdater.fullChangelog = true; // 현재 버전부터 최신 버전 사이의 모든 릴리즈 노트 수집 활성화
 
   let updateCheckTimeout: NodeJS.Timeout | null = setTimeout(() => {
     log('[UPDATER] Update check timeout (5s). Launching main app.');
@@ -104,37 +185,80 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
   autoUpdater.on('update-available', (info) => {
     clearTimer();
     log(`Update available: ${info.version}`);
-    isMandatory = checkMandatory(info);
+
+    const latestMandatory = findLatestMandatoryRelease(info);
+    isMandatory = latestMandatory !== null;
 
     const cfg = config.load();
     const isAutoUpdateEnabled = cfg.autoUpdateEnabled !== false;
 
-    // CASE 1: 필수 업데이트 또는 자동 업데이트 활성화 상태 -> 스플래시 창에서 다운로드 진행 및 자동 설치
-    if (isMandatory || isAutoUpdateEnabled) {
-      log(`[AUTO_UPDATE] Starting download on splash for v${info.version} (mandatory=${isMandatory}, autoUpdate=${isAutoUpdateEnabled})`);
+    // CASE 1: 자동 업데이트 활성화 상태 -> 최신 버전으로 스플래시 창에서 다운로드 및 설치
+    if (isAutoUpdateEnabled) {
+      log(`[AUTO_UPDATE] Auto update enabled. Starting download on splash for latest v${info.version} (mandatory=${isMandatory})`);
 
-      // 스플래시 창 유지 및 잠금
       import('./windowManager').then(wm => wm.setMandatoryUpdateLock(true));
 
       broadcastStatus({
         state: isMandatory ? 'mandatory' : 'available',
         version: info.version,
         isMandatory,
-        releaseNotes: info.releaseNotes?.toString()
+        releaseNotes: formatReleaseNotes(info.releaseNotes)
       });
 
       autoUpdater.downloadUpdate();
       return;
     }
 
-    // CASE 2: 자동 업데이트 비활성화 상태 -> 스플래시 닫고 메인 앱 기동, 사이드바/설정에 레드닷만 표시
-    log(`[AUTO_UPDATE] Auto update disabled. Launching main app and displaying update badge for v${info.version}`);
+    // CASE 2: 자동 업데이트 비활성화 상태이지만, 상위 버전 중 강제 업데이트가 존재하는 경우
+    if (isMandatory && latestMandatory) {
+      log(`[AUTO_UPDATE] Auto update disabled, but mandatory release detected: v${latestMandatory.version} (latest is v${info.version})`);
+
+      // 강제 업데이트 타겟이 최신 버전과 다르고 아직 피드가 전환되지 않은 경우 -> 해당 강제 버전 피드로 전환 후 다운로드
+      if (latestMandatory.version !== info.version && !isFeedSwitched && latestMandatory.tag) {
+        log(`[AUTO_UPDATE] Switching update feed to target mandatory release ${latestMandatory.tag}`);
+        isFeedSwitched = true;
+
+        import('./windowManager').then(wm => wm.setMandatoryUpdateLock(true));
+
+        broadcastStatus({
+          state: 'mandatory',
+          version: latestMandatory.version,
+          isMandatory: true,
+          releaseNotes: formatReleaseNotes(latestMandatory.note || info.releaseNotes)
+        });
+
+        autoUpdater.setFeedURL({
+          provider: 'generic',
+          url: `https://github.com/twliker/tw-overlay/releases/download/${latestMandatory.tag}/`
+        });
+
+        autoUpdater.checkForUpdates();
+        return;
+      }
+
+      // 강제 업데이트 타겟이 현재 info 버전과 일치하거나 이미 피드가 전환된 경우 -> 바로 다운로드
+      log(`[AUTO_UPDATE] Starting mandatory download on splash for targeted v${info.version}`);
+      import('./windowManager').then(wm => wm.setMandatoryUpdateLock(true));
+
+      broadcastStatus({
+        state: 'mandatory',
+        version: info.version,
+        isMandatory: true,
+        releaseNotes: formatReleaseNotes(info.releaseNotes)
+      });
+
+      autoUpdater.downloadUpdate();
+      return;
+    }
+
+    // CASE 3: 자동 업데이트 비활성화 상태이며 강제 업데이트도 없음 -> 스플래시 닫고 메인 앱 기동, 사이드바/설정에 레드닷만 표시
+    log(`[AUTO_UPDATE] Auto update disabled and no mandatory update required. Launching main app for v${info.version}`);
 
     currentUpdateInfo = {
       state: 'available',
       version: info.version,
       isMandatory: false,
-      releaseNotes: info.releaseNotes?.toString()
+      releaseNotes: formatReleaseNotes(info.releaseNotes)
     };
 
     // 메인 앱 기동 (스플래시 창 닫힘)
@@ -146,7 +270,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
         state: 'available',
         version: info.version,
         isMandatory: false,
-        releaseNotes: info.releaseNotes?.toString()
+        releaseNotes: formatReleaseNotes(info.releaseNotes)
       });
     };
     setTimeout(sendUpdateBadge, 600);
@@ -170,6 +294,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
 
   autoUpdater.on('update-not-available', () => {
     clearTimer();
+    resetDefaultFeed();
     log('[UPDATER] Update not available. Current version is latest.');
     broadcastStatus({ state: 'latest' });
     setTimeout(() => {
@@ -179,6 +304,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
 
   autoUpdater.on('error', (err) => {
     clearTimer();
+    resetDefaultFeed();
     log(`Error in auto-updater: ${err}`);
     broadcastStatus({ state: 'error', message: err.message });
 
@@ -209,7 +335,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
       state: 'ready',
       version: info.version,
       isMandatory,
-      releaseNotes: info.releaseNotes?.toString()
+      releaseNotes: formatReleaseNotes(info.releaseNotes)
     });
     import('./windowManager').then(wm => {
       wm.getMainWindow()?.setProgressBar(-1);
@@ -248,6 +374,7 @@ export async function manualCheckForUpdate(mainWindow: BrowserWindow | null) {
   }
 
   try {
+    resetDefaultFeed();
     broadcastStatus({ state: 'checking' });
     await autoUpdater.checkForUpdates();
   } catch (err: unknown) {
@@ -260,6 +387,7 @@ export async function manualCheckForUpdate(mainWindow: BrowserWindow | null) {
 /** 업데이트 다운로드 시작 */
 export function startDownload() {
   log('Starting update download...');
+  resetDefaultFeed();
   autoUpdater.downloadUpdate();
 }
 

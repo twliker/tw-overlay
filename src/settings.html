@@ -632,6 +632,17 @@
                 </div>
                 <p class="text-xs text-slate-500 font-bold italic ml-1">* 마정석/보스 일지 기록 시 재생되는 소리의 크기입니다.</p>
               </div>
+
+              <div class="pt-6 border-t border-white/5">
+                <label
+                  class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
+                  <input type="checkbox" id="notify-when-game-closed-input" class="w-5 h-5 accent-purple-600">
+                  <div>
+                    <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">테일즈위버 게임이 꺼져도 알림 받기</span>
+                    <p class="text-xs text-slate-500 mt-0.5">게임이 실행 중이지 않을 때에도 필드보스 및 커스텀 알림(소리 및 윈도우 알림)을 정상 수신합니다.</p>
+                  </div>
+                </label>
+              </div>
             </div>
 
             <!-- 알림음 바로가기 링크 카드들 -->
@@ -1675,6 +1686,141 @@
                   </div>
                 </div>
 
+                <!-- 사용자 정의 탭 관리 -->
+                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                        <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-400"></i> 사용자 정의(커스텀) 탭 관리
+                      </h4>
+                      <p class="text-[9px] text-slate-500 mt-0.5">원하는 채널을 조합하여 오버레이 상단에 커스텀 탭을 추가합니다.</p>
+                    </div>
+                  </div>
+
+                  <!-- 탭 추가 입력 폼 -->
+                  <div class="p-3.5 bg-black/30 rounded-xl border border-white/5 space-y-3">
+                    <div class="flex items-center gap-2">
+                      <input type="text" id="custom-tab-name-input" maxlength="10" placeholder="새 탭 이름 입력 (예: 거래+귓, 사냥용)..."
+                        class="input-field flex-1 py-1.5 px-3 bg-black/50 text-xs text-slate-200">
+                      <button type="button" onclick="addCustomChatTab()"
+                        class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1 shrink-0 shadow-sm">
+                        <i data-lucide="plus" class="w-3.5 h-3.5"></i> 탭 추가
+                      </button>
+                    </div>
+                    <div>
+                      <span class="text-[11px] font-bold text-slate-400 block mb-1.5">포함할 채널 선택:</span>
+                      <div class="flex flex-wrap gap-2">
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                          <input type="checkbox" id="custom-tab-ch-general" value="general" class="accent-indigo-500 custom-tab-ch-check">
+                          <span>일반</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                          <input type="checkbox" id="custom-tab-ch-whisper" value="whisper" class="accent-indigo-500 custom-tab-ch-check">
+                          <span>귓속말</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                          <input type="checkbox" id="custom-tab-ch-team" value="team" class="accent-indigo-500 custom-tab-ch-check">
+                          <span>팀</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                          <input type="checkbox" id="custom-tab-ch-club" value="club" class="accent-indigo-500 custom-tab-ch-check">
+                          <span>클럽</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                          <input type="checkbox" id="custom-tab-ch-shout" value="shout" class="accent-indigo-500 custom-tab-ch-check">
+                          <span>외치기</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                          <input type="checkbox" id="custom-tab-ch-system" value="system" class="accent-indigo-500 custom-tab-ch-check" onchange="toggleCustomTabSystemColors()">
+                          <span>시스템</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <!-- 시스템 채널 선택 시 노출되는 색상 상세 필터 -->
+                    <div id="custom-tab-sys-colors-area" class="hidden p-2.5 bg-black/40 rounded-xl border border-indigo-500/20 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold text-indigo-300 flex items-center gap-1">
+                          <i data-lucide="palette" class="w-3 h-3"></i> 포함할 시스템 메시지 색상 선택:
+                        </span>
+                      </div>
+                      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <label class="relative group flex items-center gap-2 p-1.5 bg-black/30 rounded-lg border border-white/5 cursor-pointer text-xs text-slate-300">
+                          <input type="checkbox" id="custom-tab-sys-purple" value="purple" class="custom-tab-sys-check w-3.5 h-3.5 accent-purple-500" checked>
+                          <span class="w-2.5 h-2.5 rounded-full bg-[#c084fc]"></span>
+                          <span>보라색 (경험치/버프/소모품)</span>
+                          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center z-50 pointer-events-none">
+                            <div class="bg-slate-900/95 text-slate-200 text-[10px] font-medium px-2 py-1 rounded-md border border-purple-500/30 shadow-2xl whitespace-nowrap backdrop-blur-md">
+                              경험치 획득, 군고구마, 심장, 버프 만료, 코어 세트 발동 등
+                            </div>
+                            <div class="w-1.5 h-1 bg-slate-900 border-b border-r border-purple-500/30 rotate-45 -mt-0.5"></div>
+                          </div>
+                        </label>
+                        <label class="relative group flex items-center gap-2 p-1.5 bg-black/30 rounded-lg border border-white/5 cursor-pointer text-xs text-slate-300">
+                          <input type="checkbox" id="custom-tab-sys-red" value="red" class="custom-tab-sys-check w-3.5 h-3.5 accent-red-500" checked>
+                          <span class="w-2.5 h-2.5 rounded-full bg-[#f87171]"></span>
+                          <span>붉은색 (시스템 공지/팁)</span>
+                          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center z-50 pointer-events-none">
+                            <div class="bg-slate-900/95 text-slate-200 text-[10px] font-medium px-2 py-1 rounded-md border border-red-500/30 shadow-2xl whitespace-nowrap backdrop-blur-md">
+                              사기 주의 공지, 단축키 팁, 거래소 안내 등
+                            </div>
+                            <div class="w-1.5 h-1 bg-slate-900 border-b border-r border-red-500/30 rotate-45 -mt-0.5"></div>
+                          </div>
+                        </label>
+                        <label class="relative group flex items-center gap-2 p-1.5 bg-black/30 rounded-lg border border-white/5 cursor-pointer text-xs text-slate-300">
+                          <input type="checkbox" id="custom-tab-sys-green" value="green" class="custom-tab-sys-check w-3.5 h-3.5 accent-green-500" checked>
+                          <span class="w-2.5 h-2.5 rounded-full bg-[#4ade80]"></span>
+                          <span>초록색 (던전 진행/상태이상/앰플)</span>
+                          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center z-50 pointer-events-none">
+                            <div class="bg-slate-900/95 text-slate-200 text-[10px] font-medium px-2 py-1 rounded-md border border-green-500/30 shadow-2xl whitespace-nowrap backdrop-blur-md">
+                              남은 공격 횟수, 자동 퇴장 카운트, 속성 앰플, 무력화 등
+                            </div>
+                            <div class="w-1.5 h-1 bg-slate-900 border-b border-r border-green-500/30 rotate-45 -mt-0.5"></div>
+                          </div>
+                        </label>
+                        <label class="relative group flex items-center gap-2 p-1.5 bg-black/30 rounded-lg border border-white/5 cursor-pointer text-xs text-slate-300">
+                          <input type="checkbox" id="custom-tab-sys-blue" value="blue" class="custom-tab-sys-check w-3.5 h-3.5 accent-blue-500" checked>
+                          <span class="w-2.5 h-2.5 rounded-full bg-[#60a5fa]"></span>
+                          <span>파란색 (인게임 알림)</span>
+                          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center z-50 pointer-events-none">
+                            <div class="bg-slate-900/95 text-slate-200 text-[10px] font-medium px-2 py-1 rounded-md border border-blue-500/30 shadow-2xl whitespace-nowrap backdrop-blur-md">
+                              테일즈위버 인게임 채팅로그 기능 동작 알림 등
+                            </div>
+                            <div class="w-1.5 h-1 bg-slate-900 border-b border-r border-blue-500/30 rotate-45 -mt-0.5"></div>
+                          </div>
+                        </label>
+                        <label class="relative group flex items-center gap-2 p-1.5 bg-black/30 rounded-lg border border-white/5 cursor-pointer text-xs text-slate-300">
+                          <input type="checkbox" id="custom-tab-sys-gray" value="gray" class="custom-tab-sys-check w-3.5 h-3.5 accent-slate-500" checked>
+                          <span class="w-2.5 h-2.5 rounded-full bg-[#94a3b8]"></span>
+                          <span>흰색/회색 (보스 기믹 대사/NPC 대사)</span>
+                          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center z-50 pointer-events-none">
+                            <div class="bg-slate-900/95 text-slate-200 text-[10px] font-medium px-2 py-1 rounded-md border border-slate-500/30 shadow-2xl whitespace-nowrap backdrop-blur-md">
+                              보스/사제 패턴 대사, NPC 일반 대사, SEED 획득 등
+                            </div>
+                            <div class="w-1.5 h-1 bg-slate-900 border-b border-r border-slate-500/30 rotate-45 -mt-0.5"></div>
+                          </div>
+                        </label>
+                        <label class="relative group flex items-center gap-2 p-1.5 bg-black/30 rounded-lg border border-white/5 cursor-pointer text-xs text-slate-300">
+                          <input type="checkbox" id="custom-tab-sys-yellow" value="yellow" class="custom-tab-sys-check w-3.5 h-3.5 accent-yellow-500" checked>
+                          <span class="w-2.5 h-2.5 rounded-full bg-[#facc15]"></span>
+                          <span>노란색 (아이템 획득/공지)</span>
+                          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center z-50 pointer-events-none">
+                            <div class="bg-slate-900/95 text-slate-200 text-[10px] font-medium px-2 py-1 rounded-md border border-yellow-500/30 shadow-2xl whitespace-nowrap backdrop-blur-md">
+                              아이템 획득(득템), 전 서버 긴급 점검 공지, 핫타임 등
+                            </div>
+                            <div class="w-1.5 h-1 bg-slate-900 border-b border-r border-yellow-500/30 rotate-45 -mt-0.5"></div>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 등록된 커스텀 탭 목록 -->
+                  <div id="custom-tab-list" class="space-y-2">
+                    <!-- 동적 주입 -->
+                  </div>
+                </div>
+
                 <!-- NPC/몬스터 대사 표시 여부 토글 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <h4 class="text-xs font-bold text-slate-400">NPC / 몬스터 대사 필터 설정</h4>
@@ -1752,7 +1898,7 @@
                   <div class="flex gap-2">
                     <input type="text" id="chat-overlay-filter-input"
                       class="input-field flex-1 py-2 px-3 bg-black/40 text-xs text-slate-200"
-                      placeholder="제외할 문구 입력 (최소 5글자 이상)..." onkeypress="if(event.key==='Enter')addChatOverlayFilter()">
+                      placeholder="제외할 문구(5자 이상) 또는 정규식(/패턴/i) 입력..." onkeypress="if(event.key==='Enter')addChatOverlayFilter()">
                     <button type="button" onclick="addChatOverlayFilter()"
                       class="px-4 py-2 bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/30 hover:border-rose-500/50 text-xs font-bold rounded-xl transition-all active:scale-95 flex items-center gap-1">
                       <i data-lucide="plus" class="w-3.5 h-3.5"></i> 추가
@@ -1763,16 +1909,19 @@
                     class="flex flex-wrap gap-2 p-3 bg-black/30 rounded-xl border border-white/5 min-h-[60px] align-content-start">
                   </div>
 
-                  <div class="space-y-1">
-                    <p class="text-[10px] text-slate-500 font-bold italic ml-1 flex items-center gap-1">
-                      <i data-lucide="info" class="w-3 h-3 text-rose-400"></i>
-                      * <span class="text-rose-400/80">부분 일치 제외:</span> 의도하지 않은 채팅 필터링을 방지하기 위해 <span
-                        class="text-rose-300 font-bold">최소 5글자 이상</span> 등록할 수 있습니다.
-                    </p>
-                    <p class="text-[10px] text-slate-500 font-bold italic ml-1 flex items-center gap-1">
-                      <i data-lucide="layers" class="w-3 h-3 text-slate-500"></i>
-                      * 일반·시스템·클럽 등 <span class="text-slate-400">채팅 종류 구분 없이</span> 등록된 문구가 포함된 모든 채팅에 적용됩니다.
-                    </p>
+                  <div class="space-y-1.5 pt-1">
+                    <div class="text-[10px] text-slate-500 font-bold italic ml-1 flex items-start gap-1.5">
+                      <i data-lucide="info" class="w-3 h-3 text-rose-400 shrink-0 mt-0.5"></i>
+                      <div class="leading-relaxed">
+                        * <span class="text-rose-400/80">부분 일치 / 정규식(Regex) 지원:</span> 일반 문구는 <span class="text-rose-300 font-bold">최소 5글자 이상</span>, 정규식은 <span class="text-sky-300 font-bold">/패턴/i</span> 형태로 등록할 수 있습니다. (예: <code class="text-sky-300 font-mono text-[9px] bg-black/40 px-1 py-0.5 rounded border border-white/5">/남은 공격 횟수/</code>, <code class="text-sky-300 font-mono text-[9px] bg-black/40 px-1 py-0.5 rounded border border-white/5">/\[엘소\s*\d+\]/i</code>)
+                      </div>
+                    </div>
+                    <div class="text-[10px] text-slate-500 font-bold italic ml-1 flex items-start gap-1.5">
+                      <i data-lucide="layers" class="w-3 h-3 text-slate-500 shrink-0 mt-0.5"></i>
+                      <div class="leading-relaxed">
+                        * 일반·시스템·클럽 등 <span class="text-slate-400">채팅 종류 구분 없이</span> 등록된 문구/정규식에 매칭되는 모든 채팅에 적용됩니다.
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -2468,8 +2617,8 @@
               설정</span>
           </h2>
 
-          <!-- Google Drive 클라우드 동기화 -->
-          <div id="google-sync-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-5 mb-6" data-settings-view="data-backup">
+          <!-- Google Drive 클라우드 동기화 (배포 전 비활성화/UI 숨김) -->
+          <div id="google-sync-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-5 mb-6 hidden" style="display: none !important;">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
@@ -2627,7 +2776,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                         class="text-purple-400">2.6.9</span></p>
+                         class="text-purple-400">2.7.0</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -2782,6 +2931,7 @@
     let lootKeywordsList = [];
     let shoutKeywordsList = [];
     let chatOverlayFilterList = [];
+    let customTabsList = [];
     let allContentsItems = [];
     let hasCustomLootKeywords = true;
     let defaultLootKeywords = [];
@@ -3083,11 +3233,43 @@
       if (!input) return;
       const val = input.value.trim();
       if (!val) return;
-      if (val.length < 5) {
-        alert('필터링 문구는 최소 5글자 이상이어야 합니다.\n(너무 짧은 문구는 일반 대화가 의도치 않게 가려질 수 있습니다.)');
-        input.focus();
-        return;
+
+      // 정규식 형식 검사 (/pattern/flags 또는 regex:pattern)
+      const isSlashRegex = /^\/(.+)\/([a-z]*)$/i.test(val);
+      const isPrefixRegex = val.toLowerCase().startsWith('regex:');
+
+      if (isSlashRegex) {
+        const m = val.match(/^\/(.+)\/([a-z]*)$/i);
+        try {
+          new RegExp(m[1], m[2] || 'i');
+        } catch (e) {
+          alert('유효하지 않은 정규식 표현입니다:\n' + (e.message || String(e)));
+          input.focus();
+          return;
+        }
+      } else if (isPrefixRegex) {
+        const pattern = val.substring(6).trim();
+        if (!pattern) {
+          alert('정규식 패턴을 입력해 주세요. (예: regex:남은 공격 횟수)');
+          input.focus();
+          return;
+        }
+        try {
+          new RegExp(pattern, 'i');
+        } catch (e) {
+          alert('유효하지 않은 정규식 표현입니다:\n' + (e.message || String(e)));
+          input.focus();
+          return;
+        }
+      } else {
+        // 일반 부분 일치 문구는 최소 5글자 이상
+        if (val.length < 5) {
+          alert('일반 필터링 문구는 최소 5글자 이상이어야 합니다.\n(짧은 문구로 인한 의도치 않은 필터링 방지)\n\n※ 정규식으로 등록하려면 /패턴/i 형태로 입력해 주세요.\n(예: /남은 공격 횟수/)');
+          input.focus();
+          return;
+        }
       }
+
       if (!chatOverlayFilterList.includes(val)) {
         chatOverlayFilterList.push(val);
         renderChatOverlayFilterList();
@@ -3101,6 +3283,137 @@
     function removeChatOverlayFilter(index) {
       chatOverlayFilterList.splice(index, 1);
       renderChatOverlayFilterList();
+    }
+
+    const CHANNEL_LABELS = {
+      general: '일반',
+      whisper: '귓속말',
+      team: '팀',
+      club: '클럽',
+      shout: '외치기',
+      system: '시스템'
+    };
+
+    const SYS_COLOR_LABELS = {
+      purple: { label: '보라', color: '#c084fc', bg: 'bg-purple-500/20', border: 'border-purple-500/30', text: 'text-purple-300', desc: '보라색: 경험치 획득, 버프, 소모품, 코어 발동' },
+      yellow: { label: '노랑', color: '#facc15', bg: 'bg-yellow-500/20', border: 'border-yellow-500/30', text: 'text-yellow-300', desc: '노란색: 아이템 획득(득템), 긴급 공지, 핫타임' },
+      red: { label: '빨강', color: '#f87171', bg: 'bg-rose-500/20', border: 'border-rose-500/30', text: 'text-rose-300', desc: '붉은색: 시스템 공지, 단축키 팁, 거래소 안내' },
+      green: { label: '초록', color: '#4ade80', bg: 'bg-emerald-500/20', border: 'border-emerald-500/30', text: 'text-emerald-300', desc: '초록색: 남은 공격 횟수, 던전 진행, 상태이상, 앰플' },
+      blue: { label: '파랑', color: '#60a5fa', bg: 'bg-sky-500/20', border: 'border-sky-500/30', text: 'text-sky-300', desc: '파란색: 인게임 채팅로그 기능 알림 등' },
+      gray: { label: '흰색/회색', color: '#94a3b8', bg: 'bg-slate-500/20', border: 'border-slate-500/30', text: 'text-slate-300', desc: '흰색/회색: 보스 기믹 대사, NPC 일반 대사, SEED 획득' },
+    };
+
+    function toggleCustomTabSystemColors() {
+      const chk = document.getElementById('custom-tab-ch-system');
+      const area = document.getElementById('custom-tab-sys-colors-area');
+      if (chk && area) {
+        if (chk.checked) {
+          area.classList.remove('hidden');
+        } else {
+          area.classList.add('hidden');
+        }
+      }
+    }
+
+    function renderCustomTabsList() {
+      const container = document.getElementById('custom-tab-list');
+      if (!container) return;
+      container.innerHTML = '';
+      if (!customTabsList || customTabsList.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-500 p-2 text-center bg-black/20 rounded-lg">등록된 커스텀 탭이 없습니다. 상단에서 원하는 탭을 추가해보세요.</div>';
+        return;
+      }
+      customTabsList.forEach((tab, index) => {
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between p-2.5 bg-black/40 rounded-xl border border-white/5';
+        
+        const infoDiv = document.createElement('div');
+        infoDiv.className = 'flex items-center gap-2.5 flex-wrap';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'text-xs font-bold text-slate-200';
+        nameSpan.textContent = tab.name;
+        infoDiv.appendChild(nameSpan);
+
+        const badgesDiv = document.createElement('div');
+        badgesDiv.className = 'flex items-center gap-1 flex-wrap';
+        (tab.channels || []).forEach(ch => {
+          const badge = document.createElement('span');
+          badge.className = 'text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+          badge.textContent = CHANNEL_LABELS[ch] || ch;
+          badgesDiv.appendChild(badge);
+        });
+
+        // 시스템 색상 필터가 지정되어 있는 경우 색상 뱃지 표시
+        if (tab.channels && tab.channels.includes('system') && Array.isArray(tab.systemColorFilters) && tab.systemColorFilters.length > 0 && tab.systemColorFilters.length < 6) {
+          tab.systemColorFilters.forEach(c => {
+            const cInfo = SYS_COLOR_LABELS[c];
+            if (cInfo) {
+              const cBadge = document.createElement('span');
+              cBadge.className = `text-[9px] font-semibold px-1.5 py-0.5 rounded cursor-help ${cInfo.bg} ${cInfo.text} border ${cInfo.border}`;
+              cBadge.textContent = cInfo.label;
+              cBadge.title = cInfo.desc;
+              badgesDiv.appendChild(cBadge);
+            }
+          });
+        }
+        infoDiv.appendChild(badgesDiv);
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'text-slate-400 hover:text-rose-400 p-1 rounded hover:bg-white/5 transition-all text-xs flex items-center gap-1';
+        delBtn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>';
+        delBtn.title = '탭 삭제';
+        delBtn.onclick = () => deleteCustomChatTab(index);
+
+        item.appendChild(infoDiv);
+        item.appendChild(delBtn);
+        container.appendChild(item);
+      });
+      window.refreshIcons();
+    }
+
+    function addCustomChatTab() {
+      const nameInput = document.getElementById('custom-tab-name-input');
+      if (!nameInput) return;
+      const name = nameInput.value.trim();
+      if (!name) {
+        alert('탭 이름을 입력해 주세요.');
+        nameInput.focus();
+        return;
+      }
+      const checkedChannels = Array.from(document.querySelectorAll('.custom-tab-ch-check:checked')).map(el => el.value);
+      if (checkedChannels.length === 0) {
+        alert('최소 1개 이상의 대화 채널을 선택해 주세요.');
+        return;
+      }
+
+      let systemColors = undefined;
+      if (checkedChannels.includes('system')) {
+        const sysChecks = Array.from(document.querySelectorAll('.custom-tab-sys-check:checked')).map(el => el.value);
+        systemColors = sysChecks.length > 0 ? sysChecks : ['purple', 'yellow', 'red', 'green', 'blue', 'gray'];
+      }
+
+      const newTab = {
+        id: `custom_${Date.now()}`,
+        name: name,
+        channels: checkedChannels,
+        systemColorFilters: systemColors
+      };
+      customTabsList.push(newTab);
+      renderCustomTabsList();
+      nameInput.value = '';
+      document.querySelectorAll('.custom-tab-ch-check').forEach(el => { el.checked = false; });
+      toggleCustomTabSystemColors();
+      window.electronAPI.applySettings({ chatOverlayCustomTabs: customTabsList });
+    }
+
+    function deleteCustomChatTab(index) {
+      if (confirm(`'${customTabsList[index].name}' 탭을 삭제하시겠습니까?`)) {
+        customTabsList.splice(index, 1);
+        renderCustomTabsList();
+        window.electronAPI.applySettings({ chatOverlayCustomTabs: customTabsList });
+      }
     }
 
     async function handleBackup() {
@@ -4377,6 +4690,8 @@
       shoutKeywordsList = JSON.parse(JSON.stringify(config.shoutKeywords || []));
       chatOverlayFilterList = JSON.parse(JSON.stringify(config.chatOverlayBlacklistFilters || []));
       renderChatOverlayFilterList();
+      customTabsList = JSON.parse(JSON.stringify(config.chatOverlayCustomTabs || []));
+      renderCustomTabsList();
 
       window.settingsConfigBinding.applyChatAndAlertSettings(
         config,
@@ -4958,8 +5273,9 @@
 
           volumeContentsChecker: parseInt(document.getElementById('volume-contents-checker').value),
           volumeCalculators: parseInt(document.getElementById('volume-calculators').value),
+          notifyWhenGameClosed: document.getElementById('notify-when-game-closed-input') ? document.getElementById('notify-when-game-closed-input').checked : false,
 
-          ...window.settingsFormCollection.collectChatOverlayDisplaySettings(chatOverlayFilterList),
+          ...window.settingsFormCollection.collectChatOverlayDisplaySettings(chatOverlayFilterList, customTabsList),
 
           chatLogPath: document.getElementById('chat-log-path-input').value,
           chatLogAutoDeleteDays: parseInt(document.getElementById('chat-log-auto-delete-input').value) || 0,
@@ -4983,7 +5299,7 @@
     function applyChatOverlaySettingsOnly() {
       try {
         const chatSettings = {
-          ...window.settingsFormCollection.collectChatOverlayDisplaySettings(chatOverlayFilterList),
+          ...window.settingsFormCollection.collectChatOverlayDisplaySettings(chatOverlayFilterList, customTabsList),
           ...window.settingsFormCollection.collectChatAlertSettings(lootKeywordsList, shoutKeywordsList),
         };
 

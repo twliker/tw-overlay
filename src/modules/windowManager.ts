@@ -1529,7 +1529,7 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
   const sanitizedSettings = { ...newSettings };
   const current = config.load(), updated = { ...current, ...sanitizedSettings };
   const { isSidebarResize, ...saveSettings } = sanitizedSettings;
-  config.save(saveSettings);
+  config.saveImmediate(saveSettings);
   if (overlayWindow) {
     isApplyingSize = true;
     const b = overlayWindow.getBounds();

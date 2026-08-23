@@ -53,6 +53,20 @@ function isNpcOrMonsterChat(chat: BrowserChatItem): boolean {
   return false;
 }
 
+function isElsoGainMessage(msg: string): boolean {
+  if (!msg) return false;
+  return /\[엘소\s*[\d,]+포인트\]/i.test(msg) ||
+         /\[엘소\s*스크롤\s*\([\d,]+\s*포인트\)\]/i.test(msg) ||
+         /루미나의\s*회랑\s*ELSO\s*획득량\s*증가\s*효과로/i.test(msg) ||
+         /\[[\d,]+\]\s*ELSO를\s*습득했습니다/i.test(msg) ||
+         /ELSO\s*포인트를\s*추가로\s*획득/i.test(msg);
+}
+
+function isXpGainMessage(msg: string): boolean {
+  if (!msg) return false;
+  return /경험치가\s+([\[\]\d,억만\s]+)\s*(올랐|상승)/.test(msg);
+}
+
 // 오버레이 노출 조건 판별 함수
 function shouldShowChat(chat: BrowserChatItem): boolean {
   if (!chat) return false;
@@ -63,22 +77,48 @@ function shouldShowChat(chat: BrowserChatItem): boolean {
     return false;
   }
 
-  // 2. 블랙리스트 필터 적용 (설정된 제외 문구가 메시지에 포함되어 있으면 숨김)
+  // 2. 블랙리스트 필터 적용 (설정된 제외 문구/정규식이 메시지에 일치하면 숨김)
   const blacklist = chatOverlayAppConfig?.chatOverlayBlacklistFilters;
   if (blacklist && blacklist.length > 0 && chat.message) {
-    const isFiltered = blacklist.some(filter => filter && filter.trim().length > 0 && chat.message.includes(filter.trim()));
+    const isFiltered = window.chatChannels && typeof window.chatChannels.isMessageBlacklisted === 'function'
+      ? window.chatChannels.isMessageBlacklisted(chat.message, blacklist)
+      : blacklist.some(f => f && f.trim().length > 0 && chat.message.includes(f.trim()));
     if (isFiltered) {
       return false;
     }
   }
 
-  // 3. 채널별 필터 적용
+  // 3. 엘소/경험치 표시 옵션 검사 (통합, 시스템, 커스텀 탭 전체 공통 적용)
+  if (chatOverlayAppConfig?.chatOverlayShowElsoGain === false && isElsoGainMessage(chat.message)) {
+    return false;
+  }
+  if (chatOverlayAppConfig?.chatOverlayShowXpGain === false && isXpGainMessage(chat.message)) {
+    return false;
+  }
+
+  // 4. 채널별 / 커스텀 탭별 필터 적용
   if (chatOverlayCurrentTab === 'Basic') {
     const channels = chatOverlayAppConfig?.chatOverlaySelectedChannels || window.chatChannels.OVERLAY_CHANNELS;
     return channels.includes(chat.type);
-  } else {
+  } else if (tabTypeMap[chatOverlayCurrentTab]) {
     const expectedType = tabTypeMap[chatOverlayCurrentTab];
     return chat.type === expectedType;
+  } else {
+    // 커스텀 탭 (ID: custom_xxx 또는 탭 이름)
+    const customTabs = chatOverlayAppConfig?.chatOverlayCustomTabs || [];
+    const customTab = customTabs.find(t => t.id === chatOverlayCurrentTab || t.name === chatOverlayCurrentTab || t.name.toLowerCase() === chatOverlayCurrentTab.toLowerCase());
+    if (customTab && Array.isArray(customTab.channels)) {
+      if (!customTab.channels.includes(chat.type)) return false;
+      // 커스텀 탭에 지정된 시스템 색상 필터 검사
+      if (chat.type === 'system' && Array.isArray(customTab.systemColorFilters) && customTab.systemColorFilters.length > 0 && window.chatChannels && typeof window.chatChannels.getSystemColorGroup === 'function') {
+        const group = window.chatChannels.getSystemColorGroup(chat.color);
+        if (!customTab.systemColorFilters.includes(group)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return true;
   }
 }
 
@@ -107,6 +147,9 @@ function checkAndLoadInitialTab() {
 
 const btnOpenSub1 = document.getElementById('btnOpenSub1') as HTMLButtonElement;
 const btnOpenSub2 = document.getElementById('btnOpenSub2') as HTMLButtonElement;
+const btnOpenLog = document.getElementById('btnOpenLog') as HTMLButtonElement;
+const btnToggleSearch = document.getElementById('btnToggleSearch') as HTMLButtonElement;
+const btnSettings = document.getElementById('btnSettings') as HTMLButtonElement;
 
 // HTML Elements
 const overlayPanel = document.getElementById('overlayPanel') as HTMLDivElement;
@@ -117,7 +160,6 @@ const copyToast = document.getElementById('copyToast') as HTMLDivElement;
 const resizeHandle = document.getElementById('resizeHandle') as HTMLDivElement;
 
 // Search Elements
-const btnToggleSearch = document.getElementById('btnToggleSearch') as HTMLDivElement;
 const searchContainer = document.getElementById('searchContainer') as HTMLDivElement;
 const searchInput = document.getElementById('searchInput') as HTMLInputElement;
 const btnClearSearchInput = document.getElementById('btnClearSearchInput') as HTMLButtonElement;
@@ -136,6 +178,34 @@ const tabTypeMap: Record<string, string> = {
   'Whisper': 'whisper',
   'System': 'system'
 };
+
+function renderCustomTabs() {
+  if (!tabsBar) return;
+  // 기존 커스텀 탭 제거
+  tabsBar.querySelectorAll('.custom-tab-item').forEach(el => el.remove());
+
+  const customTabs = chatOverlayAppConfig?.chatOverlayCustomTabs || [];
+  customTabs.forEach(tab => {
+    const tabEl = document.createElement('div');
+    tabEl.className = 'tab-item custom-tab-item';
+    if (chatOverlayCurrentTab === tab.id || chatOverlayCurrentTab === tab.name) {
+      tabEl.classList.add('active');
+    }
+    tabEl.setAttribute('data-tab', tab.id);
+    tabEl.textContent = tab.name;
+    tabEl.addEventListener('click', () => {
+      selectTab(tab.id);
+    });
+    tabsBar.appendChild(tabEl);
+  });
+
+  // 현재 활성화된 탭이 삭제된 커스텀 탭인 경우 Basic(통합) 탭으로 안전 복귀
+  const isDefaultTab = ['Basic', 'General', 'Team', 'Club', 'Shout', 'Whisper', 'System'].includes(chatOverlayCurrentTab);
+  const isCustomTabExist = customTabs.some(t => t.id === chatOverlayCurrentTab || t.name === chatOverlayCurrentTab);
+  if (!isDefaultTab && !isCustomTabExist && isInitialTabLoaded) {
+    selectTab('Basic');
+  }
+}
 
 // Initialize Icons
 function initIcons() {
@@ -475,17 +545,32 @@ async function executeSearch(query?: string) {
 // Load history for selected tab
 async function loadHistory() {
   clearPendingIncomingChat();
+  isLoadingMore = false;
+  hasReachedEnd = false;
   chatArea.innerHTML = '';
   try {
     const history = await window.electronAPI.getChatHistory(chatOverlayCurrentTab);
     if (history && history.length > 0) {
       const filtered = history.filter((chat: BrowserChatItem) => shouldShowChat(chat));
-      const fragment = document.createDocumentFragment();
-      filtered.forEach((chat: BrowserChatItem) => {
-        fragment.appendChild(createChatRow(chat));
-      });
-      chatArea.appendChild(fragment);
-      scrollToBottom();
+
+      if (filtered.length > 0) {
+        const fragment = document.createDocumentFragment();
+        filtered.forEach((chat: BrowserChatItem) => {
+          fragment.appendChild(createChatRow(chat));
+        });
+        chatArea.appendChild(fragment);
+        scrollToBottom();
+      } else {
+        const emptyRow = document.createElement('div');
+        emptyRow.className = 'text-center py-6 text-xs text-slate-400';
+        emptyRow.textContent = '일치하는 채팅 내역이 없습니다.';
+        chatArea.appendChild(emptyRow);
+      }
+    } else {
+      const emptyRow = document.createElement('div');
+      emptyRow.className = 'text-center py-6 text-xs text-slate-400';
+      emptyRow.textContent = '채팅 내역이 없습니다.';
+      chatArea.appendChild(emptyRow);
     }
   } catch (e) {
     console.error('Failed to load chat history:', e);
@@ -630,27 +715,38 @@ function applyConfigStyles(config: BrowserAppConfig) {
     }
   }
 
+  // 커스텀 탭 렌더링
+  renderCustomTabs();
+
   updateHeaderVisibility(config);
+}
+
+// Header Action Buttons Event Bindings
+if (btnOpenLog) {
+  btnOpenLog.addEventListener('click', () => {
+    window.electronAPI.openTodayLog();
+  });
+}
+if (btnToggleSearch) {
+  btnToggleSearch.addEventListener('click', () => {
+    if (searchContainer && searchContainer.classList.contains('hidden')) {
+      openSearchBar(true);
+    } else {
+      closeSearchBar();
+    }
+  });
+}
+if (btnSettings) {
+  btnSettings.addEventListener('click', () => {
+    window.electronAPI.toggleSettings('chatlog:sub-tab-overlay');
+  });
 }
 
 // Event Bindings
 document.querySelectorAll('.tab-item').forEach(el => {
   el.addEventListener('click', () => {
     const tab = el.getAttribute('data-tab');
-    if (tab === 'Settings') {
-      window.electronAPI.toggleSettings('chatlog:sub-tab-overlay');
-      return;
-    } else if (tab === 'OpenLog') {
-      window.electronAPI.openTodayLog();
-      return;
-    } else if (el.id === 'btnToggleSearch') {
-      if (searchContainer && searchContainer.classList.contains('hidden')) {
-        openSearchBar(true);
-      } else {
-        closeSearchBar();
-      }
-      return;
-    } else if (tab) {
+    if (tab) {
       selectTab(tab);
     }
   });
@@ -858,6 +954,25 @@ window.electronAPI.onConfigData((config) => {
     colorChanged = true;
   }
 
+  // 엘소/경험치 필터 변경 감지
+  let gainSettingsChanged = false;
+  if (lastKnownConfig) {
+    if (lastKnownConfig.chatOverlayShowElsoGain !== config.chatOverlayShowElsoGain ||
+        lastKnownConfig.chatOverlayShowXpGain !== config.chatOverlayShowXpGain) {
+      gainSettingsChanged = true;
+    }
+  }
+
+  // 커스텀 탭 목록 변경 감지
+  let customTabsChanged = false;
+  if (lastKnownConfig) {
+    const oldTabs = JSON.stringify(lastKnownConfig.chatOverlayCustomTabs || []);
+    const newTabs = JSON.stringify(config.chatOverlayCustomTabs || []);
+    if (oldTabs !== newTabs) {
+      customTabsChanged = true;
+    }
+  }
+
   applyConfigStyles(config);
   lastKnownConfig = config;
 
@@ -869,9 +984,9 @@ window.electronAPI.onConfigData((config) => {
   const tabChangedExternally = (currentConfigTab !== chatOverlayCurrentTab);
   if (tabChangedExternally) {
     selectTab(currentConfigTab, false);
-  } else if ((channelsChanged || npcChatSettingChanged || colorChanged || blacklistFiltersChanged) && chatOverlayCurrentTab === 'Basic') {
+  } else if ((channelsChanged || npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged) && chatOverlayCurrentTab === 'Basic') {
     loadHistory();
-  } else if (npcChatSettingChanged || colorChanged || blacklistFiltersChanged) {
+  } else if (npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged) {
     loadHistory();
   }
 });

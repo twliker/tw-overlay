@@ -137,7 +137,7 @@
   <div class="flex-1 overflow-hidden flex flex-col no-drag p-6">
     <!-- 공통 설정 패널 -->
     <div id="global-boss-settings" class="p-4 border border-white/5 rounded-2xl bg-black/20 space-y-3 mb-6">
-      <!-- 활성화 -->
+      <!-- 활성화 및 게임 종료 시 알림 -->
       <div class="flex items-center justify-between">
         <label class="flex items-center gap-2.5 cursor-pointer group">
           <div class="relative inline-flex items-center">
@@ -148,7 +148,10 @@
           </div>
           <span class="text-xs font-black text-slate-300 group-hover:text-white">필드보스 알림 활성화</span>
         </label>
-        <span class="text-[9px] font-bold text-slate-400">변경 시 자동 저장</span>
+        <label class="flex items-center gap-1.5 cursor-pointer group" title="테일즈위버가 꺼져 있어도 알림(소리 및 윈도우 알림)을 수신합니다">
+          <input type="checkbox" id="boss-notify-closed-check" class="w-3.5 h-3.5 accent-red-600 rounded" onchange="saveBossGlobal()">
+          <span class="text-[11px] font-bold text-slate-400 group-hover:text-slate-200">게임 종료 시에도 수신</span>
+        </label>
       </div>
 
       <!-- 알림 시점 -->
@@ -239,6 +242,8 @@
       const volVal = document.getElementById('boss-volume-val');
       if (volInput) volInput.value = vol;
       if (volVal) volVal.textContent = vol + '%';
+      const notifyClosedCheck = document.getElementById('boss-notify-closed-check');
+      if (notifyClosedCheck) notifyClosedCheck.checked = config.notifyWhenGameClosed === true;
       render();
     });
 
@@ -412,7 +417,8 @@
       window.electronAPI.applySettings({
         fieldBossNotifyEnabled: document.getElementById('boss-enabled-check').checked,
         fieldBossNotifyOffsets: offsets,
-        fieldBossNotifyVolume: parseInt(document.getElementById('boss-volume-input').value) || 50
+        fieldBossNotifyVolume: parseInt(document.getElementById('boss-volume-input').value) || 50,
+        notifyWhenGameClosed: document.getElementById('boss-notify-closed-check') ? document.getElementById('boss-notify-closed-check').checked : false
       });
     }
 

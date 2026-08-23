@@ -1217,6 +1217,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       const chatLogPathInput = addInput('chat-log-path-input');
       const ethosEnabledInput = addInput('ethos-alert-enabled');
       const ethosVolumeInput = addInput('ethos-alert-volume');
+      const notifyClosedInput = addInput('notify-when-game-closed-input');
       const ethosVolumeLabel = addLabel('ethos-alert-volume-val');
       const waveVolumeLabel = addLabel('wave-warning-volume-val');
       const fontSizeInput = addInput('chat-overlay-fontsize-input');
@@ -1227,6 +1228,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         ethosAlertEnabled: true,
         ethosAlertSound: 'echo.mp3',
         ethosAlertVolume: 33,
+        notifyWhenGameClosed: true,
         waveMonsterWarningEnabled: true,
         waveMonsterWarningSound: 'orb.mp3',
         waveMonsterWarningVolume: 77,
@@ -1248,6 +1250,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       const chatAndAlertBinding = {
         chatLogPath: chatLogPathInput.value,
         ethosEnabled: ethosEnabledInput.checked,
+        notifyWhenGameClosed: notifyClosedInput.checked,
         ethosSound: alertSoundSelects.ethos.value,
         ethosVolume: ethosVolumeInput.value,
         waveEnabled: document.getElementById('wave-warning-enabled').checked,
@@ -1507,6 +1510,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     chatAndAlertBinding: {
       chatLogPath: 'C:/TalesWeaver/ChatLog',
       ethosEnabled: true,
+      notifyWhenGameClosed: true,
       ethosSound: 'echo.mp3',
       ethosVolume: '33',
       waveEnabled: true,
@@ -2131,15 +2135,18 @@ async function checkBossSettingsRenderer(window: BrowserWindow): Promise<void> {
   const result = await evaluate(window, () => {
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
     const bossList = document.getElementById('boss-list');
+    const notifyClosedCheck = document.getElementById('boss-notify-closed-check');
 
     return {
       title,
-      hasBossList: bossList !== null
+      hasBossList: bossList !== null,
+      hasNotifyClosedCheck: notifyClosedCheck !== null
     };
   });
 
   assert.ok(result.title.includes('보스 알림'), '보스 알림 설정 창 타이틀이 일치하지 않습니다.');
   assert.equal(result.hasBossList, true, '보스 목록 컨테이너가 없습니다.');
+  assert.equal(result.hasNotifyClosedCheck, true, '게임 종료 시에도 수신 체크박스가 없습니다.');
 }
 
 async function checkMagicStoneCalculator(window: BrowserWindow): Promise<void> {

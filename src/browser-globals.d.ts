@@ -75,7 +75,7 @@ interface SettingsColorPicker {
 }
 
 interface SettingsFormCollection {
-  collectChatOverlayDisplaySettings(blacklistFilters?: string[]): Record<string, unknown>;
+  collectChatOverlayDisplaySettings(blacklistFilters?: string[], customTabs?: unknown[]): Record<string, unknown>;
   collectChatAlertSettings(lootKeywords: string[], shoutKeywords: string[]): Record<string, unknown>;
   collectTodaySummaryHudSettings(): Record<string, unknown>;
 }

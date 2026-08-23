@@ -85,9 +85,10 @@ function checkAlerts(): void {
 }
 
 function notify(message: string, soundFile: string, volume?: number): void {
-  // 게임창이 최소화되어 있는 상태일 때 Windows 알림 발송
+  // 게임창이 최소화되어 있거나 게임 종료 시 알림 받기 옵션 활성화 상태일 때 Windows 알림 발송
+  const cfg = config.load();
   const gameStatus = getGameStatus();
-  if (gameStatus === 'minimized') {
+  if (gameStatus === 'minimized' || (cfg.notifyWhenGameClosed && gameStatus === 'not-running')) {
     showDesktopNotification({
       enabled: true,
       title: '🔔 커스텀 알림',

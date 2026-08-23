@@ -674,20 +674,17 @@ export class ChatParser extends EventEmitter {
         if (ethosMatch) {
             const password = ethosMatch[1].trim();
             this.emit('ETHOS_PASSWORD', { date: this._currentDate, timestamp, password, message: cleanMsg });
-            return;
         }
     }
 
     // J. 심연의 제2사도 기믹 특화 패턴
     if (cleanMsg.includes('심연의 제2사도 : 절제와 균형의 중심에서 빗나간 힘은 칼날이 되어 돌아오지.')) {
         this.emit('ABYSS_APOSTLE_PATTERN', { date: this._currentDate, timestamp, message: cleanMsg });
-        return;
     }
 
     // K. 몬스터 웨이브 종료 대기 알림 특화 패턴
     if (cleanMsg.includes('몬스터가 남아있으면 다음 웨이브로 넘어가지 않습니다.')) {
         this.emit('WAVE_MONSTER_WARNING', { date: this._currentDate, timestamp, message: cleanMsg });
-        return;
     }
 
     // L. 로카고스 기믹 특화 패턴
@@ -697,14 +694,12 @@ export class ChatParser extends EventEmitter {
             if (match) {
                 const zone = match[1].trim() as '알파' | '브라보' | '찰리' | '델타';
                 this.emit('LOKAGOS_PATTERN', { date: this._currentDate, timestamp, type: 'EXCLUDE', zone, message: cleanMsg });
-                return;
             }
         } else if (cleanMsg.includes('구역에 마법 공격 지원 바란다!')) {
             const match = cleanMsg.match(/(알파|브라보|찰리|델타) 구역에/);
             if (match) {
                 const zone = match[1].trim() as '알파' | '브라보' | '찰리' | '델타';
                 this.emit('LOKAGOS_PATTERN', { date: this._currentDate, timestamp, type: 'TARGET', zone, message: cleanMsg });
-                return;
             }
         }
     }

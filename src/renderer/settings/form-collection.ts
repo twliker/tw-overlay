@@ -18,6 +18,7 @@
     chatOverlayShowXpGain: boolean;
     chatOverlayShowElsoGain: boolean;
     chatOverlayHighlightScamNicknames: boolean;
+    chatOverlayCustomTabs?: unknown[];
     ethosAlertEnabled: boolean;
     ethosAlertSound: string;
     ethosAlertVolume: number;
@@ -80,7 +81,7 @@
     return fallback;
   };
 
-  function collectChatOverlayDisplaySettings(blacklistFilters?: string[]): Record<string, unknown> {
+  function collectChatOverlayDisplaySettings(blacklistFilters?: string[], customTabs?: unknown[]): Record<string, unknown> {
     return {
       chatOverlayFontSize: integerValue('chat-overlay-fontsize-input', defaultConfig.chatOverlayFontSize),
       chatOverlayOpacity: floatValue('chat-overlay-opacity-input', defaultConfig.chatOverlayOpacity),
@@ -110,6 +111,7 @@
       chatOverlayShowXpGain: checkedValue('chat-overlay-show-xp-gain', defaultConfig.chatOverlayShowXpGain),
       chatOverlayShowElsoGain: checkedValue('chat-overlay-show-elso-gain', defaultConfig.chatOverlayShowElsoGain),
       chatOverlayHighlightScamNicknames: checkedValue('chat-overlay-highlight-scam-nicknames', defaultConfig.chatOverlayHighlightScamNicknames),
+      chatOverlayCustomTabs: Array.isArray(customTabs) ? customTabs : (defaultConfig.chatOverlayCustomTabs || []),
       userServer: integerValue('chat-overlay-user-server-input', defaultConfig.userServer),
     };
   }

@@ -17,7 +17,7 @@ import type { ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from
 import { showSupportedDesktopNotification } from './desktopNotification';
 import { formatLootDiaryContent, parseElsoMessage } from './itemAcquisition';
 export { parseElsoMessage };
-const { COLORS: CHAT_COLORS } = require('../shared/chatChannels') as ChatChannelConstants;
+const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = require('../shared/chatChannels') as ChatChannelConstants;
 
 /**
  * 파싱된 채팅 데이터를 실제 앱 기능(DB 저장, 알림 등)으로 연결하는 프로세서
@@ -180,7 +180,82 @@ class ChatLogProcessor {
   }
 
   public getChatHistory(category: string): ChatItem[] {
-    return this._chatHistoryStore[category] || [];
+    if (this._chatHistoryStore[category]) {
+      return this._chatHistoryStore[category];
+    }
+    // 커스텀 탭 (ID: custom_xxx 또는 탭 이름) 조회 지원
+    try {
+      const cfg = config.load();
+      const customTabs = cfg.chatOverlayCustomTabs || [];
+      const customTab = customTabs.find((t: import('../shared/types').CustomChatTab) => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
+      if (customTab && Array.isArray(customTab.channels) && customTab.channels.length > 0) {
+        // 커스텀 탭에 지정된 채널들의 전용 히스토리 스토어 풀을 수집
+        const channelToStoreKey: Record<string, string> = {
+          system: 'System',
+          general: 'General',
+          team: 'Team',
+          club: 'Club',
+          shout: 'Shout',
+          whisper: 'Whisper'
+        };
+
+        let candidateList: ChatItem[] = [];
+        if (customTab.channels.length === 1 && channelToStoreKey[customTab.channels[0]]) {
+          // 단일 채널 전용 탭인 경우 해당 채널 전용 스토어 사용 (예: System 전용 스토어)
+          const storeKey = channelToStoreKey[customTab.channels[0]];
+          candidateList = this._chatHistoryStore[storeKey] || [];
+        } else {
+          // 여러 채널이 혼합된 경우 Basic 스토어와 각 채널 스토어를 병합하고 시간순 정렬
+          const itemsMap = new Map<string, ChatItem>();
+          const basicList = this._chatHistoryStore['Basic'] || [];
+          basicList.forEach(item => itemsMap.set(item.id, item));
+
+          customTab.channels.forEach(ch => {
+            const key = channelToStoreKey[ch];
+            if (key && this._chatHistoryStore[key]) {
+              this._chatHistoryStore[key].forEach(item => {
+                if (!itemsMap.has(item.id)) {
+                  itemsMap.set(item.id, item);
+                }
+              });
+            }
+          });
+
+          candidateList = Array.from(itemsMap.values());
+
+          // ID에서 생성 타임스탬프 밀리초 추출 (chat-1718000000000-xxx, more-1718000000000-xxx)
+          const extractTime = (item: ChatItem): number => {
+            const match = item.id.match(/(?:chat|more)-(\d+)/);
+            if (match) return parseInt(match[1], 10);
+            return 0;
+          };
+
+          candidateList.sort((a, b) => {
+            const tA = extractTime(a);
+            const tB = extractTime(b);
+            if (tA && tB && tA !== tB) return tA - tB;
+            return 0;
+          });
+        }
+
+        const blacklist = cfg.chatOverlayBlacklistFilters;
+        return candidateList.filter(item => {
+          if (!customTab.channels.includes(item.type)) return false;
+          if (blacklist && blacklist.length > 0 && item.message && isMessageBlacklisted(item.message, blacklist)) {
+            return false;
+          }
+          // 시스템 메시지인 경우 해당 커스텀 탭의 색상 필터 적용
+          if (item.type === 'system' && Array.isArray(customTab.systemColorFilters) && customTab.systemColorFilters.length > 0) {
+            const group = getSystemColorGroup(item.color);
+            return customTab.systemColorFilters.includes(group);
+          }
+          return true;
+        });
+      }
+    } catch (e) {
+      log(`[CHAT_PROCESSOR] 커스텀 탭 히스토리 조회 실패: ${e}`);
+    }
+    return [];
   }
 
   /**
@@ -317,16 +392,6 @@ class ChatLogProcessor {
         log(`[Processor] Elso parse/save error: ${err}`);
       }
 
-      // 엘소(Elso) 획득 표현을 한 설정으로 함께 필터링합니다.
-      const isTargetElso = elsoPoints > 0 ||
-        /\[엘소\s*[\d,]+포인트\]/i.test(data.message) ||
-        /\[엘소\s*스크롤\s*\([\d,]+\s*포인트\)\]/i.test(data.message) ||
-        /루미나의\s*회랑\s*ELSO\s*획득량\s*증가\s*효과로/i.test(data.message) ||
-        /\[[\d,]+\]\s*ELSO를\s*습득했습니다/i.test(data.message);
-      if (isTargetElso && cfg.chatOverlayShowElsoGain === false) {
-        return;
-      }
-
       const keywords = cfg.lootKeywords || [];
       // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
       const matchedKeyword = keywords.find(k => data.message.includes(k));
@@ -384,17 +449,12 @@ class ChatLogProcessor {
         }
       }
 
-      const cfg = config.load();
-      if (cfg.chatOverlayShowXpGain === false) {
-        return;
-      }
-
       const chatItem = this.createChatItem({
         type: 'system',
         timestamp: data.timestamp,
         sender: '시스템',
         message: data.message,
-        color: '#ffd700'
+        color: '#ff64ff'
       });
       this.publishChatItem(chatItem, ['Basic', 'System']);
     });

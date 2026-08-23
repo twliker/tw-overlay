@@ -50,9 +50,9 @@ process.on('unhandledRejection', (reason) => {
 
 log(`[BOOT] Application process started at ${new Date().toISOString()}`);
 
-// MS Store (AppX) 및 일반 EXE 간의 설정/데이터 호환성을 위해 userData 경로를 표준 %APPDATA%\twOverlay 로 통일
+// userData 경로를 %APPDATA%\tw-overlay 로 통일
 try {
-  const standardUserDataPath = path.join(app.getPath('appData'), 'twOverlay');
+  const standardUserDataPath = path.join(app.getPath('appData'), 'tw-overlay');
   if (!fs.existsSync(standardUserDataPath)) {
     fs.mkdirSync(standardUserDataPath, { recursive: true });
   }

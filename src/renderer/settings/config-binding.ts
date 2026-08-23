@@ -31,6 +31,7 @@
     abandonedAlertEnabled?: boolean;
     pittaHillAlertEnabled?: boolean;
     questCompleteAlertEnabled?: boolean;
+    notifyWhenGameClosed?: boolean;
     userServer?: number;
     chatOverlayFontSize?: number;
     chatOverlayOpacity?: number;
@@ -153,6 +154,7 @@
     setChecked('abandoned-alert-enabled', config.abandonedAlertEnabled ?? defaults.abandonedAlertEnabled ?? true);
     setChecked('pitta-hill-alert-enabled', config.pittaHillAlertEnabled ?? defaults.pittaHillAlertEnabled ?? true);
     setChecked('quest-complete-alert-enabled', config.questCompleteAlertEnabled ?? defaults.questCompleteAlertEnabled ?? true);
+    setChecked('notify-when-game-closed-input', config.notifyWhenGameClosed ?? defaults.notifyWhenGameClosed ?? false);
 
     setValue('chat-overlay-user-server-input', config.userServer ?? defaults.userServer ?? 7);
     bindRange('chat-overlay-fontsize-input', 'chat-overlay-fontsize-val', config.chatOverlayFontSize ?? defaults.chatOverlayFontSize ?? 14, value => `${value}px`);

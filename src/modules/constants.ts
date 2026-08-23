@@ -2,6 +2,7 @@
  * 앱 전역 상수 정의
  */
 import * as path from 'path';
+import * as fs from 'fs';
 
 function getElectronApp(): Electron.App | null {
   try {
@@ -59,14 +60,22 @@ export const TITLE_BUFFER_LENGTH = 256;
 
 export const get_CONFIG_PATH = () => {
   const electronApp = getElectronApp();
-  const userData = electronApp ? electronApp.getPath('userData') : process.cwd();
-  return path.join(userData, 'config.json');
+  const appData = electronApp ? electronApp.getPath('appData') : (process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming'));
+  const targetDir = path.join(appData, 'tw-overlay');
+  if (!fs.existsSync(targetDir)) {
+    try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
+  }
+  return path.join(targetDir, 'config.json');
 };
 
 export const get_LOG_PATH = () => {
   const electronApp = getElectronApp();
-  const userData = electronApp ? electronApp.getPath('userData') : process.cwd();
-  return path.join(userData, 'debug.log');
+  const appData = electronApp ? electronApp.getPath('appData') : (process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming'));
+  const targetDir = path.join(appData, 'tw-overlay');
+  if (!fs.existsSync(targetDir)) {
+    try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
+  }
+  return path.join(targetDir, 'debug.log');
 };
 
 /** 리소스 경로 유틸리티 (dist 폴더 기준) */
@@ -116,6 +125,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     '아칸': { name: '아칸', enabled: true, soundFile: 'orb.mp3' },
     '혼란한 대지': { name: '혼란한 대지', enabled: true, soundFile: 'orb.mp3' },
   },
+  notifyWhenGameClosed: false,
   positions: { ...DEFAULT_WINDOW_POSITIONS },
   tradeServer: 'RyXp',
   tradeKeywords: [],
@@ -242,6 +252,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   chatOverlayShowXpGain: false,
   chatOverlayShowElsoGain: false,
   chatOverlayHighlightScamNicknames: true,
+  chatOverlayCustomTabs: [],
   chatOverlayColorGeneral: chatChannels.OVERLAY_COLORS.general,
   chatOverlayColorWhisper: chatChannels.OVERLAY_COLORS.whisper,
   chatOverlayColorTeam: chatChannels.OVERLAY_COLORS.team,

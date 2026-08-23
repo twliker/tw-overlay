@@ -19,7 +19,7 @@ import type { ChatLogEncoding } from './chatLogNormalizer';
 import { parseItemAcquisition } from './itemAcquisition';
 
 const { isLegacyNpcSender } = require('../shared/chatConstants') as ChatConstants;
-const { COLORS: CHAT_COLORS, stripShoutSuffix } = require('../shared/chatChannels') as ChatChannelConstants;
+const { COLORS: CHAT_COLORS, stripShoutSuffix, getSystemColorGroup } = require('../shared/chatChannels') as ChatChannelConstants;
 
 type HistoryCategory = 'General' | 'Team' | 'Club' | 'Whisper' | 'System';
 type HistoryMessageType = 'general' | 'team' | 'club' | 'whisper' | 'system';
@@ -456,7 +456,36 @@ class ChatLogManager {
   }
 
   public resetLastReadIndex(category: string): void {
-    this._lastReadIndex[category] = this._initialReadIndex[category] ?? this._lastReadIndex['initial'] ?? 0;
+    if (this._initialReadIndex[category] !== undefined) {
+      this._lastReadIndex[category] = this._initialReadIndex[category];
+      return;
+    }
+
+    // 커스텀 탭인 경우 포함된 채널들의 initialReadIndex 중 최소값으로 안전하게 설정
+    const cfg = config.load();
+    const customTabs = cfg.chatOverlayCustomTabs || [];
+    const customTab = customTabs.find(t => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
+    if (customTab && Array.isArray(customTab.channels) && customTab.channels.length > 0) {
+      const channelToKey: Record<string, string> = {
+        general: 'General',
+        team: 'Team',
+        club: 'Club',
+        whisper: 'Whisper',
+        shout: 'Shout',
+        system: 'System'
+      };
+      let minIndex = this._lastReadIndex['initial'] ?? this._todayLines.length;
+      customTab.channels.forEach(ch => {
+        const key = channelToKey[ch];
+        if (key && this._initialReadIndex[key] !== undefined) {
+          minIndex = Math.min(minIndex, this._initialReadIndex[key]);
+        }
+      });
+      this._lastReadIndex[category] = minIndex;
+      return;
+    }
+
+    this._lastReadIndex[category] = this._lastReadIndex['initial'] ?? 0;
   }
 
   public async getMoreHistory(category: string): Promise<any[]> {
@@ -464,14 +493,18 @@ class ChatLogManager {
     const serverCode = cfg.userServer || (DEFAULT_CONFIG.userServer as number);
     const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
 
-    let startIndex = this._lastReadIndex[category];
-    if (typeof startIndex !== 'number') {
-      startIndex = this._lastReadIndex['initial'] ?? 0;
+    if (typeof this._lastReadIndex[category] !== 'number') {
+      this.resetLastReadIndex(category);
     }
+    const startIndex = this._lastReadIndex[category] ?? 0;
 
     const collected: any[] = [];
     let finalIndex = 0;
-    const targetType = category === 'Basic' ? null : category.toLowerCase();
+
+    // 커스텀 탭 정보 조회
+    const customTabs = cfg.chatOverlayCustomTabs || [];
+    const customTab = customTabs.find(t => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
+    const targetType = (!customTab && category !== 'Basic') ? category.toLowerCase() : null;
 
     for (let i = startIndex - 1; i >= 0; i--) {
       if (collected.length >= 150) {
@@ -482,7 +515,7 @@ class ChatLogManager {
       const rawLine = this._todayLines[i];
       if (!rawLine) continue;
 
-      const timeMatch = rawLine.match(/\[\s*(\d+시\s*\d+분\s*\d+초)\s*\]/);
+      const timeMatch = rawLine.match(/\[\s*(\d+(?:시|분)\s*\d+분\s*\d+(?:초|분))\s*\]/);
       if (!timeMatch) continue;
 
       const timestamp = timeMatch[1];
@@ -492,6 +525,7 @@ class ChatLogManager {
 
       // 외치기
       if (rawLine.includes(`color="${CHAT_COLORS.shout}"`) && cleanMsg.includes('외치기 :')) {
+        if (customTab && !customTab.channels.includes('shout')) continue;
         if (targetType && targetType !== 'shout') continue;
 
         const shoutContent = cleanMsg.replace('외치기 :', '').trim();
@@ -502,9 +536,13 @@ class ChatLogManager {
           const rankInfo = etaCacheManager.getRankInfo(serverCode, sender);
           const level = rankInfo ? rankInfo.level : null;
           const characterCode = rankInfo ? rankInfo.characterCode : null;
+
           collected.push({
             id: `more-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            type: 'shout', timestamp, sender, message,
+            type: 'shout',
+            timestamp,
+            sender,
+            message,
             color: CHAT_COLORS.shout,
             level,
             characterCode
@@ -513,7 +551,7 @@ class ChatLogManager {
         continue;
       }
 
-      // 2. 색상 최우선 기반 카테고리 분류 적용
+      // 색상 기반 카테고리 분류
       let color = CHAT_COLORS.system;
       const colorMatch = rawLine.match(/color=["']?(#[0-9a-fA-F]{6})["']?/);
       if (colorMatch) {
@@ -522,8 +560,13 @@ class ChatLogManager {
 
       const { type, sender, message, color: finalColor } = classifyHistoryMessage(color, cleanMsg);
 
-      // 타겟 카테고리 필터 매칭 여부 판정
-      if (targetType && targetType !== type) {
+      if (customTab) {
+        if (!customTab.channels.includes(type)) continue;
+        if (type === 'system' && Array.isArray(customTab.systemColorFilters) && customTab.systemColorFilters.length > 0) {
+          const group = getSystemColorGroup(finalColor);
+          if (!customTab.systemColorFilters.includes(group)) continue;
+        }
+      } else if (targetType && targetType !== type) {
         continue;
       }
 
@@ -533,7 +576,11 @@ class ChatLogManager {
 
       collected.push({
         id: `more-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        type, timestamp, sender, message, color: finalColor,
+        type,
+        timestamp,
+        sender,
+        message,
+        color: finalColor,
         level,
         characterCode
       });
@@ -555,11 +602,15 @@ class ChatLogManager {
     const queryClean = query.trim().toLowerCase();
     const limit = Math.max(1, Math.min(options?.limit || 300, 1000));
     const category = options?.category || 'Basic';
-    const targetType = category === 'Basic' ? null : category.toLowerCase();
 
     const cfg = config.load();
     const serverCode = cfg.userServer || (DEFAULT_CONFIG.userServer as number);
     const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
+
+    // 커스텀 탭 정보 조회
+    const customTabs = cfg.chatOverlayCustomTabs || [];
+    const customTab = customTabs.find(t => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
+    const targetType = (!customTab && category !== 'Basic') ? category.toLowerCase() : null;
 
     const collected: any[] = [];
 
@@ -580,6 +631,7 @@ class ChatLogManager {
 
       // 1. 외치기
       if (rawLine.includes(`color="${CHAT_COLORS.shout}"`) && cleanMsg.includes('외치기 :')) {
+        if (customTab && !customTab.channels.includes('shout')) continue;
         if (targetType && targetType !== 'shout') continue;
 
         const shoutContent = cleanMsg.replace('외치기 :', '').trim();
@@ -621,7 +673,13 @@ class ChatLogManager {
 
       const { type, sender, message, color: finalColor } = classifyHistoryMessage(color, cleanMsg);
 
-      if (targetType && targetType !== type) {
+      if (customTab) {
+        if (!customTab.channels.includes(type)) continue;
+        if (type === 'system' && Array.isArray(customTab.systemColorFilters) && customTab.systemColorFilters.length > 0) {
+          const group = getSystemColorGroup(finalColor);
+          if (!customTab.systemColorFilters.includes(group)) continue;
+        }
+      } else if (targetType && targetType !== type) {
         continue;
       }
 

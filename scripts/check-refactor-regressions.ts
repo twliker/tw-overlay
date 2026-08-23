@@ -486,7 +486,7 @@ function checkRendererResources() {
     /ethosVolumeEl|abyssVolumeEl|lokagosVolumeEl|waveVolumeEl|overlayFontSizeEl|overlayOpacityEl|selectedChannels|forgeHudPos/,
     '독립 설정 입력 바인딩 로직이 settings.html에 다시 중복되었습니다.',
   );
-  assert.match(settingsPage, /settingsFormCollection\.collectChatOverlayDisplaySettings\(chatOverlayFilterList\)/);
+  assert.match(settingsPage, /settingsFormCollection\.collectChatOverlayDisplaySettings\(chatOverlayFilterList(?:,\s*customTabsList)?\)/);
   assert.match(settingsPage, /settingsFormCollection\.collectChatAlertSettings\(lootKeywordsList, shoutKeywordsList\)/);
   assert.match(settingsPage, /settingsShortcuts\.mergeShortcuts\(config\.shortcuts\)/);
   assert.match(settingsPage, /shortcuts:\s*window\.settingsShortcuts\.getShortcuts\(\)/);
@@ -2812,6 +2812,105 @@ function checkShoutSuffixStripping(): void {
   chatParser.off('TRADE_SHOUT', shoutListener);
 }
 
+function checkMandatoryUpdateLogic(): void {
+  const updaterModule = require(path.join(projectRoot, 'dist', 'modules', 'updater.js')) as {
+    hasMandatoryTag: (text: unknown) => boolean;
+    findLatestMandatoryRelease: (info: any, currentVersion?: string) => { version: string; tag: string; note?: string } | null;
+    checkMandatory: (info: any) => boolean;
+    formatReleaseNotes: (releaseNotes: any) => string | undefined;
+  };
+
+  const { hasMandatoryTag, findLatestMandatoryRelease, checkMandatory, formatReleaseNotes } = updaterModule;
+
+  // 1. 태그 판별 대소문자/공백 무시 검증
+  assert.equal(hasMandatoryTag('[Mandatory Update]'), true);
+  assert.equal(hasMandatoryTag('[mandatory update]'), true);
+  assert.equal(hasMandatoryTag('[  MANDATORY   UPDATE  ]'), true);
+  assert.equal(hasMandatoryTag('긴급 패치 [Mandatory Update] 안내'), true);
+  assert.equal(hasMandatoryTag('일반 업데이트 버전'), false);
+  assert.equal(hasMandatoryTag(null), false);
+  assert.equal(hasMandatoryTag(undefined), false);
+
+  // 2. 다중 릴리즈 시나리오 검증:
+  // 사용자 v1 환경에서 배포 이력: v6(일반), v5(강제), v4(일반), v3(강제), v2(강제)
+  // 최신 강제 버전인 v5가 선별되어야 함
+  const multiReleaseInfoScenario = {
+    version: '6.0.0',
+    releaseName: 'v6.0.0 일반 업데이트',
+    releaseNotes: [
+      { version: '6.0.0', note: 'v6 일반 기능 추가 및 개선' },
+      { version: '5.0.0', note: '<h2>[Mandatory Update] v5.0.0 긴급 보안 패치</h2>' },
+      { version: '4.0.0', note: 'v4 일반 UI 업데이트' },
+      { version: '3.0.0', note: '<h1>[Mandatory Update] v3.0.0 데이터 마이그레이션</h1>' },
+      { version: '2.0.0', note: '[Mandatory Update] v2.0.0 릴리즈' }
+    ]
+  };
+
+  const targetRelease = findLatestMandatoryRelease(multiReleaseInfoScenario);
+  assert.ok(targetRelease !== null, '다중 릴리즈 히스토리에서 강제 업데이트 타겟을 찾지 못했습니다.');
+  assert.equal(targetRelease.version, '5.0.0', '상위 버전 중 가장 최신 강제 업데이트 버전인 v5가 선택되지 않았습니다.');
+  assert.equal(targetRelease.tag, 'v5.0.0', '타겟 태그명이 올바르지 않습니다.');
+  assert.equal(checkMandatory(multiReleaseInfoScenario), true);
+
+  // 3. 상위 버전 중 강제 업데이트가 하나도 없는 시나리오: v3(일반), v2(일반)
+  const noMandatoryInfoScenario = {
+    version: '3.0.0',
+    releaseName: 'v3.0.0 일반 릴리즈',
+    releaseNotes: [
+      { version: '3.0.0', note: 'v3 일반 기능 개선' },
+      { version: '2.0.0', note: 'v2 일반 버그 수정' }
+    ]
+  };
+  assert.equal(findLatestMandatoryRelease(noMandatoryInfoScenario), null, '강제 업데이트가 없는데 타겟이 반환되었습니다.');
+  assert.equal(checkMandatory(noMandatoryInfoScenario), false);
+
+  // 4. 단일 릴리즈 (문자열) 시나리오 검증
+  const singleMandatoryTitle = {
+    version: '2.6.7',
+    releaseName: '[Mandatory Update] v2.6.7 긴급 배포',
+    releaseNotes: '단일 릴리즈 노트 내용'
+  };
+  const singleTarget1 = findLatestMandatoryRelease(singleMandatoryTitle);
+  assert.ok(singleTarget1 !== null);
+  assert.equal(singleTarget1.version, '2.6.7');
+  assert.equal(singleTarget1.tag, 'v2.6.7');
+
+  const singleMandatoryBody = {
+    version: '2.6.7',
+    releaseName: 'v2.6.7 긴급 배포',
+    releaseNotes: '<h1>[Mandatory Update]</h1> 버그 수정'
+  };
+  const singleTarget2 = findLatestMandatoryRelease(singleMandatoryBody);
+  assert.ok(singleTarget2 !== null);
+  assert.equal(singleTarget2.version, '2.6.7');
+
+  const singleRegular = {
+    version: '2.6.8',
+    releaseName: 'v2.6.8 일반 배포',
+    releaseNotes: '일반 패치'
+  };
+  assert.equal(findLatestMandatoryRelease(singleRegular), null);
+  assert.equal(checkMandatory(singleRegular), false);
+
+  // 5. formatReleaseNotes 포매팅 검증
+  const formatted = formatReleaseNotes(multiReleaseInfoScenario.releaseNotes);
+  assert.ok(typeof formatted === 'string');
+  assert.ok(formatted.includes('<h3>v6.0.0</h3>'));
+  assert.ok(formatted.includes('<h3>v5.0.0</h3>'));
+  assert.ok(formatted.includes('<hr class="border-white/10 my-3" />'));
+}
+
+function checkCustomTabHistoryContracts(): void {
+  const { chatLogManager } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogManager.js'));
+  assert.equal(typeof chatLogManager.resetLastReadIndex, 'function', 'chatLogManager.resetLastReadIndex가 누락되었습니다.');
+  assert.equal(typeof chatLogManager.getMoreHistory, 'function', 'chatLogManager.getMoreHistory가 누락되었습니다.');
+
+  // 커스텀 탭 ID로 리셋 및 더 불러오기 호출 시 예외 없이 동작하는지 검증
+  assert.doesNotThrow(() => {
+    chatLogManager.resetLastReadIndex('custom_123456789');
+  }, '커스텀 탭 ID resetLastReadIndex 호출 시 예외가 발생했습니다.');
+}
+
 checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
@@ -2819,6 +2918,8 @@ checkIpcChannelContracts();
 checkRendererBundleCleanliness();
 checkCorruptedConfigResilience();
 checkShoutSuffixStripping();
+checkMandatoryUpdateLogic();
+checkCustomTabHistoryContracts();
 
 console.log('Refactor regression checks passed.');
 process.exit(0);

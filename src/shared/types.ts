@@ -154,6 +154,15 @@ export interface XpStats {
 export type ChatChannel = 'general' | 'team' | 'club' | 'shout' | 'whisper' | 'system';
 export type ChatOverlayTab = 'Basic' | 'General' | 'Team' | 'Club' | 'Shout' | 'Whisper' | 'System';
 
+export type SystemColorGroup = 'purple' | 'yellow' | 'red' | 'green' | 'blue' | 'gray';
+
+export interface CustomChatTab {
+    id: string;
+    name: string;
+    channels: ChatChannel[];
+    systemColorFilters?: SystemColorGroup[];
+}
+
 export interface ChatItem {
     id: string;
     type: ChatChannel;
@@ -374,6 +383,7 @@ export interface AppConfig {
     fieldBossNotifyOffsets?: number[];
     fieldBossNotifyVolume?: number;
     fieldBossSettings?: Record<string, BossSetting>;
+    notifyWhenGameClosed?: boolean;
     positions?: Partial<Record<WindowPositionKey, WindowPosition>>;
     storedPositionKeys?: WindowPositionKey[];
     tradeServer?: string;
@@ -525,6 +535,7 @@ export interface AppConfig {
     questHudPos?: HudPosition;
     showSidebarToastOnOverlay?: boolean;
     setupCompleted?: boolean;
+    chatOverlayCustomTabs?: CustomChatTab[];
 
     // --- Google Drive Sync Settings ---
     googleSyncEnabled?: boolean;

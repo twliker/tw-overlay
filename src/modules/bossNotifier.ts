@@ -89,7 +89,6 @@ function checkBossTime(): void {
     // 현재 시간에 오프셋을 더해 '곧 출현할 보스'를 찾음
     const targetTime = new Date(now.getTime() + offset * 60000);
     const HHmm = `${String(targetTime.getHours()).padStart(2, '0')}:${String(targetTime.getMinutes()).padStart(2, '0')}`;
-
     const bosses = BOSS_SCHEDULE.filter(b => b.time === HHmm);
     bosses.forEach(boss => {
       const bossSetting = cfg.fieldBossSettings?.[boss.name];
@@ -112,9 +111,10 @@ function notify(bossName: string, soundFile: string, spawnTime: string, offset: 
   const content = `[${bossName}] ${spawnTime} 스폰 처치 완료`;
   const isAlreadyRecorded = diaryDb.isActivityLogged(dateStr, content);
 
-  // 게임창이 최소화되어 있는 상태일 때 Windows 알림 발송
+  // 게임창이 최소화되어 있거나 게임 종료 시 알림 받기 옵션 활성화 상태일 때 Windows 알림 발송
+  const cfg = config.load();
   const gameStatus = getGameStatus();
-  if (gameStatus === 'minimized') {
+  if (gameStatus === 'minimized' || (cfg.notifyWhenGameClosed && gameStatus === 'not-running')) {
     const title = '🕒 필드보스 출현 알림';
     const body = offset === 0
       ? `지금 [${bossName}]이(가) 출현했습니다!`

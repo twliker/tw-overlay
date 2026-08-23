@@ -445,7 +445,17 @@
         <i data-lucide="message-square" class="w-3.5 h-3.5 text-emerald-400"></i>
         <span id="dragHeaderTitleText">CHAT HISTORY</span>
       </div>
-      <div class="drag-header-actions flex items-center gap-2">
+      <div class="drag-header-actions flex items-center gap-1.5">
+        <button id="btnOpenLog" class="new-win-btn p-1 rounded hover:bg-white/10 text-slate-400 hover:text-sky-400" title="오늘의 채팅로그 열기">
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+        </button>
+        <button id="btnToggleSearch" class="new-win-btn p-1 rounded hover:bg-white/10 text-slate-400 hover:text-sky-400" title="채팅 검색 (Ctrl+F)">
+          <i data-lucide="search" class="w-3.5 h-3.5"></i>
+        </button>
+        <button id="btnSettings" class="new-win-btn p-1 rounded hover:bg-white/10 text-slate-400 hover:text-emerald-400" title="채팅 오버레이 설정">
+          <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+        </button>
+        <div class="w-[1px] h-3 bg-white/10 mx-0.5"></div>
         <button id="btnOpenSub1" class="new-win-btn text-xs font-bold px-1.5 py-0.5 rounded border border-white/10" title="Sub 1 창 열기" style="display: none;">
           SUB 1
         </button>
@@ -467,18 +477,6 @@
       <div class="tab-item" data-tab="Club">클럽</div>
       <div class="tab-item" data-tab="Shout">외치기</div>
       <div class="tab-item" data-tab="System">시스템</div>
-      <div class="tab-item" data-tab="OpenLog" style="color: #60a5fa; display: inline-flex; align-items: center; gap: 4px;">
-        <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-        <span class="tab-text">채팅로그</span>
-      </div>
-      <div class="tab-item" id="btnToggleSearch" style="color: #38bdf8; display: inline-flex; align-items: center; gap: 4px;" title="채팅 검색 (Ctrl+F)">
-        <i data-lucide="search" class="w-3.5 h-3.5"></i>
-        <span class="tab-text">검색</span>
-      </div>
-      <div class="tab-item" data-tab="Settings" style="margin-left: auto; color: var(--tab-active); display: inline-flex; align-items: center; gap: 4px;">
-        <i data-lucide="settings" class="w-3.5 h-3.5"></i>
-        <span class="tab-text">설정</span>
-      </div>
     </div>
 
     <!-- 검색 입력창 영역 -->

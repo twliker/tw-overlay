@@ -1,6 +1,6 @@
 {
   "name": "tw-overlay",
-  "version": "2.7.0-beta.1",
+  "version": "2.7.0",
   "description": "TalesWeaver Companion Browser",
   "main": "dist/main.js",
   "scripts": {
@@ -19,7 +19,7 @@
   },
   "build": {
     "appId": "com.filbertlab.twoverlay",
-    "productName": "twOverlay",
+    "productName": "tw-overlay",
     "directories": {
       "output": "dist_electron"
     },

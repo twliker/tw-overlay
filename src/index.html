@@ -643,13 +643,15 @@
       // 사운드 파일 재생 처리 (soundFile이 있을 때만)
       if (soundFile) {
         let shouldPlay = true;
-        // 미리보기(테스트)가 아니고 게임이 꺼진 상태이면 소리 재생을 차단함
+        // 미리보기(테스트)가 아니고 게임이 꺼진 상태이면 소리 재생을 차단함 (게임 종료 시 알림 받기 옵션 켜짐 시 재생 허용)
         if (!isPreview) {
           try {
             const status = await window.electronAPI.getGameStatus();
             if (status !== 'running' && status !== 'minimized') {
-              console.log(`[AUDIO] Skipped playing ${soundFile} because game status is: ${status}`);
-              shouldPlay = false;
+              if (!lastConfig || !lastConfig.notifyWhenGameClosed) {
+                console.log(`[AUDIO] Skipped playing ${soundFile} because game status is: ${status}`);
+                shouldPlay = false;
+              }
             }
           } catch (e) {
             console.error('[AUDIO] Failed to check game status:', e);
