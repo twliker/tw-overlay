@@ -61,7 +61,7 @@ export const TITLE_BUFFER_LENGTH = 256;
 export const get_CONFIG_PATH = () => {
   const electronApp = getElectronApp();
   const appData = electronApp ? electronApp.getPath('appData') : (process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming'));
-  const targetDir = path.join(appData, 'tw-overlay');
+  const targetDir = path.join(appData, 'twOverlay');
   if (!fs.existsSync(targetDir)) {
     try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
   }
@@ -71,7 +71,7 @@ export const get_CONFIG_PATH = () => {
 export const get_LOG_PATH = () => {
   const electronApp = getElectronApp();
   const appData = electronApp ? electronApp.getPath('appData') : (process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming'));
-  const targetDir = path.join(appData, 'tw-overlay');
+  const targetDir = path.join(appData, 'twOverlay');
   if (!fs.existsSync(targetDir)) {
     try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
   }

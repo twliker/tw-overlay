@@ -50,12 +50,29 @@ process.on('unhandledRejection', (reason) => {
 
 log(`[BOOT] Application process started at ${new Date().toISOString()}`);
 
-// userData 경로를 %APPDATA%\tw-overlay 로 통일
+// userData 경로를 표준 %APPDATA%\twOverlay 로 통일
 try {
-  const standardUserDataPath = path.join(app.getPath('appData'), 'tw-overlay');
+  const standardUserDataPath = path.join(app.getPath('appData'), 'twOverlay');
   if (!fs.existsSync(standardUserDataPath)) {
     fs.mkdirSync(standardUserDataPath, { recursive: true });
   }
+
+  // 레거시/개발용 tw-overlay 폴더의 데이터가 있고 twOverlay에 없는 경우 안전하게 마이그레이션
+  const legacyPath = path.join(app.getPath('appData'), 'tw-overlay');
+  if (fs.existsSync(legacyPath)) {
+    const migrateFiles = ['config.json', 'diary.db', 'custom_sounds', 'google_auth.enc', 'google_user.json'];
+    for (const item of migrateFiles) {
+      const srcItem = path.join(legacyPath, item);
+      const dstItem = path.join(standardUserDataPath, item);
+      if (fs.existsSync(srcItem) && !fs.existsSync(dstItem)) {
+        try {
+          fs.cpSync(srcItem, dstItem, { recursive: true });
+          log(`[BOOT] Migrated ${item} from tw-overlay to twOverlay`);
+        } catch {}
+      }
+    }
+  }
+
   app.setPath('userData', standardUserDataPath);
   log(`[BOOT] UserData path configured: ${standardUserDataPath}`);
 } catch (e: any) {
