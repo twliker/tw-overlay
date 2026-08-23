@@ -42,10 +42,10 @@
     .guide-container {
       width: 870px;
       height: 720px;
-      background: rgba(15, 23, 42, 0.96); /* slate-900/96 */
-      border: 2px solid rgba(168, 85, 247, 0.4); /* purple-500/40 */
+      background: rgba(15, 23, 42, 0.97); /* slate-900 */
+      border: 2px solid rgba(168, 85, 247, 0.4);
       border-radius: 20px;
-      box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.6), 0 0 40px rgba(168, 85, 247, 0.2);
+      box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.7), 0 0 40px rgba(168, 85, 247, 0.2);
       display: flex;
       flex-direction: column;
       color: #f1f5f9;
@@ -54,12 +54,12 @@
     
     /* Header Drag Area */
     .guide-header {
-      height: 60px;
+      height: 56px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 24px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 0 22px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       -webkit-app-region: drag;
     }
     
@@ -70,13 +70,13 @@
     }
     
     .header-logo {
-      width: 24px;
-      height: 24px;
+      width: 22px;
+      height: 22px;
       color: #a78bfa;
     }
     
     .header-title {
-      font-size: 19px;
+      font-size: 18px;
       font-weight: 700;
       color: #cbd5e1;
       letter-spacing: 0.5px;
@@ -102,35 +102,31 @@
       color: #ef4444;
     }
     
-    /* Tab Buttons */
+    /* Tab Buttons (7 Tabs) */
     .guide-tabs {
       -webkit-app-region: no-drag;
       display: flex;
-      padding: 8px 16px 0;
-      gap: 3px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 6px 16px 0;
+      gap: 4px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(15, 23, 42, 0.5);
       overflow-x: hidden;
-      scrollbar-width: none;
-    }
-    
-    .guide-tabs::-webkit-scrollbar {
-      display: none;
     }
     
     .tab-btn {
       background: transparent;
       border: none;
       color: #94a3b8;
-      font-size: 12.8px;
+      font-size: 13px;
       font-weight: 600;
-      padding: 8px 9px;
+      padding: 9px 11px;
       border-radius: 8px 8px 0 0;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
       transition: all 0.2s;
-      border-bottom: 2px solid transparent;
+      border-bottom: 3px solid transparent;
       white-space: nowrap;
       flex-shrink: 0;
     }
@@ -141,16 +137,17 @@
     }
     
     .tab-btn.active {
-      color: #c084fc; /* purple-400 */
+      color: #c084fc;
       border-bottom: 3px solid #a855f7;
-      background: rgba(168, 85, 247, 0.08);
+      background: rgba(168, 85, 247, 0.1);
+      font-weight: 700;
     }
     
     /* Content Panels */
     .guide-content {
       flex: 1;
       min-height: 0;
-      padding: 16px 24px;
+      padding: 18px 24px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -160,14 +157,7 @@
       display: none;
       flex-direction: column;
       gap: 14px;
-      animation: fadeIn 0.3s ease-in-out;
-      width: 100%;
-    }
-    
-    .wizard-view {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+      animation: fadeIn 0.2s ease-in-out;
       width: 100%;
     }
     
@@ -176,281 +166,82 @@
     }
     
     @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
+      from { opacity: 0; transform: translateY(3px); }
       to { opacity: 1; transform: translateY(0); }
     }
     
     .section-title {
-      font-size: 19px;
+      font-size: 18px;
       font-weight: 700;
-      color: #e2e8f0;
+      color: #f1f5f9;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
     
     .section-desc {
-      font-size: 14.5px;
+      font-size: 13.5px;
       color: #94a3b8;
-      line-height: 1.55;
-    }
-    
-    /* Features Bullet Styling */
-    .features-list-container {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      background: rgba(30, 41, 59, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
-      padding: 14px 18px;
-    }
-    
-    .feature-bullet {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      font-size: 14.5px;
-      color: #cbd5e1;
-      line-height: 1.5;
-    }
-    
-    .feature-bullet strong {
-      color: #f1f5f9;
-    }
-    
-    .bullet-icon {
-      color: #a855f7;
-      margin-top: 2px;
-      flex-shrink: 0;
-    }
-    
-    /* Tip & Info Box */
-    .info-box {
-      background: rgba(168, 85, 247, 0.08);
-      border-left: 4px solid #a855f7;
-      border-radius: 0 10px 10px 0;
-      padding: 12px 16px;
-      display: flex;
-      gap: 10px;
-      align-items: flex-start;
-    }
-    
-    .info-icon {
-      color: #a855f7;
-      margin-top: 1px;
-      flex-shrink: 0;
-    }
-    
-    .info-title {
-      font-size: 14.5px;
-      font-weight: 700;
-      color: #f1f5f9;
+      line-height: 1.6;
+      margin-top: 6px;
       margin-bottom: 2px;
     }
-    
-    .info-desc {
-      font-size: 13.5px;
-      color: #94a3b8;
-      line-height: 1.5;
-    }
-    
-    .info-desc strong {
-      color: #e2e8f0;
-    }
-    
-    /* Tables */
-    .shortcut-table {
-      width: 100%;
-      border-collapse: collapse;
-      background: rgba(30, 41, 59, 0.3);
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    
-    .shortcut-table th, .shortcut-table td {
-      padding: 10px 16px;
-      text-align: left;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-      font-size: 14.5px;
-    }
-    
-    .shortcut-table th {
-      color: #94a3b8;
-      font-weight: 700;
+
+    /* Cards */
+    .card {
       background: rgba(30, 41, 59, 0.4);
-    }
-    
-    .shortcut-table td {
-      color: #cbd5e1;
-    }
-    
-    .key-badge {
-      font-family: 'Consolas', monospace;
-      font-size: 13px;
-      background: rgba(168, 85, 247, 0.15);
-      color: #e9d5ff;
-      border: 1px solid rgba(168, 85, 247, 0.3);
-      padding: 2px 7px;
-      border-radius: 6px;
-      font-weight: bold;
-      margin-right: 4px;
-      display: inline-block;
-    }
-    
-    /* Footer & Submit Button */
-    .guide-footer {
-      flex-shrink: 0;
-      height: 64px;
-      padding: 0 24px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      background: rgba(15, 23, 42, 0.98);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-radius: 0 0 20px 20px;
-    }
-    
-    .footer-tip {
-      font-size: 13px;
-      color: #64748b;
-      white-space: nowrap;
-    }
-    
-    .submit-btn {
-      background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
-      color: #fff;
-      border: none;
-      padding: 9px 22px;
-      border-radius: 10px;
-      font-size: 15px;
-      font-weight: 700;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);
-      transition: all 0.2s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    
-    .submit-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(168, 85, 247, 0.4);
-    }
-    
-    .submit-btn:active {
-      transform: translateY(1px);
-    }
- 
-    .nav-btn {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(168, 85, 247, 0.3);
-      color: #e9d5ff;
-      padding: 8px 18px;
-      border-radius: 10px;
-      font-size: 14.5px;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      transition: all 0.2s;
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    
-    .nav-btn:hover {
-      background: rgba(168, 85, 247, 0.1);
-      border-color: rgba(168, 85, 247, 0.5);
-      color: #fff;
-    }
-    
-    .nav-btn:active {
-      transform: translateY(1px);
-    }
-
-    /* Setup Wizard Styles */
-    .wizard-steps-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 10px;
-      padding: 8px 16px;
-      background: rgba(30, 41, 59, 0.4);
-      border-radius: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.04);
-    }
-
-    .wizard-step-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #64748b;
-      font-weight: 600;
-      font-size: 13.5px;
-      transition: all 0.2s;
-    }
-
-    .wizard-step-item.active {
-      color: #c084fc;
-    }
-
-    .wizard-step-item.completed {
-      color: #34d399;
-    }
-
-    .wizard-step-badge {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.06);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-      color: inherit;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    .wizard-step-item.active .wizard-step-badge {
-      background: rgba(168, 85, 247, 0.25);
-      border-color: #a855f7;
-      color: #e9d5ff;
-      box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
-    }
-
-    .wizard-step-item.completed .wizard-step-badge {
-      background: rgba(16, 185, 129, 0.2);
-      border-color: #10b981;
-      color: #6ee7b7;
-    }
-
-    .wizard-step-arrow {
-      color: #475569;
-      font-size: 13px;
-    }
-
-    .wizard-card {
-      background: rgba(30, 41, 59, 0.35);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 12px;
-      padding: 13px 16px;
+      padding: 16px 20px;
       display: flex;
       flex-direction: column;
-      gap: 9px;
+      gap: 10px;
     }
 
-    .server-card-group {
+    /* Step Card (Quick Start) */
+    .step-card-important {
+      background: rgba(245, 158, 11, 0.08);
+      border: 1.5px solid rgba(245, 158, 11, 0.35);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+
+    .step-number-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #f59e0b;
+      color: #0f172a;
+      font-size: 15px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .step-number-badge-purple {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #a855f7;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* Server Grid */
+    .server-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
-      margin-top: 4px;
     }
 
     .server-card {
@@ -466,13 +257,13 @@
     }
 
     .server-card:hover {
-      border-color: rgba(168, 85, 247, 0.4);
-      background: rgba(168, 85, 247, 0.04);
+      border-color: rgba(168, 85, 247, 0.5);
+      background: rgba(168, 85, 247, 0.06);
     }
 
     .server-card.selected {
       border-color: #a855f7;
-      background: rgba(168, 85, 247, 0.12);
+      background: rgba(168, 85, 247, 0.15);
       box-shadow: 0 0 14px rgba(168, 85, 247, 0.25);
     }
 
@@ -482,7 +273,7 @@
       color: #f1f5f9;
     }
 
-    .server-desc {
+    .server-tag {
       font-size: 12px;
       color: #94a3b8;
       margin-top: 1px;
@@ -498,61 +289,202 @@
       opacity: 1;
     }
 
-    .sync-progress-box {
-      background: rgba(15, 23, 42, 0.7);
-      border: 1px solid rgba(168, 85, 247, 0.2);
-      border-radius: 12px;
-      padding: 14px 16px;
-      display: flex;
-      flex-direction: column;
+    /* Feature Grid (Tab 1: 앱 소개) */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
 
-    .sync-progress-bar-track {
-      width: 100%;
-      height: 8px;
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .sync-progress-bar-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #a855f7, #6366f1, #34d399);
-      border-radius: 4px;
-      transition: width 0.3s ease;
-    }
-
-    .sync-result-grid {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 6px;
-      margin-top: 4px;
-    }
-
-    .sync-stat-card {
-      background: rgba(30, 41, 59, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 8px;
-      padding: 6px 2px;
+    .feature-card {
+      background: rgba(30, 41, 59, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 13px 16px;
       display: flex;
       flex-direction: column;
+      gap: 6px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: rgba(168, 85, 247, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .feature-card-header {
+      display: flex;
       align-items: center;
-      gap: 2px;
-      text-align: center;
+      justify-content: space-between;
     }
 
-    .sync-stat-value {
-      font-size: 15px;
-      font-weight: 800;
-      color: #c084fc;
+    .feature-card-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 7px;
     }
 
-    .sync-stat-label {
-      font-size: 10.5px;
+    .feature-card-desc {
+      font-size: 13px;
       color: #94a3b8;
-      white-space: nowrap;
+      line-height: 1.55;
+    }
+
+    /* HUD Bullet Cards (Tab 3: 게임 오버레이) */
+    .feature-bullet {
+      background: rgba(30, 41, 59, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 13px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .feature-bullet-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .feature-bullet-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .feature-bullet-desc {
+      font-size: 13.5px;
+      color: #cbd5e1;
+      line-height: 1.55;
+    }
+
+    /* Key Badge */
+    .key-badge {
+      font-family: 'Consolas', monospace;
+      font-size: 12px;
+      background: rgba(168, 85, 247, 0.15);
+      color: #e9d5ff;
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      padding: 2px 6px;
+      border-radius: 5px;
+      font-weight: 700;
+      display: inline-block;
+    }
+
+    /* Screenshot Frame */
+    .guide-screenshot-frame {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.6);
+      padding: 4px;
+      max-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .guide-screenshot-frame img {
+      max-height: 110px;
+      width: auto;
+      object-fit: contain;
+      border-radius: 4px;
+    }
+
+    /* Table */
+    .shortcut-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(30, 41, 59, 0.3);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    .shortcut-table th, .shortcut-table td {
+      padding: 8px 14px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 13px;
+    }
+    
+    .shortcut-table th {
+      color: #94a3b8;
+      font-weight: 700;
+      background: rgba(30, 41, 59, 0.5);
+    }
+    
+    .shortcut-table td {
+      color: #cbd5e1;
+    }
+
+    /* Footer */
+    .guide-footer {
+      flex-shrink: 0;
+      height: 62px;
+      padding: 0 22px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(15, 23, 42, 0.98);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-radius: 0 0 20px 20px;
+    }
+    
+    .footer-tip {
+      font-size: 12.5px;
+      color: #64748b;
+    }
+    
+    .submit-btn, .primary-btn {
+      background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+      color: #fff;
+      border: none;
+      padding: 9px 20px;
+      border-radius: 9px;
+      font-size: 14.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      box-shadow: 0 4px 12px rgba(168, 85, 247, 0.35);
+      transition: all 0.2s;
+    }
+    
+    .submit-btn:hover, .primary-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(168, 85, 247, 0.45);
+    }
+    
+    .nav-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      color: #e9d5ff;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+    
+    .nav-btn:hover {
+      background: rgba(168, 85, 247, 0.12);
+      border-color: rgba(168, 85, 247, 0.5);
+      color: #fff;
     }
   </style>
 </head>
@@ -561,643 +493,469 @@
     <!-- Header (Drag Area) -->
     <header class="guide-header">
       <div class="header-title-container">
-        <i data-lucide="help-circle" class="header-logo"></i>
+        <i data-lucide="sparkles" class="header-logo"></i>
         <span class="header-title">twOverlay 사용 가이드</span>
       </div>
-      <button class="close-btn" onclick="closeGuide()">
-        <i data-lucide="x" style="width:24px;height:24px;"></i>
+      <button class="close-btn" onclick="closeGuide()" title="닫기 (ESC)">
+        <i data-lucide="x" style="width:20px;height:20px;"></i>
       </button>
     </header>
     
     <!-- Tab Controls (7 Tabs) -->
     <nav class="guide-tabs">
       <button class="tab-btn active" onclick="switchTab(0)">
-        <i data-lucide="sparkles" style="width:20px;height:20px;color:#c084fc;"></i>시작 마법사
+        <i data-lucide="sparkles" style="width:16px;height:16px;"></i>시작 마법사
       </button>
       <button class="tab-btn" onclick="switchTab(1)">
-        <i data-lucide="info" style="width:20px;height:20px;"></i>앱 소개
+        <i data-lucide="info" style="width:16px;height:16px;"></i>앱 소개
       </button>
       <button class="tab-btn" onclick="switchTab(2)">
-        <i data-lucide="settings" style="width:20px;height:20px;"></i>필수 설정
+        <i data-lucide="settings" style="width:16px;height:16px;"></i>필수 설정
       </button>
       <button class="tab-btn" onclick="switchTab(3)">
-        <i data-lucide="layers" style="width:20px;height:20px;"></i>게임 오버레이 HUD
+        <i data-lucide="layers" style="width:16px;height:16px;"></i>게임 오버레이 HUD
       </button>
       <button class="tab-btn" onclick="switchTab(4)">
-        <i data-lucide="monitor" style="width:20px;height:20px;"></i>전체화면 대응 팁
+        <i data-lucide="monitor" style="width:16px;height:16px;"></i>전체화면 대응 팁
       </button>
       <button class="tab-btn" onclick="switchTab(5)">
-        <i data-lucide="volume-2" style="width:20px;height:20px;"></i>알람음 설정
+        <i data-lucide="volume-2" style="width:16px;height:16px;"></i>알람음 설정
       </button>
       <button class="tab-btn" onclick="switchTab(6)">
-        <i data-lucide="keyboard" style="width:20px;height:20px;"></i>단축키 요약
+        <i data-lucide="keyboard" style="width:16px;height:16px;"></i>단축키 요약
       </button>
     </nav>
     
     <!-- Content Area -->
     <main class="guide-content">
-      <!-- Tab 0: 시작 마법사 (온보딩 & 주간 동기화) -->
+      <!-- Tab 0: 시작 마법사 -->
       <div id="panel-0" class="content-panel active">
-        <!-- Wizard Steps Indicator -->
-        <div class="wizard-steps-header">
-          <div id="step-ind-1" class="wizard-step-item active">
-            <span class="wizard-step-badge">1</span>
-            <span>기본 환경 설정</span>
+        <div>
+          <div class="section-title">
+            <i data-lucide="rocket" style="width:20px;height:20px;color:#a855f7;"></i>
+            딱 2가지만 확인하면 바로 사용할 수 있습니다!
           </div>
-          <i data-lucide="chevron-right" class="wizard-step-arrow"></i>
-          <div id="step-ind-2" class="wizard-step-item">
-            <span class="wizard-step-badge">2</span>
-            <span>모험일지 설정</span>
-          </div>
-          <i data-lucide="chevron-right" class="wizard-step-arrow"></i>
-          <div id="step-ind-3" class="wizard-step-item">
-            <span class="wizard-step-badge">3</span>
-            <span>주간 데이터 동기화</span>
+          <div class="section-desc">
+            게임 내 옵션 확인과 서버 선택만으로 모든 기능이 자동 활성화됩니다.
           </div>
         </div>
 
-        <!-- Wizard Step 1: 경로 & 서버 설정 -->
-        <div id="wizard-view-1" class="wizard-view">
-          <div class="section-title">
-            <i data-lucide="sliders" style="width:22px;height:22px;color:#a855f7;"></i>
-            1단계: 기본 게임 환경 설정
-          </div>
-          <p class="section-desc">
-            오버레이가 게임 채팅 로그를 실시간으로 감지할 수 있도록 폴더 경로와 플레이 서버를 확인해주세요.
-          </p>
-
-          <!-- 필수 안내: 게임 내 채팅 로그 저장 옵션 -->
-          <div class="wizard-card" style="border-color: rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.06); padding: 12px 16px;">
-            <div style="display: flex; gap: 12px; align-items: flex-start;">
-              <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(245, 158, 11, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #f59e0b; margin-top: 1px;">
-                <i data-lucide="alert-triangle" style="width: 18px; height: 18px;"></i>
-              </div>
-              <div style="flex: 1;">
-                <div style="font-size: 14px; font-weight: 700; color: #fbbf24; display: flex; align-items: center; gap: 6px;">
-                  <span>게임 내 [채팅 로그] 옵션 필수 활성화 (ON)</span>
-                </div>
-                <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.5; margin-top: 3px;">
-                  테일즈위버 게임 내 <strong>[환경설정(단축키 O) → 게임 탭]</strong>에서 <strong>'채팅 로그'</strong>를 <strong>ON</strong>으로 설정해 주셔야 twOverlay가 실시간 채팅 감지, 모험일지 및 숙제 동기화를 정상적으로 수행합니다.
-                </div>
-              </div>
+        <!-- 1단계: 인게임 채팅 로그 ON 필수 -->
+        <div class="step-card-important">
+          <div class="step-number-badge">1</div>
+          <div style="flex: 1;">
+            <div style="font-size: 15px; font-weight: 800; color: #fbbf24; display: flex; align-items: center; gap: 8px;">
+              <span>게임 내 [채팅 로그] 저장 활성화 (필수)</span>
+              <span style="font-size: 11px; background: rgba(245, 158, 11, 0.2); border: 1px solid #f59e0b; padding: 2px 6px; border-radius: 5px; font-weight: 700;">필수</span>
             </div>
-          </div>
-
-          <div class="wizard-card">
-            <label style="font-size: 15px; font-weight: 700; color: #cbd5e1;">📁 테일즈위버 채팅 로그(ChatLog) 폴더</label>
-            <div style="display: flex; gap: 10px; align-items: center;">
-              <input type="text" id="wizard-log-path-input" readonly style="flex: 1; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 10px 14px; color: #e2e8f0; font-size: 14px; outline: none;" placeholder="자동 감지 중...">
-              <button onclick="browseLogFolder()" class="nav-btn" style="padding: 9px 16px; font-size: 14px; white-space: nowrap;">
-                <i data-lucide="folder-search" style="width:16px;height:16px;"></i> 폴더 선택
-              </button>
+            <div style="font-size: 13px; color: #cbd5e1; line-height: 1.5; margin-top: 4px;">
+              테일즈위버 인게임에서 <strong style="color: #fff; background: rgba(255,255,255,0.1); padding: 1px 5px; border-radius: 4px;">단축키 O</strong> (환경설정) ➡️ <strong>[게임]</strong> 탭 ➡️ <strong>'채팅 로그'</strong>를 <strong>ON</strong>으로 켜주세요.
             </div>
-            <div id="wizard-path-status" style="font-size: 13px; color: #34d399; display: flex; align-items: center; gap: 6px;">
-              <i data-lucide="check-circle" style="width:15px;height:15px;"></i> 기본 경로가 감지되었습니다.
-            </div>
-          </div>
-
-          <div class="wizard-card" style="padding: 12px 16px; gap: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <label style="font-size: 14px; font-weight: 700; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">
-                  <i data-lucide="clock" style="width:16px;height:16px;color:#a855f7;"></i>
-                  <span>채팅 로그 파일 보관 일수</span>
-                </label>
-                <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
-                  설정한 일수만큼만 보관하고 오래된 원본 채팅 로그 파일(TWChatLog_*.html)을 자동 정리합니다. (<strong>0일 = 영구 보관</strong>)
-                </div>
-              </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="number" id="wizard-chatlog-keep-days-input" min="0" max="3650" value="0" style="width: 76px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 7px 10px; color: #e2e8f0; font-size: 14px; font-weight: 700; text-align: center; outline: none;">
-                <span style="font-size: 13.5px; color: #cbd5e1; font-weight: 600;">일</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="wizard-card">
-            <label style="font-size: 15px; font-weight: 700; color: #cbd5e1;">🌐 플레이 서버 선택</label>
-            <div class="server-card-group">
-              <div id="server-card-7" class="server-card selected" onclick="selectServer(7)">
-                <div>
-                  <div class="server-name">하이아칸</div>
-                  <div class="server-desc">하이아칸 서버 (기본값)</div>
-                </div>
-                <i data-lucide="check" class="server-check-icon" style="width:22px;height:22px;"></i>
-              </div>
-              <div id="server-card-16" class="server-card" onclick="selectServer(16)">
-                <div>
-                  <div class="server-name">네냐플</div>
-                  <div class="server-desc">네냐플 서버</div>
-                </div>
-                <i data-lucide="check" class="server-check-icon" style="width:22px;height:22px;"></i>
-              </div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 3px;">
+              ※ 채팅 로그가 켜져 있어야 경험치 미터기, 보스 알림, 득템 자동 기록이 작동합니다.
             </div>
           </div>
         </div>
 
-        <!-- Wizard Step 2: 모험일지 설정 -->
-        <div id="wizard-view-2" class="wizard-view" style="display: none;">
-          <div class="section-title">
-            <i data-lucide="book-open-check" style="width:22px;height:22px;color:#a855f7;"></i>
-            2단계: 모험일지 득템 & 보관 설정
-          </div>
-          <p class="section-desc">
-            사냥 및 레이드 중 획득 시 <strong>모험일지 캘린더와 타임라인에 기록할 득템 목록</strong> 및 데이터 보관 기간을 설정합니다.
-          </p>
-
-          <!-- 득템 감지 키워드 추천 프리셋 -->
-          <div class="wizard-card" style="padding: 14px 18px; gap: 10px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <label style="font-size: 15px; font-weight: 700; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">
-                  <i data-lucide="sparkles" style="width:17px;height:17px;color:#a855f7;"></i>
-                  <span>모험일지 득템 감지 키워드 프리셋</span>
-                </label>
-                <div style="font-size: 12.5px; color: #94a3b8; margin-top: 3px;">
-                  획득 로그 감지 시 모험일지에 자동 박제되고 득템 알림을 발생시킵니다.
-                </div>
-              </div>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <span id="wizard-loot-count-badge" style="font-size: 13px; font-weight: 800; color: #c084fc; background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.35); padding: 4px 10px; border-radius: 8px;">0종 선택됨</span>
-              </div>
-            </div>
-            
-            <!-- 프리셋 선택 버튼 그룹 -->
-            <div style="display: flex; gap: 10px; margin-top: 4px;">
-              <button type="button" onclick="applyWizardLootPreset('default')" id="btn-loot-preset-default" class="nav-btn" style="flex: 1; padding: 8px 12px; font-size: 13px; border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.15); color: #e9d5ff;">
-                <i data-lucide="check-circle-2" style="width:15px;height:15px;"></i> 기본 추천 득템 세트 (143종 - 권장)
-              </button>
-              <button type="button" onclick="applyWizardLootPreset('all')" id="btn-loot-preset-all" class="nav-btn" style="flex: 1; padding: 8px 12px; font-size: 13px; border-color: rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.04); color: #94a3b8;">
-                <i data-lucide="layers" style="width:15px;height:15px;"></i> 전체 콘텐츠 아이템 (314종)
-              </button>
-            </div>
-
-            <!-- 대표 태그 미리보기 박스 -->
-            <div style="margin-top: 4px;">
-              <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
-                <span>선택된 득템 키워드 미리보기 (※ 환경설정에서 개별 추가/삭제 가능)</span>
-              </div>
-              <div id="wizard-loot-tags-preview" style="display: flex; flex-wrap: wrap; gap: 5px; max-height: 110px; overflow-y: auto; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 8px 10px;">
-              </div>
+        <!-- 2단계: 서버 & 경로 확인 -->
+        <div class="card" style="padding: 14px 16px; gap: 10px;">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <div class="step-number-badge-purple">2</div>
+            <div style="font-size: 14.5px; font-weight: 700; color: #f1f5f9;">
+              플레이 서버 선택 & 경로 확인
             </div>
           </div>
 
-          <!-- 모험일지 데이터 보관 일수 -->
-          <div class="wizard-card" style="padding: 12px 18px; gap: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+          <!-- 서버 선택 -->
+          <div class="server-grid">
+            <div id="server-card-7" class="server-card selected" onclick="selectServer(7)">
               <div>
-                <label style="font-size: 14.5px; font-weight: 700; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">
-                  <i data-lucide="calendar" style="width:16px;height:16px;color:#a855f7;"></i>
-                  <span>모험일지 데이터 보관 일수</span>
-                </label>
-                <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
-                  모험일지 DB의 일일 활동 기록 및 득템 내역을 설정한 일수만큼 보관합니다. (<strong>0일 = 영구 보관</strong>)
-                </div>
+                <div class="server-name">하이아칸</div>
+                <div class="server-tag">하이아칸 서버 (기본값)</div>
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="number" id="wizard-diary-keep-days-input" min="0" max="3650" value="0" style="width: 76px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 7px 10px; color: #e2e8f0; font-size: 14px; font-weight: 700; text-align: center; outline: none;">
-                <span style="font-size: 13.5px; color: #cbd5e1; font-weight: 600;">일</span>
+              <i data-lucide="check" class="server-check-icon" style="width:18px;height:18px;"></i>
+            </div>
+            <div id="server-card-16" class="server-card" onclick="selectServer(16)">
+              <div>
+                <div class="server-name">네냐플</div>
+                <div class="server-tag">네냐플 서버</div>
               </div>
+              <i data-lucide="check" class="server-check-icon" style="width:18px;height:18px;"></i>
+            </div>
+          </div>
+
+          <!-- 로그 경로 확인 -->
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-size: 12.5px; font-weight: 700; color: #cbd5e1;">📁 채팅 로그 폴더</span>
+              <button onclick="browseLogFolder()" class="nav-btn" style="padding: 3px 8px; font-size: 11.5px;">
+                <i data-lucide="folder-search" style="width:12px;height:12px;"></i> 경로 변경
+              </button>
+            </div>
+            <input type="text" id="wizard-log-path-input" readonly style="width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 8px; color: #e2e8f0; font-size: 12px; outline: none;" placeholder="자동 감지 중...">
+            <div id="wizard-path-status" style="font-size: 11.5px; color: #34d399; display: flex; align-items: center; gap: 4px; margin-top: 4px;">
+              <i data-lucide="check-circle" style="width:13px;height:13px;"></i> 기본 경로가 정상 감지되었습니다.
             </div>
           </div>
         </div>
 
-        <!-- Wizard Step 3: 주간 데이터 동기화 -->
-        <div id="wizard-view-3" class="wizard-view" style="display: none;">
-          <div class="section-title">
-            <i data-lucide="refresh-cw" style="width:22px;height:22px;color:#a855f7;"></i>
-            3단계: 주간 데이터 자동 동기화
+        <!-- CTA 배너 -->
+        <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 12px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-size: 14px; font-weight: 700; color: #e9d5ff;">준비 완료! ✨</div>
+            <div style="font-size: 12px; color: #cbd5e1; margin-top: 1px;">추천 득템 세트와 주간 동기화가 자동 적용됩니다.</div>
           </div>
-          <p class="section-desc">
-            테일즈위버 주간 초기화 기준인 <strong id="wizard-monday-label" style="color: #c084fc;">이번 주 월요일(00:00)</strong>부터 오늘까지의 로그를 분석하여 <strong>누락된 득템, 주간 숙제, 외치기, SEED</strong>를 자동으로 채워 넣습니다.
-          </p>
-
-          <div class="sync-progress-box">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <span id="sync-status-title" style="font-size: 15px; font-weight: 700; color: #e2e8f0;">동기화 준비 완료</span>
-              <span id="sync-status-percent" style="font-size: 15px; font-weight: 800; color: #a855f7;">0%</span>
-            </div>
-            <div class="sync-progress-bar-track">
-              <div id="sync-progress-bar" class="sync-progress-bar-fill"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 4px;">
-              <div id="sync-status-detail" style="font-size: 13px; color: #94a3b8;">
-                [동기화 시작] 버튼을 눌러 지난 로그 데이터를 분석하세요.
-              </div>
-              <button id="btn-start-sync" onclick="runWeeklySync()" class="submit-btn" style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); font-size: 14px; padding: 8px 18px; shrink: 0; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
-                <i data-lucide="play" style="width:16px;height:16px;"></i>
-                <span>지금 동기화 실행</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 동기화 결과 요약 그리드 -->
-          <div id="sync-result-summary" style="display: none; flex-direction: column; gap: 8px; margin-top: 4px;">
-            <!-- 1. 신규 반영 결과 -->
-            <div>
-              <div style="font-size: 13.5px; font-weight: 700; color: #a78bfa; margin-bottom: 4px; display: flex; align-items: center; gap: 5px;">
-                <i data-lucide="check-circle-2" style="width:15px;height:15px;color:#34d399;"></i>
-                <span>동기화 완료 결과 (신규 DB 반영)</span>
-              </div>
-              <div class="sync-result-grid">
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-added-loots">0</span>
-                  <span class="sync-stat-label">💎 득템 내역</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-added-homework">0</span>
-                  <span class="sync-stat-label">📋 숙제 이력</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-added-shouts">0</span>
-                  <span class="sync-stat-label">💬 외치기 기록</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-added-seeds">0</span>
-                  <span class="sync-stat-label">💰 시드 내역</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-added-elso">0</span>
-                  <span class="sync-stat-label">🔮 엘소 내역</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-added-essences">0</span>
-                  <span class="sync-stat-label">🧪 경험의 정수</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 2. 로그 총 검출 결과 -->
-            <div>
-              <div style="font-size: 13.5px; font-weight: 700; color: #94a3b8; margin-bottom: 4px; display: flex; align-items: center; gap: 5px;">
-                <i data-lucide="search" style="width:15px;height:15px;color:#60a5fa;"></i>
-                <span>로그 총 검출 갯수 (스캔 전체 감지)</span>
-              </div>
-              <div class="sync-result-grid">
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-detected-loots" style="color: #60a5fa;">0</span>
-                  <span class="sync-stat-label">💎 득템 검출</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-detected-homework" style="color: #60a5fa;">0</span>
-                  <span class="sync-stat-label">📋 숙제 검출</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-detected-shouts" style="color: #60a5fa;">0</span>
-                  <span class="sync-stat-label">💬 외치기 검출</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-detected-seeds" style="color: #60a5fa;">0</span>
-                  <span class="sync-stat-label">💰 시드 검출</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-detected-elso" style="color: #60a5fa;">0</span>
-                  <span class="sync-stat-label">🔮 엘소 검출</span>
-                </div>
-                <div class="sync-stat-card">
-                  <span class="sync-stat-value" id="stat-detected-essences" style="color: #60a5fa;">0</span>
-                  <span class="sync-stat-label">🧪 경험의 정수</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <button class="primary-btn" onclick="finishWizardAndStart()" style="padding: 8px 18px; font-size: 14px;">
+            <i data-lucide="rocket" style="width:16px;height:16px;"></i>
+            <span>지금 바로 시작하기</span>
+          </button>
         </div>
       </div>
 
-      <!-- Tab 1: 앱 소개 (제공 기능 나열) -->
+      <!-- Tab 1: 앱 소개 -->
       <div id="panel-1" class="content-panel">
-        <div class="section-title">
-          <i data-lucide="compass" style="width:22px;height:22px;color:#a855f7;"></i>
-          twOverlay(테일즈위버 오버레이) 제공 기능
+        <div>
+          <div class="section-title">
+            <i data-lucide="compass" style="width:20px;height:20px;color:#a855f7;"></i>
+            twOverlay 핵심 기능 요약
+          </div>
+          <div class="section-desc">
+            사냥과 레이드 등 플레이에 필요한 편의 기능을 실시간 모니터링합니다.
+          </div>
         </div>
-        <p class="section-desc">
-          twOverlay는 사냥과 레이드 등 플레이 전반에 걸쳐 필요한 핵심 편의 기능을 게임 화면에 자석처럼 붙여 실시간으로 모니터링할 수 있도록 돕습니다.
-        </p>
-        
-        <div class="features-list-container">
-          <div class="feature-bullet">
-            <i data-lucide="check" class="bullet-icon" style="width:18px;height:18px;"></i>
-            <div><strong>📈 실시간 경험치(XP) 미터기</strong>: 획득 경험치, 분당 효율(EPM), 킬 수 및 레벨업까지 남은 시간 실시간 계산 및 HUD 노출.</div>
+
+        <div class="feature-grid">
+          <!-- 1. 실시간 경험치 -->
+          <div class="feature-card">
+            <div class="feature-card-header">
+              <div class="feature-card-title">
+                <i data-lucide="trending-up" style="width:16px;height:16px;color:#4ade80;"></i>
+                실시간 경험치(XP) 미터기
+              </div>
+            </div>
+            <div class="feature-card-desc">
+              획득 경험치, 분당 효율(EPM), 잡은 몬스터 수를 실시간 계산하여 화면에 표시합니다.
+            </div>
           </div>
-          <div class="feature-bullet">
-            <i data-lucide="check" class="bullet-icon" style="width:18px;height:18px;"></i>
-            <div><strong>📅 모험일지 자동 기록</strong>: 획득 득템 로그를 실시간 파싱하여 달력 스택 뷰 및 시간별 타임라인에 이미지와 함께 박제.</div>
+
+          <!-- 2. 모험일지 -->
+          <div class="feature-card">
+            <div class="feature-card-header">
+              <div class="feature-card-title">
+                <i data-lucide="calendar" style="width:16px;height:16px;color:#38bdf8;"></i>
+                모험일지 자동 기록
+              </div>
+            </div>
+            <div class="feature-card-desc">
+              획득한 득템 로그를 실시간 감지하여 달력 및 시간별 타임라인에 자동 박제합니다.
+            </div>
           </div>
-          <div class="feature-bullet">
-            <i data-lucide="check" class="bullet-icon" style="width:18px;height:18px;"></i>
-            <div><strong>🕒 필드 보스 출현 경고</strong>: 보스 타임라인 기반 알람 카드가 게임 화면 우측(Dock 설정 시) 또는 사이드바에 팝업 노출.</div>
+
+          <!-- 3. 필드 보스 알림 -->
+          <div class="feature-card">
+            <div class="feature-card-header">
+              <div class="feature-card-title">
+                <i data-lucide="bell" style="width:16px;height:16px;color:#f59e0b;"></i>
+                필드 보스 출현 경고
+              </div>
+            </div>
+            <div class="feature-card-desc">
+              보스 타임라인 기반 스폰 카드가 게임 화면 우측 및 알람 팝업으로 노출됩니다.
+            </div>
           </div>
-          <div class="feature-bullet">
-            <i data-lucide="check" class="bullet-icon" style="width:18px;height:18px;"></i>
-            <div><strong>🧪 지능형 버프 타이머</strong>: 중요 도핑 버프의 남은 시간(1분 전, 10초 전, 5초 전)을 감지해 오버레이 카드로 경고.</div>
+
+          <!-- 4. 버프 타이머 -->
+          <div class="feature-card">
+            <div class="feature-card-header">
+              <div class="feature-card-title">
+                <i data-lucide="flask-conical" style="width:16px;height:16px;color:#c084fc;"></i>
+                지능형 버프 타이머
+              </div>
+            </div>
+            <div class="feature-card-desc">
+              도핑 버프 만료 전(1분, 10초, 5초) 화면 중앙 경고 카드로 시각 및 오디오 알림을 울립니다.
+            </div>
           </div>
-          <div class="feature-bullet">
-            <i data-lucide="check" class="bullet-icon" style="width:18px;height:18px;"></i>
-            <div><strong>💬 자석형 채팅 오버레이</strong>: 게임 화면 크기에 연동되어 게임 창을 가리지 않고 투명하게 채팅 창 모니터링 가능.</div>
+
+          <!-- 5. 채팅 오버레이 -->
+          <div class="feature-card">
+            <div class="feature-card-header">
+              <div class="feature-card-title">
+                <i data-lucide="message-square" style="width:16px;height:16px;color:#818cf8;"></i>
+                자석형 채팅 오버레이
+              </div>
+            </div>
+            <div class="feature-card-desc">
+              게임 창에 자석처럼 연동되어 화면 가림 없이 투명하게 채팅과 외치기를 감시합니다.
+            </div>
           </div>
-          <div class="feature-bullet">
-            <i data-lucide="check" class="bullet-icon" style="width:18px;height:18px;"></i>
-            <div><strong>📋 일일/주간 숙제 체크리스트</strong>: 잊기 쉬운 콘텐츠 클리어 횟수 현황을 빠르게 체크할 수 있는 위젯 제공.</div>
+
+          <!-- 6. 숙제 체크리스트 -->
+          <div class="feature-card">
+            <div class="feature-card-header">
+              <div class="feature-card-title">
+                <i data-lucide="check-square" style="width:16px;height:16px;color:#ec4899;"></i>
+                일일/주간 숙제 체크
+              </div>
+            </div>
+            <div class="feature-card-desc">
+              놓치기 쉬운 주요 콘텐츠 클리어 횟수를 한눈에 체크하고 완료 현황을 확인합니다.
+            </div>
           </div>
         </div>
       </div>
-      
+
       <!-- Tab 2: 필수 설정 -->
       <div id="panel-2" class="content-panel">
-        <div class="section-title">
-          <i data-lucide="folder-key" style="width:22px;height:22px;color:#a855f7;"></i>
-          테일즈위버 로그(ChatLog) 폴더 지정
-        </div>
-        <p class="section-desc">
-          앱의 모든 자동화 기능이 게임 내 액션과 정상 반응하려면 반드시 본인의 테일즈위버 설치 경로 폴더를 앱에 올바르게 연동해주어야 합니다.
-        </p>
-
-        <div style="display: flex; justify-content: center; margin-bottom: 5px;">
-          <button class="submit-btn" onclick="openChatlogSettingsDirectly()" style="font-size: 16px; padding: 10px 24px; background: linear-gradient(135deg, #a855f7 0%, #3b82f6 100%); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);">
-            <i data-lucide="external-link" style="width:18px;height:18px;"></i> 채팅 로그 설정 바로 가기
-          </button>
-        </div>
-        
-        <div class="info-box">
-          <i data-lucide="alert-circle" class="info-icon" style="width:22px;height:22px;"></i>
-          <div>
-            <div class="info-title">연동 폴더 정밀 가이드</div>
-            <div class="info-desc">
-              - <strong>ChatLog 폴더 지정</strong>: 실시간 경험치(XP) 미터기, 보스 스폰 알람, 모험일지 자동 득템 기록을 위해 필수 설정해야 하는 경로입니다.
-            </div>
+        <div>
+          <div class="section-title">
+            <i data-lucide="folder-key" style="width:20px;height:20px;color:#a855f7;"></i>
+            테일즈위버 로그(ChatLog) 폴더 연동
+          </div>
+          <div class="section-desc">
+            경험치 계산, 보스 알림, 득템 기록을 위해 본인의 테일즈위버 로그 폴더 경로를 확인해주세요.
           </div>
         </div>
-        
-        <!-- Screenshot Frame (assets/img/guide_setup.png 매칭) -->
-        <div class="guide-screenshot-frame">
-          <img src="assets/img/guide_setup.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="width:100%;height:auto;display:block;">
-          <div style="display:none; flex-direction:column; align-items:center; gap:12px;">
-            <i data-lucide="image" style="width:30px;height:30px;opacity:0.6;"></i>
-            <span>설정 화면의 경로 지정 가이드 스크린샷 영역</span>
-            <span style="font-size:14px; opacity:0.5;">(assets/img/guide_setup.png 파일을 찾을 수 없습니다)</span>
+
+        <!-- 시작 마법사 완료 안내 팁 -->
+        <div class="card" style="border-left: 4px solid #34d399; background: rgba(16, 185, 129, 0.06); padding: 10px 16px; gap: 4px;">
+          <div style="font-size: 13.5px; font-weight: 700; color: #6ee7b7; display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="check-circle" style="width:15px;height:15px;"></i>
+            <span>시작 마법사에서 설정하셨다면 무시하셔도 돼요! ✨</span>
+          </div>
+          <div style="font-size: 12px; color: #94a3b8; line-height: 1.45;">
+            첫 번째 탭(시작 마법사)에서 로그 경로와 서버를 이미 확인하셨다면 자동으로 연동 완료된 상태입니다.
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: center;">
+          <button class="submit-btn" onclick="openChatlogSettingsDirectly()" style="font-size: 14.5px; padding: 8px 20px;">
+            <i data-lucide="external-link" style="width:16px;height:16px;"></i> 채팅 로그 설정 바로 가기
+          </button>
+        </div>
+
+        <!-- 스크린샷 영역 -->
+        <div class="guide-screenshot-frame" style="max-height: 180px;">
+          <img src="assets/img/guide_setup.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="max-height: 170px;">
+          <div style="display:none; flex-direction:column; align-items:center; gap:8px;">
+            <i data-lucide="image" style="width:24px;height:24px;opacity:0.6;"></i>
+            <span style="font-size: 13px;">설정 화면의 경로 지정 가이드 스크린샷 영역</span>
           </div>
         </div>
       </div>
 
-      <!-- Tab 3: 게임 오버레이 -->
+      <!-- Tab 3: 게임 오버레이 HUD -->
       <div id="panel-3" class="content-panel">
-        <div class="section-title">
-          <i data-lucide="layers" style="width:22px;height:22px;color:#a855f7;"></i>
-          게임 오버레이 (HUD) 컴포넌트 안내 & 위치 설정
-        </div>
-        <p class="section-desc">
-          게임 화면 위에 투명하게 표시되는 실시간 HUD 및 기믹 알림 컴포넌트입니다. 환경설정의 <strong>[게임 오버레이]</strong> 메뉴에서 <strong>마우스 드래그로 원하는 위치에 자유롭게 배치</strong>할 수 있습니다.
-        </p>
-
-        <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 5px; flex-wrap: wrap;">
-          <button class="submit-btn" onclick="openGameOverlaySettingsDirectly()" style="font-size: 16px; padding: 10px 24px; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);">
-            <i data-lucide="crosshair" style="width:18px;height:18px;"></i> 게임 오버레이 위치 편집 설정 바로 가기
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div class="section-title">
+              <i data-lucide="layers" style="width:20px;height:20px;color:#a855f7;"></i>
+              게임 오버레이 HUD 안내 & 단축키
+            </div>
+            <div class="section-desc">
+              환경설정의 <strong>[게임 오버레이]</strong>에서 마우스 드래그로 원하는 위치에 자유롭게 배치할 수 있습니다.
+            </div>
+          </div>
+          <button class="nav-btn" onclick="openGameOverlaySettingsDirectly()" style="font-size: 12.5px; padding: 6px 12px; white-space: nowrap;">
+            <i data-lucide="crosshair" style="width:14px;height:14px;"></i> 위치 편집
           </button>
         </div>
 
-        <div class="features-list-container" style="gap: 20px;">
-          <!-- 1. 스톱워치 타이머 HUD -->
-          <div class="feature-bullet" style="flex-direction: column; gap: 8px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <i data-lucide="timer" style="width:20px;height:20px;color:#818cf8;"></i>
-                <strong style="font-size: 18px; color: #e2e8f0;">1. 스톱워치 (타이머 HUD)</strong>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- 1. 스톱워치 -->
+          <div class="feature-bullet">
+            <div class="feature-bullet-header">
+              <div class="feature-bullet-title">
+                <i data-lucide="timer" style="width:16px;height:16px;color:#818cf8;"></i>
+                1. 스톱워치 (타이머 HUD)
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <button class="nav-btn" onclick="openShortcutsSettingsDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="keyboard" style="width:14px;height:14px;"></i> 단축키 설정
-                </button>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">S</span>
               </div>
             </div>
-            <div style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
-              보스 레이드 및 인던 클리어 타임을 실시간으로 측정하는 초정밀 타이머 HUD입니다.
-              <br>• 보이기 / 숨기기 단축키: <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">S</span>
-            </div>
-            <div class="guide-screenshot-frame">
-              <img src="assets/img/guide_overlay_timer.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-              <div style="display:none; flex-direction:column; align-items:center; gap:8px;">
-                <i data-lucide="image" style="width:24px;height:24px;opacity:0.6;"></i>
-                <span style="font-size: 14px;">스톱워치 타이머 HUD 스크린샷 영역</span>
-                <span style="font-size:12px; opacity:0.5;">(assets/img/guide_overlay_timer.png)</span>
-              </div>
+            <div class="feature-bullet-desc">
+              보스 레이드 및 인던 클리어 타임을 실시간 측정하는 초단위 타이머입니다.
             </div>
           </div>
 
-          <!-- 2. 오늘의 요약 HUD -->
-          <div class="feature-bullet" style="flex-direction: column; gap: 8px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <i data-lucide="notebook-tabs" style="width:20px;height:20px;color:#2dd4bf;"></i>
-                <strong style="font-size: 18px; color: #e2e8f0;">2. 오늘의 요약 HUD</strong>
+          <!-- 2. 오늘의 요약 -->
+          <div class="feature-bullet">
+            <div class="feature-bullet-header">
+              <div class="feature-bullet-title">
+                <i data-lucide="notebook-tabs" style="width:16px;height:16px;color:#2dd4bf;"></i>
+                2. 오늘의 요약 HUD
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <button class="nav-btn" onclick="openTodaySummarySettingsDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="settings" style="width:14px;height:14px;"></i> 상세 설정
-                </button>
-                <button class="nav-btn" onclick="openShortcutsSettingsDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="keyboard" style="width:14px;height:14px;"></i> 단축키 설정
-                </button>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button class="nav-btn" onclick="openTodaySummarySettingsDirectly()" style="padding: 2px 6px; font-size: 11px;">설정</button>
+                <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">Y</span>
               </div>
             </div>
-            <div style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
-              오늘 획득한 SEED, ELSO 포인트, 득템 아이템 목록, 숙제 진행 현황을 게임 화면 한구석에서 실시간 요약 모니터링합니다.
-              <br>• 보이기 / 숨기기 단축키: <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">Y</span>
-            </div>
-            <div class="guide-screenshot-frame">
-              <img src="assets/img/guide_overlay_today_summary.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-              <div style="display:none; flex-direction:column; align-items:center; gap:8px;">
-                <i data-lucide="image" style="width:24px;height:24px;opacity:0.6;"></i>
-                <span style="font-size: 14px;">오늘의 요약 HUD 스크린샷 영역</span>
-                <span style="font-size:12px; opacity:0.5;">(assets/img/guide_overlay_today_summary.png)</span>
-              </div>
+            <div class="feature-bullet-desc">
+              오늘 획득 시드, ELSO 포인트, 득템 목록, 숙제 현황을 실시간 요약 모니터링합니다.
             </div>
           </div>
 
-          <!-- 3. 실시간 경험치(XP) 미터기 HUD -->
-          <div class="feature-bullet" style="flex-direction: column; gap: 8px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <i data-lucide="trending-up" style="width:20px;height:20px;color:#4ade80;"></i>
-                <strong style="font-size: 18px; color: #e2e8f0;">3. 실시간 경험치(XP) 미터기</strong>
+          <!-- 3. 경험치 미터기 -->
+          <div class="feature-bullet">
+            <div class="feature-bullet-header">
+              <div class="feature-bullet-title">
+                <i data-lucide="trending-up" style="width:16px;height:16px;color:#4ade80;"></i>
+                3. 실시간 경험치(XP) 미터기
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <button class="nav-btn" onclick="openHuntingExpDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="external-link" style="width:14px;height:14px;"></i> 상세 설정 (경험치 창)
-                </button>
-                <button class="nav-btn" onclick="openShortcutsSettingsDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="keyboard" style="width:14px;height:14px;"></i> 단축키 설정
-                </button>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button class="nav-btn" onclick="openHuntingExpDirectly()" style="padding: 2px 6px; font-size: 11px;">상세창</button>
+                <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">Z</span>
               </div>
             </div>
-            <div style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
-              사냥 중 획득 총 경험치, 분당 경험치(EPM), 잡은 몬스터 수, 사냥 세션 경과 시간을 실시간으로 계산해 보여줍니다.
-              <br>• 보이기 / 숨기기 단축키: <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">Z</span> / 세션 초기화: <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">X</span>
-            </div>
-            <div class="guide-screenshot-frame">
-              <img src="assets/img/guide_overlay_xp.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-              <div style="display:none; flex-direction:column; align-items:center; gap:8px;">
-                <i data-lucide="image" style="width:24px;height:24px;opacity:0.6;"></i>
-                <span style="font-size: 14px;">실시간 경험치 미터기 HUD 스크린샷 영역</span>
-                <span style="font-size:12px; opacity:0.5;">(assets/img/guide_overlay_xp.png)</span>
-              </div>
+            <div class="feature-bullet-desc">
+              사냥 중 획득 총 경험치, 분당 효율(EPM), 잡은 몬스터 수를 실시간 계산합니다. (초기화: <span class="key-badge" style="font-size: 11px;">Ctrl+Shift+X</span>)
             </div>
           </div>
 
-          <!-- 4. 어벤던로드 위젯 & 10회 알림 -->
-          <div class="feature-bullet" style="flex-direction: column; gap: 8px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <i data-lucide="gem" style="width:20px;height:20px;color:#fbbf24;"></i>
-                <strong style="font-size: 18px; color: #e2e8f0;">4. 어벤던로드 위젯</strong>
+          <!-- 4. 어벤던로드 -->
+          <div class="feature-bullet">
+            <div class="feature-bullet-header">
+              <div class="feature-bullet-title">
+                <i data-lucide="gem" style="width:16px;height:16px;color:#fbbf24;"></i>
+                4. 어벤던로드 위젯
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <button class="nav-btn" onclick="openRelicCalculatorDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="external-link" style="width:14px;height:14px;"></i> 상세 설정 (마정석 계산기)
-                </button>
-                <button class="nav-btn" onclick="openShortcutsSettingsDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="keyboard" style="width:14px;height:14px;"></i> 단축키 설정
-                </button>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button class="nav-btn" onclick="openRelicCalculatorDirectly()" style="padding: 2px 6px; font-size: 11px;">계산기</button>
+                <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">A</span>
               </div>
             </div>
-            <div style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
-              어벤던로드 지역별 입장 횟수와 마정석 실시간 수익을 집계하며, 10회 클리어 달성 시 화면 플래시 및 대형 축하 카드가 노출됩니다.
-              <br>• 보이기 / 숨기기 단축키: <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">A</span>
-            </div>
-            <div class="guide-screenshot-frame">
-              <img src="assets/img/guide_overlay_abandoned.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-              <div style="display:none; flex-direction:column; align-items:center; gap:8px;">
-                <i data-lucide="image" style="width:24px;height:24px;opacity:0.6;"></i>
-                <span style="font-size: 14px;">어벤던로드 위젯 스크린샷 영역</span>
-                <span style="font-size:12px; opacity:0.5;">(assets/img/guide_overlay_abandoned.png)</span>
-              </div>
+            <div class="feature-bullet-desc">
+              어벤던로드 지역별 입장 횟수와 마정석 실시간 수익을 집계합니다. (10회 달성 시 축하 카드)
             </div>
           </div>
 
-          <!-- 5. 지능형 버프 타이머 HUD & 만료 알람 -->
-          <div class="feature-bullet" style="flex-direction: column; gap: 8px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <i data-lucide="flask-conical" style="width:20px;height:20px;color:#c084fc;"></i>
-                <strong style="font-size: 18px; color: #e2e8f0;">5. 지능형 버프 타이머 HUD</strong>
+          <!-- 5. 버프 타이머 -->
+          <div class="feature-bullet">
+            <div class="feature-bullet-header">
+              <div class="feature-bullet-title">
+                <i data-lucide="flask-conical" style="width:16px;height:16px;color:#c084fc;"></i>
+                5. 지능형 버프 타이머 HUD
               </div>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <button class="nav-btn" onclick="openBuffTimerDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="external-link" style="width:14px;height:14px;"></i> 상세 설정 (버프 타이머 창)
-                </button>
-                <button class="nav-btn" onclick="openShortcutsSettingsDirectly()" style="font-size: 13px; padding: 4px 12px;">
-                  <i data-lucide="keyboard" style="width:14px;height:14px;"></i> 단축키 설정
-                </button>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button class="nav-btn" onclick="openBuffTimerDirectly()" style="padding: 2px 6px; font-size: 11px;">상세창</button>
+                <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">B</span>
               </div>
             </div>
-            <div style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
-              도핑 버프의 남은 시간을 원형 프로그레스 뱃지로 보여주고, 만료 1분 전/10초 전/5초 전에 중앙 경고 카드로 시각 및 오디오 알림을 울립니다.
-              <br>• 보이기 / 숨기기 단축키: <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">B</span> / 기록 강제 삭제: <span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">E</span>
-            </div>
-            <div class="guide-screenshot-frame">
-              <img src="assets/img/guide_overlay_buff.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-              <div style="display:none; flex-direction:column; align-items:center; gap:8px;">
-                <i data-lucide="image" style="width:24px;height:24px;opacity:0.6;"></i>
-                <span style="font-size: 14px;">버프 타이머 HUD 스크린샷 영역</span>
-                <span style="font-size:12px; opacity:0.5;">(assets/img/guide_overlay_buff.png)</span>
-              </div>
+            <div class="feature-bullet-desc">
+              도핑 버프 남은 시간을 뱃지로 표시하고, 만료 1분/10초/5초 전 중앙 경고 알람을 울립니다.
             </div>
           </div>
         </div>
       </div>
-      
+
       <!-- Tab 4: 전체화면 대응 팁 -->
       <div id="panel-4" class="content-panel">
-        <div class="section-title">
-          <i data-lucide="monitor-off" style="width:22px;height:22px;color:#ef4444;"></i>
-          전체화면 실행 시 사이드바/독바 가려짐 대처법
-        </div>
-
-        <div style="display: flex; justify-content: center; margin-bottom: 5px;">
-          <button class="submit-btn" onclick="openGeneralSettingsDirectly()" style="font-size: 16px; padding: 10px 24px; background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);">
-            <i data-lucide="external-link" style="width:18px;height:18px;"></i> 사이드바/독 배치 설정 바로 가기
-          </button>
-        </div>
-        
-        <div class="warning-box" style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 0 12px 12px 0; padding: 16px 20px; display: flex; gap: 14px; align-items: flex-start;">
-          <i data-lucide="alert-triangle" style="color: #f87171; flex-shrink: 0; margin-top: 2px; width: 22px; height: 22px;"></i>
-          <div>
-            <div style="font-size: 17.5px; font-weight: 700; color: #f87171; margin-bottom: 4px;">왜 게임 화면에 오버레이가 안 보이나요?</div>
-            <div style="font-size: 15px; color: #cbd5e1; line-height: 1.6;">
-              테일즈위버가 **독점적 전체화면(Exclusive Fullscreen)** 모드로 실행 중일 때는 윈도우 OS의 특성상 어떠한 오버레이 창도 게임 뒤로 가려집니다.
-            </div>
+        <div>
+          <div class="section-title">
+            <i data-lucide="monitor" style="width:20px;height:20px;color:#ef4444;"></i>
+            전체화면 실행 시 오버레이 가려짐 대처법
+          </div>
+          <div class="section-desc">
+            게임 화면 위에 오버레이가 보이지 않을 때 아래 2가지 방법을 확인하세요.
           </div>
         </div>
 
-        <div class="info-box">
-          <i data-lucide="check-circle" class="info-icon" style="width:22px;height:22px;color: #34d399;"></i>
-          <div>
-            <div class="info-title" style="color: #a7f3d0;">추천 해결 방법 2가지</div>
-            <div class="info-desc" style="font-size:15px; line-height:1.65;">
-              1. **[강력 추천]** 테일즈위버 인게임 옵션에서 화면 설정을 **'전체 창 모드'(Borderless Windowed)** 또는 **'창 모드'**로 변경해 주세요.<br>
-              2. 윈도우 트레이 아이콘(시계 옆)을 우클릭하여 **[환경설정]**을 열거나, 설정에서 위치를 **독(Dock) 배치**로 변경하여 단축키(<span class="key-badge" style="font-size:12px; padding: 2px 5px;">Ctrl</span>+<span class="key-badge" style="font-size:12px; padding: 2px 5px;">Shift</span>+<span class="key-badge" style="font-size:12px; padding: 2px 5px;">D</span>)로 켜서 사용하세요.
-            </div>
+        <div style="display: flex; justify-content: center;">
+          <button class="submit-btn" onclick="openGeneralSettingsDirectly()" style="font-size: 14.5px; padding: 8px 20px;">
+            <i data-lucide="external-link" style="width:16px;height:16px;"></i> 사이드바/독 배치 설정 바로 가기
+          </button>
+        </div>
+
+        <div class="card" style="border-left: 4px solid #ef4444; background: rgba(239, 68, 68, 0.06); gap: 6px;">
+          <div style="font-size: 14.5px; font-weight: 700; color: #f87171;">
+            Q. 왜 오버레이 창이 게임 화면 뒤로 숨나요?
+          </div>
+          <div style="font-size: 13px; color: #cbd5e1; line-height: 1.55;">
+            테일즈위버가 **독점적 전체화면 모드**일 때는 윈도우 OS 특성상 오버레이 창이 게임 뒤로 가려집니다.
+          </div>
+        </div>
+
+        <div class="card" style="border-left: 4px solid #34d399; background: rgba(16, 185, 129, 0.06); gap: 6px;">
+          <div style="font-size: 14.5px; font-weight: 700; color: #6ee7b7;">
+            💡 추천 해결 방법 2가지
+          </div>
+          <div style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+            1. **[강력 권장]** 테일즈위버 인게임 옵션에서 화면을 <strong>'전체 창 모드(Borderless)'</strong> 또는 <strong>'창 모드'</strong>로 변경해 주세요.<br>
+            2. 환경설정에서 배치를 <strong>독(Dock) 모드</strong>로 설정하여 단축키(<span class="key-badge" style="font-size:11px;">Ctrl+Shift+D</span>)로 끄고 켤 수 있습니다.
+          </div>
+        </div>
+
+        <!-- 인게임 독 모드 스크린샷 -->
+        <div class="guide-screenshot-frame" style="max-height: 170px;">
+          <img src="assets/img/guide_dock_ingame.png" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" style="max-height: 160px;">
+          <div style="display:none; flex-direction:column; align-items:center; gap:8px;">
+            <i data-lucide="image" style="width:24px;height:24px;opacity:0.6;"></i>
+            <span style="font-size: 13px;">인게임 독(Dock) 모드 배치 스크린샷 영역</span>
           </div>
         </div>
       </div>
-      
-      <!-- Tab 5: 알람음 설정 가이드 -->
+
+      <!-- Tab 5: 알람음 설정 -->
       <div id="panel-5" class="content-panel">
-        <div class="section-title">
-          <i data-lucide="volume-2" style="width:22px;height:22px;color:#a855f7;"></i>
-          알림 효과음 및 오디오 변경 방법
+        <div>
+          <div class="section-title">
+            <i data-lucide="volume-2" style="width:20px;height:20px;color:#a855f7;"></i>
+            알림 효과음 및 볼륨 변경
+          </div>
+          <div class="section-desc">
+            필드보스 출현, 지정 단어 감지 등 상황별 알람음을 원하는 사운드로 변경할 수 있습니다.
+          </div>
         </div>
-        <p class="section-desc">
-          필드보스 출현, 지정 단어 감지 등 각 상황에 울리는 알람음은 아래의 방법으로 빠르고 손쉽게 변경할 수 있습니다.
-        </p>
 
-        <div style="display: flex; justify-content: center; margin-bottom: 5px;">
-          <button class="submit-btn" onclick="openSoundSettingsDirectly()" style="font-size: 16px; padding: 10px 24px; background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%); box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);">
-            <i data-lucide="external-link" style="width:18px;height:18px;"></i> 환경 설정 내 '소리 및 알림음 설정'으로 바로 가기
+        <div style="display: flex; justify-content: center;">
+          <button class="submit-btn" onclick="openSoundSettingsDirectly()" style="font-size: 14.5px; padding: 8px 20px;">
+            <i data-lucide="external-link" style="width:16px;height:16px;"></i> 소리 및 알림음 설정 바로 가기
           </button>
         </div>
-        
-        <div class="info-box">
-          <i data-lucide="info" class="info-icon" style="width:22px;height:22px;"></i>
-          <div>
-            <div class="info-title">설정 팁 안내</div>
-            <div class="info-desc" style="font-size:15px; line-height:1.65;">
-              - **상황별 알림음 변경**: 필드보스 알림 설정, 지정 단어 알림 설정 등 **개별 설정 창의 하단 드롭다운**을 눌러 마음에 드는 오디오 파일(예: `orb.mp3` 등)로 직접 지정하고 바로 재생 테스트를 해볼 수 있습니다.<br>
-              - **마스터 볼륨 및 일괄 이동**: 환경 설정의 **`소리 및 알림음 설정`** 탭에 들어오시면, 숙제 완료음 등의 볼륨 크기를 미세 조절하고 각 알림음 설정 창으로 한번에 넘어갈 수 있는 **바로가기 카드**들을 제공합니다.
-            </div>
+
+        <div class="card" style="gap: 8px;">
+          <div style="font-size: 14px; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 6px;">
+            <i data-lucide="info" style="width:16px;height:16px;color:#a855f7;"></i>
+            알림음 설정 팁
+          </div>
+          <div style="font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+            • <strong>상황별 알림음 변경</strong>: 보스 알림, 단어 알림 설정 창 하단 드롭다운에서 원하는 사운드(예: `orb.mp3` 등)를 선택하고 테스트 재생할 수 있습니다.<br>
+            • <strong>마스터 볼륨 조절</strong>: 환경설정 ➡️ <strong>[소리 및 알림음 설정]</strong>에서 전체 알림 볼륨을 조절할 수 있습니다.
           </div>
         </div>
       </div>
-      
+
       <!-- Tab 6: 단축키 요약 -->
       <div id="panel-6" class="content-panel">
-        <div class="section-title">
-          <i data-lucide="command" style="width:22px;height:22px;color:#a855f7;"></i>
-          프로그램 지원 단축키 요약
-        </div>
-        <p class="section-desc">
-          플레이 중 아래의 단축키를 사용하여 각 윈도우 및 기능을 매우 빠르게 끄고 켤 수 있습니다.
-        </p>
-
-        <div style="display: flex; justify-content: center; margin-bottom: 5px;">
-          <button class="submit-btn" onclick="openShortcutsSettingsDirectly()" style="font-size: 16px; padding: 10px 24px; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);">
-            <i data-lucide="external-link" style="width:18px;height:18px;"></i> 단축키 설정 바로 가기
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div class="section-title">
+              <i data-lucide="keyboard" style="width:20px;height:20px;color:#a855f7;"></i>
+              단축키 요약
+            </div>
+            <div class="section-desc">
+              게임 중 단축키로 주요 창을 빠르게 끄고 켤 수 있습니다.
+            </div>
+          </div>
+          <button class="nav-btn" onclick="openShortcutsSettingsDirectly()" style="font-size: 12.5px; padding: 6px 12px; white-space: nowrap;">
+            <i data-lucide="settings" style="width:14px;height:14px;"></i> 단축키 변경
           </button>
         </div>
-        
+
         <table class="shortcut-table">
           <thead>
             <tr>
-              <th style="width: 60%;">기능 안내</th>
-              <th style="width: 40%;">단축키 입력</th>
+              <th style="width: 58%;">기능 안내</th>
+              <th style="width: 42%;">단축키</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td>사이드바(주제어 창) 보이기 / 숨기기</td>
+              <td>사이드바(주제어 창) 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">D</span></td>
             </tr>
             <tr>
-              <td>오버레이 화면 마우스 클릭 투과 토글</td>
+              <td>오버레이 마우스 클릭 투과 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">T</span></td>
             </tr>
             <tr>
@@ -1205,23 +963,23 @@
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">C</span></td>
             </tr>
             <tr>
-              <td>스톱워치 타이머 HUD 보이기 / 숨기기</td>
+              <td>스톱워치 타이머 HUD 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">S</span></td>
             </tr>
             <tr>
-              <td>오늘의 요약 HUD 보이기 / 숨기기</td>
+              <td>오늘의 요약 HUD 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">Y</span></td>
             </tr>
             <tr>
-              <td>버프 타이머 HUD 보이기 / 숨기기</td>
+              <td>버프 타이머 HUD 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">B</span></td>
             </tr>
             <tr>
-              <td>어벤던로드 HUD 보이기 / 숨기기</td>
+              <td>어벤던로드 HUD 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">A</span></td>
             </tr>
             <tr>
-              <td>실시간 경험치(XP) HUD 보이기 / 숨기기</td>
+              <td>실시간 경험치(XP) HUD 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">Z</span></td>
             </tr>
             <tr>
@@ -1232,10 +990,6 @@
               <td>실시간 채팅 오버레이 토글</td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">H</span></td>
             </tr>
-            <tr>
-              <td>기록된 버프 타이머 리스트 강제 전체 삭제</td>
-              <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">E</span></td>
-            </tr>
           </tbody>
         </table>
       </div>
@@ -1244,42 +998,36 @@
     <!-- Footer -->
     <footer class="guide-footer">
       <div style="display: flex; gap: 10px; align-items: center;">
-        <button id="prev-btn" class="nav-btn" onclick="handlePrevClick()">
-          <i data-lucide="chevron-left" style="width:20px;height:20px;"></i><span id="prev-btn-text">이전</span>
+        <button id="prev-btn" class="nav-btn" onclick="handlePrevClick()" style="visibility: hidden;">
+          <i data-lucide="chevron-left" style="width:16px;height:16px;"></i>이전
         </button>
-        <span class="footer-tip">※ 환경설정 ➡️ 일반 설정 메뉴에서 가이드를 언제든 다시 볼 수 있습니다.</span>
+        <span class="footer-tip">※ 환경설정 ➡️ 일반 설정에서 언제든 다시 볼 수 있습니다.</span>
       </div>
-      <div style="display: flex; gap: 10px; align-items: center;">
-        <button id="next-btn" class="submit-btn" onclick="handleNextClick()" style="font-size: 15px; padding: 9px 20px;">
-          <span id="next-btn-text">다음</span><i id="next-btn-icon" data-lucide="chevron-right" style="width:18px;height:18px;"></i>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button id="next-btn" class="nav-btn" onclick="handleNextClick()">
+          <span>다음</span><i data-lucide="chevron-right" style="width:16px;height:16px;"></i>
         </button>
-        <button id="submit-btn" class="submit-btn" onclick="handleFinalSubmit()" style="display: none; font-size: 15px; padding: 9px 22px; background: linear-gradient(135deg, #9333ea 0%, #4f46e5 100%);">
-          <i id="submit-btn-icon" data-lucide="check" style="width:18px;height:18px;"></i><span id="submit-btn-text">확인</span>
+        <button class="primary-btn" onclick="finishWizardAndStart()">
+          <i data-lucide="rocket" style="width:16px;height:16px;"></i>
+          <span>시작하기</span>
         </button>
       </div>
     </footer>
   </div>
   
   <script>
-    // Lucide Icons Initialization
+    // Initialize Lucide Icons
     lucide.createIcons();
     
     let currentTabIdx = 0;
-    let currentWizardStep = 1;
     const totalTabs = 7;
     let selectedUserServer = 7; // 기본값 하이아칸 (7)
     let currentChatLogPath = '';
-    let isSyncRunning = false;
-    
     let wizardLootKeywords = [];
-    let allContentsItemsList = [];
-    let defaultLootKeywordsList = [];
 
-    // Sync buttons on load
-    updateFooterButtons();
-    initWizard();
+    initGuide();
     
-    async function initWizard() {
+    async function initGuide() {
       if (!window.electronAPI) return;
       try {
         const cfg = await window.electronAPI.getConfig();
@@ -1290,105 +1038,22 @@
           currentChatLogPath = cfg.chatLogPath || '';
           updatePathDisplay(currentChatLogPath);
 
-          const keepDaysInput = document.getElementById('wizard-chatlog-keep-days-input');
-          if (keepDaysInput) {
-            keepDaysInput.value = cfg.chatLogAutoDeleteDays !== undefined ? cfg.chatLogAutoDeleteDays : 0;
+          if (Array.isArray(cfg.lootKeywords) && cfg.lootKeywords.length > 0) {
+            wizardLootKeywords = [...cfg.lootKeywords];
+          } else {
+            // 기본 득템 프리셋 로드
+            try {
+              const resDef = await fetch('assets/data/contents_items_default.json');
+              const defItems = await resDef.json();
+              wizardLootKeywords = defItems.map(it => it.name);
+            } catch (e) {
+              console.warn('Loot items load fallback', e);
+            }
           }
-
-          const diaryKeepDaysInput = document.getElementById('wizard-diary-keep-days-input');
-          if (diaryKeepDaysInput) {
-            diaryKeepDaysInput.value = cfg.diaryKeepDays !== undefined ? cfg.diaryKeepDays : 0;
-          }
-
-          await initWizardLootKeywords(cfg);
-        } else {
-          await initWizardLootKeywords(null);
-        }
-
-        if (window.electronAPI.getRecentMondayDate) {
-          const mondayDate = await window.electronAPI.getRecentMondayDate();
-          const lbl = document.getElementById('wizard-monday-label');
-          if (lbl && mondayDate) {
-            lbl.textContent = `이번 주 월요일(${mondayDate} 00:00)`;
-          }
-        }
-
-        // 실시간 동기화 프로그레스 리스너 등록
-        if (window.electronAPI.onChatLogSyncProgress) {
-          window.electronAPI.onChatLogSyncProgress((info) => {
-            updateSyncProgressUI(info);
-          });
         }
       } catch (e) {
-        console.error('Wizard init error:', e);
+        console.error('Guide init error:', e);
       }
-    }
-
-    async function initWizardLootKeywords(cfg) {
-      try {
-        const resDef = await fetch('assets/data/contents_items_default.json');
-        const defItems = await resDef.json();
-        defaultLootKeywordsList = defItems.map(it => it.name);
-
-        const resAll = await fetch('assets/data/contents_items.json');
-        const allItems = await resAll.json();
-        allContentsItemsList = allItems.map(it => it.name);
-
-        if (cfg && Array.isArray(cfg.lootKeywords) && cfg.lootKeywords.length > 0) {
-          wizardLootKeywords = [...cfg.lootKeywords];
-        } else {
-          wizardLootKeywords = [...defaultLootKeywordsList];
-        }
-        renderWizardLootKeywordsUI();
-      } catch (e) {
-        console.error('Failed to init wizard loot keywords:', e);
-      }
-    }
-
-    function applyWizardLootPreset(presetType) {
-      if (presetType === 'all') {
-        wizardLootKeywords = [...allContentsItemsList];
-      } else {
-        wizardLootKeywords = [...defaultLootKeywordsList];
-      }
-      if (window.electronAPI && window.electronAPI.applySettings) {
-        window.electronAPI.applySettings({ lootKeywords: wizardLootKeywords, lootKeywordsMigratedV2: true });
-      }
-      renderWizardLootKeywordsUI();
-    }
-
-    function renderWizardLootKeywordsUI() {
-      const countBadge = document.getElementById('wizard-loot-count-badge');
-      const tagsContainer = document.getElementById('wizard-loot-tags-preview');
-      const btnDef = document.getElementById('btn-loot-preset-default');
-      const btnAll = document.getElementById('btn-loot-preset-all');
-
-      if (countBadge) {
-        countBadge.textContent = `${wizardLootKeywords.length}종 선택됨`;
-      }
-
-      const isAll = wizardLootKeywords.length >= allContentsItemsList.length && allContentsItemsList.length > 0;
-      if (btnDef) {
-        btnDef.style.background = !isAll ? 'rgba(168, 85, 247, 0.18)' : 'rgba(255, 255, 255, 0.04)';
-        btnDef.style.borderColor = !isAll ? '#a855f7' : 'rgba(255, 255, 255, 0.1)';
-        btnDef.style.color = !isAll ? '#e9d5ff' : '#94a3b8';
-      }
-      if (btnAll) {
-        btnAll.style.background = isAll ? 'rgba(168, 85, 247, 0.18)' : 'rgba(255, 255, 255, 0.04)';
-        btnAll.style.borderColor = isAll ? '#a855f7' : 'rgba(255, 255, 255, 0.1)';
-        btnAll.style.color = isAll ? '#e9d5ff' : '#94a3b8';
-      }
-
-      if (tagsContainer) {
-        const previewList = wizardLootKeywords.slice(0, 36);
-        const hasMore = wizardLootKeywords.length > 36;
-        tagsContainer.innerHTML = previewList.map(name => `
-          <span style="font-size: 11.5px; font-weight: 600; color: #cbd5e1; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08); padding: 3px 7px; border-radius: 5px; white-space: nowrap;">
-            ${name}
-          </span>
-        `).join('') + (hasMore ? `<span style="font-size: 11.5px; color: #a78bfa; padding: 3px 6px; font-weight: 700;">+외 ${wizardLootKeywords.length - 36}종</span>` : '');
-      }
-      if (window.lucide) lucide.createIcons();
     }
 
     function selectServer(serverCode) {
@@ -1407,32 +1072,28 @@
       if (status) {
         if (!folderPath) {
           status.style.color = '#f87171';
-          status.innerHTML = `<i data-lucide="alert-circle" style="width:15px;height:15px;"></i> 로그 폴더를 찾을 수 없습니다. [폴더 선택]을 눌러주세요.`;
+          status.innerHTML = `<i data-lucide="alert-circle" style="width:14px;height:14px;"></i> 로그 폴더를 찾을 수 없습니다. [경로 변경]을 눌러주세요.`;
           if (window.lucide) lucide.createIcons();
           return;
         }
-
-        status.style.color = '#c084fc';
-        status.innerHTML = `<i data-lucide="loader" class="animate-spin" style="width:14px;height:14px;"></i> <span>폴더 내 로그 파일 확인 중...</span>`;
-        if (window.lucide) lucide.createIcons();
 
         try {
           if (window.electronAPI && window.electronAPI.validateChatLogPath) {
             const res = await window.electronAPI.validateChatLogPath(folderPath);
             if (res.valid) {
               status.style.color = '#34d399';
-              status.innerHTML = `<i data-lucide="check-circle-2" style="width:15px;height:15px;"></i> <span><strong>정상 연동 완료!</strong> — 로그 파일 <strong>${res.fileCount}개</strong> 발견 (최신: ${res.latestFile || '확인됨'})</span>`;
+              status.innerHTML = `<i data-lucide="check-circle-2" style="width:14px;height:14px;"></i> <span><strong>정상 연동 완료!</strong> (로그 파일 ${res.fileCount}개 발견)</span>`;
             } else {
               status.style.color = '#fbbf24';
-              status.innerHTML = `<i data-lucide="alert-triangle" style="width:15px;height:15px;"></i> <span>${res.message}</span>`;
+              status.innerHTML = `<i data-lucide="alert-triangle" style="width:14px;height:14px;"></i> <span>${res.message}</span>`;
             }
           } else {
             status.style.color = '#34d399';
-            status.innerHTML = `<i data-lucide="check-circle" style="width:15px;height:15px;"></i> 로그 폴더가 설정되었습니다: ${folderPath}`;
+            status.innerHTML = `<i data-lucide="check-circle" style="width:14px;height:14px;"></i> 경로가 설정되었습니다.`;
           }
         } catch (e) {
           status.style.color = '#f87171';
-          status.innerHTML = `<i data-lucide="alert-circle" style="width:15px;height:15px;"></i> ${e}`;
+          status.innerHTML = `<i data-lucide="alert-circle" style="width:14px;height:14px;"></i> ${e}`;
         }
         if (window.lucide) lucide.createIcons();
       }
@@ -1449,158 +1110,12 @@
       }
     }
 
-    function goToWizardStep(stepNumber) {
-      currentWizardStep = stepNumber;
-      // Step Indicators
-      [1, 2, 3].forEach(step => {
-        const ind = document.getElementById(`step-ind-${step}`);
-        const view = document.getElementById(`wizard-view-${step}`);
-        if (ind) {
-          ind.classList.remove('active', 'completed');
-          if (step === stepNumber) ind.classList.add('active');
-          else if (step < stepNumber) ind.classList.add('completed');
-        }
-        if (view) {
-          if (step === stepNumber) {
-            view.style.display = 'flex';
-            view.style.flexDirection = 'column';
-          } else {
-            view.style.display = 'none';
-          }
-        }
-      });
-      updateFooterButtons();
-      lucide.createIcons();
-    }
-
-    function updateSyncProgressUI(info) {
-      const pBar = document.getElementById('sync-progress-bar');
-      const pText = document.getElementById('sync-status-percent');
-      const detail = document.getElementById('sync-status-detail');
-      const title = document.getElementById('sync-status-title');
-
-      if (pBar) pBar.style.width = `${info.percent}%`;
-      if (pText) pText.textContent = `${info.percent}%`;
-      if (title) title.textContent = `로그 파일 분석 중 (${info.currentFileIndex}/${info.totalFiles})`;
-      if (detail) {
-        detail.textContent = `[${info.date}] ${info.currentFile} 처리 중... (누적 라인: ${info.processedLines.toLocaleString()}줄)`;
-      }
-
-      // 수치 실시간 업데이트
-      const statLoots = document.getElementById('stat-added-loots');
-      const statHomework = document.getElementById('stat-added-homework');
-      const statShouts = document.getElementById('stat-added-shouts');
-      const statSeeds = document.getElementById('stat-added-seeds');
-      const statElso = document.getElementById('stat-added-elso');
-      const statEssences = document.getElementById('stat-added-essences');
-
-      if (statLoots) statLoots.textContent = info.lootsAdded.toLocaleString();
-      if (statHomework) statHomework.textContent = info.homeworkUpdated.toLocaleString();
-      if (statShouts) statShouts.textContent = info.shoutsAdded.toLocaleString();
-      if (statSeeds) statSeeds.textContent = info.seedsAdded.toLocaleString();
-      if (statElso) statElso.textContent = info.elsoPointsAdded.toLocaleString();
-      if (statEssences) statEssences.textContent = info.essencesAdded.toLocaleString();
-    }
-
-    async function runWeeklySync() {
-      if (isSyncRunning) return;
-      isSyncRunning = true;
-
-      const btnStart = document.getElementById('btn-start-sync');
-      const title = document.getElementById('sync-status-title');
-      const detail = document.getElementById('sync-status-detail');
-      const resultArea = document.getElementById('sync-result-summary');
-
-      if (btnStart) {
-        btnStart.disabled = true;
-        btnStart.style.opacity = '0.6';
-        btnStart.innerHTML = `<i data-lucide="loader" class="animate-spin" style="width:16px;height:16px;"></i> 동기화 진행 중...`;
-      }
-      if (resultArea) resultArea.style.display = 'none';
-      if (title) title.textContent = '동기화 준비 중...';
-      if (detail) detail.textContent = '로그 파일을 검색하고 워커 스레드를 초기화하고 있습니다.';
-      if (window.lucide) lucide.createIcons();
-
-      try {
-        if (window.electronAPI && window.electronAPI.startChatLogSync) {
-          const res = await window.electronAPI.startChatLogSync();
-          if (res.success) {
-            if (title) title.textContent = '✅ 주간 데이터 동기화 완료!';
-            if (detail) {
-              detail.textContent = `총 ${res.totalFiles}개 파일(${res.startDate} ~ ${res.endDate})의 분석 및 DB 반영이 완료되었습니다.`;
-            }
-            if (resultArea) resultArea.style.display = 'flex';
-
-            // 신규 반영 결과
-            const addedLoots = document.getElementById('stat-added-loots');
-            const addedHomework = document.getElementById('stat-added-homework');
-            const addedShouts = document.getElementById('stat-added-shouts');
-            const addedSeeds = document.getElementById('stat-added-seeds');
-            const addedElso = document.getElementById('stat-added-elso');
-            const addedEssences = document.getElementById('stat-added-essences');
-
-            if (addedLoots) addedLoots.textContent = res.lootsAdded.toLocaleString();
-            if (addedHomework) addedHomework.textContent = res.homeworkUpdated.toLocaleString();
-            if (addedShouts) addedShouts.textContent = res.shoutsAdded.toLocaleString();
-            if (addedSeeds) addedSeeds.textContent = res.seedsAdded.toLocaleString();
-            if (addedElso) addedElso.textContent = res.elsoPointsAdded.toLocaleString();
-            if (addedEssences) addedEssences.textContent = res.essencesAdded.toLocaleString();
-
-            // 총 검출 결과
-            const detectedLoots = document.getElementById('stat-detected-loots');
-            const detectedHomework = document.getElementById('stat-detected-homework');
-            const detectedShouts = document.getElementById('stat-detected-shouts');
-            const detectedSeeds = document.getElementById('stat-detected-seeds');
-            const detectedElso = document.getElementById('stat-detected-elso');
-            const detectedEssences = document.getElementById('stat-detected-essences');
-
-            if (detectedLoots) detectedLoots.textContent = res.lootsDetected.toLocaleString();
-            if (detectedHomework) detectedHomework.textContent = res.homeworkDetected.toLocaleString();
-            if (detectedShouts) detectedShouts.textContent = res.shoutsDetected.toLocaleString();
-            if (detectedSeeds) detectedSeeds.textContent = res.seedsDetected.toLocaleString();
-            if (detectedElso) detectedElso.textContent = res.elsoPointsDetected.toLocaleString();
-            if (detectedEssences) detectedEssences.textContent = res.essencesDetected.toLocaleString();
-
-            if (btnStart) {
-              btnStart.innerHTML = `<i data-lucide="check-circle" style="width:16px;height:16px;color:#34d399;"></i> 동기화 완료 (다시 실행)`;
-              btnStart.disabled = false;
-              btnStart.style.opacity = '1';
-            }
-          } else {
-            if (title) title.textContent = '동기화 실패';
-            if (detail) detail.textContent = res.error || '로그 파일이 없거나 분석 중 오류가 발생했습니다.';
-            if (btnStart) {
-              btnStart.disabled = false;
-              btnStart.style.opacity = '1';
-              btnStart.innerHTML = `<i data-lucide="refresh-cw" style="width:16px;height:16px;"></i> 다시 시도`;
-            }
-          }
-        }
-      } catch (err) {
-        if (title) title.textContent = '동기화 오류';
-        if (detail) detail.textContent = String(err);
-        if (btnStart) {
-          btnStart.disabled = false;
-          btnStart.style.opacity = '1';
-        }
-      } finally {
-        isSyncRunning = false;
-        lucide.createIcons();
-      }
-    }
-
     function finishWizardAndStart() {
       if (window.electronAPI && window.electronAPI.completeSetupWizard) {
-        const keepDaysInput = document.getElementById('wizard-chatlog-keep-days-input');
-        const chatLogAutoDeleteDays = keepDaysInput ? Math.max(0, parseInt(keepDaysInput.value, 10) || 0) : 0;
-        const diaryKeepDaysInput = document.getElementById('wizard-diary-keep-days-input');
-        const diaryKeepDays = diaryKeepDaysInput ? Math.max(0, parseInt(diaryKeepDaysInput.value, 10) || 0) : 0;
         window.electronAPI.completeSetupWizard({
           chatLogPath: currentChatLogPath,
           userServer: selectedUserServer,
-          chatLogAutoDeleteDays,
-          diaryKeepDays,
-          lootKeywords: wizardLootKeywords
+          lootKeywords: wizardLootKeywords.length > 0 ? wizardLootKeywords : undefined
         });
       } else {
         closeGuide();
@@ -1611,16 +1126,11 @@
     function switchTab(index) {
       currentTabIdx = index;
       
-      // Deactivate all tabs and panels
       const tabs = document.querySelectorAll('.tab-btn');
       const panels = document.querySelectorAll('.content-panel');
       
-      tabs.forEach(tab => tab.classList.remove('active'));
-      panels.forEach(panel => panel.classList.remove('active'));
-      
-      // Activate selected tab and panel
-      if (tabs[index]) tabs[index].classList.add('active');
-      if (panels[index]) panels[index].classList.add('active');
+      tabs.forEach((tab, i) => tab.classList.toggle('active', i === index));
+      panels.forEach((panel, i) => panel.classList.toggle('active', i === index));
       
       updateFooterButtons();
     }
@@ -1628,107 +1138,26 @@
     function updateFooterButtons() {
       const prevBtn = document.getElementById('prev-btn');
       const nextBtn = document.getElementById('next-btn');
-      const submitBtn = document.getElementById('submit-btn');
-      const prevText = document.getElementById('prev-btn-text');
-      const nextText = document.getElementById('next-btn-text');
-      const submitText = document.getElementById('submit-btn-text');
-      const submitIcon = document.getElementById('submit-btn-icon');
-      const footerTip = document.querySelector('.footer-tip');
       
-      if (!prevBtn || !nextBtn || !submitBtn) return;
-      
-      if (currentTabIdx === 0) {
-        // [시작 마법사 탭]
-        if (footerTip) footerTip.style.visibility = 'hidden';
-        submitBtn.style.display = 'none';
-        nextBtn.style.display = 'flex';
-        
-        if (currentWizardStep === 1) {
-          prevBtn.style.display = 'flex';
-          prevBtn.style.visibility = 'hidden';
-          if (nextText) nextText.textContent = '다음';
-        } else if (currentWizardStep === 2) {
-          prevBtn.style.display = 'flex';
-          prevBtn.style.visibility = 'visible';
-          if (prevText) prevText.textContent = '이전';
-          if (nextText) nextText.textContent = '다음';
-        } else if (currentWizardStep === 3) {
-          prevBtn.style.display = 'flex';
-          prevBtn.style.visibility = 'visible';
-          if (prevText) prevText.textContent = '이전';
-          if (nextText) nextText.textContent = '다음';
-        }
-      } else {
-        // [앱 소개 및 가이드 탭]
-        if (footerTip) footerTip.style.visibility = 'visible';
-        prevBtn.style.display = 'flex';
-        prevBtn.style.visibility = 'visible';
-        if (prevText) prevText.textContent = '이전';
-
-        if (currentTabIdx === totalTabs - 1) {
-          // 마지막 탭
-          nextBtn.style.display = 'none';
-          submitBtn.style.display = 'flex';
-          if (submitText) submitText.textContent = '시작하기';
-          if (submitIcon) submitIcon.setAttribute('data-lucide', 'rocket');
-        } else {
-          nextBtn.style.display = 'flex';
-          submitBtn.style.display = 'none';
-          if (nextText) nextText.textContent = '다음';
-        }
+      if (prevBtn) {
+        prevBtn.style.visibility = currentTabIdx === 0 ? 'hidden' : 'visible';
+      }
+      if (nextBtn) {
+        nextBtn.style.display = currentTabIdx === totalTabs - 1 ? 'none' : 'flex';
       }
       lucide.createIcons();
     }
     
     function handlePrevClick() {
-      if (currentTabIdx === 0) {
-        if (currentWizardStep > 1) {
-          goToWizardStep(currentWizardStep - 1);
-        }
-      } else if (currentTabIdx === 1) {
-        switchTab(0);
-        goToWizardStep(3);
-      } else {
+      if (currentTabIdx > 0) {
         switchTab(currentTabIdx - 1);
       }
     }
     
     function handleNextClick() {
-      if (currentTabIdx === 0) {
-        if (currentWizardStep === 1) {
-          const keepDaysInput = document.getElementById('wizard-chatlog-keep-days-input');
-          const chatLogAutoDeleteDays = keepDaysInput ? Math.max(0, parseInt(keepDaysInput.value, 10) || 0) : 0;
-          if (window.electronAPI && window.electronAPI.applySettings) {
-            window.electronAPI.applySettings({
-              chatLogPath: currentChatLogPath,
-              userServer: selectedUserServer,
-              chatLogAutoDeleteDays
-            });
-          }
-          goToWizardStep(2);
-        } else if (currentWizardStep === 2) {
-          const diaryKeepDaysInput = document.getElementById('wizard-diary-keep-days-input');
-          const diaryKeepDays = diaryKeepDaysInput ? Math.max(0, parseInt(diaryKeepDaysInput.value, 10) || 0) : 0;
-          if (window.electronAPI && window.electronAPI.applySettings) {
-            window.electronAPI.applySettings({
-              lootKeywords: wizardLootKeywords,
-              lootKeywordsMigratedV2: true,
-              diaryKeepDays
-            });
-          }
-          goToWizardStep(3);
-        } else if (currentWizardStep === 3) {
-          switchTab(1); // 앱 소개 탭으로 바로 이동
-        }
-      } else {
-        if (currentTabIdx < totalTabs - 1) {
-          switchTab(currentTabIdx + 1);
-        }
+      if (currentTabIdx < totalTabs - 1) {
+        switchTab(currentTabIdx + 1);
       }
-    }
-
-    function handleFinalSubmit() {
-      finishWizardAndStart();
     }
     
     // Close Window Action
@@ -1800,6 +1229,6 @@
         closeGuide();
       }
     });
-</script>
+  </script>
 </body>
 </html>

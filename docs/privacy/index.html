@@ -130,9 +130,16 @@
 
     <h2>4. Google API 사용자 데이터 정책 준수 (Google API Services User Data Policy)</h2>
     <p>TW-Overlay의 Google API 사용은 <strong><a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" style="color: #38bdf8;">Google API 서비스 사용자 데이터 정책</a></strong>(Limited Use 요건 포함)을 엄격히 준수합니다:</p>
+    <div style="background: rgba(255,255,255,0.05); border-left: 3px solid var(--accent); padding: 12px 16px; margin: 12px 0; border-radius: 4px;">
+      <p style="color: #e2e8f0; font-size: 13.5px; margin: 0;">
+        <em>"TW-Overlay's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" style="color: #38bdf8;">Google API Services User Data Policy</a>, including the Limited Use requirements."</em>
+      </p>
+    </div>
     <ul>
-      <li>요청하는 권한(<code>.../auth/drive.appdata</code>)은 오직 TW-Overlay가 생성한 설정 파일에만 접근하며, 사용자의 일반 Google Drive 파일(사진, 문서 등)에는 접근하지 않습니다.</li>
-      <li>사용자의 구글 데이터를 AI 모델 훈련 또는 광고 타겟팅 등의 다른 용도로 일체 사용하지 않습니다.</li>
+      <li><strong>권한 범위 한정</strong>: 요청하는 권한(<code>https://www.googleapis.com/auth/drive.appdata</code>)은 오직 TW-Overlay가 생성한 설정 파일(JSON)에만 접근하며, 사용자의 일반 Google Drive 파일(사진, 문서 등)에는 접근할 수 없습니다.</li>
+      <li><strong>데이터 공유 및 판매 금지</strong>: 사용자의 구글 계정 데이터는 어떠한 제3자에게도 공유되거나 판매되지 않습니다.</li>
+      <li><strong>AI 학습 및 광고 활용 금지</strong>: 사용자의 구글 데이터를 AI 모델 훈련 또는 광고 타겟팅 등의 다른 용도로 일체 사용하지 않습니다.</li>
+      <li><strong>인간 검토 제한</strong>: 법적 요구 또는 사용자의 명시적인 동의가 있는 보안 감사 목적을 제외하고는 어떠한 사람도 사용자의 데이터를 열람하지 않습니다.</li>
     </ul>
 
     <h2>5. 개인정보의 파기 및 권한 철회 방법</h2>

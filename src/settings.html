@@ -4439,6 +4439,8 @@
     // 초기화 실행
     initSettings();
     initQuickSearch();
+    const defaultNavEl = document.querySelector('.nav-item[data-settings-group="app"]');
+    showSettingsGroup('app', defaultNavEl, 0);
 
     // 설정 탭 강제 전환 IPC (다른 창에서 호출 시)
     window.electronAPI.onOpenSettingsTab((tabId) => {
