@@ -2477,7 +2477,13 @@
                 </div>
                 <div>
                   <h3 class="text-sm font-bold text-slate-200">Google Drive 클라우드 동기화</h3>
-                  <p class="text-xs text-slate-400 mt-0.5">숙제 체크리스트와 게임 설정을 다른 PC와 안전하게 동기화합니다.</p>
+                  <div class="flex items-center gap-2 mt-0.5">
+                    <p class="text-xs text-slate-400">숙제 체크리스트와 게임 설정을 다른 PC와 안전하게 동기화합니다.</p>
+                    <span class="text-slate-600">|</span>
+                    <a href="#" onclick="window.electronAPI.openExternal('https://twliker.github.io/tw-overlay/privacy/')" class="text-xs text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-1 font-semibold">
+                      <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> 개인정보처리방침
+                    </a>
+                  </div>
                 </div>
               </div>
               <div id="google-sync-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1.5">
@@ -2665,6 +2671,11 @@
                 <span class="text-slate-500 font-bold">서비스 개선 제안 / 버그 제보</span>
                 <a href="#" onclick="window.electronAPI.openExternal('https://forms.gle/cooHKG1JSiKRRTAZA')"
                   class="text-purple-400 hover:text-purple-300 font-bold underline">의견 보내기</a>
+              </div>
+              <div class="flex justify-between items-center text-xs">
+                <span class="text-slate-500 font-bold">개인정보처리방침 (Privacy Policy)</span>
+                <a href="#" onclick="window.electronAPI.openExternal('https://twliker.github.io/tw-overlay/privacy/')"
+                  class="text-blue-400 hover:text-blue-300 font-bold underline">확인하기</a>
               </div>
               <div class="flex justify-between items-center text-xs pt-4 mt-2 border-t border-white/5">
                 <span class="text-slate-400 font-bold flex items-center gap-1.5"><i data-lucide="feather"
