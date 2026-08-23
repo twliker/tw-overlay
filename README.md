@@ -5,15 +5,16 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Version](https://img.shields.io/badge/version-2.7.0-violet.svg)
+![Version](https://img.shields.io/badge/version-2.7.0--beta.1-violet.svg)
 
 ## 📸 스크린샷
 
 ![App Screenshot](./screenshot/screen1.png)
 
-## 🚀 최신 버전: v2.7.0 (2026.08.24)
-이번 업데이트는 채팅 오버레이 **커스텀 탭 및 시스템 6대 색상군 정밀 필터링**, **필수 업데이트([Mandatory Update]) 엔진 고도화**, **게임 미실행 시 알림 수신 옵션**이 적용된 **v2.7.0 필수 업데이트**입니다.
+## 🚀 최신 버전: v2.7.0-beta.1 (2026.08.24)
+이번 **v2.7.0-beta.1 테스트 빌드**는 **Google Drive AppData 기반의 클라우드 자동 동기화 기능**, **채팅 오버레이 커스텀 탭 및 시스템 6대 색상군 정밀 필터링**, **필수 업데이트 다운로드 엔진 고도화**가 적용된 베타 버전입니다.
 
+- **☁️ Google Drive AppData 클라우드 동기화:** 웹 브라우저를 통한 Google OAuth 2.0 PKCE 로그인 및 사용자 개인 Google Drive 앱 숨김 폴더(`appDataFolder`)를 활용하여 숙제 체크리스트 및 게임 설정을 안전하게 자동 동기화합니다.
 - **💬 채팅 오버레이 커스텀 탭 및 6대 색상군 필터링:** 일반, 귓속말, 팀, 클럽, 외치기, 시스템 대화 채널을 자유롭게 조합하여 사용자 정의 탭을 생성할 수 있으며, 시스템 메시지를 6대 색상군(보라/노랑/빨강/초록/파랑/회색)으로 세밀하게 필터링할 수 있습니다.
 - **🔄 필수 업데이트 엔진 고도화:** 버전 간 건너뛰기 업데이트 상황에서도 상위 릴리즈의 필수 업데이트를 정확히 식별하여 안전하게 설치할 수 있도록 자동 업데이트 엔진이 개선되었습니다.
 - **🔔 게임 미실행 시 알림 수신 지원:** 테일즈위버 게임이 꺼져 있는 상태에서도 필드보스 및 커스텀 알림(소리 및 Windows 토스트)을 수신할 수 있는 옵션이 추가되었습니다.
@@ -71,7 +72,7 @@
 ## 🚀 시작하기 (테일즈위버 오버레이 프로그램 설치 및 다운로드)
 
 ### 설치 방법
-[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-2.7.0.exe` 파일을 다운로드하여 실행하세요.
+[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-2.7.0-beta.1.exe` 파일을 다운로드하여 실행하세요.
 
 ### 단축키 및 팁
 - **단축키:** 

@@ -1,4 +1,4 @@
-# 📦 TW-Overlay Beta Release - v2.7.0-beta.1 (2026-08-23)
+# 📦 TW-Overlay Beta Release - v2.7.0-beta.1 (2026-08-24)
 
 이번 **v2.7.0-beta.1 테스트 빌드**는 Google Drive AppData 기반의 클라우드 자동 동기화 기능 및 웹 가이드 문서 시스템이 추가된 테스트 버전입니다.
 
