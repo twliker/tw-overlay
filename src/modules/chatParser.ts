@@ -6,7 +6,7 @@ import type { ChatTrigger, ChatPatternType, ChatParserEventMap } from '../shared
 import { parseItemAcquisition, parseItemAcquisitions } from './itemAcquisition';
 
 const { isNpcSender } = require('../shared/chatConstants') as ChatConstants;
-const { COLORS: CHAT_COLORS } = require('../shared/chatChannels') as ChatChannelConstants;
+const { COLORS: CHAT_COLORS, stripShoutSuffix } = require('../shared/chatChannels') as ChatChannelConstants;
 
 const RE_HTML_TAGS = /<[^>]*>/g;
 const RE_HTML_NBSP = /&(?:nbsp|#160|#xa0);?/gi;
@@ -745,7 +745,7 @@ export class ChatParser extends EventEmitter {
 
         if (userMatch) {
             const sender = userMatch[1];
-            const pureMessage = shoutContent.replace(userShoutSuffixRegex, '').trim();
+            const pureMessage = stripShoutSuffix(shoutContent.replace(userShoutSuffixRegex, '').trim());
             this.emit('TRADE_SHOUT', { date: this._currentDate, timestamp, sender, message: pureMessage });
         }
         return;

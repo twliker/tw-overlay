@@ -13,6 +13,7 @@ interface ChatChannelConstants {
   }>;
   OVERLAY_COLORS: Readonly<Record<'general' | 'whisper' | 'team' | 'club' | 'shout', string>>;
   formatTimestamp(timestamp: string): string;
+  stripShoutSuffix(message: string): string;
 }
 
 interface Window {
@@ -60,12 +61,18 @@ interface Window {
     return `${String(hour).padStart(2, '0')}:${match[3].padStart(2, '0')}`;
   }
 
+  function stripShoutSuffix(message: string): string {
+    if (!message) return '';
+    return message.replace(/(?:(?:\s+|^)(?:Click|From))+\s*$/i, '').trim();
+  }
+
   const chatChannels: ChatChannelConstants = Object.freeze({
     OVERLAY_CHANNELS,
     COLOR_SWATCHES,
     COLORS,
     OVERLAY_COLORS,
     formatTimestamp,
+    stripShoutSuffix,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = chatChannels;

@@ -19,7 +19,7 @@ import type { ChatLogEncoding } from './chatLogNormalizer';
 import { parseItemAcquisition } from './itemAcquisition';
 
 const { isLegacyNpcSender } = require('../shared/chatConstants') as ChatConstants;
-const { COLORS: CHAT_COLORS } = require('../shared/chatChannels') as ChatChannelConstants;
+const { COLORS: CHAT_COLORS, stripShoutSuffix } = require('../shared/chatChannels') as ChatChannelConstants;
 
 type HistoryCategory = 'General' | 'Team' | 'Club' | 'Whisper' | 'System';
 type HistoryMessageType = 'general' | 'team' | 'club' | 'whisper' | 'system';
@@ -387,7 +387,7 @@ class ChatLogManager {
         const userMatch = shoutContent.match(/\[([^\]]+)\]$/);
         if (userMatch) {
           const sender = userMatch[1];
-          const message = shoutContent.replace(/\[([^\]]+)\]$/, '').trim();
+          const message = stripShoutSuffix(shoutContent.replace(/\[([^\]]+)\]$/, '').trim());
 
           const needForShout = categoryCounts.Shout < limit;
           const needForBasic = categoryCounts.Basic < limit;
@@ -498,7 +498,7 @@ class ChatLogManager {
         const userMatch = shoutContent.match(/\[([^\]]+)\]$/);
         if (userMatch) {
           const sender = userMatch[1];
-          const message = shoutContent.replace(/\[([^\]]+)\]$/, '').trim();
+          const message = stripShoutSuffix(shoutContent.replace(/\[([^\]]+)\]$/, '').trim());
           const rankInfo = etaCacheManager.getRankInfo(serverCode, sender);
           const level = rankInfo ? rankInfo.level : null;
           const characterCode = rankInfo ? rankInfo.characterCode : null;
@@ -586,7 +586,7 @@ class ChatLogManager {
         const userMatch = shoutContent.match(/\[([^\]]+)\]$/);
         if (userMatch) {
           const sender = userMatch[1];
-          const message = shoutContent.replace(/\[([^\]]+)\]$/, '').trim();
+          const message = stripShoutSuffix(shoutContent.replace(/\[([^\]]+)\]$/, '').trim());
 
           const senderMatch = sender.toLowerCase().includes(queryClean);
           const messageMatch = message.toLowerCase().includes(queryClean);

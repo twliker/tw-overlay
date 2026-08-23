@@ -344,7 +344,11 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
   // 5. Message Content
   const textSpan = document.createElement('span');
   textSpan.className = 'chat-text';
-  const normalizedMessage = ` ${window.normalizeChatDisplayText(chat.message)}`;
+  let messageContent = chat.message;
+  if (chat.type === 'shout' && window.chatChannels && typeof window.chatChannels.stripShoutSuffix === 'function') {
+    messageContent = window.chatChannels.stripShoutSuffix(messageContent);
+  }
+  const normalizedMessage = ` ${window.normalizeChatDisplayText(messageContent)}`;
   if (highlightQuery) {
     appendHighlightedText(textSpan, normalizedMessage, highlightQuery);
   } else {

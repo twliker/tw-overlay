@@ -2778,12 +2778,48 @@ function checkCorruptedConfigResilience(): void {
   assert.ok(loaded.shortcuts && typeof loaded.shortcuts === 'object', '설정 내 shortcuts 객체가 누락되었습니다.');
 }
 
+function checkShoutSuffixStripping(): void {
+  const { stripShoutSuffix } = require('../dist/shared/chatChannels');
+  assert.equal(typeof stripShoutSuffix, 'function', 'stripShoutSuffix 함수가 누락되었습니다.');
+
+  // 1. 단어 끝 Click, From 제거 검증
+  assert.equal(stripShoutSuffix('오늘의 마지막 외치기!! 삼?급처템 Click'), '오늘의 마지막 외치기!! 삼?급처템');
+  assert.equal(stripShoutSuffix('드레스업하복상자400억팜 From'), '드레스업하복상자400억팜');
+  assert.equal(stripShoutSuffix('시벨린도 1등이있어요? 신기하네 from'), '시벨린도 1등이있어요? 신기하네');
+  assert.equal(stripShoutSuffix('12강 이블테오 14강뻑삭 삽니다....1:1주세용 CLICK'), '12강 이블테오 14강뻑삭 삽니다....1:1주세용');
+  assert.equal(stripShoutSuffix('아이템 팝니다 From Click'), '아이템 팝니다');
+
+  // 2. 문구 중간/앞 단어 보존 검증 (절대 지워지지 않아야 함)
+  assert.equal(stripShoutSuffix('From 서울 to 부산 Click 이벤트 From'), 'From 서울 to 부산 Click 이벤트');
+  assert.equal(stripShoutSuffix('Click & Buy From Me Click'), 'Click & Buy From Me');
+  assert.equal(stripShoutSuffix('클릭(Click) 해주세요 From Me'), '클릭(Click) 해주세요 From Me');
+  assert.equal(stripShoutSuffix('일반 외치기 메시지입니다'), '일반 외치기 메시지입니다');
+
+  // 3. chatParser 연동 검증
+  const { chatParser } = require(path.join(projectRoot, 'dist', 'modules', 'chatParser.js'));
+  let receivedMessage = '';
+  const shoutListener = (data: { sender: string; message: string }) => {
+    receivedMessage = data.message;
+  };
+  chatParser.on('TRADE_SHOUT', shoutListener);
+
+  chatParser.parseLine('<font size="2" color="white"> [13시 34분 27초] </font> <font size="2" color="#c896c8">외치기 : 베한계 이클리스트 500베 효과 삽니다 Click [소온]</font></br>');
+  assert.equal(receivedMessage, '베한계 이클리스트 500베 효과 삽니다', '외치기 Click 접미사가 제거되지 않았습니다.');
+
+  chatParser.parseLine('<font size="2" color="white"> [13시 34분 28초] </font> <font size="2" color="#c896c8">외치기 : From 서울 to 부산 Click 이벤트 From [유저1]</font></br>');
+  assert.equal(receivedMessage, 'From 서울 to 부산 Click 이벤트', '중간 단어가 훼손되었거나 끝 접미사가 제거되지 않았습니다.');
+
+  chatParser.off('TRADE_SHOUT', shoutListener);
+}
+
 checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
 checkIpcChannelContracts();
 checkRendererBundleCleanliness();
 checkCorruptedConfigResilience();
+checkShoutSuffixStripping();
 
 console.log('Refactor regression checks passed.');
 process.exit(0);
+
