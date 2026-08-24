@@ -16,17 +16,34 @@ export function getLocalDateKey(now = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+const LOOT_NAME_CACHE = new Map<string, string>();
+
 function getLootName(content: string): string {
+  const cached = LOOT_NAME_CACHE.get(content);
+  if (cached !== undefined) return cached;
+
   const message = content.replace(/^\[득템\]\s*/, '').trim();
-  const acquisition = parseItemAcquisition(message, { isSelfChat: true });
-  const parsedName = acquisition?.itemName
-    || message.replace(/\s+(?:아이템)?(?:을\(를\)|을|를).*$/, '').replace(/^\[|\]$/g, '');
-  return parsedName
-    .normalize('NFC')
-    .replace(/[\u200B-\u200D\u2060\uFEFF]/gu, '')
-    .replace(/[\s\u00A0]+/gu, ' ')
-    .replace(/\s+\[?[\d,]+\]?개$/u, '')
-    .trim();
+  const simpleMatch = message.match(/^\[([^\]]+)\](?:\s*\[?\d+\]?개)?$/);
+  let parsedName = '';
+
+  if (simpleMatch) {
+    parsedName = simpleMatch[1].trim();
+  } else {
+    const acquisition = parseItemAcquisition(message, { isSelfChat: true });
+    parsedName = acquisition?.itemName
+      || message.replace(/\s+(?:아이템)?(?:을\(를\)|을|를).*$/, '');
+    parsedName = parsedName
+      .normalize('NFC')
+      .replace(/[\u200B-\u200D\u2060\uFEFF]/gu, '')
+      .replace(/[\s\u00A0]+/gu, ' ')
+      .replace(/\s+\[?[\d,]+\]?개$/u, '')
+      .replace(/^\[+|\]+$/gu, '')
+      .trim();
+  }
+
+  if (LOOT_NAME_CACHE.size > 2000) LOOT_NAME_CACHE.clear();
+  LOOT_NAME_CACHE.set(content, parsedName);
+  return parsedName;
 }
 
 /** 기존 모험일지와 숙제 체크리스트 상태를 game-overlay용 간략 요약으로 변환합니다. */

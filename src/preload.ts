@@ -430,7 +430,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
       'trigger-jellyppy-rain', 'trigger-firework', 'chat-log-status-changed',
       'alarm-logs-updated', 'highlight-alarm-settings', 'timer-toggle', 'timer-updated',
-      'game-overlay-edit-mode', 'game-overlay-reset-positions', 'google-sync-status-changed'
+      'game-overlay-edit-mode', 'game-overlay-reset-positions', 'google-sync-status-changed',
+      'chat-log-sync-progress', 'active-windows'
     ];
     events.forEach(event => ipcRenderer.removeAllListeners(event));
   }

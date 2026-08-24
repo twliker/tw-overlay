@@ -22,7 +22,7 @@ import * as gallery from './modules/galleryMonitor';
 import * as tray from './modules/tray';
 import * as bossNotifier from './modules/bossNotifier';
 import * as customNotifier from './modules/customNotifier';
-import { setupUpdater } from './modules/updater';
+import { setupUpdater, getIsUpdaterQuitting } from './modules/updater';
 import * as pollingLoop from './modules/pollingLoop';
 import { setupAutoStart } from './modules/autoStart';
 import * as trade from './modules/tradeMonitor';
@@ -75,6 +75,8 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
+  if (!gotTheLock) return;
+
   // preload가 시작 시 단일 기본 설정 원본을 동기 조회하므로 창 생성보다 먼저 등록해야 합니다.
   ipcHandlers.register();
 
@@ -83,7 +85,7 @@ app.whenReady().then(() => {
     try {
       const url = new URL(request.url);
       const type = url.host; // 'custom' 또는 'default'
-      const filename = decodeURIComponent(url.pathname.substring(1));
+      const filename = path.basename(decodeURIComponent(url.pathname.substring(1)));
       
       let filePath = '';
       if (type === 'custom') {
@@ -181,10 +183,10 @@ app.whenReady().then(() => {
     bossNotifier.start();
     customNotifier.start();
 
-    const cfg = config.load();
+    const currentAppConfig = config.load();
 
     // 채팅 로그 경로 자동 탐색 및 설정 (비어있을 경우에만)
-    if (!cfg.chatLogPath) {
+    if (!currentAppConfig.chatLogPath) {
       const foundPath = findChatLogPath();
       if (foundPath) {
         config.save({ chatLogPath: foundPath });
@@ -192,10 +194,10 @@ app.whenReady().then(() => {
       }
     }
 
-    if (cfg.overlayVisible !== false) wm.setOverlayVisible(true);
+    if (currentAppConfig.overlayVisible !== false) wm.setOverlayVisible(true);
 
-    if (cfg.autoLaunch !== undefined) {
-      setupAutoStart(cfg.autoLaunch);
+    if (currentAppConfig.autoLaunch !== undefined) {
+      setupAutoStart(currentAppConfig.autoLaunch);
     }
 
     gallery.start(null, sidebar);
@@ -235,12 +237,14 @@ app.whenReady().then(() => {
   setupUpdater(launchMainApp);
 });
 
-app.on('before-quit', () => {
+let isFlushingAndQuitting = false;
+
+app.on('before-quit', (event) => {
+  if (isFlushingAndQuitting) return;
+
   appState.isQuitting = true;
-  void cloudSync.flushPendingSync();
   if (config.hasPending()) config.saveImmediate();
   diaryDb.flushPendingElso();
-  diaryDb.closeDb();
   chatLogManager.stop();
   pollingLoop.stop();
   bossNotifier.stop();
@@ -251,6 +255,25 @@ app.on('before-quit', () => {
   tracker.stop();
   buffTimerManager.stop();
   scamMonitor.stop();
+
+  event.preventDefault();
+  isFlushingAndQuitting = true;
+
+  const isUpdating = getIsUpdaterQuitting();
+  const flushTimeoutMs = isUpdating ? 500 : 3000;
+
+  // 대기 중인 클라우드 동기화 완료 후 DB 종료 및 프로세스 종료 (업데이트 시 파일 락 방지를 위해 500ms로 단축)
+  Promise.race([
+    cloudSync.flushPendingSync(),
+    new Promise((resolve) => setTimeout(resolve, flushTimeoutMs)),
+  ]).finally(() => {
+    try {
+      diaryDb.closeDb();
+    } catch (err) {
+      log(`[SHUTDOWN] DB close error: ${err}`);
+    }
+    app.quit();
+  });
 });
 
 app.on('window-all-closed', () => app.quit());

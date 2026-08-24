@@ -197,7 +197,7 @@ export async function sendAlert(result: ScamAnalysisResult): Promise<void> {
 
 // ── 테스트 시나리오 ──
 function makeLogLine(hour: number, min: number, sec: number, color: string, content: string): string {
-  return `<font color="white">[${hour}분 ${min}분 ${sec}분]</font><font color="${color}">${content}</font><br>`;
+  return `<font color="white">[${hour}시 ${min}분 ${sec}초]</font><font color="${color}">${content}</font><br>`;
 }
 
 export const TEST_SCENARIOS: Record<string, (h: number, m: number) => string[]> = {

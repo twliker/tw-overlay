@@ -638,13 +638,27 @@
 
     function openGallery() { document.getElementById('noti-badge').classList.add('hidden'); window.electronAPI.toggleGallery(); }
 
+    const _lastSoundPlayedTimes = new Map();
+
     // IPC 리스너 등록
     window.electronAPI.onPlaySound(async ({ label, soundFile, volume, isCustom, spawnTime, offset, isAlreadyRecorded, isPreview, showToast }) => {
       // 사운드 파일 재생 처리 (soundFile이 있을 때만)
       if (soundFile) {
         let shouldPlay = true;
-        // 미리보기(테스트)가 아니고 게임이 꺼진 상태이면 소리 재생을 차단함 (게임 종료 시 알림 받기 옵션 켜짐 시 재생 허용)
+        const now = Date.now();
+
+        // 미리보기가 아닌 경우 800ms 이내 동일 사운드 중복 스로틀링
         if (!isPreview) {
+          const lastTime = _lastSoundPlayedTimes.get(soundFile) || 0;
+          if (now - lastTime < 800) {
+            shouldPlay = false;
+          } else {
+            _lastSoundPlayedTimes.set(soundFile, now);
+          }
+        }
+
+        // 미리보기(테스트)가 아니고 게임이 꺼진 상태이면 소리 재생을 차단함 (게임 종료 시 알림 받기 옵션 켜짐 시 재생 허용)
+        if (shouldPlay && !isPreview) {
           try {
             const status = await window.electronAPI.getGameStatus();
             if (status !== 'running' && status !== 'minimized') {

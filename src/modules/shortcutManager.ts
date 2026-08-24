@@ -7,6 +7,7 @@ import { log } from './logger';
 import { chatLogProcessor } from './chatLogProcessor';
 import { buffTimerManager } from './buffTimerManager';
 import { broadcastToAllWindows } from './windowMessaging';
+import { abandonedTracker } from './abandonedTracker';
 
 let _isFocused = false;
 
@@ -85,9 +86,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleAbandonedHud, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Abandoned HUD');
-      import('./abandonedTracker').then(mod => {
-        mod.abandonedTracker.toggleVisibility();
-      });
+      abandonedTracker.toggleVisibility();
     });
     if (!registered) {
       log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.toggleAbandonedHud}`);
@@ -135,7 +134,8 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleXpSession, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle XP Session');
-      import('./xpTracker').then(mod => mod.xpTracker.toggleSession());
+      import('./xpTracker').then(mod => mod.xpTracker.toggleSession())
+        .catch(err => log(`[SHORTCUT] xpTracker 로드 실패: ${err}`));
     });
     if (!registered) {
       log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.toggleXpSession}`);

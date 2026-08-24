@@ -106,6 +106,30 @@ export function flushPendingElso(): void {
   }
 }
 
+const statementCache = new Map<string, Database.Statement>();
+
+/** 캐시된 Prepared Statement 반환 (SQLite VDBE 재컴파일 방지) */
+export function getStmt(sql: string): Database.Statement<any[]> {
+  if (!db) initDb();
+  let stmt = statementCache.get(sql);
+  if (!stmt) {
+    stmt = db!.prepare(sql);
+    statementCache.set(sql, stmt);
+  }
+  return stmt as Database.Statement<any[]>;
+}
+
+/** 주기적 또는 유휴 시 WAL 체크포인트 실행 */
+export function checkpointWal(): void {
+  if (!db) return;
+  try {
+    const result = db.pragma('wal_checkpoint(PASSIVE)') as Array<{ busy: number; log: number; checkpointed: number }>;
+    log(`[DiaryDB] WAL Checkpoint executed: ${JSON.stringify(result)}`);
+  } catch (err) {
+    log(`[DiaryDB] WAL Checkpoint error: ${err}`);
+  }
+}
+
 export function initDb(): void {
   if (db) return; // 이미 초기화된 경우 스킵
   try {
@@ -122,6 +146,7 @@ export function initDb(): void {
     db.pragma('foreign_keys = ON');
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
+    db.pragma('wal_autocheckpoint = 1000');
 
     // 테이블 생성
     db.exec(`
@@ -242,127 +267,120 @@ export function initDb(): void {
       CREATE INDEX IF NOT EXISTS idx_timer_records_date ON timer_records (date);
     `);
 
-    // char_main 및 char_sub 컬럼 하위 호환 마이그레이션
-    try {
-      db.prepare("ALTER TABLE timer_records ADD COLUMN char_main INTEGER NOT NULL DEFAULT 0").run();
-    } catch (e) {}
-    try {
-      db.prepare("ALTER TABLE timer_records ADD COLUMN char_sub INTEGER NOT NULL DEFAULT 0").run();
-    } catch (e) {}
+    // PRAGMA user_version 기반 1회성 마이그레이션 관리 (매 부팅 시 풀스캔 제거)
+    const userVersion = (db.pragma('user_version', { simple: true }) as number) || 0;
 
-    // 사냥터 기본 맵 정보 초기 삽입
-    db.prepare(`
-      INSERT OR IGNORE INTO hunting_grounds (id, name, image_path, zoom, s, ox, oy, fx, fy, is_swap)
-      VALUES ('forge', '시오칸하임 대장간', 'assets/img/field-map/대장간.png', 2.0, 1.0, -340.0, 300.0, -1.0, 1.0, 1)
-    `).run();
-    db.prepare(`
-      INSERT OR IGNORE INTO hunting_grounds (id, name, image_path, zoom, s, ox, oy, fx, fy, is_swap)
-      VALUES ('golgotha', '골고다의 협곡', 'assets/img/field-map/골고다의협곡.png', 2.0, 1.0, -340.0, 300.0, -1.0, 1.0, 1)
-    `).run();
-    db.prepare(`
-      INSERT OR IGNORE INTO hunting_grounds (id, name, image_path, zoom, s, ox, oy, fx, fy, is_swap)
-      VALUES ('void', '공허의 영역', 'assets/img/field-map/공허의영역.png', 2.0, 1.0, -340.0, 300.0, -1.0, 1.0, 1)
-    `).run();
+    if (userVersion < 1) {
+      // char_main 및 char_sub 컬럼 하위 호환 마이그레이션
+      try {
+        db.prepare("ALTER TABLE timer_records ADD COLUMN char_main INTEGER NOT NULL DEFAULT 0").run();
+      } catch (e) {}
+      try {
+        db.prepare("ALTER TABLE timer_records ADD COLUMN char_sub INTEGER NOT NULL DEFAULT 0").run();
+      } catch (e) {}
 
-    // 마이그레이션: amount 컬럼이 없는 경우 추가 (이미 테이블이 생성된 경우 대비)
-    try {
-      const columns = db.prepare("PRAGMA table_info(activity_logs)").all() as any[];
-      const hasAmount = columns.some(c => c.name === 'amount');
-      if (!hasAmount) {
-        db.exec("ALTER TABLE activity_logs ADD COLUMN amount INTEGER DEFAULT 0");
-        log('[DiaryDB] activity_logs table updated with amount column.');
-        migrateExistingData();
+      // 마이그레이션: amount 컬럼이 없는 경우 추가 (이미 테이블이 생성된 경우 대비)
+      try {
+        const columns = db.prepare("PRAGMA table_info(activity_logs)").all() as any[];
+        const hasAmount = columns.some(c => c.name === 'amount');
+        if (!hasAmount) {
+          db.exec("ALTER TABLE activity_logs ADD COLUMN amount INTEGER DEFAULT 0");
+          log('[DiaryDB] activity_logs table updated with amount column.');
+          migrateExistingData();
+        }
+      } catch (e) {
+        log(`[DiaryDB] Migration check failed: ${e}`);
       }
-    } catch (e) {
-      log(`[DiaryDB] Migration check failed: ${e}`);
-    }
 
-    normalizeExistingLootContent();
-    consolidateMagicStoneLogs();
+      normalizeExistingLootContent();
+      consolidateMagicStoneLogs();
 
-    // 마이그레이션: 기존 대장간 이미지 경로를 최신 경로(대장간.png)로 업데이트 및 탭 이름 변경
-    try {
-      db.prepare(`
-        UPDATE hunting_grounds 
-        SET image_path = 'assets/img/field-map/대장간.png',
-            name = '시오칸하임 대장간'
-        WHERE id = 'forge'
-      `).run();
-      db.prepare(`
-        UPDATE hunting_grounds 
-        SET name = '골고다의 협곡'
-        WHERE id = 'golgotha'
-      `).run();
-      db.prepare(`
-        UPDATE hunting_grounds 
-        SET name = '공허의 영역'
-        WHERE id = 'void'
-      `).run();
-      log('[DiaryDB] Hunting grounds names and paths migrated successfully.');
-    } catch (e) {
-      log(`[DiaryDB] Hunting grounds migration failed: ${e}`);
-    }
-
-    // 마이그레이션: hunting_paths 테이블에 color 컬럼이 없는 경우 추가
-    try {
-      const columns = db.prepare("PRAGMA table_info(hunting_paths)").all() as any[];
-      const hasColor = columns.some(c => c.name === 'color');
-      if (!hasColor) {
-        db.exec("ALTER TABLE hunting_paths ADD COLUMN color TEXT");
-        log('[DiaryDB] hunting_paths table updated with color column.');
+      // 마이그레이션: 기존 대장간 이미지 경로를 최신 경로(대장간.png)로 업데이트 및 탭 이름 변경
+      try {
+        db.prepare(`
+          UPDATE hunting_grounds 
+          SET image_path = 'assets/img/field-map/대장간.png',
+              name = '시오칸하임 대장간'
+          WHERE id = 'forge'
+        `).run();
+        db.prepare(`
+          UPDATE hunting_grounds 
+          SET name = '골고다의 협곡'
+          WHERE id = 'golgotha'
+        `).run();
+        db.prepare(`
+          UPDATE hunting_grounds 
+          SET name = '공허의 영역'
+          WHERE id = 'void'
+        `).run();
+        log('[DiaryDB] Hunting grounds names and paths migrated successfully.');
+      } catch (e) {
+        log(`[DiaryDB] Hunting grounds migration failed: ${e}`);
       }
-    } catch (e) {
-      log(`[DiaryDB] hunting_paths migration check failed: ${e}`);
+
+      // 마이그레이션: hunting_paths 테이블에 color 컬럼이 없는 경우 추가
+      try {
+        const columns = db.prepare("PRAGMA table_info(hunting_paths)").all() as any[];
+        const hasColor = columns.some(c => c.name === 'color');
+        if (!hasColor) {
+          db.exec("ALTER TABLE hunting_paths ADD COLUMN color TEXT");
+          log('[DiaryDB] hunting_paths table updated with color column.');
+        }
+      } catch (e) {
+        log(`[DiaryDB] hunting_paths migration check failed: ${e}`);
+      }
+
+      // 마이그레이션: 이클립스 셀피나 -> 로카고스 데이터 인계
+      try {
+        db.prepare(`
+          UPDATE homework_logs 
+          SET content_id = replace(content_id, 'weekly-eclipse-boss-selfina', 'weekly-eclipse-boss-lokagos'),
+              content_name = replace(content_name, '이클립스 (셀피나)', '이클립스 (로카고스)')
+          WHERE content_id LIKE 'weekly-eclipse-boss-selfina%'
+        `).run();
+        db.prepare(`
+          UPDATE activity_logs 
+          SET content = replace(content, '셀피나', '로카고스')
+          WHERE content LIKE '%셀피나%'
+        `).run();
+        log('[DiaryDB] SQLite data migrated successfully from selfina to lokagos.');
+      } catch (e) {
+        log(`[DiaryDB] SQLite selfina to lokagos migration failed: ${e}`);
+      }
+
+      // 마이그레이션: 고대 렐릭의 성소 (신조/키시니크) 데이터 합산/인계
+      try {
+        db.prepare(`
+          UPDATE homework_logs 
+          SET content_id = replace(replace(content_id, 'weekly-ancient-relic-shinjo', 'weekly-ancient-relic'), 'weekly-ancient-relic-kishinik', 'weekly-ancient-relic'),
+              content_name = '고대 렐릭의 성소 (신조/키시니크)'
+          WHERE content_id LIKE 'weekly-ancient-relic-shinjo%' OR content_id LIKE 'weekly-ancient-relic-kishinik%'
+        `).run();
+        
+        // 중복 일지 레코드 단일화 처리
+        db.prepare(`
+          DELETE FROM homework_logs 
+          WHERE id NOT IN (
+            SELECT MIN(id) 
+            FROM homework_logs 
+            GROUP BY date, content_id
+          )
+        `).run();
+
+        db.prepare(`
+          UPDATE activity_logs 
+          SET content = replace(replace(content, '고대 렐릭의 성소 (신조)', '고대 렐릭의 성소 (신조/키시니크)'), '고대 렐릭의 성소 (키시니크)', '고대 렐릭의 성소 (신조/키시니크)')
+          WHERE content LIKE '%고대 렐릭의 성소 (신조)%' OR content LIKE '%고대 렐릭의 성소 (키시니크)%'
+        `).run();
+        log('[DiaryDB] SQLite data migrated successfully for ancient relic sanctuary.');
+      } catch (e) {
+        log(`[DiaryDB] SQLite ancient relic migration failed: ${e}`);
+      }
+
+      deduplicateShoutHistory();
+      db.pragma('user_version = 1');
+      log('[DiaryDB] Version 1 migrations completed and user_version updated.');
     }
-
-    // 마이그레이션: 이클립스 셀피나 -> 로카고스 데이터 인계
-    try {
-      db.prepare(`
-        UPDATE homework_logs 
-        SET content_id = replace(content_id, 'weekly-eclipse-boss-selfina', 'weekly-eclipse-boss-lokagos'),
-            content_name = replace(content_name, '이클립스 (셀피나)', '이클립스 (로카고스)')
-        WHERE content_id LIKE 'weekly-eclipse-boss-selfina%'
-      `).run();
-      db.prepare(`
-        UPDATE activity_logs 
-        SET content = replace(content, '셀피나', '로카고스')
-        WHERE content LIKE '%셀피나%'
-      `).run();
-      log('[DiaryDB] SQLite data migrated successfully from selfina to lokagos.');
-    } catch (e) {
-      log(`[DiaryDB] SQLite selfina to lokagos migration failed: ${e}`);
-    }
-
-    // 마이그레이션: 고대 렐릭의 성소 (신조/키시니크) 데이터 합산/인계
-    try {
-      db.prepare(`
-        UPDATE homework_logs 
-        SET content_id = replace(replace(content_id, 'weekly-ancient-relic-shinjo', 'weekly-ancient-relic'), 'weekly-ancient-relic-kishinik', 'weekly-ancient-relic'),
-            content_name = '고대 렐릭의 성소 (신조/키시니크)'
-        WHERE content_id LIKE 'weekly-ancient-relic-shinjo%' OR content_id LIKE 'weekly-ancient-relic-kishinik%'
-      `).run();
-      
-      // 중복 일지 레코드 단일화 처리
-      db.prepare(`
-        DELETE FROM homework_logs 
-        WHERE id NOT IN (
-          SELECT MIN(id) 
-          FROM homework_logs 
-          GROUP BY date, content_id
-        )
-      `).run();
-
-      db.prepare(`
-        UPDATE activity_logs 
-        SET content = replace(replace(content, '고대 렐릭의 성소 (신조)', '고대 렐릭의 성소 (신조/키시니크)'), '고대 렐릭의 성소 (키시니크)', '고대 렐릭의 성소 (신조/키시니크)')
-        WHERE content LIKE '%고대 렐릭의 성소 (신조)%' OR content LIKE '%고대 렐릭의 성소 (키시니크)%'
-      `).run();
-      log('[DiaryDB] SQLite data migrated successfully for ancient relic sanctuary.');
-    } catch (e) {
-      log(`[DiaryDB] SQLite ancient relic migration failed: ${e}`);
-    }
-
-    deduplicateShoutHistory();
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
     log(`[DiaryDB] Failed to initialize database: ${error}`);
@@ -531,9 +549,20 @@ function parseMigrationNumber(s: string): number {
   return val;
 }
 
+/** 월간 범위(시작일~종료일) 계산 헬퍼 (Range Scan 인덱스 활용용) */
+export function getMonthDateRange(yearMonth: string): { start: string; end: string } {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const normalizedYearMonth = `${y}-${String(m).padStart(2, '0')}`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const start = `${normalizedYearMonth}-01`;
+  const end = `${normalizedYearMonth}-${String(lastDay).padStart(2, '0')}`;
+  return { start, end };
+}
+
 /** 데이터베이스 연결을 명시적으로 닫습니다 (백업 복구용). */
 export function closeDb(): void {
   flushPendingElso();
+  statementCache.clear();
   if (db) {
     db.close();
     db = null;
@@ -595,26 +624,29 @@ export function getDiariesByMonth(yearMonth: string): DiaryEntry[] {
   if (!db) initDb();
   if (!db) return [];
 
+  const [y, m] = yearMonth.split('-').map(Number);
+  const normalizedYearMonth = `${y}-${String(m).padStart(2, '0')}`;
+
   // 현재 월의 시작일과 다음 달의 시작일 기준 범위를 넓게 가져옴 (주간 합계 계산용)
-  const stmt = db.prepare(`
+  const stmt = getStmt(`
     SELECT * FROM diaries 
     WHERE date >= date(?, '-7 days') 
       AND date <= date(?, '+1 month', '+7 days') 
     ORDER BY date ASC
   `);
-  return stmt.all(`${yearMonth}-01`, `${yearMonth}-01`) as DiaryEntry[];
+  return stmt.all(`${normalizedYearMonth}-01`, `${normalizedYearMonth}-01`) as DiaryEntry[];
 }
 
 /** 점수를 업데이트하고 몬스터 단계를 결정합니다. (자동 호출됨) */
 function addScore(date: string, points: number): void {
   if (!db) return;
-  const stmt = db.prepare('UPDATE diaries SET total_score = total_score + ? WHERE date = ?');
+  const stmt = getStmt('UPDATE diaries SET total_score = COALESCE(total_score, 0) + ? WHERE date = ?');
   stmt.run(points, date);
 }
 
 function subtractScore(date: string, points: number): void {
   if (!db) return;
-  const stmt = db.prepare('UPDATE diaries SET total_score = MAX(0, total_score - ?) WHERE date = ?');
+  const stmt = getStmt('UPDATE diaries SET total_score = MAX(0, COALESCE(total_score, 0) - ?) WHERE date = ?');
   stmt.run(points, date);
 }
 
@@ -622,7 +654,7 @@ function subtractScore(date: string, points: number): void {
 export function isActivityLogged(date: string, content: string): boolean {
   if (!db) initDb();
   if (!db) return false;
-  const existing = db.prepare('SELECT id FROM activity_logs WHERE date = ? AND content = ?').get(date, content);
+  const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND content = ?').get(date, content);
   return !!existing;
 }
 
@@ -630,7 +662,7 @@ export function isActivityLogged(date: string, content: string): boolean {
 export function hasActivityLog(date: string, time: string, content: string): boolean {
   if (!db) initDb();
   if (!db) return false;
-  const existing = db.prepare('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
+  const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
   return !!existing;
 }
 
@@ -646,24 +678,29 @@ export function addActivityLogIfAbsent(
   if (!db) initDb();
   if (!db) return false;
 
-  let inserted = false;
-  const transaction = db.transaction(() => {
-    ensureDiaryExists(date);
+  try {
+    let inserted = false;
+    const transaction = db.transaction(() => {
+      ensureDiaryExists(date);
 
-    const existing = db!.prepare('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
-    if (existing) return;
+      const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
+      if (existing) return;
 
-    const stmt = db!.prepare('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
-    stmt.run(date, type, content, time, amount);
+      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
+      stmt.run(date, type, content, time, amount);
 
-    if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
-    if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
-    inserted = true;
-  });
+      if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
+      if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
+      inserted = true;
+    });
 
-  transaction();
-  if (inserted && notify) throttleNotifyUpdate();
-  return inserted;
+    transaction();
+    if (inserted && notify) throttleNotifyUpdate();
+    return inserted;
+  } catch (err) {
+    log(`[DiaryDB] addActivityLogIfAbsent failed: ${err}`);
+    return false;
+  }
 }
 
 /** 타임라인에 활동 기록을 추가합니다. (보스 처치, 계산기 등) */
@@ -671,33 +708,36 @@ export function addActivityLog(date: string, time: string, type: 'boss' | 'calc'
   if (!db) initDb();
   if (!db) return false;
 
-  let result = false;
-  const transaction = db.transaction(() => {
-    ensureDiaryExists(date);
+  try {
+    let result = false;
+    const transaction = db.transaction(() => {
+      ensureDiaryExists(date);
 
-
-
-    // 보스 처치 기록인 경우 중복 체크 (동일 날짜, 동일 내용)
-    if (type === 'boss') {
-      const existing = db!.prepare('SELECT id FROM activity_logs WHERE date = ? AND content = ?').get(date, content);
-      if (existing) {
-        log(`[DIARY_DB] 이미 존재하는 보스 기록입니다. 스킵: ${content}`);
-        result = false;
-        return;
+      // 보스 처치 기록인 경우 중복 체크 (동일 날짜, 동일 내용)
+      if (type === 'boss') {
+        const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND content = ?').get(date, content);
+        if (existing) {
+          log(`[DIARY_DB] 이미 존재하는 보스 기록입니다. 스킵: ${content}`);
+          result = false;
+          return;
+        }
       }
-    }
 
-    const stmt = db!.prepare('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
-    stmt.run(date, type, content, time, amount);
+      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
+      stmt.run(date, type, content, time, amount);
 
-    // 포인트 부여
-    if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
-    if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
-    result = true;
-  });
-  transaction();
-  if (result) throttleNotifyUpdate();
-  return result;
+      // 포인트 부여
+      if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
+      if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
+      result = true;
+    });
+    transaction();
+    if (result) throttleNotifyUpdate();
+    return result;
+  } catch (err) {
+    log(`[DiaryDB] addActivityLog failed: ${err}`);
+    return false;
+  }
 }
 
 /** 활동 기록을 삭제합니다 (토글 해제용). */
@@ -705,20 +745,24 @@ export function removeActivityLog(date: string, type: string, content: string): 
   if (!db) initDb();
   if (!db) return;
 
-  let changed = false;
-  const transaction = db.transaction(() => {
-    const stmt = db!.prepare('DELETE FROM activity_logs WHERE date = ? AND type = ? AND content = ?');
-    const info = stmt.run(date, type, content);
+  try {
+    let changed = false;
+    const transaction = db.transaction(() => {
+      const stmt = getStmt('DELETE FROM activity_logs WHERE date = ? AND type = ? AND content = ?');
+      const info = stmt.run(date, type, content);
 
-    // 삭제된 행이 있을 때만 포인트 차감
-    if (info.changes > 0) {
-      if (type === 'boss') subtractScore(date, POINTS.BOSS_KILL);
-      if (type === 'calc') subtractScore(date, POINTS.CALC_RECORD);
-      changed = true;
-    }
-  });
-  transaction();
-  if (changed) notifyUpdate();
+      // 삭제된 행이 있을 때만 포인트 차감
+      if (info.changes > 0) {
+        if (type === 'boss') subtractScore(date, POINTS.BOSS_KILL);
+        if (type === 'calc') subtractScore(date, POINTS.CALC_RECORD);
+        changed = true;
+      }
+    });
+    transaction();
+    if (changed) notifyUpdate();
+  } catch (err) {
+    log(`[DiaryDB] removeActivityLog failed: ${err}`);
+  }
 }
 
 /** 숙제 완료 기록을 추가합니다. */
@@ -726,24 +770,32 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
   if (!db) initDb();
   if (!db) return;
 
-  let added = false;
-  const transaction = db.transaction(() => {
-    ensureDiaryExists(date);
+  try {
+    let added = false;
+    const transaction = db.transaction(() => {
+      ensureDiaryExists(date);
 
-    // 이미 해당 숙제가 오늘/이번주 기록되어 있는지 확인
-    const existing = db!.prepare('SELECT id FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId);
-    if (existing) return;
+      // 이미 해당 숙제가 오늘/이번주 기록되어 있는지 확인
+      const existing = getStmt('SELECT id FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { id: number } | undefined;
+      if (existing) {
+        // 동일 날짜 내 재완료인 경우 완료 시각만 갱신
+        getStmt('UPDATE homework_logs SET completed_at = ? WHERE id = ?').run(completedAt, existing.id);
+        return;
+      }
 
-    const stmt = db!.prepare('INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at) VALUES (?, ?, ?, ?, ?, ?)');
-    stmt.run(date, contentId, contentName, category, type, completedAt);
+      const stmt = getStmt('INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at) VALUES (?, ?, ?, ?, ?, ?)');
+      stmt.run(date, contentId, contentName, category, type, completedAt);
 
-    // 포인트 부여
-    if (type === 'daily') addScore(date, POINTS.DAILY_HOMEWORK);
-    if (type === 'weekly') addScore(date, POINTS.WEEKLY_HOMEWORK);
-    added = true;
-  });
-  transaction();
-  if (added) notifyUpdate();
+      // 포인트 부여
+      if (type === 'daily') addScore(date, POINTS.DAILY_HOMEWORK);
+      if (type === 'weekly') addScore(date, POINTS.WEEKLY_HOMEWORK);
+      added = true;
+    });
+    transaction();
+    if (added) notifyUpdate();
+  } catch (err) {
+    log(`[DiaryDB] addHomeworkLog failed: ${err}`);
+  }
 }
 
 /** 숙제 체크 해제 시 기록을 삭제합니다. */
@@ -751,21 +803,25 @@ export function removeHomeworkLog(date: string, contentId: string): void {
   if (!db) initDb();
   if (!db) return;
 
-  let removed = false;
-  const transaction = db.transaction(() => {
-    const existing = db!.prepare('SELECT type FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { type: string } | undefined;
-    if (!existing) return;
+  try {
+    let removed = false;
+    const transaction = db.transaction(() => {
+      const existing = getStmt('SELECT type FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { type: string } | undefined;
+      if (!existing) return;
 
-    const stmt = db!.prepare('DELETE FROM homework_logs WHERE date = ? AND content_id = ?');
-    stmt.run(date, contentId);
+      const stmt = getStmt('DELETE FROM homework_logs WHERE date = ? AND content_id = ?');
+      stmt.run(date, contentId);
 
-    // 포인트 차감
-    if (existing.type === 'daily') subtractScore(date, POINTS.DAILY_HOMEWORK);
-    if (existing.type === 'weekly') subtractScore(date, POINTS.WEEKLY_HOMEWORK);
-    removed = true;
-  });
-  transaction();
-  if (removed) notifyUpdate();
+      // 포인트 차감
+      if (existing.type === 'daily') subtractScore(date, POINTS.DAILY_HOMEWORK);
+      if (existing.type === 'weekly') subtractScore(date, POINTS.WEEKLY_HOMEWORK);
+      removed = true;
+    });
+    transaction();
+    if (removed) notifyUpdate();
+  } catch (err) {
+    log(`[DiaryDB] removeHomeworkLog failed: ${err}`);
+  }
 }
 
 /** 그 날의 전체 숙제 통계(완료/전체)를 갱신합니다. */
@@ -800,7 +856,8 @@ export function getMonthlySummary(yearMonth: string): { totalLoots: number, tota
   if (!db) initDb();
   if (!db) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
 
-  const logs = db.prepare("SELECT date, type, content, amount FROM activity_logs WHERE date LIKE ? AND type IN ('loot', 'calc') ORDER BY date DESC, time DESC").all(`${yearMonth}-%`) as { date: string, type: string, content: string, amount: number }[];
+  const { start, end } = getMonthDateRange(yearMonth);
+  const logs = getStmt("SELECT date, type, content, amount FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('loot', 'calc') ORDER BY date DESC, time DESC").all(start, end) as { date: string, type: string, content: string, amount: number }[];
 
   let totalLoots = 0;
   let totalSeed = 0;
@@ -828,12 +885,12 @@ export function getMonthlyStatistics(yearMonth: string): any {
   if (!db) initDb();
   if (!db) return null;
 
-  const year = parseInt(yearMonth.split('-')[0], 10);
-  const month = parseInt(yearMonth.split('-')[1], 10);
+  const [year, month] = yearMonth.split('-').map(Number);
   const totalDays = new Date(year, month, 0).getDate();
+  const { start, end } = getMonthDateRange(yearMonth);
 
-  // 1. 기본 로그 가져오기
-  const logs = db.prepare("SELECT date, time, type, content, amount FROM activity_logs WHERE date LIKE ?").all(`${yearMonth}-%`) as { date: string, time: string, type: string, content: string, amount: number }[];
+  // 1. 기본 로그 가져오기 (인덱스 Range Scan 활용)
+  const logs = getStmt("SELECT date, time, type, content, amount FROM activity_logs WHERE date >= ? AND date <= ?").all(start, end) as { date: string, time: string, type: string, content: string, amount: number }[];
 
   // 2. 출석일수 (활동 로그가 있는 고유 날짜 수)
   const attendanceDays = new Set(logs.map(l => l.date)).size;
@@ -939,14 +996,16 @@ export function getMonthlyRevenueData(yearMonth: string): { date: string, amount
   if (!db) initDb();
   if (!db) return [];
 
+  const { start, end } = getMonthDateRange(yearMonth);
+
   // 1. DB에서 해당 월의 일별 합계 가져오기
-  const rows = db.prepare(`
+  const rows = getStmt(`
     SELECT date, SUM(amount) as daily_sum 
     FROM activity_logs 
-    WHERE date LIKE ? AND type = 'calc'
+    WHERE date >= ? AND date <= ? AND type = 'calc'
     GROUP BY date
     ORDER BY date ASC
-  `).all(`${yearMonth}-%`) as { date: string, daily_sum: number }[];
+  `).all(start, end) as { date: string, daily_sum: number }[];
 
   const dailyMap = new Map(rows.map(r => [r.date, r.daily_sum]));
 
@@ -1063,8 +1122,8 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   const insertActivity = db.prepare('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
   const selectShout = db.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5');
   const insertShout = db.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)');
-  const selectElso = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso'");
-  const updateElso = db.prepare("UPDATE activity_logs SET amount = ? WHERE id = ?");
+  const selectElso = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso' ORDER BY id ASC LIMIT 1");
+  const updateElso = db.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
 
   const selectStone = db.prepare(`
     SELECT id, amount FROM activity_logs 
@@ -1154,7 +1213,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
           if (info.totalAmount > existing.amount) {
             elsoPointsAdded += (info.totalAmount - existing.amount);
           }
-          updateElso.run(info.totalAmount, existing.id);
+          updateElso.run(info.latestTime, info.totalAmount, existing.id);
         }
       } else {
         insertActivity.run(date, 'elso', '엘소 포인트 획득', info.latestTime, info.totalAmount);
@@ -1172,7 +1231,11 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     }
   });
 
-  runBatch();
+  try {
+    runBatch();
+  } catch (err) {
+    log(`[DiaryDB] batchInsertSyncResults failed: ${err}`);
+  }
   return { lootsAdded, essencesAdded, seedsAdded, elsoPointsAdded, shoutsAdded };
 }
 

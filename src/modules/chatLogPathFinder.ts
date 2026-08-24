@@ -12,7 +12,11 @@ export function findChatLogPath(): string | null {
     // 1. 레지스트리 기반 탐색 (InstallLocation)
     const regPath = 'HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\TalesWeaver';
     try {
-      const output = execSync(`reg query "${regPath}" /v InstallLocation`, { encoding: 'utf-8' });
+      const output = execSync(`reg query "${regPath}" /v InstallLocation`, {
+        encoding: 'utf-8',
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore']
+      });
       const match = output.match(/InstallLocation\s+REG_SZ\s+(.*)/);
       if (match && match[1]) {
         const installPath = match[1].trim();

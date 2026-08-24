@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="style.css">
-  <script src="assets/tailwind.min.js"></script>
+    <script src="assets/tailwind.min.js"></script>
     <script src="assets/lucide.min.js"></script>
     <script src="assets/ui-utils.js"></script>
     <style>
@@ -71,7 +71,7 @@
 
     <script>
         window.bindElectronListenerCleanup();
-</script>
+    </script>
 </head>
 
 <body class="panel-glass p-0 h-screen flex flex-col relative">
@@ -145,6 +145,16 @@
     <script>
         let isForcingCheck = false;
 
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
         async function refreshTrade() {
             if (isForcingCheck) return;
             isForcingCheck = true;
@@ -174,13 +184,16 @@
                 const div = document.createElement('div');
                 div.className = 'post-item group border border-white/5 bg-black/20';
 
-                let dateHtml = `<div class="text-xs text-slate-500 w-12 text-right">${p.date}</div>`;
+                const safeTitle = escapeHtml(p.title);
+                const safeWriter = escapeHtml(p.writer);
+                const safeDate = escapeHtml(p.date);
+                let dateHtml = `<div class="text-xs text-slate-500 w-12 text-right">${safeDate}</div>`;
 
                 div.innerHTML = `
             <div class="flex-1 overflow-hidden">
-                <div class="truncate text-xs text-emerald-400 group-hover:text-emerald-300 transition-colors font-bold mb-1">${p.title}</div>
+                <div class="truncate text-xs text-emerald-400 group-hover:text-emerald-300 transition-colors font-bold mb-1">${safeTitle}</div>
                 <div class="flex items-center gap-2">
-                    <div class="text-xs text-slate-500 font-medium">${p.writer}</div>
+                    <div class="text-xs text-slate-500 font-medium">${safeWriter}</div>
                     <div class="text-[9px] text-slate-700">#${p.no}</div>
                 </div>
             </div>
@@ -269,7 +282,7 @@
         window.bindEscapeClose();
 
         refreshIcons();
-</script>
+    </script>
 </body>
 
 </html>

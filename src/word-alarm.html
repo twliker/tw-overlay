@@ -284,7 +284,6 @@
         </div>
       </div>
 
-
     </div>
   </div>
 
@@ -302,6 +301,16 @@
     let wordAlarmSound = '';
     let wordAlarmVolume = 70;
     let alarmHistoryMap = {}; // alarmId -> historyItem 매핑 맵
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
 
     async function init() {
       window.bindEscapeClose();
@@ -390,7 +399,7 @@
       wordAlarmKeywords.forEach((kw, i) => {
         const tag = document.createElement('span');
         tag.className = 'keyword-tag';
-        tag.innerHTML = `${kw} <button onclick="removeKeyword(${i})"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>`;
+        tag.innerHTML = `${escapeHtml(kw)} <button onclick="removeKeyword(${i})"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>`;
         list.appendChild(tag);
       });
       window.refreshIcons();
@@ -515,7 +524,7 @@
             <div class="history-header" onclick="toggleContext(${item.id})">
               <div class="flex flex-col gap-1 flex-1 min-w-0 pr-2">
                 <span class="text-xs font-black text-slate-300">
-                  <span class="text-indigo-400 font-bold">[${item.keyword}]</span> ${item.sender} : ${item.message}
+                  <span class="text-indigo-400 font-bold">[${escapeHtml(item.keyword)}]</span> ${escapeHtml(item.sender)} : ${escapeHtml(item.message)}
                 </span>
                 <span class="text-[9px] font-bold text-slate-500">${timeStr}</span>
               </div>
@@ -585,8 +594,8 @@
 
           line.innerHTML = `
             <span class="context-time">${time}</span>
-            <span class="context-sender ${colorClass}">${ctx.sender} :</span>
-            <span class="context-msg ${colorClass}">${ctx.message}</span>
+            <span class="context-sender ${colorClass}">${escapeHtml(ctx.sender)} :</span>
+            <span class="context-msg ${colorClass}">${escapeHtml(ctx.message)}</span>
           `;
           contentDiv.appendChild(line);
         });

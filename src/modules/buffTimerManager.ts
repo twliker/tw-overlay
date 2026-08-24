@@ -50,9 +50,15 @@ class BuffTimerManager {
   private _parseLogTimestamp(dateStr: string, timestampStr: string): number {
     try {
       const [y, m, d] = dateStr.split('-').map(Number);
-      const timeOnly = timestampStr.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
-      const [hh, mm, ss] = timeOnly.split(':').map(Number);
-      return new Date(y, m - 1, d, hh, mm, ss).getTime();
+      const timeMatch = timestampStr.match(/(\d{1,2})[:시]\s*(\d{1,2})[:분]?\s*(\d{1,2})?초?/);
+      if (timeMatch) {
+        const hh = parseInt(timeMatch[1], 10) || 0;
+        const mm = parseInt(timeMatch[2], 10) || 0;
+        const ss = parseInt(timeMatch[3] || '0', 10) || 0;
+        const result = new Date(y, m - 1, d, hh, mm, ss).getTime();
+        return isNaN(result) ? Date.now() : result;
+      }
+      return Date.now();
     } catch (e) {
       log(`[BUFF_TIMER] 시간 파싱 실패: ${e}`);
       return Date.now();
@@ -207,7 +213,8 @@ class BuffTimerManager {
       // 경고 임계값 체크 (5초 고정 알림 포함, 내림차순 정렬)
       const mergedWarnSecs = Array.from(new Set([...warnSeconds, 5])).sort((a, b) => b - a);
       for (const warnSec of mergedWarnSecs) {
-        if (remainingSec <= warnSec && !buff.warnedAt.has(warnSec)) {
+        // 전체 지속시간이 경고 임계값보다 큰 경우에만 사전 경고 발동
+        if (buff.durationMs > warnSec * 1000 && remainingSec <= warnSec && !buff.warnedAt.has(warnSec)) {
           buff.warnedAt.add(warnSec);
           this._triggerWarning(buff, warnSec);
           changed = true;

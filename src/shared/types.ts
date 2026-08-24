@@ -558,12 +558,23 @@ export interface GoogleAuthTokens {
     scope?: string;
 }
 
+export interface GoogleDriveFileMeta {
+    id: string;
+    name: string;
+    modifiedTime?: string;
+    size?: string;
+}
+
 export interface GoogleSyncStatus {
     isLinked: boolean;
     email?: string;
     lastSyncedAt?: number;
     isSyncing?: boolean;
     autoSync?: boolean;
+    fileName?: string;
+    cloudModifiedTime?: string;
+    fileCount?: number;
+    files?: GoogleDriveFileMeta[];
     error?: string;
 }
 
@@ -579,6 +590,10 @@ export interface GoogleSyncResult {
     success: boolean;
     message?: string;
     lastSyncedAt?: number;
+    fileName?: string;
+    cloudModifiedTime?: string;
+    fileCount?: number;
+    files?: GoogleDriveFileMeta[];
     error?: string;
 }
 

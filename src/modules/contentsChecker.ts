@@ -33,9 +33,14 @@ function loadDefaultItems(): ContentsCheckerItem[] {
 
 /** 초기화 및 병합 (앱 시작 시 호출) */
 export function init(): void {
-  const cfg = config.load();
   const defaultItems = loadDefaultItems();
-  
+  // 치명적 데이터 삭제 방어 가드 (contents.json 로드 실패 시 기존 사용자 데이터 보존)
+  if (!defaultItems || defaultItems.length === 0) {
+    log('[Contents Checker] 기본 데이터 로드 실패로 인해 마이그레이션 및 필터링을 건너뜁니다.');
+    return;
+  }
+
+  const cfg = config.load();
   let currentItems = (cfg.contentsCheckerItems || []) as LegacyContentsCheckerItem[];
   let changed = false;
 
@@ -342,7 +347,7 @@ export function init(): void {
     }
   });
 
-  // 3. 기본 아이템 병합 및 업데이트
+  // 3. 기본 아이템 병합 및 업데이트 (사용자 상태 보존하면서 신규 속성 반영)
   defaultItems.forEach(def => {
     const exists = currentItems.find(item => item.id === def.id);
     if (!exists) {
@@ -352,16 +357,14 @@ export function init(): void {
       });
       changed = true;
     } else {
-      if (exists.name !== def.name || 
-          exists.category !== def.category ||
-          JSON.stringify(exists.resetRule) !== JSON.stringify(def.resetRule) ||
-          exists.maxCount !== def.maxCount ||
-          exists.auto !== def.auto) {
-        exists.name = def.name;
-        exists.category = def.category;
-        exists.resetRule = def.resetRule;
-        exists.maxCount = def.maxCount;
-        exists.auto = def.auto;
+      const merged: ContentsCheckerItem = {
+        ...def,
+        isVisible: exists.isVisible ?? true,
+        isCustom: exists.isCustom ?? false,
+        completedState: exists.completedState || {}
+      };
+      if (JSON.stringify(exists) !== JSON.stringify(merged)) {
+        Object.assign(exists, merged);
         changed = true;
       }
     }
@@ -383,6 +386,24 @@ export function init(): void {
   if (currentItems.length !== initialCount) {
     changed = true;
   }
+
+  // 3-2. 병합 후 maxCount 초과 카운트 안전 보정
+  currentItems.forEach(item => {
+    const max = item.maxCount || 1;
+    if (item.completedState) {
+      Object.keys(item.completedState).forEach(charId => {
+        const state = item.completedState[charId];
+        if (state.currentCount === undefined) {
+          state.currentCount = state.isCompleted ? max : 0;
+          changed = true;
+        } else if (state.currentCount > max) {
+          state.currentCount = max;
+          state.isCompleted = true;
+          changed = true;
+        }
+      });
+    }
+  });
 
   if (changed || !cfg.contentsCheckerItems) {
     config.saveImmediate({ 
@@ -411,9 +432,9 @@ export function checkReset(): boolean {
     if (item.completedState) {
       Object.keys(item.completedState).forEach(charId => {
         const state = item.completedState[charId];
-        // 진행중이거나 완료된 상태이고 마지막 완료 시각이 있는 경우 초기화 검사
-        if ((state.isCompleted || (state.currentCount && state.currentCount > 0)) && state.lastCompletedAt) {
-          const lastCompleted = new Date(state.lastCompletedAt);
+        // 진행중이거나 완료된 상태인 경우 초기화 검사
+        if (state.isCompleted || (state.currentCount && state.currentCount > 0)) {
+          const lastCompleted = state.lastCompletedAt ? new Date(state.lastCompletedAt) : new Date(0);
           if (shouldReset(item.resetRule, lastCompleted, now)) {
             state.isCompleted = false;
             state.lastCompletedAt = undefined;
@@ -438,35 +459,42 @@ export function checkReset(): boolean {
   return changed;
 }
 
-/** 특정 규칙에 따라 초기화 여부 판단 */
+/** 특정 규칙에 따라 초기화 여부 판단 (직전 리셋 시점 기준 안전 판정) */
 function shouldReset(rule: ResetRule, lastCompleted: Date, now: Date): boolean {
   const resetHour = rule.hour ?? 0;
-  
-  // 기준 시각 생성 (오늘의 초기화 시각)
-  const todayReset = new Date(now);
-  todayReset.setHours(resetHour, 0, 0, 0);
 
   if (rule.type === 'daily') {
-    // 마지막 완료 시점이 오늘의 초기화 시각 이전이면 초기화 대상
-    return lastCompleted < todayReset && now >= todayReset;
-  } 
-  
-  if (rule.type === 'weekly') {
-    const resetDay = rule.dayOfWeek ?? 1; // 기본 월요일
-    
-    // 마지막 완료 시점 이후로 초기화 시점이 지났는지 확인
-    const nextReset = new Date(lastCompleted);
-    nextReset.setHours(resetHour, 0, 0, 0);
-    
-    // 요일 맞추기
-    let daysDiff = (resetDay - nextReset.getDay() + 7) % 7;
-    if (daysDiff === 0 && lastCompleted >= nextReset) {
-      daysDiff = 7; // 오늘 이미 지났다면 다음 주로
-    }
-    nextReset.setDate(nextReset.getDate() + daysDiff);
+    // 현재 시점(now) 기준 가장 최근에 지난 일일 리셋 시점 계산
+    const mostRecentReset = new Date(now);
+    mostRecentReset.setHours(resetHour, 0, 0, 0);
 
-    // 현재 시간이 그 다음 초기화 시각을 지났다면 초기화
-    return now >= nextReset;
+    // 아직 오늘의 리셋 시각에 도달하지 않은 경우 어제의 리셋 시각이 기준
+    if (now < mostRecentReset) {
+      mostRecentReset.setDate(mostRecentReset.getDate() - 1);
+    }
+
+    // 마지막 완료 시점이 직전 리셋 시점 이전이면 초기화 대상
+    return lastCompleted < mostRecentReset;
+  }
+
+  if (rule.type === 'weekly') {
+    const resetDay = rule.dayOfWeek ?? 1; // 기본 월요일 (1)
+
+    // 현재 시점(now) 기준 가장 최근에 지난 주간 리셋 시점 계산
+    const mostRecentReset = new Date(now);
+    mostRecentReset.setHours(resetHour, 0, 0, 0);
+
+    // 요일 차이 계산 (0 ~ 6)
+    const dayDiff = (now.getDay() - resetDay + 7) % 7;
+    mostRecentReset.setDate(mostRecentReset.getDate() - dayDiff);
+
+    // 요일은 같으나 아직 오늘의 resetHour 이전인 경우 지난주(7일 전)가 직전 리셋 시점
+    if (dayDiff === 0 && now < mostRecentReset) {
+      mostRecentReset.setDate(mostRecentReset.getDate() - 7);
+    }
+
+    // 마지막 완료 시점이 직전 주간 리셋 시점 이전이면 초기화 대상
+    return lastCompleted < mostRecentReset;
   }
 
   return false;
@@ -879,6 +907,17 @@ export function reorderItem(sourceId: string, targetId: string, position: DropPo
         hour: target.resetRule.hour ?? source.resetRule.hour ?? 0,
         dayOfWeek: target.resetRule.dayOfWeek ?? source.resetRule.dayOfWeek ?? 1,
       };
+      if (source.resetRule.type === 'weekly') {
+        source.maxCount = source.maxCount || 1;
+      } else {
+        delete source.maxCount;
+        if (source.completedState) {
+          Object.keys(source.completedState).forEach(charId => {
+            const state = source.completedState[charId];
+            state.currentCount = state.isCompleted ? 1 : 0;
+          });
+        }
+      }
     }
     const sourceIndex = items.findIndex(item => item.id === sourceId);
     if (sourceIndex === -1) return;
@@ -1038,21 +1077,21 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
     return;
   }
 
-  // 2. 등록된 모든 캐릭터에 대해 해당 숙제가 참여 제외(isExcluded: true)된 경우 무시
-  const hasActiveCharacter = presets.some(char => {
+  // 2. 등록된 캐릭터 중 해당 숙제에 참여하는(isExcluded: false) 캐릭터 목록 추출
+  const activeCharacters = presets.filter(char => {
     const state = targetItem.completedState?.[char.id];
     return !state?.isExcluded;
   });
 
-  if (!hasActiveCharacter) {
+  if (activeCharacters.length === 0) {
     log(`[Contents Checker] 모든 캐릭터가 이 숙제(${id})에 참여하지 않도록 설정되어 있어 적립을 무시합니다.`);
     return;
   }
 
-  // 캐릭터가 1개 이하면 보류 대기열 없이 즉시 해당 캐릭터에 반영
-  if (presets.length <= 1) {
-    const targetCharId = presets[0]?.id || MAIN_CHAR_ID;
-    log(`[Contents Checker] 단일 캐릭터 감지 - 즉시 반영 진행 (캐릭터: ${targetCharId})`);
+  // 3. 이 숙제에 참여하는 캐릭터가 오직 1명이면 보류 대기열 없이 즉시 해당 캐릭터에 안전하게 반영
+  if (activeCharacters.length === 1) {
+    const targetCharId = activeCharacters[0].id;
+    log(`[Contents Checker] 단일 참여 캐릭터 감지 - '${activeCharacters[0].name}' (${targetCharId})에게 즉시 반영`);
     if (isIncrement) {
       incrementItemCount(id, targetCharId, count);
     } else {
@@ -1061,7 +1100,7 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
     return;
   }
 
-  // 캐릭터가 2개 이상일 때 보류 대기열에 추가
+  // 4. 참여 가능한 캐릭터가 2개 이상일 때는 사용자가 선택할 수 있도록 보류 대기열에 추가
   const pendingList: PendingHomework[] = cfg.pendingHomeworks || [];
   const existingIdx = pendingList.findIndex(p => p.id === id);
 
@@ -1069,8 +1108,9 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
     const existing = pendingList[existingIdx];
     if (isIncrement) {
       existing.count += count;
+      existing.isIncrement = true;
     } else {
-      // update의 경우 기존 적립 값보다 더 클 때만 대체
+      // 절대값 설정 이벤트가 오면 절대값 모드로 전환
       existing.count = Math.max(existing.count, count);
       existing.isIncrement = false;
     }
@@ -1086,27 +1126,6 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
     log(`[Contents Checker] 보류 대기열 신규 추가 - ID: ${id}, 수량: ${count}`);
   }
 
-  // 3. 자동 반영 검사: 보류 대기열 전체를 기준으로 아직 숙제를 덜 끝낸(반영 가능한) 캐릭터가 단 1개뿐인지 조사
-  const candidateChars = presets.filter(char => {
-    return pendingList.some(p => {
-      const item = items.find(i => i.id === p.id);
-      if (!item) return false;
-      const state = item.completedState?.[char.id];
-      const max = item.maxCount || 1;
-      const current = state?.currentCount || 0;
-      const isExcluded = state?.isExcluded || false;
-      return !isExcluded && current < max;
-    });
-  });
-
-  if (candidateChars.length === 1) {
-    const targetCharId = candidateChars[0].id;
-    log(`[Contents Checker] 자동 반영 활성화 - 보류 내역을 처리할 수 있는 유일한 캐릭터 '${candidateChars[0].name}' (${targetCharId}) 감지.`);
-    config.saveImmediate({ pendingHomeworks: pendingList });
-    applyPendingHomeworks(targetCharId);
-    return;
-  }
-
   config.saveImmediate({ pendingHomeworks: pendingList });
   refreshUI();
 }
@@ -1118,6 +1137,8 @@ export function applyPendingHomeworks(characterId: string): void {
   if (pendingList.length === 0) return;
 
   const items = cfg.contentsCheckerItems || [];
+  const now = new Date();
+  const appliedPendingIds = new Set<string>();
 
   log(`[Contents Checker] 보류 내역을 캐릭터(${characterId})에 일괄 반영 시작. 보류 건수: ${pendingList.length}`);
 
@@ -1132,7 +1153,7 @@ export function applyPendingHomeworks(characterId: string): void {
 
     const state = item.completedState[characterId];
     if (state.isExcluded) {
-      log(`[Contents Checker] 캐릭터(${characterId})가 숙제(${item.name})에서 제외 상태(N/A)이므로 이력 반영을 생략합니다.`);
+      log(`[Contents Checker] 캐릭터(${characterId})가 숙제(${item.name})에서 제외 상태(N/A)이므로 이력 반영을 생략하고 대기열을 유지합니다.`);
       return;
     }
 
@@ -1152,21 +1173,32 @@ export function applyPendingHomeworks(characterId: string): void {
     state.isCompleted = (state.currentCount === max);
     state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
 
+    appliedPendingIds.add(pending.id);
     log(`[Contents Checker] 반영 완료 - 숙제: ${item.name}, 카운트: ${current} -> ${state.currentCount} (${state.isCompleted ? '완료' : '진행중'})`);
 
     syncHomeworkDiary(cfg, item, characterId, state, prevCompleted);
   });
 
-  // 대기열 비우기 및 저장
+  // 반영되지 못한 항목(N/A 제외 캐릭터 선택 등) 중, 리셋 주기가 지나지 않은 유효 항목만 보존
+  const remainingPending = pendingList.filter(pending => {
+    if (appliedPendingIds.has(pending.id)) return false;
+    const item = items.find(i => i.id === pending.id);
+    if (!item) return false;
+    // 보류 항목 발생 시점 기준 리셋 경과 여부 확인
+    const pendingTime = pending.timestamp ? new Date(pending.timestamp) : new Date(0);
+    return !shouldReset(item.resetRule, pendingTime, now);
+  });
+
+  // 대기열 저장
   config.saveImmediate({
     contentsCheckerItems: items,
-    pendingHomeworks: []
+    pendingHomeworks: remainingPending
   });
 
   // 다이어리 동기화 및 UI 갱신
   syncDiaryStats(items);
   refreshUI();
-  log(`[Contents Checker] 보류 내역 일괄 반영 및 대기열 초기화 완료`);
+  log(`[Contents Checker] 보류 내역 반영 완료 (남은 보류 건수: ${remainingPending.length})`);
 }
 
 /** 보류 대기열 초기화 (적용 없이 취소) */

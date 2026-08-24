@@ -10,7 +10,11 @@
 TW-Overlay는 별도의 회원가입 없이 사용할 수 있는 오픈소스 데스크톱 애플리케이션입니다. 구글 드라이브 동기화 기능을 사용할 때에 한하여 다음과 같은 정보가 활용됩니다:
 
 * **Google 계정 이메일 주소**: 사용자가 연동된 계정을 식별하고 앱 내에 표시하기 위한 목적으로만 사용됩니다.
-* **인게임 설정 및 숙제 진행 데이터**: 일일/주간 숙제 체크리스트 완료 상태, 캐릭터 목록, 득템/단어 알림 키워드, 단축키 설정 등.
+* **사용자 환경설정**: 알림 사용 여부·키워드·음량·내장 사운드 선택, 단축키·퀵슬롯·메뉴, 채팅 오버레이 탭·필터·색상, 사용자 지정 알람, 계산기 설정 등.
+* **숙제 체크리스트 데이터**: 숙제 정의와 리셋 규칙, 캐릭터 ID·사용자 지정 이름, 캐릭터별 완료·해제·N/A·횟수·완료 시각, 캐릭터 선택 전 미반영 완료 이력 등.
+* **동기화하지 않는 민감·PC 종속 정보**: Discord Webhook URL, Google OAuth 토큰, 채팅/메신저 로그 경로, 커스텀 사운드 절대경로, 창 위치·크기, 일지 DB·채팅 로그·알람 이력은 Google Drive 동기화 파일에 포함하지 않습니다.
+
+정확한 필드별 포함·제외 목록은 [Google Drive 클라우드 동기화 가이드](./docs/google-drive-sync.md)를 따릅니다.
 
 ---
 
@@ -23,7 +27,8 @@ TW-Overlay는 별도의 회원가입 없이 사용할 수 있는 오픈소스 �
 ---
 
 ## 3. 개인정보의 보관 및 제3자 제공
-* **외부 서버 미전송**: TW-Overlay는 자체 데이터베이스나 중앙 서버를 운영하지 않습니다. 모든 동기화 데이터는 사용자 본인의 개인 Google Drive 내 앱 전용 격리 공간(`appDataFolder`)에만 직접 저장됩니다.
+* **외부 서버 미전송**: TW-Overlay는 자체 데이터베이스나 중앙 서버를 운영하지 않습니다. 동기화 데이터는 사용자 본인의 Google Drive 앱 전용 격리 공간(`appDataFolder`)에 `tw_overlay_settings.json`, `tw_overlay_checklist.json`, `tw_overlay_sync_meta.json`으로 직접 저장됩니다.
+* **암호화 범위**: Google과의 통신은 HTTPS를 사용하지만 TW-Overlay가 세 JSON 파일에 별도의 종단간 암호화를 추가하지는 않습니다. 따라서 비밀 자격증명과 PC 종속 경로는 동기화 대상에서 제외합니다.
 * **제3자 제공 없음**: 개발자를 포함한 어떠한 제3자에게도 사용자의 개인정보나 인게임 데이터를 제공, 공유, 판매하지 않습니다.
 
 ---
@@ -31,7 +36,7 @@ TW-Overlay는 별도의 회원가입 없이 사용할 수 있는 오픈소스 �
 ## 4. Google API 사용자 데이터 정책 준수 (Google API Services User Data Policy)
 TW-Overlay의 Google API 사용은 **[Google API 서비스 사용자 데이터 정책](https://developers.google.com/terms/api-services-user-data-policy)**(Limited Use 요건 포함)을 엄격히 준수합니다:
 
-* 요청하는 권한(`.../auth/drive.appdata`)은 오직 TW-Overlay가 생성한 설정 파일에만 접근하며, 사용자의 일반 Google Drive 파일(사진, 문서 등)에는 접근하지 않습니다.
+* 요청하는 권한(`.../auth/drive.appdata`)은 오직 TW-Overlay가 생성한 앱 데이터 JSON 파일에만 접근하며, 사용자의 일반 Google Drive 파일(사진, 문서 등)에는 접근하지 않습니다.
 * 사용자의 구글 데이터를 AI 모델 훈련 또는 광고 타겟팅 등의 다른 용도로 일체 사용하지 않습니다.
 
 ---

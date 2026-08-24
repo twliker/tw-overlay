@@ -51,7 +51,8 @@ function bringGameAndOverlaysToTop(): void {
   const focusedWin = BrowserWindow.getFocusedWindow();
   if (!focusedWin || focusedWin.isDestroyed()) return;
   // 포커스된 우리 창의 HWND를 기준점으로 게임을 바로 아래에 배치 (포커스 유지)
-  const focusedHwnd = focusedWin.getNativeWindowHandle().readBigUInt64LE().toString();
+  const handleBuf = focusedWin.getNativeWindowHandle();
+  const focusedHwnd = handleBuf.length >= 8 ? handleBuf.readBigUInt64LE().toString() : handleBuf.readUInt32LE(0).toString();
   tracker.placeGameBelowWindow(focusedHwnd);
   // 나머지 오버레이도 게임 위로 재배치
   // force=true: placeGameBelowWindow로 게임이 이동한 후 game-overlay가 게임 뒤로 밀리는 것을 방지
@@ -91,18 +92,22 @@ export function createGameOverlayWindow(): void {
   }
 
   gameOverlayWindow.once('ready-to-show', () => {
-    gameOverlayWindow?.showInactive();
-    // 생성 직후 최신 설정 전송 (경험치 HUD 위치 등 반영용)
-    const currentConfig = config.load();
-    gameOverlayWindow?.webContents.send('config-data', currentConfig);
-    gameOverlayWindow?.webContents.send('today-summary-config', currentConfig);
+    if (gameOverlayWindow && !gameOverlayWindow.isDestroyed()) {
+      gameOverlayWindow.showInactive();
+      // 생성 직후 최신 설정 전송 (경험치 HUD 위치 등 반영용)
+      const currentConfig = config.load();
+      gameOverlayWindow.webContents.send('config-data', currentConfig);
+      gameOverlayWindow.webContents.send('today-summary-config', currentConfig);
+    }
   });
 
   // HTML 파싱 및 스크립트 로드 완료 후 확실하게 한 번 더 전송 (Race Condition 방지)
   gameOverlayWindow.webContents.on('did-finish-load', () => {
-    const currentConfig = config.load();
-    gameOverlayWindow?.webContents.send('config-data', currentConfig);
-    gameOverlayWindow?.webContents.send('today-summary-config', currentConfig);
+    if (gameOverlayWindow && !gameOverlayWindow.isDestroyed()) {
+      const currentConfig = config.load();
+      gameOverlayWindow.webContents.send('config-data', currentConfig);
+      gameOverlayWindow.webContents.send('today-summary-config', currentConfig);
+    }
   });
 
   gameOverlayWindow.on('closed', () => {
@@ -590,6 +595,42 @@ function createOverlayWindow(targetUrl?: string): void {
     sendActiveWindowsStatus();
   });
   focusController.attach(overlayWindow);
+  setupDisplayChangeListeners();
+}
+
+let _displayListenersRegistered = false;
+export function setupDisplayChangeListeners(): void {
+  if (_displayListenersRegistered) return;
+  _displayListenersRegistered = true;
+
+  const handleDisplayChange = () => {
+    log('[WINDOW] 디스플레이 변경 감지, 화면 이탈 창 위치 복구 검사');
+    const primary = screen.getPrimaryDisplay();
+    const allDisplays = screen.getAllDisplays();
+
+    Object.keys(windowRegistry).forEach((k) => {
+      const key = k as WindowPositionKey;
+      const winCfg = windowRegistry[key];
+      if (winCfg.ref && !winCfg.ref.isDestroyed() && winCfg.ref.isVisible()) {
+        const bounds = winCfg.ref.getBounds();
+        if (!isWindowVisibleOnDisplays(bounds, allDisplays)) {
+          const { x, y } = centerWindowInWorkArea(bounds.width, bounds.height, primary.workArea);
+          log(`[WINDOW] 화면 밖으로 이탈된 창(${key})을 주 모니터 중앙으로 자동 복구: (${x}, ${y})`);
+          winCfg.ref.setPosition(x, y);
+          if (gameRect) {
+            winCfg.pos = {
+              offsetX: x - (gameRect.x + gameRect.width),
+              offsetY: y - gameRect.y,
+            };
+            savePosition(key, winCfg.pos);
+          }
+        }
+      }
+    });
+  };
+
+  screen.on('display-removed', handleDisplayChange);
+  screen.on('display-metrics-changed', handleDisplayChange);
 }
 
 function isVisibleOnScreens(x: number, y: number, width: number, height: number): boolean {
@@ -648,8 +689,8 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   calcPosition?: (gr: GameRect, pos: WindowPosition) => { x: number, y: number }
 }): boolean {
   const winCfg = windowRegistry[key];
-  if (!winCfg || winCfg.ref) {
-    if (winCfg?.ref) {
+  if (!winCfg || (winCfg.ref && !winCfg.ref.isDestroyed())) {
+    if (winCfg?.ref && !winCfg.ref.isDestroyed()) {
       winCfg.ref.close();
     }
     return false; // 닫힘
@@ -943,6 +984,9 @@ export function toggleUniformColorWindow(): void {
   });
 
   let isInitialPositionApplied = false;
+  let isClosing = false;
+  win.on('close', () => { isClosing = true; });
+
   win.once('ready-to-show', () => {
     if (gameRect) {
       let { x, y } = winCfg.calcPosition
@@ -966,7 +1010,7 @@ export function toggleUniformColorWindow(): void {
 
   win.on('move', () => {
     // 전체화면(isGameFullscreen) 상태일 때는 사용자 이동 오프셋을 덮어쓰거나 저장하지 않음 (창모드 복귀 시 위치 유지를 위해)
-    if (!isInitialPositionApplied || consumeProgrammaticMove('uniformColor', winCfg.ref) || !winCfg.ref || !gameRect || isGameFullscreen) return;
+    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('uniformColor', winCfg.ref) || !winCfg.ref || !gameRect || isGameFullscreen) return;
     programmaticMoves.markUserDrag('uniformColor');
     const b = winCfg.ref.getBounds();
     winCfg.pos = { offsetX: b.x - (gameRect.x + gameRect.width), offsetY: b.y - gameRect.y };
@@ -1003,6 +1047,9 @@ export function toggleSwordEnhanceWindow(): void {
   });
 
   let isInitialPositionApplied = false;
+  let isClosing = false;
+  win.on('close', () => { isClosing = true; });
+
   win.once('ready-to-show', () => {
     if (gameRect) {
       let { x, y } = calculateAttachedWindowPosition(gameRect, winCfg.pos);
@@ -1023,7 +1070,7 @@ export function toggleSwordEnhanceWindow(): void {
   });
 
   win.on('move', () => {
-    if (!isInitialPositionApplied || consumeProgrammaticMove('swordEnhance', winCfg.ref) || !winCfg.ref || !gameRect || isGameFullscreen) return;
+    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('swordEnhance', winCfg.ref) || !winCfg.ref || !gameRect || isGameFullscreen) return;
     programmaticMoves.markUserDrag('swordEnhance');
     const bounds = winCfg.ref.getBounds();
     winCfg.pos = { offsetX: bounds.x - (gameRect.x + gameRect.width), offsetY: bounds.y - gameRect.y };
@@ -1635,7 +1682,7 @@ export function toggleClickThrough(): boolean {
 
   // 1. 웹 브라우저 오버레이 투과 제어
   if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.setIgnoreMouseEvents(isClickThrough);
+    overlayWindow.setIgnoreMouseEvents(isClickThrough, isClickThrough ? { forward: true } : undefined);
     if (isClickThrough && isToolbarShown) { isToolbarShown = false; updateViewBounds(); }
     overlayWindow.webContents.send('click-through-status', isClickThrough);
   }

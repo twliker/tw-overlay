@@ -18,10 +18,52 @@ function initUserData(): void {
       fs.mkdirSync(standardUserDataPath, { recursive: true });
     }
 
-    migrateLegacyUserData(appData, standardUserDataPath);
+    // userData 경로를 먼저 안전하게 설정
     app.setPath('userData', standardUserDataPath);
+
+    // 레거시 데이터 마이그레이션은 독립적으로 수행
+    try {
+      migrateLegacyUserData(appData, standardUserDataPath);
+    } catch {
+      // 마이그레이션 실패 시 조용히 무시
+    }
+
+    // v3.0.0 메이저 업데이트 1회성 사전 안전 스냅샷 백업
+    try {
+      backupPreV3UserData(standardUserDataPath);
+    } catch {
+      // 백업 실패 시에도 메인 부트스트랩 진행
+    }
   } catch (e) {
     // 초기화 중 오류 시 조용히 무시
+  }
+}
+
+/** v3.0.0 메이저 업데이트 전 데이터 1회성 자동 스냅샷 */
+function backupPreV3UserData(standardUserDataPath: string): void {
+  const backupDir = path.join(standardUserDataPath, 'backups', 'pre-v3.0.0');
+  const flagFile = path.join(backupDir, 'backup.done');
+  if (fs.existsSync(flagFile)) return;
+
+  const targetFiles = ['config.json', 'diary.db', 'google_user.json'];
+  let backedUpAny = false;
+
+  for (const file of targetFiles) {
+    const src = path.join(standardUserDataPath, file);
+    if (!fs.existsSync(src)) continue;
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    try {
+      fs.copyFileSync(src, path.join(backupDir, file));
+      backedUpAny = true;
+    } catch {}
+  }
+
+  if (backedUpAny && fs.existsSync(backupDir)) {
+    try {
+      fs.writeFileSync(flagFile, new Date().toISOString(), 'utf-8');
+    } catch {}
   }
 }
 

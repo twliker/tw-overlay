@@ -37,6 +37,13 @@ export interface MandatoryReleaseTarget {
   note?: string;
 }
 
+let _isUpdaterQuitting = false;
+
+/** 업데이트 설치로 인한 종료 여부 반환 */
+export function getIsUpdaterQuitting(): boolean {
+  return _isUpdaterQuitting;
+}
+
 /** 현재 버전 또는 전달된 버전이 베타/프리릴리즈 버전인지 확인 */
 export function isBetaVersion(version?: string): boolean {
   const ver = typeof version === 'string' ? version : (app ? app.getVersion() : '');
@@ -46,14 +53,16 @@ export function isBetaVersion(version?: string): boolean {
 /** 
  * 현재 버전보다 상위 버전 목록 중 가장 최신의 강제 업데이트 릴리즈를 탐색
  * (v1 사용자 환경에서 v2강제, v3강제, v4일반, v5강제, v6일반인 경우 -> v5 반환)
- * *현재 버전이 베타 버전인 경우 강제 업데이트를 무시(null 반환)합니다.
+ * *현재 버전이 베타이고 대상도 베타인 경우 강제 업데이트를 무시(null 반환)합니다.
  */
 export function findLatestMandatoryRelease(info: any, currentVersion?: string): MandatoryReleaseTarget | null {
   if (!info) return null;
 
-  // 현재 버전이 베타 버전인 경우 강제 업데이트 타겟을 탐색하지 않음 (강제 업데이트 무시)
   const currentVer = currentVersion ?? (app ? app.getVersion() : '');
-  if (currentVer && isBetaVersion(currentVer)) {
+  const isCurrentBeta = currentVer ? isBetaVersion(currentVer) : false;
+
+  // 베타 버전 사용자 환경에서는 강제 업데이트 타겟을 탐색하지 않음 (일반 업데이트로 안내)
+  if (isCurrentBeta) {
     return null;
   }
 
@@ -208,10 +217,13 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     const cfg = config.load();
     const isAutoUpdateEnabled = cfg.autoUpdateEnabled !== false;
 
-    // CASE 0: 현재 실행 중인 버전이 베타 버전인 경우
+    const isTargetBeta = isBetaVersion(info.version);
+
+    // CASE 0: 현재 실행 중인 버전이 베타이고, 대상 버전도 베타인 경우
     // -> 강제 업데이트 잠금 및 스플래시 자동 다운로드를 무시하고 메인 앱을 즉시 실행하여 사용자가 베타를 계속 사용할 수 있도록 함
-    if (isCurrentBeta) {
-      log(`[UPDATER] Running beta version (v${currentVer}). Ignoring mandatory & splash auto-updates for v${info.version}`);
+    // (단, 정식 릴리즈(Non-beta)가 나온 경우 일반 업데이트 흐름을 정상 진행)
+    if (isCurrentBeta && isTargetBeta) {
+      log(`[UPDATER] Running beta version (v${currentVer}) and target is also beta (v${info.version}). Skipping splash auto-download.`);
 
       currentUpdateInfo = {
         state: 'available',
@@ -389,6 +401,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     // 다운로드 완료 시 자동 설치 및 재시작
     log('[UPDATER] Download complete. Installing and restarting in 1.5s...');
     setTimeout(() => {
+      _isUpdaterQuitting = true;
       autoUpdater.quitAndInstall();
     }, 1500);
   });
@@ -438,5 +451,6 @@ export function startDownload() {
 
 /** 재시작 및 설치 */
 export function quitAndInstall() {
+  _isUpdaterQuitting = true;
   autoUpdater.quitAndInstall();
 }

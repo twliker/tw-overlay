@@ -48,7 +48,8 @@ export function getBossTimes(bossName: string): string[] {
 }
 
 const minuteScheduler = new MinuteAlignedScheduler();
-let _lastNotifiedTime: string | null = null;
+const _notifiedBossKeys = new Set<string>();
+let _lastCleanupDate = new Date().getDate();
 
 /** 알림 루프 시작 */
 export function start(): void {
@@ -62,6 +63,13 @@ export function stop(): void {
 }
 
 function checkBossTime(): void {
+  // 날짜 변경 시 알림 디듀플 셋 정리
+  const currentDate = new Date().getDate();
+  if (currentDate !== _lastCleanupDate || _notifiedBossKeys.size > 500) {
+    _notifiedBossKeys.clear();
+    _lastCleanupDate = currentDate;
+  }
+
   // 컨텐츠 체크 리스트 초기화 여부 확인 (백그라운드)
   const isReset = contents.checkReset();
   if (isReset) {
@@ -80,9 +88,7 @@ function checkBossTime(): void {
   const cfg = config.load();
   if (!cfg.fieldBossNotifyEnabled) return;
 
-  const currentTimeKey = `${now.getHours()}:${now.getMinutes()}`;
-  if (_lastNotifiedTime === currentTimeKey) return;
-
+  const currentTimeKey = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const offsets = cfg.fieldBossNotifyOffsets || [0];
 
   offsets.forEach(offset => {
@@ -93,10 +99,13 @@ function checkBossTime(): void {
     bosses.forEach(boss => {
       const bossSetting = cfg.fieldBossSettings?.[boss.name];
       if (bossSetting && bossSetting.enabled) {
+        const notifyKey = `${currentTimeKey}_${boss.name}_${offset}`;
+        if (_notifiedBossKeys.has(notifyKey)) return;
+        _notifiedBossKeys.add(notifyKey);
+
         const message = offset === 0 ? boss.name : `${boss.name} ${offset}분 전`;
         log(`[BOSS] 알림 조건 충족: ${message} (사운드: ${bossSetting.soundFile})`);
         notify(boss.name, bossSetting.soundFile, boss.time, offset);
-        _lastNotifiedTime = currentTimeKey;
       }
     });
   });

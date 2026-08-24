@@ -1,7 +1,7 @@
 /**
  * DC인사이드 갤러리 모니터 모듈
  * - 1페이지 새 글 감지 → 알림
- * - 등록된 글번호 댓글 변화 감지 → 알림 (POST API 사용)
+ * - 등록된 글번호 댓글 변화 감지 → 알림 (POST API 사용, 라운드 로빈 순회)
  * - 블락 방지: 랜덤 딜레이, 요청 간격 제한, 쿨다운
  */
 import * as https from 'https';
@@ -50,6 +50,7 @@ const COMMENT_HEADERS = {
 const MAX_COMMENT_CHECKS = 5;
 let consecutiveErrors = 0;   // 연속 에러 횟수 (백오프용)
 let cachedEsno = '';         // 캐시된 e_s_n_o 토큰
+let _watchedCheckCursor = 0; // 라운드 로빈 검사 커서
 
 let lastSeenPostNo = 0;           // 마지막으로 본 최신글 번호
 let watchedPosts: Record<string, WatchedPost> = {};            // { postNo: { title, commentCount } }
@@ -222,8 +223,9 @@ async function checkNewPosts(): Promise<boolean> {
       sendNewActivity('post', newPosts.length);
 
       let toNotify = newPosts;
-      if (galleryKeywords && galleryKeywords.length > 0) {
-        const pattern = galleryKeywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+      const validKeywords = (galleryKeywords || []).map(k => k.trim()).filter(k => k.length > 0);
+      if (validKeywords.length > 0) {
+        const pattern = validKeywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
         const regex = new RegExp(pattern, 'i');
         toNotify = newPosts.filter(p => regex.test(p.title));
       }
@@ -250,14 +252,22 @@ async function checkNewPosts(): Promise<boolean> {
   }
 }
 
-// ─── 댓글 변화 체크 (POST API + 블락 방지) ───
+// ─── 댓글 변화 체크 (POST API + 라운드 로빈 순회 검사) ───
 async function checkWatchedComments(): Promise<void> {
   const watchNos = Object.keys(watchedPosts);
   if (watchNos.length === 0) return;
 
   if (!cachedEsno) return;
 
-  const toCheck = watchNos.slice(0, MAX_COMMENT_CHECKS);
+  const total = watchNos.length;
+  const countToCheck = Math.min(total, MAX_COMMENT_CHECKS);
+  const toCheck: string[] = [];
+
+  for (let i = 0; i < countToCheck; i++) {
+    const idx = (_watchedCheckCursor + i) % total;
+    toCheck.push(watchNos[idx]);
+  }
+  _watchedCheckCursor = (_watchedCheckCursor + countToCheck) % total;
 
   for (const noStr of toCheck) {
     try {
@@ -265,13 +275,16 @@ async function checkWatchedComments(): Promise<void> {
       const no = parseInt(noStr, 10);
       const currentCount = await fetchCommentCount(no);
       const prev = watchedPosts[noStr];
+      if (!prev) continue;
 
       if (prev.commentCount >= 0 && currentCount > prev.commentCount) {
         const diff = currentCount - prev.commentCount;
         sendNewActivity('comment', diff, noStr);
         notify('💬 새 댓글', `[${prev.title}]에 ${diff}개의 새 댓글`, no);
       }
-      watchedPosts[noStr].commentCount = currentCount;
+      if (watchedPosts[noStr]) {
+        watchedPosts[noStr].commentCount = currentCount;
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       log(`[GALLERY] 댓글 체크 실패 #${noStr}: ${msg}`);
@@ -331,7 +344,7 @@ export function start(_overlayWin: BrowserWindow | null, sidebarWin: BrowserWind
   lastSeenPostNo = cfg.galleryLastSeen || 0;
   watchedPosts = cfg.galleryWatched || {};
   notifyEnabled = cfg.galleryNotify === true;
-  galleryKeywords = cfg.galleryKeywords || [];
+  galleryKeywords = (cfg.galleryKeywords || []).map(k => k.trim()).filter(k => k.length > 0);
 
   isRunning = true;
   doCheck();
@@ -347,7 +360,7 @@ export function updateWindows(_overlayWin: BrowserWindow | null, sidebarWin: Bro
   if (galleryWin) galleryWindowRef = galleryWin;
 
   const cfg = config.load();
-  galleryKeywords = cfg.galleryKeywords || [];
+  galleryKeywords = (cfg.galleryKeywords || []).map(k => k.trim()).filter(k => k.length > 0);
 }
 
 /** 글 감시 추가 */

@@ -186,11 +186,11 @@ function mergeContentsCheckerItems(
           continue;
         }
 
-        // 마지막 완료 시간 비교: 클라우드가 더 최신이면 덮어쓰기
+        // 마지막 완료 시간 비교: 클라우드가 더 최신이고 클라우드 상태가 완료인 경우 덮어쓰기
         const localTime = localState.lastCompletedAt || 0;
         const cloudTime = cloudState.lastCompletedAt || 0;
 
-        if (cloudTime > localTime) {
+        if (cloudTime > localTime && cloudState.isCompleted) {
           localItem.completedState[charId] = {
             ...localState,
             ...cloudState,
@@ -200,7 +200,7 @@ function mergeContentsCheckerItems(
           if (cloudState.isExcluded !== undefined) {
             localState.isExcluded = cloudState.isExcluded;
           }
-          if (cloudState.isCompleted && !localState.isCompleted) {
+          if (cloudState.isCompleted && !localState.isCompleted && (cloudState.lastCompletedAt || 0) > (localState.lastCompletedAt || 0)) {
             localState.isCompleted = true;
           }
           if (cloudState.currentCount !== undefined && (localState.currentCount === undefined || cloudState.currentCount > (localState.currentCount || 0))) {
@@ -260,6 +260,14 @@ export function mergeSyncData(localCfg: AppConfig, cloudPayload: GoogleSyncPaylo
     if (key === 'contentsCheckerItems' || key === 'characterPresets') continue;
     if (cloudData[key] !== undefined) {
       (merged as any)[key] = JSON.parse(JSON.stringify(cloudData[key]));
+    }
+  }
+
+  // 4. selectedCharacterId 무결성 보정 (존재하지 않는 캐릭터 선택 방지)
+  if (merged.characterPresets && merged.characterPresets.length > 0) {
+    const exists = merged.characterPresets.some(p => p.id === merged.selectedCharacterId);
+    if (!exists) {
+      merged.selectedCharacterId = merged.characterPresets[0].id;
     }
   }
 

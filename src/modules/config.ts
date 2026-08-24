@@ -127,6 +127,7 @@ export function load(): AppConfig {
         positions: { ...DEFAULT_CONFIG.positions, ...(parsed.positions || {}) },
         shortcuts: { ...DEFAULT_CONFIG.shortcuts, ...(parsed.shortcuts || {}) },
         fieldBossSettings: { ...DEFAULT_CONFIG.fieldBossSettings, ...(parsed.fieldBossSettings || {}) },
+        buffTimerBuffs: { ...DEFAULT_CONFIG.buffTimerBuffs, ...(parsed.buffTimerBuffs || {}) },
       } as AppConfig;
 
       if (migrated) {

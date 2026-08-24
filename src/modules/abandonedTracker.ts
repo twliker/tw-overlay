@@ -50,8 +50,8 @@ class AbandonedTracker {
       if (!this._abandonedState.isEnabled) return;
 
       const now = Date.now();
-      // 직전 5초 이내에 도전 횟수가 먼저 들어온 경우 해당 지역에 즉시 귀속
-      if (this._lastEntryRegion && (now - this._lastEntryTime < 5000)) {
+      // 직전 15초 이내에 도전 횟수가 먼저 들어온 경우 해당 지역에 즉시 귀속
+      if (this._lastEntryRegion && (now - this._lastEntryTime < 15000)) {
         const region = this._lastEntryRegion;
         this._lastEntryRegion = null;
         this._abandonedState.profit -= data.amount;
@@ -115,7 +115,10 @@ class AbandonedTracker {
       this._abandonedState.profit += (unitValue * data.count);
       this._abandonedState.stoneGains[gradeKey] = (this._abandonedState.stoneGains[gradeKey] ?? 0) + data.count;
       const region = this._abandonedState.currentRegion;
-      if (region && this._abandonedState.regionDetails[region]) {
+      if (region) {
+        if (!this._abandonedState.regionDetails[region]) {
+          this._abandonedState.regionDetails[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {} };
+        }
         const rds = this._abandonedState.regionDetails[region].stoneGains;
         rds[gradeKey] = (rds[gradeKey] ?? 0) + data.count;
       }
@@ -133,7 +136,10 @@ class AbandonedTracker {
       this._abandonedState.profit -= (unitValue * data.count);
       this._abandonedState.stoneLosses[gradeKey] = (this._abandonedState.stoneLosses[gradeKey] ?? 0) + data.count;
       const region = this._abandonedState.currentRegion;
-      if (region && this._abandonedState.regionDetails[region]) {
+      if (region) {
+        if (!this._abandonedState.regionDetails[region]) {
+          this._abandonedState.regionDetails[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {} };
+        }
         const rdl = this._abandonedState.regionDetails[region].stoneLosses;
         rdl[gradeKey] = (rdl[gradeKey] ?? 0) + data.count;
       }

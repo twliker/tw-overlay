@@ -123,7 +123,7 @@ export function register(): void {
 
   ipcMain.on('set-window-size', (event, width: number, height: number) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) {
+    if (win && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
       const isResizable = win.isResizable();
       win.setResizable(true);
       win.setSize(Math.round(width), Math.round(height));
@@ -553,7 +553,10 @@ export function register(): void {
   ipcMain.handle('gallery-get-notify', () => { return gallery.getNotifyEnabled(); });
   ipcMain.on('gallery-set-notify', (_e, enabled: boolean) => { gallery.setNotifyEnabled(enabled); });
   ipcMain.on('gallery-open-post', (_e, postNo: number | string) => {
-    shell.openExternal(`https://gall.dcinside.com/mini/board/view/?id=talesweaver&no=${postNo}`);
+    const safePostNo = String(postNo).replace(/[^0-9]/g, '');
+    if (safePostNo) {
+      shell.openExternal(`https://gall.dcinside.com/mini/board/view/?id=talesweaver&no=${safePostNo}`);
+    }
   });
 
   // 에타 랭킹 모듈 핸들러
@@ -672,9 +675,7 @@ export function register(): void {
   ipcMain.handle('google-sync-restore', async () => cloudSync.syncFromCloud(true));
   ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
   ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
-    const cfg = config.load();
-    cfg.googleSyncAutoSync = enabled;
-    config.save(cfg);
+    config.save({ googleSyncAutoSync: enabled });
     const status = cloudSync.getSyncStatus();
     broadcastToAllWindows('google-sync-status-changed', status);
     return status;
@@ -1136,6 +1137,12 @@ export function register(): void {
       }
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
+        // config.customSounds 목록에서도 파일 제거
+        const currentCfg = config.load();
+        if (Array.isArray(currentCfg.customSounds)) {
+          const updatedSounds = currentCfg.customSounds.filter(s => s.file !== filename);
+          config.save({ customSounds: updatedSounds });
+        }
         return true;
       }
       return false;

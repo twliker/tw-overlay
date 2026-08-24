@@ -29,6 +29,17 @@ interface Window {
   };
 }
 
+const FIREWORK_NICKNAMES_SET = new Set<string>([
+  '전기세비싸', '오화싸개', '모시떡',
+  '딸기가좋아요', '스피들리', '곰돌이아빠', '주말쉬는시간', '뿌잉뿌잉🖤', '폭스', '만만이',
+  '홍', '핑크돌고래핵펀', '비둘기오락실', '빅쭈쭈', '딱닥', '빵특', '코선인',
+  '응꼬개통식', '정지우', '따몽', '귀여운하루나기', '크힛이', '거리유지', 'YounHaHolic˚',
+  '아아'
+]);
+
+let _currentHistorySeq = 0;
+let _currentSearchSeq = 0;
+
 // NPC/몬스터 대사 여부 판별 함수
 function isNpcOrMonsterChat(chat: BrowserChatItem): boolean {
   if (!chat) return false;
@@ -333,29 +344,7 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
   }
 
   if (chat.sender && chat.sender !== '시스템') {
-    senderSpan.addEventListener('click', () => {
-      copyNickname(chat.sender);
-      
-      // 폭죽 이스터에그를 트리거할 대상 닉네임 목록 배열
-      const fireworkNicknames = [
-        '전기세비싸', '오화싸개', '모시떡',
-        '딸기가좋아요', '스피들리', '곰돌이아빠', '주말쉬는시간', '뿌잉뿌잉🖤', '폭스', '만만이',
-        '홍', '핑크돌고래핵펀', '비둘기오락실', '빅쭈쭈', '딱닥', '빵특', '코선인',
-        '응꼬개통식', '정지우', '따몽', '귀여운하루나기', '크힛이', '거리유지', 'YounHaHolic˚',
-        '아아'
-      ];
-      const isTarget = fireworkNicknames.some(nick => chat.sender === nick);
-      
-      if (isTarget) {
-        console.log('[EasterEgg] Clicking target nickname detected. Sender:', chat.sender);
-        if (window.electronAPI && window.electronAPI.triggerFireworkGlobal) {
-          console.log('[EasterEgg] Sending triggerFireworkGlobal IPC...');
-          window.electronAPI.triggerFireworkGlobal();
-        } else {
-          console.error('[EasterEgg] window.electronAPI.triggerFireworkGlobal is undefined! Please completely RESTART the Electron app.');
-        }
-      }
-    });
+    senderSpan.dataset.senderCopy = chat.sender;
   } else {
     senderSpan.style.cursor = 'default';
     senderSpan.style.textDecoration = 'none';
@@ -508,10 +497,12 @@ async function executeSearch(query?: string) {
   chatArea.innerHTML = '';
 
   try {
+    const seq = ++_currentSearchSeq;
     const results = await window.electronAPI.searchChatLogs(q, {
       category: chatOverlayCurrentTab,
       limit: 500
     });
+    if (seq !== _currentSearchSeq) return;
 
     if (results && results.length > 0) {
       const filtered = results.filter((chat: BrowserChatItem) => shouldShowChat(chat));
@@ -548,8 +539,11 @@ async function loadHistory() {
   isLoadingMore = false;
   hasReachedEnd = false;
   chatArea.innerHTML = '';
+  const seq = ++_currentHistorySeq;
   try {
     const history = await window.electronAPI.getChatHistory(chatOverlayCurrentTab);
+    if (seq !== _currentHistorySeq) return;
+
     if (history && history.length > 0) {
       const filtered = history.filter((chat: BrowserChatItem) => shouldShowChat(chat));
 
@@ -849,9 +843,26 @@ function flushIncomingChatItems(): void {
   if (fragment.childNodes.length > 0) {
     chatArea.appendChild(fragment);
 
-    // Keep max 1000 items in view (실시간 모니터링 중 바닥 근처일 때만 돔 수량 제한)
-    while (chatArea.childNodes.length > 1000 && isAtBottom) {
-      chatArea.removeChild(chatArea.firstChild!);
+    // Keep max 1000 items in view (실시간 모니터링 중 바닥 근처일 때)
+    // 2500개 초과 시 OOM 방어를 위해 상단 강제 정리 및 스크롤 높이 보정
+    const MAX_HARD_NODES = 2500;
+    if (chatArea.childNodes.length > MAX_HARD_NODES) {
+      const excess = chatArea.childNodes.length - MAX_HARD_NODES;
+      let removedHeight = 0;
+      for (let i = 0; i < excess; i++) {
+        const first = chatArea.firstChild as HTMLElement | null;
+        if (first) {
+          removedHeight += (first.offsetHeight || 0);
+          chatArea.removeChild(first);
+        }
+      }
+      if (!isAtBottom && removedHeight > 0) {
+        chatArea.scrollTop = Math.max(0, chatArea.scrollTop - removedHeight);
+      }
+    } else {
+      while (chatArea.childNodes.length > 1000 && isAtBottom) {
+        chatArea.removeChild(chatArea.firstChild!);
+      }
     }
 
     if (isAtBottom) {
@@ -1115,10 +1126,14 @@ chatArea.addEventListener('scroll', async () => {
   if (isSearchMode) return;
   if (chatArea.scrollTop <= 5 && !isLoadingMore && !hasReachedEnd) {
     isLoadingMore = true;
+    const requestedTab = chatOverlayCurrentTab;
     try {
       const oldScrollHeight = chatArea.scrollHeight;
-      const newItems = await window.electronAPI.getMoreChatHistory(chatOverlayCurrentTab);
+      const newItems = await window.electronAPI.getMoreChatHistory(requestedTab);
       
+      // 비동기 로딩 도중 사용자가 탭을 바꿨으면 렌더링 스킵
+      if (requestedTab !== chatOverlayCurrentTab || isSearchMode) return;
+
       if (newItems && newItems.length > 0) {
         const filtered = newItems.filter((chat: BrowserChatItem) => shouldShowChat(chat));
 
@@ -1142,6 +1157,23 @@ chatArea.addEventListener('scroll', async () => {
       console.error('Failed to load more chat history:', err);
     } finally {
       isLoadingMore = false;
+    }
+  }
+});
+
+// Chat Area Event Delegation (Nickname Copy & EasterEgg)
+chatArea.addEventListener('click', (e) => {
+  const target = (e.target as HTMLElement | null)?.closest('[data-sender-copy]') as HTMLElement | null;
+  if (!target) return;
+  const sender = target.dataset.senderCopy;
+  if (!sender) return;
+
+  copyNickname(sender);
+
+  if (FIREWORK_NICKNAMES_SET.has(sender)) {
+    console.log('[EasterEgg] Clicking target nickname detected. Sender:', sender);
+    if (window.electronAPI && window.electronAPI.triggerFireworkGlobal) {
+      window.electronAPI.triggerFireworkGlobal();
     }
   }
 });

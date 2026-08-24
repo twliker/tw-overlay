@@ -10,7 +10,7 @@ export function collectIncompleteContents(config: AppConfig): IncompleteContentI
   for (const character of presets) {
     for (const item of items) {
       const state = item.completedState?.[character.id];
-      if (item.isVisible && !state?.isExcluded && !state?.isCompleted) {
+      if (item.isVisible !== false && !state?.isExcluded && !state?.isCompleted) {
         incompleteItems.push({
           charName: character.name,
           name: item.name,

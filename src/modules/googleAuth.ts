@@ -22,6 +22,12 @@ let _cachedTokens: GoogleAuthTokens | null = null;
 let _cachedProfile: GoogleUserProfile | null = null;
 let _isLoggingIn = false;
 let _cancelCurrentLogin: (() => void) | null = null;
+let _onAuthInvalidated: (() => void) | null = null;
+
+/** 토큰 무효화(만료/철회) 시 실행될 콜백 등록 */
+export function setOnAuthInvalidated(callback: () => void): void {
+  _onAuthInvalidated = callback;
+}
 
 /** 현재 로그인 진행 여부 */
 export function isLoggingIn(): boolean {
@@ -191,6 +197,7 @@ export async function fetchUserProfile(accessToken: string): Promise<GoogleUserP
   try {
     const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) {
       log(`[GoogleAuth] 프로필 조회 실패 HTTP ${res.status}`);
@@ -210,7 +217,9 @@ export async function fetchUserProfile(accessToken: string): Promise<GoogleUserP
   }
 }
 
-/** 유효한 Access Token 가져오기 (만료 시 자동 Refresh) */
+let _refreshPromise: Promise<string | null> | null = null;
+
+/** 유효한 Access Token 가져오기 (만료 시 자동 Refresh, 중복 요청 방지 락 적용) */
 export async function getValidAccessToken(): Promise<string | null> {
   const tokens = loadStoredTokens();
   if (!tokens || !tokens.refresh_token) {
@@ -222,60 +231,79 @@ export async function getValidAccessToken(): Promise<string | null> {
     return tokens.access_token;
   }
 
-  const { clientId, clientSecret } = getGoogleCredentials();
-  if (!clientId) {
-    log('[GoogleAuth] GOOGLE_CLIENT_ID가 설정되지 않았습니다.');
-    return null;
+  // 이미 다른 비동기 흐름에서 갱신 중인 경우 동일 Promise를 대기
+  if (_refreshPromise) {
+    return _refreshPromise;
   }
 
-  try {
-    log('[GoogleAuth] Access Token 갱신 요청 중...');
-    const bodyParams: Record<string, string> = {
-      client_id: clientId,
-      grant_type: 'refresh_token',
-      refresh_token: tokens.refresh_token,
-    };
-    if (clientSecret) {
-      bodyParams.client_secret = clientSecret;
-    }
-
-    const res = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(bodyParams).toString(),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      log(`[GoogleAuth] 토큰 갱신 실패 (HTTP ${res.status}): ${errText}`);
-      if (res.status === 400 || res.status === 401) {
-        logout();
+  _refreshPromise = (async () => {
+    try {
+      const { clientId, clientSecret } = getGoogleCredentials();
+      if (!clientId) {
+        log('[GoogleAuth] GOOGLE_CLIENT_ID가 설정되지 않았습니다.');
+        return null;
       }
+
+      log('[GoogleAuth] Access Token 갱신 요청 중...');
+      const bodyParams: Record<string, string> = {
+        client_id: clientId,
+        grant_type: 'refresh_token',
+        refresh_token: tokens.refresh_token!,
+      };
+      if (clientSecret) {
+        bodyParams.client_secret = clientSecret;
+      }
+
+      const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(bodyParams).toString(),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        log(`[GoogleAuth] 토큰 갱신 실패 (HTTP ${res.status}): ${errText}`);
+        if (res.status === 400 || res.status === 401) {
+          logout();
+          if (_onAuthInvalidated) {
+            try {
+              _onAuthInvalidated();
+            } catch (notifyErr) {
+              log(`[GoogleAuth] _onAuthInvalidated error: ${notifyErr}`);
+            }
+          }
+        }
+        return null;
+      }
+
+      const data = (await res.json()) as {
+        access_token: string;
+        expires_in: number;
+        token_type?: string;
+        scope?: string;
+      };
+
+      const updatedTokens: GoogleAuthTokens = {
+        ...tokens,
+        access_token: data.access_token,
+        expiry_date: Date.now() + (data.expires_in || 3600) * 1000,
+        token_type: data.token_type || 'Bearer',
+        scope: data.scope || tokens.scope,
+      };
+
+      saveTokens(updatedTokens);
+      log('[GoogleAuth] Access Token 갱신 성공');
+      return updatedTokens.access_token;
+    } catch (err) {
+      log(`[GoogleAuth] 토큰 갱신 에러: ${err}`);
       return null;
+    } finally {
+      _refreshPromise = null;
     }
+  })();
 
-    const data = (await res.json()) as {
-      access_token: string;
-      expires_in: number;
-      token_type?: string;
-      scope?: string;
-    };
-
-    const updatedTokens: GoogleAuthTokens = {
-      ...tokens,
-      access_token: data.access_token,
-      expiry_date: Date.now() + (data.expires_in || 3600) * 1000,
-      token_type: data.token_type || 'Bearer',
-      scope: data.scope || tokens.scope,
-    };
-
-    saveTokens(updatedTokens);
-    log('[GoogleAuth] Access Token 갱신 성공');
-    return updatedTokens.access_token;
-  } catch (err) {
-    log(`[GoogleAuth] 토큰 갱신 에러: ${err}`);
-    return null;
-  }
+  return _refreshPromise;
 }
 
 /** 현재 Access Token이 유효한지 확인하고 반환 */
@@ -389,6 +417,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams(tokenParams).toString(),
+          signal: AbortSignal.timeout(15000),
         });
 
         if (!tokenRes.ok) {

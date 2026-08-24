@@ -223,9 +223,9 @@ class ChatLogProcessor {
 
           candidateList = Array.from(itemsMap.values());
 
-          // ID에서 생성 타임스탬프 밀리초 추출 (chat-1718000000000-xxx, more-1718000000000-xxx)
+          // ID에서 생성 타임스탬프 밀리초 추출 (chat-1718000000000-xxx, more-1718000000000-xxx, replay-1718000000000-xxx)
           const extractTime = (item: ChatItem): number => {
-            const match = item.id.match(/(?:chat|more)-(\d+)/);
+            const match = item.id.match(/(?:chat|more|replay)-(\d+)/);
             if (match) return parseInt(match[1], 10);
             return 0;
           };

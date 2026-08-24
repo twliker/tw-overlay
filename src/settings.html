@@ -2666,6 +2666,10 @@
                   <div>
                     <div class="text-[11px] text-slate-400 font-medium">연동된 Google 계정</div>
                     <div id="google-sync-user-email" class="text-sm font-bold text-slate-200">-</div>
+                    <div class="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
+                      <i data-lucide="file-json" class="w-3 h-3 text-blue-400"></i>
+                      <span id="google-sync-file-name" class="font-mono">tw_overlay_sync.json (Drive AppData)</span>
+                    </div>
                   </div>
                 </div>
                 <div class="text-right">
@@ -3448,6 +3452,7 @@
       const linkedView = document.getElementById('google-sync-linked-view');
       const badge = document.getElementById('google-sync-badge');
       const emailEl = document.getElementById('google-sync-user-email');
+      const fileNameEl = document.getElementById('google-sync-file-name');
       const lastTimeEl = document.getElementById('google-sync-last-time');
       const autoToggle = document.getElementById('google-auto-sync-toggle');
       const backupBtn = document.getElementById('btn-google-backup');
@@ -3457,6 +3462,11 @@
         if (unlinkedView) unlinkedView.classList.add('hidden');
         if (linkedView) linkedView.classList.remove('hidden');
         if (emailEl) emailEl.textContent = status.email || '연동됨';
+        if (fileNameEl) {
+          const name = status.fileName || 'tw_overlay_sync.json';
+          const countStr = typeof status.fileCount === 'number' ? ` (보관 파일: ${status.fileCount}개)` : '';
+          fileNameEl.textContent = `${name} (Drive AppData)${countStr}`;
+        }
         if (lastTimeEl) lastTimeEl.textContent = formatSyncTime(status.lastSyncedAt);
         if (autoToggle) autoToggle.checked = status.autoSync !== false;
 
@@ -3552,7 +3562,10 @@
       try {
         const res = await window.electronAPI.googleSyncBackup();
         if (res.success) {
-          alert('현재 숙제 및 게임 설정이 구글 드라이브에 안전하게 백업되었습니다.');
+          const timeStr = formatSyncTime(res.lastSyncedAt);
+          const fileName = res.fileName || 'tw_overlay_sync.json';
+          const countStr = typeof res.fileCount === 'number' ? `\n• 드라이브 보관 파일 수: ${res.fileCount}개` : '';
+          alert(`현재 숙제 및 게임 설정이 구글 드라이브에 안전하게 백업되었습니다.\n\n• 파일명: ${fileName}\n• 백업 일시: ${timeStr}${countStr}`);
         } else {
           alert(`백업 실패: ${res.error || '알 수 없는 오류'}`);
         }
@@ -3572,7 +3585,10 @@
       try {
         const res = await window.electronAPI.googleSyncRestore();
         if (res.success) {
-          alert('클라우드 데이터를 성공적으로 불러왔습니다!');
+          const timeStr = formatSyncTime(res.lastSyncedAt);
+          const fileName = res.fileName || 'tw_overlay_sync.json';
+          const countStr = typeof res.fileCount === 'number' ? `\n• 드라이브 보관 파일 수: ${res.fileCount}개` : '';
+          alert(`클라우드 데이터를 성공적으로 불러와 화면에 적용했습니다!\n\n• 파일명: ${fileName}\n• 클라우드 수정일시: ${timeStr}${countStr}`);
         } else {
           alert(`불러오기 실패: ${res.error || '알 수 없는 오류'}`);
         }
@@ -3610,14 +3626,21 @@
           if (codeEl) codeEl.textContent = jsonStr;
           if (metaEl) {
             const timeStr = formatSyncTime(res.payload.lastSyncedAt);
-            metaEl.textContent = `최종 수정: ${timeStr} | 계정: ${res.payload.updatedBy || 'Google User'} | 버전: v${res.payload.appVersion || '2.6.9'}`;
+            const fileName = res.fileMeta?.name || 'tw_overlay_sync.json';
+            const countStr = typeof res.fileCount === 'number' ? ` | 보관 파일: ${res.fileCount}개` : '';
+            metaEl.textContent = `파일명: ${fileName}${countStr} | 최종 수정: ${timeStr} | 계정: ${res.payload.updatedBy || 'Google User'}`;
           }
           if (sizeEl) {
             const bytes = new Blob([jsonStr]).size;
-            sizeEl.textContent = `데이터 크기: ${(bytes / 1024).toFixed(2)} KB`;
+            let fileListDesc = `데이터 크기: ${(bytes / 1024).toFixed(2)} KB`;
+            if (Array.isArray(res.files) && res.files.length > 1) {
+              fileListDesc += ` (드라이브 내 파일 ${res.files.length}개: ${res.files.map(f => f.name).join(', ')})`;
+            }
+            sizeEl.textContent = fileListDesc;
           }
         } else {
-          if (codeEl) codeEl.textContent = `❌ 데이터를 불러오지 못했습니다:\n${res.error || '클라우드에 저장된 파일이 없습니다.'}`;
+          const countStr = typeof res.fileCount === 'number' ? `\n(현재 드라이브 보관 파일 수: ${res.fileCount}개)` : '';
+          if (codeEl) codeEl.textContent = `❌ 데이터를 불러오지 못했습니다:\n${res.error || '클라우드에 저장된 파일이 없습니다.'}${countStr}`;
           if (metaEl) metaEl.textContent = '조회 실패';
           if (sizeEl) sizeEl.textContent = '-';
         }

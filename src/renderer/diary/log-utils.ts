@@ -13,8 +13,18 @@
     return amount;
   }
 
+  function escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function formatLogContent(content: string): string {
-    return content.replace(/\[(.*?)\]/g, (match: string, tag: string) => {
+    const escaped = escapeHtml(content);
+    return escaped.replace(/\[(.*?)\]/g, (match: string, tag: string) => {
       if (systemTags.has(tag)) return match;
       return `<span class="char-badge">${tag}</span>`;
     });

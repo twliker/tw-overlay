@@ -328,10 +328,11 @@ async function runWorker() {
 
   syncParser.on('MAGIC_STONE_GAIN', (evt) => {
     const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+    const grade = evt.grade.trim();
     loots.push({
       date: evt.date,
       timeOnly,
-      diaryContent: `[득템] [${evt.grade} 마정석]을(를) [${evt.count}]개 획득하였습니다.`,
+      diaryContent: `[득템] [${grade} 마정석]`,
       count: evt.count
     });
   });

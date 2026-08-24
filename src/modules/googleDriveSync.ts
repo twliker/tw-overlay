@@ -5,17 +5,41 @@ import { log } from './logger';
 import { GoogleSyncPayload } from '../shared/types';
 import * as googleAuth from './googleAuth';
 
-const SYNC_FILE_NAME = 'tw_overlay_sync.json';
+export const SYNC_FILE_NAME = 'tw_overlay_sync.json';
 const BOUNDARY = '-------tw_overlay_sync_boundary_314159265';
 
-interface DriveFileMeta {
+export interface DriveFileMeta {
   id: string;
   name: string;
   modifiedTime?: string;
   size?: string;
 }
 
-/** Google Drive appDataFolder에서 동기화 파일 검색 */
+/** Google Drive appDataFolder의 모든 파일 목록 조회 (최신 수정순) */
+export async function listSyncFiles(): Promise<DriveFileMeta[]> {
+  const token = await googleAuth.getValidAccessToken();
+  if (!token) {
+    throw new Error('Google 로그인 상태가 아닙니다.');
+  }
+
+  const query = encodeURIComponent(`trashed = false`);
+  const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,size)`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`구글 드라이브 파일 목록 조회 실패 (HTTP ${res.status}): ${errText}`);
+  }
+
+  const data = (await res.json()) as { files?: DriveFileMeta[] };
+  return data.files || [];
+}
+
+/** Google Drive appDataFolder에서 동기화 파일 검색 (최신 수정순) */
 export async function findSyncFile(): Promise<DriveFileMeta | null> {
   const token = await googleAuth.getValidAccessToken();
   if (!token) {
@@ -23,10 +47,11 @@ export async function findSyncFile(): Promise<DriveFileMeta | null> {
   }
 
   const query = encodeURIComponent(`name = '${SYNC_FILE_NAME}' and trashed = false`);
-  const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&fields=files(id,name,modifiedTime,size)`;
+  const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,size)`;
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!res.ok) {
@@ -51,6 +76,7 @@ export async function downloadSyncPayload(fileId: string): Promise<GoogleSyncPay
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!res.ok) {
@@ -86,6 +112,7 @@ export async function uploadSyncPayload(payload: GoogleSyncPayload, existingFile
         'Content-Type': 'application/json; charset=UTF-8',
       },
       body: payloadString,
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {
@@ -131,6 +158,7 @@ export async function uploadSyncPayload(payload: GoogleSyncPayload, existingFile
       'Content-Type': `multipart/related; boundary=${BOUNDARY}`,
     },
     body: multipartBody,
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!res.ok) {

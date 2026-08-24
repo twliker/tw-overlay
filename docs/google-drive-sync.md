@@ -1,55 +1,123 @@
 # ☁️ Google Drive 클라우드 동기화 가이드
 
-**TW-Overlay**는 다중 PC 환경(집 PC, 노트북, 서브 컴퓨터 등)에서 게임을 즐기는 모험가분들을 위해 **Google Drive AppData 기반의 클라우드 자동 동기화** 기능을 제공합니다.
+> 이 문서는 TW-Overlay v3.0.0의 개발·검증 기준입니다. 실제 릴리즈 전에는 구현된 클라우드 allowlist와 이 문서의 항목이 자동 검사로 일치해야 합니다.
 
----
+TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에만 Google Drive의 앱 전용 숨김 영역(`appDataFolder`)에 설정과 숙제 체크리스트를 저장합니다. 개발자 서버를 경유하지 않으며 사용자의 일반 Google Drive 파일에는 접근하지 않습니다.
 
-## 📌 1. 개요 및 주요 특징
+## 1. 저장 파일과 갱신 시점
 
-* **서버리스 0원 유지**: 외부 유료 서버 없이, 사용자 본인의 Google Drive 개인 계정을 활용합니다.
-* **100% 안전한 격리 저장 (`appDataFolder`)**:
-  * TW-Overlay는 사용자의 일반 구글 드라이브(사진, 문서, 개인 파일 등)에 일체 접근할 수 없습니다.
-  * 오직 앱 전용 숨김 폴더 안의 `tw_overlay_sync.json` 파일만 읽고 씁니다.
-* **로컬 지연 시간 0ms (스마트 디바운스)**:
-  * 숙제를 체크하거나 설정을 변경할 때 게임 플레이에 방해가 되지 않도록 백그라운드에서 5초 후 비동기 업로드됩니다.
-* **타임스탬프 기반 최신 우선 병합**:
-  * 여러 PC에서 번갈아 플레이하더라도 캐릭터별 숙제 완료 시각(`lastCompletedAt`)을 비교하여 데이터 유실 없이 안전하게 병합됩니다.
+| 파일 | 저장 내용 | 자동 갱신 |
+|---|---|---|
+| `tw_overlay_settings.json` | 다른 PC에서도 사용할 수 있는 일반 설정 | 마지막 설정 변경 후 1~2초 동안 변경을 모아 이 파일만 갱신. 명시적 저장·종료 flush에서는 즉시 시도 |
+| `tw_overlay_checklist.json` | 숙제 정의, 캐릭터, 리셋 주기별 진행 상태, 미반영 감지 이력 | 로컬 저장과 outbox 기록이 성공한 뒤 즉시 또는 최대 500ms 안에 이 파일만 갱신 |
+| `tw_overlay_sync_meta.json` | 위 두 파일의 Drive file ID, 파일 종류, 스키마, 생성 세대 | 파일 생성·교체·마이그레이션 때만 갱신 |
 
----
+파일명에는 버전을 붙이지 않습니다. 각 JSON 내부의 `schemaVersion`과 `revision`으로 호환성과 최신 상태를 판별합니다.
 
-## ⚙️ 2. 사용 방법
+설정 변경은 숙제 파일을 다시 올리지 않고, 숙제 감지는 설정 파일을 다시 올리지 않습니다. 입력 한 글자나 슬라이더 이동마다 Drive 요청을 보내지는 않습니다.
 
-### 1) 구글 계정 연동하기
-1. TW-Overlay 설정 창(톱니바퀴 ⚙️)을 엽니다.
-2. 좌측 메뉴에서 **[데이터 관리]** 탭을 선택합니다.
-3. 상단의 **[Google Drive 클라우드 동기화]** 카드에서 **`[ Google 계정으로 로그인 ]`** 버튼을 클릭합니다.
-4. 기본 웹 브라우저가 열리면 본인의 Google 계정으로 로그인하고 권한을 승인합니다.
-5. 연동이 완료되면 초록색 **"연동 완료"** 뱃지와 함께 본인의 이메일 주소가 표시됩니다.
+## 2. 사용 방법
 
-### 2) 수동 백업 및 불러오기
-* **[지금 백업]**: 현재 PC의 최신 숙제 체크 상태와 설정을 즉시 구글 드라이브에 업로드합니다.
-* **[불러오기]**: 구글 드라이브에 저장된 최신 데이터를 내려받아 현재 PC의 데이터와 스마트 병합합니다.
-* **[데이터 확인]**: 구글 드라이브 숨김 폴더에 저장되어 있는 원본 JSON 데이터를 팝업창에서 직접 열람하고 복사할 수 있습니다.
+1. 설정 > 데이터 관리에서 Google 계정으로 로그인하고 `drive.appdata` 권한을 승인합니다.
+2. 자동 동기화를 켜면 설정과 숙제 변경이 각 파일의 갱신 규칙에 따라 백그라운드에서 저장됩니다.
+3. 수동 동기화에서는 설정과 숙제를 모두 즉시 확인·업로드할 수 있습니다.
+4. 불러오기에서는 설정만, 숙제만, 또는 전체를 선택하고 변경 미리보기를 확인한 뒤 적용합니다.
+5. 데이터 확인 화면에서는 파일별 revision·마지막 동기화 시각·대기 중인 변경·원본 JSON을 확인할 수 있습니다.
 
-### 3) 자동 동기화 켜기/끄기
-* **"숙제 및 설정 변경 시 5초 후 자동 동기화"** 체크박스를 켜두시면 수동 백업 버튼을 누를 필요 없이 자동으로 클라우드에 백업됩니다.
+## 3. `tw_overlay_settings.json`에 동기화되는 항목
 
----
+아래 표가 설정 파일의 전체 허용 범위입니다. 표에 없는 설정은 자동으로 클라우드에 추가하지 않습니다.
 
-## 📂 3. 동기화되는 항목 vs 로컬 유지 항목
+| 기능 | 동기화 항목 | 내부 설정 키 |
+|---|---|---|
+| 숙제 체크리스트 표시 | 기능 사용 여부, 자동 열기, 마지막 선택 캐릭터, 알림 음량 | `contentsCheckerEnabled`, `autoOpenContentsChecker`, `selectedCharacterId`, `volumeContentsChecker` |
+| 사이드바·메뉴 | 퀵슬롯, 단축키, 숨김/표시 메뉴, 사이드바 방향·독 위치, 오버레이 토스트 표시 | `quickSlots`, `shortcuts`, `hiddenMenuIds`, `visibleMenuIds`, `sidebarPosition`, `showSidebarToastOnOverlay` |
+| 갤러리 모니터 | 전체 알림 사용 여부, 갤러리 키워드 | `galleryNotify`, `galleryKeywords` |
+| 거래 게시판 모니터 | 서버, 알림 사용 여부, 거래 키워드 | `tradeServer`, `tradeNotify`, `tradeKeywords` |
+| 채팅·득템·외치기 알림 | 득템/외치기 키워드, 지정 단어 알림 사용 여부·키워드·음량·이력 사용 여부 | `lootKeywords`, `shoutKeywords`, `wordAlarmEnabled`, `wordAlarmKeywords`, `wordAlarmVolume`, `wordAlarmHistoryEnabled` |
+| 지정 단어 알림 사운드 | 내장 사운드 asset ID만 동기화 | `wordAlarmSound` |
+| 필드보스 알림 | 보스별 설정, 알림 사용 여부, 사전 알림 시각, 음량. 보스별 `soundFile`은 내장 asset ID만 포함 | `fieldBossSettings`, `fieldBossNotifyEnabled`, `fieldBossNotifyOffsets`, `fieldBossNotifyVolume` |
+| 커스텀 알람 | 사용자가 만든 알람 정의. `soundFile`은 내장 asset ID만 포함 | `customAlerts` |
+| 버프 타이머 | 감지 버프, 경고 초, 중앙/소리/시각 알림, 음량, 내장 사운드, 기능/HUD/단축키 표시 | `buffTimerBuffs`, `buffTimerWarnSeconds`, `buffTimerCenterAlert`, `buffTimerAudioAlert`, `buffTimerVisualAlert`, `buffTimerVolume`, `buffTimerSound`, `buffTimerEnabled`, `showBuffHud`, `showHudShortcuts` |
+| 콘텐츠별 알림 | 에토스, 심연의 사도, 로카고스, 웨이브 몬스터, 경험의 정수, 특수 몬스터, 어벤던로드, 피타의 언덕, 퀘스트 완료 알림의 사용 여부·음량·내장 사운드 | `ethosAlertEnabled`, `ethosAlertSound`, `ethosAlertVolume`, `abyssApostleAlertEnabled`, `abyssApostleStartSound`, `abyssApostleEndSound`, `abyssApostleVolume`, `lokagosAlertEnabled`, `lokagosAlertSound`, `lokagosAlertVolume`, `waveMonsterWarningEnabled`, `waveMonsterWarningSound`, `waveMonsterWarningVolume`, `essenceAlertEnabled`, `essenceAlertSound`, `essenceAlertVolume`, `specialMonsterAlertEnabled`, `abandonedAlertEnabled`, `pittaHillAlertEnabled`, `questCompleteAlertEnabled` |
+| 어벤던로드 | 기능 사용 여부, 자동 숨김 시간 | `abandonedEnabled`, `abandonedAutoHideMinutes` |
+| 사기 탐지 | 기능 사용 여부, 내장 경고 사운드 | `scamDetectorEnabled`, `scamAlertSound` |
+| Discord 알림 | 알림 사용 여부, 키워드, 채널별 키워드 규칙. Webhook URL은 제외 | `discordAlertEnabled`, `discordKeywords`, `discordRules` |
+| 경험치·오늘 요약 | XP 위젯 표시/자동 시작/음수 처리, 오늘 요약 HUD 표시·접힘 | `showXpWidget`, `xpAutoStart`, `ignoreNegativeXp`, `showTodaySummaryHud`, `todaySummaryCollapsed` |
+| 사냥 경험치 계산기 | 도핑, 사냥터, 선택 사냥터, 시간당 처치 수, 해피아워 | `huntingExpDopings`, `huntingExpGrounds`, `huntingExpSelectedGroundId`, `huntingExpKillsPerHour`, `huntingExpHappyHour` |
+| 게임·일지 동작 | 게임 창 따라가기, 게임 종료 알림, 알림 문구, 게임 종료 감지, 채팅/일지 보존 기간, 계산기 음량 | `followGameWindow`, `gameExitReminderEnabled`, `gameExitReminderMessage`, `notifyWhenGameClosed`, `chatLogAutoDeleteDays`, `diaryKeepDays`, `volumeCalculators` |
+| 채팅 오버레이 기본 | 메인/서브 창 사용 여부, 글자 크기, 각 창 투명도, 클릭 투과, 선택 채널 | `chatOverlayEnabled`, `chatOverlaySubEnabled`, `chatOverlaySub2Enabled`, `chatOverlayFontSize`, `chatOverlayOpacity`, `chatOverlaySubOpacity`, `chatOverlaySub2Opacity`, `chatOverlayClickThrough`, `chatOverlaySelectedChannels` |
+| 채팅 오버레이 탭·필터 | 각 창 선택 탭, 커스텀 탭, 키워드, 블랙리스트, NPC/XP/엘소 표시, 사기 닉네임 강조 | `chatOverlayTab`, `chatOverlaySubTab`, `chatOverlaySub2Tab`, `chatOverlayCustomTabs`, `chatOverlayKeywords`, `chatOverlayBlacklistFilters`, `chatOverlayShowNpcChat`, `chatOverlayShowXpGain`, `chatOverlayShowElsoGain`, `chatOverlayHighlightScamNicknames` |
+| 채팅 오버레이 색상 | 채널별 색상, 닉네임 색상 방식과 채널별 닉네임 색상 | `chatOverlayColorGeneral`, `chatOverlayColorWhisper`, `chatOverlayColorTeam`, `chatOverlayColorClub`, `chatOverlayColorShout`, `chatOverlayNicknameColorMode`, `chatOverlayNicknameColorGeneral`, `chatOverlayNicknameColorWhisper`, `chatOverlayNicknameColorTeam`, `chatOverlayNicknameColorClub`, `chatOverlayNicknameColorShout` |
+| 사용자·서버 | 테일즈위버 서버, 포커스 채팅의 내 닉네임 | `userServer`, `focusedChatSelfNickname` |
 
-| 동기화 대상 (클라우드 보관) | 로컬 전용 유지 (PC마다 별도 보관) |
-| :--- | :--- |
-| ✅ 일일/주간 숙제 체크 완료 상태 (`completedState`) | ❌ 창 및 HUD 위치 좌표 (`positions`) |
-| ✅ 캐릭터 프리셋 목록 (`characterPresets`) | ❌ 테일즈위버 채팅 로그 폴더 경로 (`chatLogPath`) |
-| ✅ 득템 키워드 및 단어 알림 설정 | ❌ 창 투명도 및 크기 설정 |
-| ✅ 커스텀 단축키 (`shortcuts`) | ❌ 로컬 캐시 및 임시 파일 |
-| ✅ 버프 타이머 & 보스 시간표 설정 | |
+최상위 사운드 설정과 `fieldBossSettings`·`customAlerts` 안의 `soundFile`은 TW-Overlay에 포함된 내장 asset ID일 때만 동기화합니다. 사용자 PC의 절대 파일 경로이면 해당 사운드 값은 업로드하지 않고 다른 PC의 로컬 선택을 유지합니다.
 
----
+## 4. `tw_overlay_checklist.json`에 동기화되는 항목
 
-## 🔒 4. 보안 및 개인정보 보호
+| 구분 | 정확한 내용 |
+|---|---|
+| 숙제 정의 | ID, 이름, 분류, 표시 여부, 커스텀 여부, 콘텐츠별/사용자 지정 리셋 규칙, 최대 횟수, 자동 감지 지원 여부 |
+| 캐릭터 프리셋 | 캐릭터 ID와 사용자가 지정한 캐릭터 이름 |
+| 캐릭터별 숙제 상태 | 완료/해제, N/A 여부, 현재 횟수, 최신 완료 시각, 적용 리셋 주기 |
+| 미반영 완료 이력 | 캐릭터를 결정하기 전에 감지된 숙제 ID, 증가/절대 횟수, 감지 시각, 안정 operation ID |
+| 동기화 제어 상태 | 상태 revision, 마지막 정상 동기화 기준, 삭제·해제·횟수 감소 tombstone, 미전송 outbox operation 확인 정보 |
 
-1. **Windows DPAPI 암호화**: 로그인 토큰은 `safeStorage` 기술을 통해 Windows OS 고유 암호화 키로 로컬에 안전하게 보관됩니다.
-2. **중간 서버 없음**: 개발자 서버를 일체 거치지 않고 사용자 PC와 Google 공식 서버 간에만 1:1 직접 HTTPS 통신합니다.
-3. **언제든 권한 철회 가능**: 설정 창에서 `[연동 해제]` 버튼을 누르거나 [Google 계정 권한 관리](https://myaccount.google.com/permissions)에서 언제든지 연결을 해제할 수 있습니다.
+숙제 상태는 `contentId + characterId + resetCycle`을 키로 마지막 정상 동기화본·현재 로컬·현재 클라우드를 비교하는 3방향 병합을 수행합니다.
+
+- 로컬만 바뀜: 로컬 적용
+- 클라우드만 바뀜: 클라우드 적용
+- 양쪽이 같은 값으로 바뀜: 해당 값 적용
+- 양쪽이 서로 다르게 바뀜: 실제 게임 로그를 추적한 로컬 적용
+
+완료 해제, N/A 해제, 횟수 감소, 커스텀 숙제 삭제도 변경으로 기록합니다. 미반영 완료 이력은 같은 operation ID를 두 번 적용하지 않으며 해당 숙제의 리셋 경계가 지나면 이월하지 않습니다.
+
+## 5. 클라우드에 동기화하지 않는 항목
+
+| 제외 범주 | 제외 항목·내부 키 | 제외 이유 |
+|---|---|---|
+| 비밀 자격증명 | Discord Webhook URL(`discordWebhookUrl`), Google OAuth access/refresh token | PC방·공용 PC 복원 및 로그를 통한 전송 권한 노출 방지 |
+| 로컬 파일·폴더 | 채팅 로그 경로(`chatLogPath`), 메신저 로그 경로(`msgerLogPath`), 커스텀 사운드 목록·절대경로(`customSounds` 및 사운드 필드의 로컬 경로) | 다른 PC에서 존재하지 않는 경로 |
+| 창 위치·크기 | `positions`, `storedPositionKeys`, `width`, `height`, `opacity`, `xpWidgetPos`, `todaySummaryHudPos`, `buffTimerHudPos`, `abandonedWidgetPos`, `forgeQuestHudPos`, `questHudPos`, `chatOverlayWidth/Height`, `chatOverlaySubWidth/Height`, `chatOverlaySub2Width/Height`, `focusedChatWidth/Height`, `contentsCheckerWidth/Height` | 모니터, DPI, 해상도마다 달라지는 PC 종속 정보 |
+| 원본·이력 데이터 | 일지 SQLite DB, 채팅 로그 원본, 알람 이력, 갤러리/거래 마지막 확인 위치(`galleryLastSeen`, `galleryWatched`, `tradeLastSeen`) | 설정 동기화와 수명·용량·충돌 정책이 다름 |
+| 장치·실행 상태 | `autoLaunch`, `autoUpdateEnabled`, `overlayVisible`, `scamGpuVariant`, `scamLlmDisabled`, `setupCompleted` | 해당 PC의 하드웨어·설치·실행 환경에 종속 |
+| 내부 상태 | `lastContentsResetCheck`, `lootKeywordsMigratedV2`, `quickSlotsMigratedV2`, `googleSyncEnabled`, `googleSyncAutoSync`, `googleSyncLastTime`, `googleSyncUserEmail`, `hasSeenWelcomeGuide`, `lastNoticeVersion`, `url`, `homeUrl`, `etaDataUrl` | 앱 내부에서 재생성하거나 각 PC가 독립적으로 관리 |
+
+동기화에서 제외된 값은 클라우드 복원으로 지우거나 기본값으로 덮어쓰지 않습니다.
+
+## 6. 설정 복원과 새 PC 판정
+
+- 일반 설정은 클라우드 파일에 존재하는 필드를 사용합니다. 적용 직전에 로컬 백업을 만들고 변경 요약과 되돌리기를 제공합니다.
+- 클라우드에 없는 신규 설정 키는 앱의 신규 기본값을 추가합니다. 기존 사용자 값은 `false`, `0`, 빈 문자열, 빈 배열이어도 보존합니다.
+- 동기화가 꺼져 있거나 오프라인인 동안 바꾼 일반 설정과 다른 PC의 클라우드 설정이 충돌하면 클라우드가 우선합니다.
+- 숙제 체크리스트는 설정처럼 통째로 덮지 않고 3방향 병합합니다.
+- 설치 표식·`config.json`·`diary.db`가 모두 없던 프로필만 새 PC로 봅니다. 일부 파일이 있거나 판정이 애매하면 자동 복원하지 않습니다.
+- 명시적 복원에서는 설정과 숙제를 각각 선택할 수 있어야 합니다.
+
+## 7. 보안과 개인정보
+
+- 앱은 `drive.appdata` 권한만 요청하며 TW-Overlay가 만든 앱 데이터 파일만 읽고 씁니다.
+- 클라우드 파일은 Google Drive UI에서 일반 문서처럼 보이지 않지만, TW-Overlay가 별도의 종단간 암호화를 추가하는 것은 아닙니다.
+- Google 계정 이메일은 연결된 계정 표시를 위해 로컬에서 사용하며 세 동기화 JSON의 사용자 데이터 항목으로 저장하지 않습니다.
+- 캐릭터 이름, 포커스 채팅 닉네임, 키워드, 단축키, 사용자 알람은 사용자가 입력한 내용 그대로 설정/숙제 파일에 저장될 수 있습니다.
+- Discord Webhook URL은 클라우드 payload, 데이터 미리보기, 로그, 오류 메시지, 진단 내보내기에 포함하지 않습니다.
+- 로그아웃하면 로컬 OAuth 토큰을 삭제합니다. Google 계정 권한 관리에서도 언제든지 앱 권한을 철회할 수 있습니다.
+
+## 8. 사용자가 확인할 수 있어야 하는 정보
+
+설정의 클라우드 데이터 화면은 다음 정보를 파일별로 표시해야 합니다.
+
+- 파일 종류와 마지막 정상 동기화 시각
+- 로컬/클라우드 revision과 대기 중인 변경 여부
+- 마지막 성공·실패 상태와 재시도 여부
+- 이번 복원에서 추가·변경·제외되는 항목 요약
+- 설정만 복원, 숙제만 복원, 전체 복원 선택
+- 동기화 제외 항목과 제외 이유
+
+원본 JSON 미리보기는 허용하되 토큰, Webhook URL, 로컬 절대경로 같은 제외 값이 섞여 들어오지 않았는지 먼저 검증합니다.
+
+## 9. 권한 철회와 데이터 삭제
+
+1. 앱의 설정 > 데이터 관리에서 Google 연동을 해제합니다.
+2. [Google 계정 권한 관리](https://myaccount.google.com/permissions)에서 TW-Overlay 권한을 철회할 수 있습니다.
+3. Google Drive 설정 > 앱 관리 > TW-Overlay > 숨겨진 앱 데이터 삭제에서 클라우드 파일을 삭제할 수 있습니다.

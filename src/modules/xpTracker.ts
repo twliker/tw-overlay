@@ -109,13 +109,15 @@ class XpTracker {
     chatParser.on('XP_CHANGED', (data) => {
       if (!this._isActive) return;
 
-      // 정수 교환 감지
+      // 정수 교환 감지 (정수 교환은 세션 총 획득 경험치 차감에서 무조건 제외)
       if (data.amount <= -9_000_000_000) {
         const exchangedCount = Math.round(Math.abs(data.amount) / XpTracker.ESSENCE_XP);
         this._sessionEssenceCount += Math.max(1, exchangedCount);
         // 잔여 경험치 보존: 110억 중 100억 교환 시 10억 보존
         this._xpSinceLastExchange = Math.max(0, this._xpSinceLastExchange + data.amount);
         this._lastAlertTier = Math.floor(Math.max(0, this._xpSinceLastExchange - XpTracker.ESSENCE_BUFFER) / XpTracker.ESSENCE_XP);
+        this.scheduleXpUpdate(0);
+        return;
       }
 
       const cfg = config.load();
@@ -126,8 +128,8 @@ class XpTracker {
         : data.amount;
 
       this.checkMinuteRollover();
-      this._sessionXP += amount;
-      this._currentMinuteXP += amount;
+      this._sessionXP = Math.max(0, this._sessionXP + amount);
+      this._currentMinuteXP = Math.max(0, this._currentMinuteXP + amount);
       if (amount > 0) {
         this._sessionKills++;
         this._xpSinceLastExchange += amount;
@@ -324,6 +326,8 @@ class XpTracker {
     if (this._isActive) return;
     this._isActive = true;
     this._startTime = Date.now();
+    this._lastMinuteTimestamp = Math.floor(Date.now() / 60000);
+    this._currentMinuteXP = 0;
     log('[XP_TRACKER] XP 세션 측정 시작');
     
     // 세션 시작 시 오버레이 경험치 HUD 활성화

@@ -28,16 +28,27 @@ const rectOut = { left: 0, top: 0, right: 0, bottom: 0 };
 function parseHwnd(hwnd: any): bigint {
     if (hwnd === null || hwnd === undefined || !hwnd) return 0n;
     if (typeof hwnd === 'bigint') return hwnd;
-    if (typeof hwnd === 'number') return BigInt(hwnd);
+    if (typeof hwnd === 'number') {
+        try {
+            return BigInt(Math.trunc(hwnd));
+        } catch {
+            return 0n;
+        }
+    }
     if (hwnd && typeof hwnd === 'object') {
         try {
             return koffi.address(hwnd);
         } catch {
-            return BigInt(hwnd);
+            try {
+                return BigInt(String(hwnd));
+            } catch {
+                return 0n;
+            }
         }
     }
     try {
-        return BigInt(hwnd);
+        const str = String(hwnd).trim();
+        return str ? BigInt(str) : 0n;
     } catch {
         return 0n;
     }

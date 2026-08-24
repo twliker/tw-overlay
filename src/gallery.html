@@ -19,7 +19,6 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      /* cursor: pointer removed, handled by style.css */
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
@@ -81,9 +80,9 @@
     }
   </style>
 
-    <script>
-        window.bindElectronListenerCleanup();
-</script>
+  <script>
+    window.bindElectronListenerCleanup();
+  </script>
 </head>
 
 <body class="panel-glass p-0 h-screen flex flex-col relative">
@@ -169,6 +168,16 @@
   </div>
 
   <script>
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     async function refreshGallery() {
       const loader = document.getElementById('gallery-loading');
       loader.classList.add('active');
@@ -181,6 +190,7 @@
         setTimeout(() => loader.classList.remove('active'), 300); // 부드러운 전환을 위해 약간의 지연
       }
     }
+
     function renderWatchList(watched) {
       const list = document.getElementById('watch-list');
       const countLabel = document.getElementById('watch-count');
@@ -191,12 +201,14 @@
       entries.forEach(([no, info]) => {
         const div = document.createElement('div');
         div.className = 'post-item watched-card group';
-        div.innerHTML = `<div class="flex flex-col flex-1 truncate"><span class="text-[9px] text-purple-400 font-black mb-0.5 tracking-tighter">#${no}</span><span class="truncate text-[11px] text-slate-100 font-black">${info.title}</span></div><div class="flex items-center gap-3"><div class="flex items-center gap-1.5 px-2 py-1 bg-purple-500/10 rounded-lg"><i data-lucide="message-square" class="w-3 h-3 text-purple-400"></i><span class="text-xs font-black text-purple-300">${info.commentCount >= 0 ? info.commentCount : '?'}</span></div><button onclick="event.stopPropagation(); removeWatch(${no})" class="text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>`;
+        const safeTitle = escapeHtml(info.title);
+        div.innerHTML = `<div class="flex flex-col flex-1 truncate"><span class="text-[9px] text-purple-400 font-black mb-0.5 tracking-tighter">#${no}</span><span class="truncate text-[11px] text-slate-100 font-black">${safeTitle}</span></div><div class="flex items-center gap-3"><div class="flex items-center gap-1.5 px-2 py-1 bg-purple-500/10 rounded-lg"><i data-lucide="message-square" class="w-3 h-3 text-purple-400"></i><span class="text-xs font-black text-purple-300">${info.commentCount >= 0 ? info.commentCount : '?'}</span></div><button onclick="event.stopPropagation(); removeWatch(${no})" class="text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>`;
         div.onclick = () => window.electronAPI.galleryOpenPost(no);
         list.appendChild(div);
       });
       refreshIcons();
     }
+
     async function addWatch() {
       const input = document.getElementById('watch-input');
       const btn = document.querySelector('button[onclick="addWatch()"]');
@@ -216,7 +228,9 @@
       } catch (e) { console.error(e); }
       finally { input.disabled = false; btn.innerHTML = originalBtnHTML; btn.disabled = false; input.focus(); refreshIcons(); }
     }
+
     async function removeWatch(no) { window.electronAPI.galleryRemoveWatch(no); const watched = await window.electronAPI.galleryGetWatched(); renderWatchList(watched); }
+
     window.electronAPI.onGalleryPosts((posts) => {
       const list = document.getElementById('post-list');
       list.innerHTML = '';
@@ -224,13 +238,16 @@
       posts.slice(0, 20).forEach(p => {
         const div = document.createElement('div');
         div.className = 'post-item group';
-        div.innerHTML = `<div class="w-10 text-[9px] text-slate-600 font-black tracking-tighter">#${p.no}</div><div class="flex-1 truncate text-xs text-slate-400 group-hover:text-white transition-colors font-medium">${p.title}</div>${p.replyCount > 0 ? `<div class="text-xs text-purple-500/60 font-black px-1.5 py-0.5 bg-purple-500/5 rounded border border-purple-500/10 group-hover:bg-purple-500/20 group-hover:text-purple-400 group-hover:border-purple-500/30 transition-all">[${p.replyCount}]</div>` : ''}`;
+        const safeTitle = escapeHtml(p.title);
+        div.innerHTML = `<div class="w-10 text-[9px] text-slate-600 font-black tracking-tighter">#${p.no}</div><div class="flex-1 truncate text-xs text-slate-400 group-hover:text-white transition-colors font-medium">${safeTitle}</div>${p.replyCount > 0 ? `<div class="text-xs text-purple-500/60 font-black px-1.5 py-0.5 bg-purple-500/5 rounded border border-purple-500/10 group-hover:bg-purple-500/20 group-hover:text-purple-400 group-hover:border-purple-500/30 transition-all">[${p.replyCount}]</div>` : ''}`;
         div.onclick = () => window.electronAPI.galleryOpenPost(p.no);
         list.appendChild(div);
       });
       refreshIcons();
     });
+
     window.electronAPI.onGalleryWatchedUpdate((watched) => renderWatchList(watched));
+
     window.electronAPI.onConfigData((config) => {
       const badge = document.getElementById('keyword-badge');
       const guide = document.getElementById('keyword-guide');
@@ -270,22 +287,27 @@
       }
       refreshIcons();
     });
+
     window.electronAPI.onGalleryConnectionStatus((isConnected) => {
       const statusLabel = document.getElementById('conn-status');
       if (isConnected) { statusLabel.innerText = 'Connected'; statusLabel.className = 'text-[9px] text-slate-500 font-bold uppercase tracking-wider'; }
       else { statusLabel.innerText = 'Disconnected'; statusLabel.className = 'text-[9px] text-red-500 font-black uppercase tracking-wider animate-pulse'; }
     });
+
     window.onload = async () => { refreshGallery(); const enabled = await window.electronAPI.galleryGetNotify(); updateNotifyIcon(enabled); };
+
     function updateNotifyIcon(enabled) {
       const icon = document.getElementById('notify-toggle-icon');
       if (enabled) { icon.setAttribute('data-lucide', 'bell'); icon.className = 'w-4 h-4 text-purple-400'; }
       else { icon.setAttribute('data-lucide', 'bell-off'); icon.className = 'w-4 h-4 text-slate-600'; }
       refreshIcons();
     }
+
     async function toggleNotify() { const current = await window.electronAPI.galleryGetNotify(); const newState = !current; window.electronAPI.gallerySetNotify(newState); updateNotifyIcon(newState); }
+
     window.bindEscapeClose();
     refreshIcons();
-</script>
+  </script>
 </body>
 
 </html>
