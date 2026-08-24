@@ -1,4 +1,5 @@
 import { chatParser } from './chatParser';
+import { createHash } from 'crypto';
 import * as diaryDb from './diaryDb';
 import * as config from './config';
 import { log } from './logger';
@@ -18,6 +19,39 @@ import { showSupportedDesktopNotification } from './desktopNotification';
 import { formatLootDiaryContent, parseElsoMessage } from './itemAcquisition';
 export { parseElsoMessage };
 const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = require('../shared/chatChannels') as ChatChannelConstants;
+
+type HomeworkSourceEvent = { date: string; timestamp: string; message: string };
+
+/** 동일한 채팅 줄을 재처리해도 같은 숙제 이벤트 ID가 생성되도록 한다. */
+export function createHomeworkSourceEventId(
+  eventName: string,
+  homeworkId: string,
+  data: HomeworkSourceEvent
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify([eventName, homeworkId, data.date, data.timestamp, data.message]))
+    .digest('hex')
+    .slice(0, 32);
+}
+
+/** 채팅 파일의 날짜/시각을 로컬 타임스탬프로 변환하고, 손상된 값만 현재 시각으로 대체한다. */
+export function parseHomeworkSourceTimestamp(data: HomeworkSourceEvent): number {
+  const dateMatch = data.date.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const timeMatch = data.timestamp.match(/(\d{1,2})\s*시\s*(\d{1,2})\s*분\s*(\d{1,2})\s*초/);
+  if (!dateMatch || !timeMatch) return Date.now();
+
+  const parsed = new Date(
+    Number(dateMatch[1]),
+    Number(dateMatch[2]) - 1,
+    Number(dateMatch[3]),
+    Number(timeMatch[1]),
+    Number(timeMatch[2]),
+    Number(timeMatch[3]),
+    0
+  );
+  const timestamp = parsed.getTime();
+  return Number.isFinite(timestamp) ? timestamp : Date.now();
+}
 
 /**
  * 파싱된 채팅 데이터를 실제 앱 기능(DB 저장, 알림 등)으로 연결하는 프로세서
@@ -336,15 +370,27 @@ class ChatLogProcessor {
     log('[CHAT_PROCESSOR] 시작됨 - 이벤트 리스너 등록');
 
     const queueFixedHomework = (event: keyof ChatParserEventMap, homeworkId: string): void => {
-      chatParser.on(event, () => {
-        contentsChecker.queuePendingHomework(homeworkId, 1, true);
+      chatParser.on(event, (data) => {
+        contentsChecker.queuePendingHomework(
+          homeworkId,
+          1,
+          true,
+          createHomeworkSourceEventId(event, homeworkId, data),
+          parseHomeworkSourceTimestamp(data)
+        );
       });
     };
     const queueCountHomework = (event: keyof ChatParserEventMap, homeworkId: string): void => {
       chatParser.on(event, (data) => {
         const count = (data as { count?: number }).count;
         if (typeof count === 'number') {
-          contentsChecker.queuePendingHomework(homeworkId, count, false);
+          contentsChecker.queuePendingHomework(
+            homeworkId,
+            count,
+            false,
+            createHomeworkSourceEventId(event, homeworkId, data),
+            parseHomeworkSourceTimestamp(data)
+          );
         }
       });
     };
@@ -746,7 +792,7 @@ class ChatLogProcessor {
       };
       const id = bossMapping[data.bossName];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false);
+        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ECLIPSE_BOSS_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
  
@@ -763,7 +809,7 @@ class ChatLogProcessor {
       };
       const id = bossMapping[data.bossName];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false);
+        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('MERCURIAL_BOSS_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
  
@@ -782,7 +828,13 @@ class ChatLogProcessor {
       };
       const id = coreMapping[data.contentName];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, data.isIncrement !== false);
+        contentsChecker.queuePendingHomework(
+          id,
+          data.count,
+          data.isIncrement !== false,
+          createHomeworkSourceEventId('CORE_MASTER_CLEAR', id, data),
+          parseHomeworkSourceTimestamp(data)
+        );
       }
     });
  
@@ -804,10 +856,11 @@ class ChatLogProcessor {
  
     // 15. 발굴지 입장 처리
     chatParser.on('DIGSITE_ENTRY', (data) => {
+      const sourceEventId = createHomeworkSourceEventId('DIGSITE_ENTRY', 'weekly-digsite', data);
       if (typeof data.count === 'number') {
-        contentsChecker.queuePendingHomework('weekly-digsite', data.count, false);
+        contentsChecker.queuePendingHomework('weekly-digsite', data.count, false, sourceEventId, parseHomeworkSourceTimestamp(data));
       } else {
-        contentsChecker.queuePendingHomework('weekly-digsite', 1, true);
+        contentsChecker.queuePendingHomework('weekly-digsite', 1, true, sourceEventId, parseHomeworkSourceTimestamp(data));
       }
     });
  
@@ -820,7 +873,7 @@ class ChatLogProcessor {
       };
       const id = depthMap[data.depth];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false);
+        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ABYSS_DUNGEON_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
  
@@ -856,7 +909,7 @@ class ChatLogProcessor {
       };
       const id = regionMapping[data.region];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false);
+        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ABANDONED_ENTRY', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
 
@@ -871,7 +924,13 @@ class ChatLogProcessor {
       
       // 유효 범위(1~5회)인 경우에만 숙제 카운팅 동기화
       if (computedCount >= 1 && computedCount <= 5) {
-        contentsChecker.queuePendingHomework('daily-pitta', computedCount, false);
+        contentsChecker.queuePendingHomework(
+          'daily-pitta',
+          computedCount,
+          false,
+          createHomeworkSourceEventId('PITTA_ENTRY', 'daily-pitta', data),
+          parseHomeworkSourceTimestamp(data)
+        );
       } else {
         log(`[CHAT_PROCESSOR] 팔색조 언덕 카운트 범위 초과 혹은 예외로 무시됨: computedCount=${computedCount} (energy=${energy})`);
       }

@@ -3196,6 +3196,7 @@ function checkPendingHomeworkOrdering(): void {
     mergePendingHomeworkEvent,
     resolvePendingHomeworkCount,
     isPendingHomeworkExpired,
+    getHomeworkResetCycleKey,
   } = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as {
     mergePendingHomeworkEvent(
       existing: { id: string; count: number; isIncrement: boolean; timestamp: number } | undefined,
@@ -3203,7 +3204,16 @@ function checkPendingHomeworkOrdering(): void {
       count: number,
       isIncrement: boolean,
       timestamp: number,
-    ): { id: string; count: number; isIncrement: boolean; timestamp: number };
+      sourceEventId?: string,
+      resetCycleKey?: string,
+    ): {
+      id: string;
+      count: number;
+      isIncrement: boolean;
+      timestamp: number;
+      sourceEventIds?: string[];
+      resetCycleKey?: string;
+    };
     resolvePendingHomeworkCount(
       current: number,
       pending: { id: string; count: number; isIncrement: boolean; timestamp: number },
@@ -3214,6 +3224,10 @@ function checkPendingHomeworkOrdering(): void {
       rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number },
       nowTimestamp: number,
     ): boolean;
+    getHomeworkResetCycleKey(
+      rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number },
+      timestamp: number,
+    ): string;
   };
 
   const incrementFirst = mergePendingHomeworkEvent(undefined, 'weekly-test', 1, true, 100);
@@ -3248,6 +3262,100 @@ function checkPendingHomeworkOrdering(): void {
   const currentPending = mergePendingHomeworkEvent(undefined, 'daily-test', 1, true, afterCurrentReset);
   assert.equal(isPendingHomeworkExpired(stalePending, { type: 'daily', hour: 6 }, afterReset), true);
   assert.equal(isPendingHomeworkExpired(currentPending, { type: 'daily', hour: 6 }, afterReset), false);
+
+  const cycleKey = getHomeworkResetCycleKey({ type: 'daily', hour: 6 }, afterCurrentReset);
+  const deduplicatedOnce = mergePendingHomeworkEvent(
+    undefined, 'daily-test', 1, true, afterCurrentReset, 'stable-event-1', cycleKey,
+  );
+  const deduplicatedTwice = mergePendingHomeworkEvent(
+    deduplicatedOnce, 'daily-test', 1, true, afterCurrentReset + 1000, 'stable-event-1', cycleKey,
+  );
+  assert.strictEqual(deduplicatedTwice, deduplicatedOnce,
+    '같은 채팅 이벤트 ID를 다시 처리하면 보류 횟수가 변경되지 않아야 합니다.');
+  assert.equal(deduplicatedTwice.count, 1);
+
+  const nextCycleTimestamp = new Date(2026, 7, 25, 6, 1, 0).getTime();
+  const nextCycleKey = getHomeworkResetCycleKey({ type: 'daily', hour: 6 }, nextCycleTimestamp);
+  const nextCyclePending = mergePendingHomeworkEvent(
+    deduplicatedOnce, 'daily-test', 2, true, nextCycleTimestamp, 'stable-event-2', nextCycleKey,
+  );
+  assert.equal(nextCyclePending.count, 2,
+    '리셋 주기가 바뀌면 이전 주기의 압축 횟수를 이어받지 않아야 합니다.');
+  assert.deepEqual(nextCyclePending.sourceEventIds, ['stable-event-2']);
+}
+
+function checkLegacyHomeworkMergeContracts(): void {
+  const { mergeHomeworkCompletedState } = require(
+    path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js'),
+  ) as {
+    mergeHomeworkCompletedState(
+      existing: Record<string, unknown> | undefined,
+      incoming: Record<string, unknown> | undefined,
+      rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number },
+      max: number,
+      nowTimestamp: number,
+    ): { currentCount?: number; isCompleted: boolean; lastCompletedAt?: number; isExcluded?: boolean };
+  };
+
+  const now = new Date(2026, 7, 25, 12, 0, 0).getTime();
+  const staleCompleted = new Date(2026, 7, 24, 5, 30, 0).getTime();
+  const currentProgress = new Date(2026, 7, 25, 7, 0, 0).getTime();
+  const currentWins = mergeHomeworkCompletedState(
+    { isCompleted: true, currentCount: 7, lastCompletedAt: staleCompleted },
+    { isCompleted: false, currentCount: 1, lastCompletedAt: currentProgress },
+    { type: 'daily', hour: 6 },
+    7,
+    now,
+  );
+  assert.equal(currentWins.currentCount, 1,
+    '과거 리셋 주기의 큰 완료 횟수가 현재 주기 진행도를 덮어쓰면 안 됩니다.');
+  assert.equal(currentWins.isCompleted, false);
+
+  const currentHigherProgress = new Date(2026, 7, 25, 8, 0, 0).getTime();
+  const sameCycleMerged = mergeHomeworkCompletedState(
+    { isCompleted: false, currentCount: 4, lastCompletedAt: currentProgress, isExcluded: true },
+    { isCompleted: false, currentCount: 2, lastCompletedAt: currentHigherProgress },
+    { type: 'daily', hour: 6 },
+    7,
+    now,
+  );
+  assert.equal(sameCycleMerged.currentCount, 4,
+    '같은 리셋 주기의 중복 데이터에서는 더 큰 진행도를 보존해야 합니다.');
+  assert.equal(sameCycleMerged.lastCompletedAt, currentHigherProgress,
+    '같은 리셋 주기의 중복 데이터에서는 가장 최근 감지 시각을 보존해야 합니다.');
+  assert.equal(sameCycleMerged.isExcluded, true,
+    '레거시 중복 병합 중 사용자가 설정한 N/A가 사라지면 안 됩니다.');
+
+  const checkerSource = read('src/modules/contentsChecker.ts');
+  assert.ok(
+    checkerSource.indexOf('const newId = ID_MIGRATION_MAP[previousId]')
+      < checkerSource.indexOf('// 0-A. 고대 렐릭의 성소'),
+    '일일형 고대 렐릭 ID 정규화가 렐릭 통합보다 늦게 실행되어 상태가 유실될 수 있습니다.',
+  );
+}
+
+function checkHomeworkSourceEventIdContracts(): void {
+  const { createHomeworkSourceEventId, parseHomeworkSourceTimestamp } = require(
+    path.join(projectRoot, 'dist', 'modules', 'chatLogProcessor.js'),
+  ) as {
+    createHomeworkSourceEventId(eventName: string, homeworkId: string, data: Record<string, string>): string;
+    parseHomeworkSourceTimestamp(data: Record<string, string>): number;
+  };
+  const event = {
+    date: '2026-08-25',
+    timestamp: '12시 34분 56초',
+    message: '콘텐츠를 1회 완료했습니다.',
+  };
+  const first = createHomeworkSourceEventId('TEST_CLEAR', 'daily-test', event);
+  assert.equal(createHomeworkSourceEventId('TEST_CLEAR', 'daily-test', event), first,
+    '동일한 채팅 로그는 항상 같은 숙제 이벤트 ID를 생성해야 합니다.');
+  assert.notEqual(createHomeworkSourceEventId('TEST_CLEAR', 'daily-other', event), first,
+    '같은 채팅 줄에서 서로 다른 숙제 ID는 별개의 이벤트 ID여야 합니다.');
+  assert.equal(
+    parseHomeworkSourceTimestamp(event),
+    new Date(2026, 7, 25, 12, 34, 56).getTime(),
+    '숙제 리셋 주기는 처리 시각이 아니라 실제 채팅 로그 시각을 사용해야 합니다.',
+  );
 }
 
 function checkContentsVisibilityContracts(): void {
@@ -3572,6 +3680,8 @@ checkShoutSuffixStripping();
 checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
 checkPendingHomeworkOrdering();
+checkLegacyHomeworkMergeContracts();
+checkHomeworkSourceEventIdContracts();
 checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
 checkXpExchangeContracts();

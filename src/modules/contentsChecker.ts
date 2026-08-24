@@ -149,6 +149,105 @@ const cloneItems = (items: ContentsCheckerItem[] | undefined): ContentsCheckerIt
 const clonePresets = <T>(presets: T[] | undefined): T[] => structuredClone(presets || []);
 const clonePending = (pending: PendingHomework[] | undefined): PendingHomework[] => structuredClone(pending || []);
 let initializationCompleted = false;
+const MAX_PENDING_SOURCE_EVENT_IDS = 128;
+const MAX_PENDING_HOMEWORK_ITEMS = 256;
+
+type HomeworkCompletedState = ContentsCheckerItem['completedState'][string];
+
+const ID_MIGRATION_MAP: Readonly<Record<string, string>> = {
+  'daily-mur-1': 'weekly-mur-1',
+  'daily-abyss-treasure': 'weekly-abyss-treasure',
+  'daily-power-root': 'weekly-power-root',
+  'daily-rune-dungeon': 'weekly-rune-dungeon',
+  'daily-tesis-core': 'weekly-tesis-core',
+  'daily-digsite': 'weekly-digsite',
+  'daily-fortress-ghost': 'weekly-fortress-ghost',
+  'daily-eclipse-6boss': 'weekly-eclipse-6boss',
+  'daily-eclipse-recapture-supplies': 'weekly-eclipse-recapture-supplies',
+  'daily-eclipse-special-force-suppression': 'weekly-eclipse-special-force-suppression',
+  'daily-apethiria-ex': 'weekly-apethiria-ex',
+  'daily-moon-queen': 'weekly-moon-queen',
+  'daily-eclipse-boss': 'weekly-eclipse-boss',
+  'daily-ancient-relic-shinjo': 'weekly-ancient-relic-shinjo',
+  'daily-ancient-relic-kishinik': 'weekly-ancient-relic-kishinik',
+  'weekly-eclipse-boss-selfina': 'weekly-eclipse-boss-lokagos'
+};
+
+function getStateCount(state: HomeworkCompletedState | undefined, max: number): number {
+  if (!state) return 0;
+  const rawCount = state.currentCount ?? (state.isCompleted ? max : 0);
+  return Math.max(0, Math.min(max, Number.isFinite(rawCount) ? Math.trunc(rawCount) : 0));
+}
+
+function isStateInCurrentCycle(
+  state: HomeworkCompletedState | undefined,
+  rule: ResetRule,
+  nowTimestamp: number
+): boolean {
+  if (!state || !Number.isFinite(state.lastCompletedAt) || (state.lastCompletedAt || 0) <= 0) return false;
+  return !shouldReset(rule, new Date(state.lastCompletedAt!), new Date(nowTimestamp));
+}
+
+/**
+ * 같은 정식 ID로 모인 레거시 숙제 상태를 캐릭터별로 병합한다.
+ * 현재 리셋 주기의 상태를 과거 주기보다 우선하고, 같은 주기에서는 더 큰 진행도와
+ * 가장 최근 완료 시각을 각각 보존한다. N/A는 사용자 설정 손실을 막기 위해 어느 한쪽이라도
+ * 명시적으로 제외되어 있으면 유지한다.
+ */
+export function mergeHomeworkCompletedState(
+  existing: HomeworkCompletedState | undefined,
+  incoming: HomeworkCompletedState | undefined,
+  rule: ResetRule,
+  max: number,
+  nowTimestamp: number = Date.now()
+): HomeworkCompletedState {
+  const safeMax = Math.max(1, Math.trunc(max || 1));
+  const existingCurrent = isStateInCurrentCycle(existing, rule, nowTimestamp);
+  const incomingCurrent = isStateInCurrentCycle(incoming, rule, nowTimestamp);
+  const existingTimestamp = existing?.lastCompletedAt || 0;
+  const incomingTimestamp = incoming?.lastCompletedAt || 0;
+
+  let selected: HomeworkCompletedState | undefined;
+  let count = 0;
+  if (existingCurrent !== incomingCurrent) {
+    selected = existingCurrent ? existing : incoming;
+    count = getStateCount(selected, safeMax);
+  } else if (existingCurrent && incomingCurrent) {
+    selected = incomingTimestamp > existingTimestamp ? incoming : existing;
+    count = Math.max(getStateCount(existing, safeMax), getStateCount(incoming, safeMax));
+  } else {
+    selected = incomingTimestamp > existingTimestamp ? incoming : existing;
+    count = getStateCount(selected, safeMax);
+  }
+
+  const lastCompletedAt = Math.max(existingTimestamp, incomingTimestamp) || undefined;
+  const isExcluded = existing?.isExcluded === true || incoming?.isExcluded === true;
+  return {
+    isCompleted: count >= safeMax,
+    currentCount: count,
+    ...(lastCompletedAt ? { lastCompletedAt } : {}),
+    ...(isExcluded ? { isExcluded: true } : {})
+  };
+}
+
+/** 이벤트 시각이 속한 가장 최근 리셋 주기를 안정적인 문자열 키로 반환한다. */
+export function getHomeworkResetCycleKey(rule: ResetRule, timestamp: number): string {
+  const at = new Date(timestamp);
+  const boundary = new Date(at);
+  const resetHour = rule.hour ?? 0;
+  boundary.setHours(resetHour, 0, 0, 0);
+
+  if (rule.type === 'daily') {
+    if (at < boundary) boundary.setDate(boundary.getDate() - 1);
+  } else {
+    const resetDay = rule.dayOfWeek ?? 1;
+    const dayDiff = (at.getDay() - resetDay + 7) % 7;
+    boundary.setDate(boundary.getDate() - dayDiff);
+    if (dayDiff === 0 && at < boundary) boundary.setDate(boundary.getDate() - 7);
+  }
+
+  return `${rule.type}:${boundary.getTime()}`;
+}
 
 /**
  * 동일 숙제의 보류 이벤트를 순서대로 압축한다.
@@ -162,26 +261,44 @@ export function mergePendingHomeworkEvent(
   id: string,
   count: number,
   isIncrement: boolean,
-  timestamp: number = Date.now()
+  timestamp: number = Date.now(),
+  sourceEventId?: string,
+  resetCycleKey?: string
 ): PendingHomework {
   const safeCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
-  if (!existing) {
-    return { id, count: safeCount, isIncrement, timestamp };
+  const sameCycleExisting = existing && (
+    !resetCycleKey || !existing.resetCycleKey || existing.resetCycleKey === resetCycleKey
+  ) ? existing : undefined;
+  const existingSourceIds = sameCycleExisting?.sourceEventIds || [];
+  if (sourceEventId && existingSourceIds.includes(sourceEventId)) {
+    return sameCycleExisting!;
+  }
+  const sourceEventIds = sourceEventId
+    ? [...existingSourceIds, sourceEventId].slice(-MAX_PENDING_SOURCE_EVENT_IDS)
+    : existingSourceIds.slice(-MAX_PENDING_SOURCE_EVENT_IDS);
+  const metadata = {
+    ...(sourceEventIds.length > 0 ? { sourceEventIds } : {}),
+    ...(resetCycleKey ? { resetCycleKey } : {})
+  };
+
+  if (!sameCycleExisting) {
+    return { id, count: safeCount, isIncrement, timestamp, ...metadata };
   }
 
   if (!isIncrement) {
     // 절대값 감지는 앞서 들어온 모든 증분/절대값을 이 시점의 횟수로 덮어쓴다.
-    return { ...existing, id, count: safeCount, isIncrement: false, timestamp };
+    return { ...sameCycleExisting, id, count: safeCount, isIncrement: false, timestamp, ...metadata };
   }
 
   // 절대값 뒤의 증분은 절대값에 더하되, 현재 횟수를 다시 더하지 않도록
   // 기존 모드(existing.isIncrement)는 그대로 유지한다.
   return {
-    ...existing,
+    ...sameCycleExisting,
     id,
-    count: Math.max(0, existing.count) + safeCount,
-    isIncrement: existing.isIncrement,
-    timestamp
+    count: Math.max(0, sameCycleExisting.count) + safeCount,
+    isIncrement: sameCycleExisting.isIncrement,
+    timestamp,
+    ...metadata
   };
 }
 
@@ -243,6 +360,32 @@ export function init(): boolean {
     }
   });
 
+  // 레거시 ID를 먼저 정식 ID로 통일한다. 고대 렐릭처럼 뒤에서 합쳐지는 항목은
+  // 순서가 바뀌면 일일형 레거시 상태가 기본 데이터 필터에서 사라질 수 있다.
+  currentItems.forEach(item => {
+    const previousId = item.id;
+    const newId = ID_MIGRATION_MAP[previousId];
+    if (!newId) return;
+
+    log(`[Contents Checker] 마이그레이션: ${previousId} -> ${newId}`);
+    item.id = newId;
+    const canonicalDefinition = defaultItems.find(def => def.id === newId);
+    if (canonicalDefinition) {
+      item.resetRule = structuredClone(canonicalDefinition.resetRule);
+      item.maxCount = canonicalDefinition.maxCount;
+    }
+
+    if (item.completedState) {
+      const max = item.maxCount || 1;
+      Object.values(item.completedState).forEach(state => {
+        if (state.currentCount === undefined) {
+          state.currentCount = state.isCompleted ? max : 0;
+        }
+      });
+    }
+    changed = true;
+  });
+
   // 0-A. 고대 렐릭의 성소 (신조/키시니크) 단일 항목 병합 마이그레이션
   const relicShinjoIdx = currentItems.findIndex(i => i.id === 'weekly-ancient-relic-shinjo');
   const relicKishinikIdx = currentItems.findIndex(i => i.id === 'weekly-ancient-relic-kishinik');
@@ -276,13 +419,18 @@ export function init(): boolean {
         const totalCount = Math.min(relicDef.maxCount || 7, sCount + kCount);
         
         const isExcluded = !!(sState?.isExcluded && kState?.isExcluded);
-        
-        relicItem.completedState[charId] = {
+        const splitState: HomeworkCompletedState = {
           currentCount: totalCount,
           isCompleted: totalCount >= (relicDef.maxCount || 7),
           isExcluded,
-          lastCompletedAt: sState?.lastCompletedAt || kState?.lastCompletedAt
+          lastCompletedAt: Math.max(sState?.lastCompletedAt || 0, kState?.lastCompletedAt || 0) || undefined
         };
+        relicItem.completedState[charId] = mergeHomeworkCompletedState(
+          relicItem.completedState[charId],
+          splitState,
+          relicDef.resetRule,
+          relicDef.maxCount || 7
+        );
       });
       
       if (relicShinjoIdx !== -1) {
@@ -294,49 +442,6 @@ export function init(): boolean {
       changed = true;
     }
   }
-
-  // 0. ID 및 리셋 룰 마이그레이션 (일일 -> 주간)
-  const ID_MIGRATION_MAP: Record<string, string> = {
-    'daily-mur-1': 'weekly-mur-1',
-    'daily-abyss-treasure': 'weekly-abyss-treasure',
-    'daily-power-root': 'weekly-power-root',
-    'daily-rune-dungeon': 'weekly-rune-dungeon',
-    'daily-tesis-core': 'weekly-tesis-core',
-    'daily-digsite': 'weekly-digsite',
-    'daily-fortress-ghost': 'weekly-fortress-ghost',
-    'daily-eclipse-6boss': 'weekly-eclipse-6boss',
-    'daily-eclipse-recapture-supplies': 'weekly-eclipse-recapture-supplies',
-    'daily-eclipse-special-force-suppression': 'weekly-eclipse-special-force-suppression',
-    'daily-apethiria-ex': 'weekly-apethiria-ex',
-    'daily-moon-queen': 'weekly-moon-queen',
-    'daily-eclipse-boss': 'weekly-eclipse-boss',
-    'daily-ancient-relic-shinjo': 'weekly-ancient-relic-shinjo',
-    'daily-ancient-relic-kishinik': 'weekly-ancient-relic-kishinik',
-    'weekly-eclipse-boss-selfina': 'weekly-eclipse-boss-lokagos'
-  };
-
-  currentItems.forEach(item => {
-    if (ID_MIGRATION_MAP[item.id]) {
-      const newId = ID_MIGRATION_MAP[item.id];
-      log(`[Contents Checker] 마이그레이션: ${item.id} -> ${newId}`);
-      item.id = newId;
-      // 로카고스로의 단순 ID 마이그레이션의 경우 주간 룰로의 일방적인 강제 덮어쓰기 방지
-      if (item.id !== 'weekly-eclipse-boss-lokagos') {
-        item.resetRule = { type: 'weekly', dayOfWeek: 1, hour: 0 };
-        item.maxCount = 7;
-      }
-
-      if (item.completedState) {
-        Object.keys(item.completedState).forEach(charId => {
-          const state = item.completedState[charId];
-          if (state.currentCount === undefined) {
-            state.currentCount = state.isCompleted ? (item.maxCount || 7) : 0;
-          }
-        });
-      }
-      changed = true;
-    }
-  });
 
   // 0-1. 기존 뭉뚱그려진 주간 보스 숙제의 세분화 마이그레이션 (가시성 및 캐릭터별 제외 상태 승계)
   const SPLIT_MIGRATION_MAP: Record<string, string[]> = {
@@ -446,15 +551,15 @@ export function init(): boolean {
         Object.keys(item.completedState).forEach(charId => {
           const extState = existing.completedState[charId];
           const itemState = item.completedState[charId];
-          if (!extState) {
-            existing.completedState[charId] = { ...itemState };
-          } else {
-            const extCount = extState.currentCount || 0;
-            const itemCount = itemState.currentCount || 0;
-            if (itemCount > extCount || itemState.isCompleted) {
-              existing.completedState[charId] = { ...itemState };
-            }
-          }
+          const canonicalDefinition = defaultItems.find(def => def.id === item.id);
+          const rule = canonicalDefinition?.resetRule || existing.resetRule || item.resetRule;
+          const max = canonicalDefinition?.maxCount || existing.maxCount || item.maxCount || 1;
+          existing.completedState[charId] = mergeHomeworkCompletedState(
+            extState,
+            itemState,
+            rule,
+            max
+          );
         });
       }
       changed = true;
@@ -1244,7 +1349,13 @@ export function incrementItemCount(id: string, characterId: string, amount: numb
 }
 
 /** 채팅 로그 감지 시 캐릭터 개수에 따라 즉시 반영 또는 보류 대기열 추가 */
-export function queuePendingHomework(id: string, count: number, isIncrement: boolean): void {
+export function queuePendingHomework(
+  id: string,
+  count: number,
+  isIncrement: boolean,
+  sourceEventId?: string,
+  eventTimestamp: number = Date.now()
+): void {
   const cfg = config.load();
   const presets = clonePresets(cfg.characterPresets);
 
@@ -1256,6 +1367,11 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
   // 1. 해당 숙제가 존재하지 않거나 숨김 처리(isVisible: false)된 경우 감지 및 보류 대기열 추가 무시
   if (!targetItem || targetItem.isVisible === false) {
     log(`[Contents Checker] 감지된 숙제(${id})가 숨김 상태이거나 존재하지 않아 적립을 무시합니다.`);
+    return;
+  }
+
+  if (shouldReset(targetItem.resetRule, new Date(eventTimestamp), new Date())) {
+    log(`[Contents Checker] 이전 리셋 주기의 채팅 이벤트 무시 - ID: ${id}`);
     return;
   }
 
@@ -1283,7 +1399,7 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
   }
 
   // 4. 참여 가능한 캐릭터가 2개 이상일 때는 사용자가 선택할 수 있도록 보류 대기열에 추가
-  const eventTimestamp = Date.now();
+  const resetCycleKey = getHomeworkResetCycleKey(targetItem.resetRule, eventTimestamp);
   // 새 이벤트를 합치기 전에 각 콘텐츠의 리셋 경계를 지난 보류 항목을 제거한다.
   // 이 순서가 바뀌면 이전 주기의 +N이 새 주기의 절대값/증분에 섞일 수 있다.
   const pendingList = clonePending(cfg.pendingHomeworks).filter(pending => {
@@ -1298,17 +1414,40 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
   const existingIdx = pendingList.findIndex(p => p.id === id);
 
   if (existingIdx !== -1) {
+    const previousPending = pendingList[existingIdx];
     pendingList[existingIdx] = mergePendingHomeworkEvent(
-      pendingList[existingIdx],
+      previousPending,
       id,
       count,
       isIncrement,
-      eventTimestamp
+      eventTimestamp,
+      sourceEventId,
+      resetCycleKey
     );
-    log(`[Contents Checker] 보류 대기열 병합 업데이트 - ID: ${id}, 새 보류수량: ${pendingList[existingIdx].count}`);
+    if (pendingList[existingIdx] === previousPending) {
+      log(`[Contents Checker] 이미 처리한 동일 채팅 이벤트 무시 - ID: ${id}`);
+    } else {
+      log(`[Contents Checker] 보류 대기열 병합 업데이트 - ID: ${id}, 새 보류수량: ${pendingList[existingIdx].count}`);
+    }
   } else {
-    pendingList.push(mergePendingHomeworkEvent(undefined, id, count, isIncrement, eventTimestamp));
+    pendingList.push(mergePendingHomeworkEvent(
+      undefined,
+      id,
+      count,
+      isIncrement,
+      eventTimestamp,
+      sourceEventId,
+      resetCycleKey
+    ));
     log(`[Contents Checker] 보류 대기열 신규 추가 - ID: ${id}, 수량: ${count}`);
+  }
+
+  const maxPendingItems = Math.max(MAX_PENDING_HOMEWORK_ITEMS, items.length);
+  if (pendingList.length > maxPendingItems) {
+    pendingList.sort((a, b) => b.timestamp - a.timestamp);
+    pendingList.length = maxPendingItems;
+    pendingList.sort((a, b) => a.timestamp - b.timestamp);
+    log(`[Contents Checker] 비정상적으로 큰 보류 대기열을 최근 ${maxPendingItems}개로 제한했습니다.`);
   }
 
   config.saveImmediate({ pendingHomeworks: pendingList });

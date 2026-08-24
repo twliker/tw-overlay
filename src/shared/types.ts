@@ -350,6 +350,10 @@ export interface PendingHomework {
     count: number;      // 감지된 횟수
     isIncrement: boolean; // 횟수 누적 방식 여부
     timestamp: number;  // 감지된 시간
+    /** 같은 채팅 로그의 재처리를 막는 안정적인 이벤트 ID 목록 (레거시 데이터에는 없음) */
+    sourceEventIds?: string[];
+    /** 서로 다른 일일/주간 리셋 주기의 이벤트가 합쳐지지 않도록 하는 주기 키 */
+    resetCycleKey?: string;
 }
 
 export interface DiscordKeywordRule {
