@@ -37,12 +37,25 @@ export interface MandatoryReleaseTarget {
   note?: string;
 }
 
+/** 현재 버전 또는 전달된 버전이 베타/프리릴리즈 버전인지 확인 */
+export function isBetaVersion(version?: string): boolean {
+  const ver = typeof version === 'string' ? version : (app ? app.getVersion() : '');
+  return /beta|alpha|rc|preview/i.test(ver);
+}
+
 /** 
  * 현재 버전보다 상위 버전 목록 중 가장 최신의 강제 업데이트 릴리즈를 탐색
  * (v1 사용자 환경에서 v2강제, v3강제, v4일반, v5강제, v6일반인 경우 -> v5 반환)
+ * *현재 버전이 베타 버전인 경우 강제 업데이트를 무시(null 반환)합니다.
  */
 export function findLatestMandatoryRelease(info: any, currentVersion?: string): MandatoryReleaseTarget | null {
   if (!info) return null;
+
+  // 현재 버전이 베타 버전인 경우 강제 업데이트 타겟을 탐색하지 않음 (강제 업데이트 무시)
+  const currentVer = currentVersion ?? (app ? app.getVersion() : '');
+  if (currentVer && isBetaVersion(currentVer)) {
+    return null;
+  }
 
   // 1. releaseNotes가 배열인 경우 (fullChangelog=true 상태로 최신 버전부터 역순 정렬됨)
   if (Array.isArray(info.releaseNotes) && info.releaseNotes.length > 0) {
@@ -74,9 +87,9 @@ export function findLatestMandatoryRelease(info: any, currentVersion?: string): 
 }
 
 /** 릴리즈 노트에서 [Mandatory Update] 태그 존재 여부 확인 */
-export function checkMandatory(info: any): boolean {
+export function checkMandatory(info: any, currentVersion?: string): boolean {
   if (!info) return false;
-  return findLatestMandatoryRelease(info) !== null;
+  return findLatestMandatoryRelease(info, currentVersion) !== null;
 }
 
 /** 릴리즈 노트(문자열 또는 배열)를 HTML UI 표시용 문자열로 안전하게 변환 */
@@ -186,11 +199,43 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     clearTimer();
     log(`Update available: ${info.version}`);
 
-    const latestMandatory = findLatestMandatoryRelease(info);
+    const currentVer = app ? app.getVersion() : '';
+    const isCurrentBeta = isBetaVersion(currentVer);
+
+    const latestMandatory = isCurrentBeta ? null : findLatestMandatoryRelease(info, currentVer);
     isMandatory = latestMandatory !== null;
 
     const cfg = config.load();
     const isAutoUpdateEnabled = cfg.autoUpdateEnabled !== false;
+
+    // CASE 0: 현재 실행 중인 버전이 베타 버전인 경우
+    // -> 강제 업데이트 잠금 및 스플래시 자동 다운로드를 무시하고 메인 앱을 즉시 실행하여 사용자가 베타를 계속 사용할 수 있도록 함
+    if (isCurrentBeta) {
+      log(`[UPDATER] Running beta version (v${currentVer}). Ignoring mandatory & splash auto-updates for v${info.version}`);
+
+      currentUpdateInfo = {
+        state: 'available',
+        version: info.version,
+        isMandatory: false,
+        releaseNotes: formatReleaseNotes(info.releaseNotes)
+      };
+
+      // 메인 앱 기동 (스플래시 창 닫힘)
+      notifyReady();
+
+      // 메인 앱 기동 후 상태 브로드캐스트 (사이드바 레드닷)
+      const sendUpdateBadge = () => {
+        broadcastStatus({
+          state: 'available',
+          version: info.version,
+          isMandatory: false,
+          releaseNotes: formatReleaseNotes(info.releaseNotes)
+        });
+      };
+      setTimeout(sendUpdateBadge, 600);
+      setTimeout(sendUpdateBadge, 1500);
+      return;
+    }
 
     // CASE 1: 자동 업데이트 활성화 상태 -> 최신 버전으로 스플래시 창에서 다운로드 및 설치
     if (isAutoUpdateEnabled) {

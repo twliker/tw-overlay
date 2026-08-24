@@ -2816,11 +2816,12 @@ function checkMandatoryUpdateLogic(): void {
   const updaterModule = require(path.join(projectRoot, 'dist', 'modules', 'updater.js')) as {
     hasMandatoryTag: (text: unknown) => boolean;
     findLatestMandatoryRelease: (info: any, currentVersion?: string) => { version: string; tag: string; note?: string } | null;
-    checkMandatory: (info: any) => boolean;
+    checkMandatory: (info: any, currentVersion?: string) => boolean;
     formatReleaseNotes: (releaseNotes: any) => string | undefined;
+    isBetaVersion: (version?: string) => boolean;
   };
 
-  const { hasMandatoryTag, findLatestMandatoryRelease, checkMandatory, formatReleaseNotes } = updaterModule;
+  const { hasMandatoryTag, findLatestMandatoryRelease, checkMandatory, formatReleaseNotes, isBetaVersion } = updaterModule;
 
   // 1. 태그 판별 대소문자/공백 무시 검증
   assert.equal(hasMandatoryTag('[Mandatory Update]'), true);
@@ -2846,11 +2847,11 @@ function checkMandatoryUpdateLogic(): void {
     ]
   };
 
-  const targetRelease = findLatestMandatoryRelease(multiReleaseInfoScenario);
+  const targetRelease = findLatestMandatoryRelease(multiReleaseInfoScenario, '1.0.0');
   assert.ok(targetRelease !== null, '다중 릴리즈 히스토리에서 강제 업데이트 타겟을 찾지 못했습니다.');
   assert.equal(targetRelease.version, '5.0.0', '상위 버전 중 가장 최신 강제 업데이트 버전인 v5가 선택되지 않았습니다.');
   assert.equal(targetRelease.tag, 'v5.0.0', '타겟 태그명이 올바르지 않습니다.');
-  assert.equal(checkMandatory(multiReleaseInfoScenario), true);
+  assert.equal(checkMandatory(multiReleaseInfoScenario, '1.0.0'), true);
 
   // 3. 상위 버전 중 강제 업데이트가 하나도 없는 시나리오: v3(일반), v2(일반)
   const noMandatoryInfoScenario = {
@@ -2861,8 +2862,8 @@ function checkMandatoryUpdateLogic(): void {
       { version: '2.0.0', note: 'v2 일반 버그 수정' }
     ]
   };
-  assert.equal(findLatestMandatoryRelease(noMandatoryInfoScenario), null, '강제 업데이트가 없는데 타겟이 반환되었습니다.');
-  assert.equal(checkMandatory(noMandatoryInfoScenario), false);
+  assert.equal(findLatestMandatoryRelease(noMandatoryInfoScenario, '1.0.0'), null, '강제 업데이트가 없는데 타겟이 반환되었습니다.');
+  assert.equal(checkMandatory(noMandatoryInfoScenario, '1.0.0'), false);
 
   // 4. 단일 릴리즈 (문자열) 시나리오 검증
   const singleMandatoryTitle = {
@@ -2870,7 +2871,7 @@ function checkMandatoryUpdateLogic(): void {
     releaseName: '[Mandatory Update] v2.6.7 긴급 배포',
     releaseNotes: '단일 릴리즈 노트 내용'
   };
-  const singleTarget1 = findLatestMandatoryRelease(singleMandatoryTitle);
+  const singleTarget1 = findLatestMandatoryRelease(singleMandatoryTitle, '2.6.0');
   assert.ok(singleTarget1 !== null);
   assert.equal(singleTarget1.version, '2.6.7');
   assert.equal(singleTarget1.tag, 'v2.6.7');
@@ -2880,7 +2881,7 @@ function checkMandatoryUpdateLogic(): void {
     releaseName: 'v2.6.7 긴급 배포',
     releaseNotes: '<h1>[Mandatory Update]</h1> 버그 수정'
   };
-  const singleTarget2 = findLatestMandatoryRelease(singleMandatoryBody);
+  const singleTarget2 = findLatestMandatoryRelease(singleMandatoryBody, '2.6.0');
   assert.ok(singleTarget2 !== null);
   assert.equal(singleTarget2.version, '2.6.7');
 
@@ -2889,8 +2890,8 @@ function checkMandatoryUpdateLogic(): void {
     releaseName: 'v2.6.8 일반 배포',
     releaseNotes: '일반 패치'
   };
-  assert.equal(findLatestMandatoryRelease(singleRegular), null);
-  assert.equal(checkMandatory(singleRegular), false);
+  assert.equal(findLatestMandatoryRelease(singleRegular, '2.6.0'), null);
+  assert.equal(checkMandatory(singleRegular, '2.6.0'), false);
 
   // 5. formatReleaseNotes 포매팅 검증
   const formatted = formatReleaseNotes(multiReleaseInfoScenario.releaseNotes);
@@ -2898,6 +2899,21 @@ function checkMandatoryUpdateLogic(): void {
   assert.ok(formatted.includes('<h3>v6.0.0</h3>'));
   assert.ok(formatted.includes('<h3>v5.0.0</h3>'));
   assert.ok(formatted.includes('<hr class="border-white/10 my-3" />'));
+
+  // 6. 베타 버전 판별 및 강제 업데이트 무시 검증
+  assert.equal(isBetaVersion('2.7.0-beta.1'), true);
+  assert.equal(isBetaVersion('2.7.0-beta'), true);
+  assert.equal(isBetaVersion('2.7.0-rc.1'), true);
+  assert.equal(isBetaVersion('2.7.0-alpha'), true);
+  assert.equal(isBetaVersion('2.7.0-preview'), true);
+  assert.equal(isBetaVersion('2.7.0'), false);
+  assert.equal(isBetaVersion('2.6.8'), false);
+
+  // 베타 버전 환경에서는 강제 릴리즈가 존재해도 null 반환 (강제 업데이트 무시)
+  assert.equal(findLatestMandatoryRelease(multiReleaseInfoScenario, '2.7.0-beta.1'), null);
+  assert.equal(checkMandatory(multiReleaseInfoScenario, '2.7.0-beta.1'), false);
+  assert.equal(findLatestMandatoryRelease(singleMandatoryTitle, '2.7.0-beta.1'), null);
+  assert.equal(checkMandatory(singleMandatoryTitle, '2.7.0-beta.1'), false);
 }
 
 function checkCustomTabHistoryContracts(): void {
