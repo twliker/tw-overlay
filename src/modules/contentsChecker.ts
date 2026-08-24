@@ -105,7 +105,16 @@ function validateResourceMeta(value: unknown): ContentsResourceMeta {
 /** 기본 컨텐츠와 동반 메타데이터를 모두 검증한 뒤에만 반환한다. */
 function loadDefaultItems(): ContentsCheckerItem[] | null {
   try {
-    const dataDirectory = path.join(app.getAppPath(), 'dist', 'assets', 'data');
+    const dataDirectoryCandidates = [
+      path.join(app.getAppPath(), 'dist', 'assets', 'data'),
+      // 컴파일된 모듈(dist/modules) 기준 경로. 테스트 실행 파일이나 패키징 방식에 따라
+      // app.getAppPath()가 실행 스크립트 디렉터리를 가리키는 경우에도 동일 리소스를 찾는다.
+      path.resolve(__dirname, '..', 'assets', 'data')
+    ];
+    const dataDirectory = dataDirectoryCandidates.find(candidate =>
+      fs.existsSync(path.join(candidate, 'contents.json'))
+      && fs.existsSync(path.join(candidate, 'contents.meta.json'))
+    ) || dataDirectoryCandidates[0];
     const jsonPath = path.join(dataDirectory, 'contents.json');
     const metaPath = path.join(dataDirectory, 'contents.meta.json');
     if (!fs.existsSync(jsonPath) || !fs.existsSync(metaPath)) {
@@ -139,6 +148,7 @@ function loadDefaultItems(): ContentsCheckerItem[] | null {
 const cloneItems = (items: ContentsCheckerItem[] | undefined): ContentsCheckerItem[] => structuredClone(items || []);
 const clonePresets = <T>(presets: T[] | undefined): T[] => structuredClone(presets || []);
 const clonePending = (pending: PendingHomework[] | undefined): PendingHomework[] => structuredClone(pending || []);
+let initializationCompleted = false;
 
 /**
  * 동일 숙제의 보류 이벤트를 순서대로 압축한다.
@@ -192,12 +202,17 @@ export function isPendingHomeworkExpired(
 }
 
 /** 초기화 및 병합 (앱 시작 시 호출) */
-export function init(): void {
+export function init(): boolean {
+  if (initializationCompleted) {
+    log('[Contents Checker] 초기화가 이미 완료되어 중복 실행을 건너뜁니다.');
+    return true;
+  }
+
   const defaultItems = loadDefaultItems();
   // 치명적 데이터 삭제 방어 가드 (contents.json 로드 실패 시 기존 사용자 데이터 보존)
   if (!defaultItems) {
     log('[Contents Checker] 기본 데이터 검증 실패로 인해 모든 마이그레이션·필터링·저장을 중단합니다.');
-    return;
+    return false;
   }
 
   const cfg = config.load();
@@ -566,15 +581,21 @@ export function init(): void {
   });
 
   if (changed || !cfg.contentsCheckerItems) {
-    config.saveImmediate({ 
+    const saved = config.saveImmediate({
       contentsCheckerItems: currentItems,
       characterPresets,
       selectedCharacterId
     });
+    if (!saved) {
+      log('[Contents Checker] 초기화 결과 저장 실패로 완료 처리하지 않습니다.');
+      return false;
+    }
     import('./windowManager').then(wm => wm.applySettings({}));
   }
   
   checkReset();
+  initializationCompleted = true;
+  return true;
 }
 
 /** 초기화 로직 (정기적으로 또는 수동 호출) */

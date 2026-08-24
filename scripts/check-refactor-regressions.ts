@@ -3188,6 +3188,27 @@ function checkContentsVisibilityContracts(): void {
     '화면 가시성의 기본 보임 계약이 없습니다.');
 }
 
+function checkContentsInitializationContracts(): void {
+  const contentsChecker = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as {
+    init(): boolean;
+  };
+  const appConfig = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as {
+    load(): Record<string, unknown>;
+  };
+
+  assert.equal(contentsChecker.init(), true, '숙제 체크리스트 최초 초기화가 실패했습니다.');
+  const firstSnapshot = JSON.stringify(appConfig.load());
+  assert.equal(contentsChecker.init(), true, '숙제 체크리스트 중복 초기화가 실패로 보고되었습니다.');
+  assert.equal(JSON.stringify(appConfig.load()), firstSnapshot,
+    '숙제 체크리스트 두 번째 초기화가 설정을 다시 변경했습니다.');
+
+  const mainSource = read('src/main.ts');
+  const initPosition = mainSource.indexOf('contentsChecker.init()');
+  const processorStartPosition = mainSource.indexOf('chatLogProcessor.start()');
+  assert.ok(initPosition >= 0 && processorStartPosition > initPosition,
+    '숙제 체크리스트가 채팅 자동 감지보다 먼저 초기화되지 않습니다.');
+}
+
 function checkXpExchangeContracts(): void {
   const { XP_PER_ESSENCE, getEssenceExchangeCount } = require(
     path.join(projectRoot, 'dist', 'modules', 'xpTracker.js'),
@@ -3387,6 +3408,7 @@ checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
 checkPendingHomeworkOrdering();
 checkContentsVisibilityContracts();
+checkContentsInitializationContracts();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
 checkGoogleSyncDataContracts();

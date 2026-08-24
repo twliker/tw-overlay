@@ -32,6 +32,7 @@ import * as diaryDb from './modules/diaryDb';
 import { findChatLogPath } from './modules/chatLogPathFinder';
 import { chatLogManager } from './modules/chatLogManager';
 import { chatLogProcessor } from './modules/chatLogProcessor';
+import * as contentsChecker from './modules/contentsChecker';
 import { buffTimerManager } from './modules/buffTimerManager';
 import * as scamMonitor from './modules/scamMonitor';
 import { etaCacheManager } from './modules/etaCacheManager';
@@ -205,6 +206,11 @@ app.whenReady().then(() => {
 
     // 에타 캐시 먼저 초기화 (로컬 캐시 로드) → chatLogManager replay 시 에타 레벨 표시 가능
     etaCacheManager.init();
+
+    // 기본 숙제 병합·레거시 마이그레이션을 채팅 자동 감지보다 먼저 한 번 완료한다.
+    if (!contentsChecker.init()) {
+      log('[BOOT] 숙제 체크리스트 초기화 실패 — 기존 설정을 보존한 채 자동 감지를 계속합니다.');
+    }
 
     // 채팅 로그 감시 시스템 시작
     chatLogProcessor.start();
