@@ -140,6 +140,57 @@ const cloneItems = (items: ContentsCheckerItem[] | undefined): ContentsCheckerIt
 const clonePresets = <T>(presets: T[] | undefined): T[] => structuredClone(presets || []);
 const clonePending = (pending: PendingHomework[] | undefined): PendingHomework[] => structuredClone(pending || []);
 
+/**
+ * 동일 숙제의 보류 이벤트를 순서대로 압축한다.
+ *
+ * 보류 데이터의 기존 저장 형식(count/isIncrement)을 유지하면서 다음 변환을 표현할 수 있다.
+ * - 증분만 존재: current + count
+ * - 절대값이 한 번이라도 존재: 마지막 절대값 + 이후 증분
+ */
+export function mergePendingHomeworkEvent(
+  existing: PendingHomework | undefined,
+  id: string,
+  count: number,
+  isIncrement: boolean,
+  timestamp: number = Date.now()
+): PendingHomework {
+  const safeCount = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
+  if (!existing) {
+    return { id, count: safeCount, isIncrement, timestamp };
+  }
+
+  if (!isIncrement) {
+    // 절대값 감지는 앞서 들어온 모든 증분/절대값을 이 시점의 횟수로 덮어쓴다.
+    return { ...existing, id, count: safeCount, isIncrement: false, timestamp };
+  }
+
+  // 절대값 뒤의 증분은 절대값에 더하되, 현재 횟수를 다시 더하지 않도록
+  // 기존 모드(existing.isIncrement)는 그대로 유지한다.
+  return {
+    ...existing,
+    id,
+    count: Math.max(0, existing.count) + safeCount,
+    isIncrement: existing.isIncrement,
+    timestamp
+  };
+}
+
+/** 현재 캐릭터 횟수에 압축된 보류 이벤트를 적용하고 유효 범위로 보정한다. */
+export function resolvePendingHomeworkCount(current: number, pending: PendingHomework, max: number): number {
+  const target = pending.isIncrement ? current + pending.count : pending.count;
+  return Math.max(0, Math.min(max, target));
+}
+
+/** 보류 이벤트 발생 뒤 해당 숙제의 리셋 경계를 지났는지 판정한다. */
+export function isPendingHomeworkExpired(
+  pending: PendingHomework,
+  rule: ResetRule,
+  nowTimestamp: number = Date.now()
+): boolean {
+  if (!Number.isFinite(pending.timestamp) || pending.timestamp <= 0) return true;
+  return shouldReset(rule, new Date(pending.timestamp), new Date(nowTimestamp));
+}
+
 /** 초기화 및 병합 (앱 시작 시 호출) */
 export function init(): void {
   const defaultItems = loadDefaultItems();
@@ -1210,28 +1261,31 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
   }
 
   // 4. 참여 가능한 캐릭터가 2개 이상일 때는 사용자가 선택할 수 있도록 보류 대기열에 추가
-  const pendingList: PendingHomework[] = cfg.pendingHomeworks || [];
+  const eventTimestamp = Date.now();
+  // 새 이벤트를 합치기 전에 각 콘텐츠의 리셋 경계를 지난 보류 항목을 제거한다.
+  // 이 순서가 바뀌면 이전 주기의 +N이 새 주기의 절대값/증분에 섞일 수 있다.
+  const pendingList = clonePending(cfg.pendingHomeworks).filter(pending => {
+    const pendingItem = items.find(item => item.id === pending.id);
+    if (!pendingItem) return false;
+    const expired = isPendingHomeworkExpired(pending, pendingItem.resetRule, eventTimestamp);
+    if (expired) {
+      log(`[Contents Checker] 리셋 경계를 지난 보류 내역 폐기 - ID: ${pending.id}`);
+    }
+    return !expired;
+  });
   const existingIdx = pendingList.findIndex(p => p.id === id);
 
   if (existingIdx !== -1) {
-    const existing = pendingList[existingIdx];
-    if (isIncrement) {
-      existing.count += count;
-      existing.isIncrement = true;
-    } else {
-      // 절대값 설정 이벤트가 오면 절대값 모드로 전환
-      existing.count = Math.max(existing.count, count);
-      existing.isIncrement = false;
-    }
-    existing.timestamp = Date.now();
-    log(`[Contents Checker] 보류 대기열 병합 업데이트 - ID: ${id}, 새 보류수량: ${existing.count}`);
-  } else {
-    pendingList.push({
+    pendingList[existingIdx] = mergePendingHomeworkEvent(
+      pendingList[existingIdx],
       id,
       count,
       isIncrement,
-      timestamp: Date.now()
-    });
+      eventTimestamp
+    );
+    log(`[Contents Checker] 보류 대기열 병합 업데이트 - ID: ${id}, 새 보류수량: ${pendingList[existingIdx].count}`);
+  } else {
+    pendingList.push(mergePendingHomeworkEvent(undefined, id, count, isIncrement, eventTimestamp));
     log(`[Contents Checker] 보류 대기열 신규 추가 - ID: ${id}, 수량: ${count}`);
   }
 
@@ -1247,13 +1301,21 @@ export function applyPendingHomeworks(characterId: string): void {
 
   const items = cloneItems(cfg.contentsCheckerItems);
   const now = new Date();
-  const appliedPendingIds = new Set<string>();
+  const appliedPending = new Set<PendingHomework>();
+  const expiredPending = new Set<PendingHomework>();
 
   log(`[Contents Checker] 보류 내역을 캐릭터(${characterId})에 일괄 반영 시작. 보류 건수: ${pendingList.length}`);
 
   pendingList.forEach(pending => {
     const item = items.find(i => i.id === pending.id);
     if (!item) return;
+
+    // 리셋 이전 이벤트는 현재 주기의 횟수에 적용하지 않는다.
+    if (isPendingHomeworkExpired(pending, item.resetRule, now.getTime())) {
+      expiredPending.add(pending);
+      log(`[Contents Checker] 리셋 경계를 지난 보류 내역 적용 생략 - ID: ${pending.id}`);
+      return;
+    }
 
     if (!item.completedState) item.completedState = {};
     if (!item.completedState[characterId]) {
@@ -1270,19 +1332,12 @@ export function applyPendingHomeworks(characterId: string): void {
     const current = state.currentCount || 0;
     const prevCompleted = state.isCompleted;
 
-    let targetCount = current;
-    if (pending.isIncrement) {
-      targetCount = current + pending.count;
-    } else {
-      targetCount = pending.count;
-    }
-
     // 범위 보정 (최대 완료 횟수 제한 적용)
-    state.currentCount = Math.max(0, Math.min(max, targetCount));
+    state.currentCount = resolvePendingHomeworkCount(current, pending, max);
     state.isCompleted = (state.currentCount === max);
     state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
 
-    appliedPendingIds.add(pending.id);
+    appliedPending.add(pending);
     log(`[Contents Checker] 반영 완료 - 숙제: ${item.name}, 카운트: ${current} -> ${state.currentCount} (${state.isCompleted ? '완료' : '진행중'})`);
 
     syncHomeworkDiary(cfg, item, characterId, state, prevCompleted);
@@ -1290,12 +1345,10 @@ export function applyPendingHomeworks(characterId: string): void {
 
   // 반영되지 못한 항목(N/A 제외 캐릭터 선택 등) 중, 리셋 주기가 지나지 않은 유효 항목만 보존
   const remainingPending = pendingList.filter(pending => {
-    if (appliedPendingIds.has(pending.id)) return false;
+    if (appliedPending.has(pending) || expiredPending.has(pending)) return false;
     const item = items.find(i => i.id === pending.id);
     if (!item) return false;
-    // 보류 항목 발생 시점 기준 리셋 경과 여부 확인
-    const pendingTime = pending.timestamp ? new Date(pending.timestamp) : new Date(0);
-    return !shouldReset(item.resetRule, pendingTime, now);
+    return !isPendingHomeworkExpired(pending, item.resetRule, now.getTime());
   });
 
   // 대기열 저장

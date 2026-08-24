@@ -3060,6 +3060,65 @@ function checkCustomTabHistoryContracts(): void {
   }, '커스텀 탭 ID resetLastReadIndex 호출 시 예외가 발생했습니다.');
 }
 
+function checkPendingHomeworkOrdering(): void {
+  const {
+    mergePendingHomeworkEvent,
+    resolvePendingHomeworkCount,
+    isPendingHomeworkExpired,
+  } = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as {
+    mergePendingHomeworkEvent(
+      existing: { id: string; count: number; isIncrement: boolean; timestamp: number } | undefined,
+      id: string,
+      count: number,
+      isIncrement: boolean,
+      timestamp: number,
+    ): { id: string; count: number; isIncrement: boolean; timestamp: number };
+    resolvePendingHomeworkCount(
+      current: number,
+      pending: { id: string; count: number; isIncrement: boolean; timestamp: number },
+      max: number,
+    ): number;
+    isPendingHomeworkExpired(
+      pending: { id: string; count: number; isIncrement: boolean; timestamp: number },
+      rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number },
+      nowTimestamp: number,
+    ): boolean;
+  };
+
+  const incrementFirst = mergePendingHomeworkEvent(undefined, 'weekly-test', 1, true, 100);
+  const incrementThenAbsolute = mergePendingHomeworkEvent(incrementFirst, 'weekly-test', 3, false, 200);
+  assert.equal(incrementThenAbsolute.isIncrement, false);
+  assert.equal(incrementThenAbsolute.count, 3);
+  assert.equal(resolvePendingHomeworkCount(2, incrementThenAbsolute, 10), 3,
+    '증분 뒤 절대값은 감지된 절대 횟수로 설정되어야 합니다.');
+
+  const absoluteFirst = mergePendingHomeworkEvent(undefined, 'weekly-test', 3, false, 100);
+  const absoluteThenIncrement = mergePendingHomeworkEvent(absoluteFirst, 'weekly-test', 1, true, 200);
+  assert.equal(absoluteThenIncrement.isIncrement, false);
+  assert.equal(absoluteThenIncrement.count, 4);
+  assert.equal(resolvePendingHomeworkCount(2, absoluteThenIncrement, 10), 4,
+    '절대값 뒤 증분은 현재 캐릭터 횟수를 이중 가산하지 않아야 합니다.');
+
+  const increments = mergePendingHomeworkEvent(
+    mergePendingHomeworkEvent(undefined, 'weekly-test', 1, true, 100),
+    'weekly-test',
+    2,
+    true,
+    200,
+  );
+  assert.equal(increments.isIncrement, true);
+  assert.equal(resolvePendingHomeworkCount(2, increments, 10), 5,
+    '증분 이벤트만 있으면 기존 캐릭터 횟수에 누적되어야 합니다.');
+
+  const beforeReset = new Date(2026, 7, 24, 5, 59, 0).getTime();
+  const afterReset = new Date(2026, 7, 24, 6, 1, 0).getTime();
+  const afterCurrentReset = new Date(2026, 7, 24, 6, 0, 30).getTime();
+  const stalePending = mergePendingHomeworkEvent(undefined, 'daily-test', 1, true, beforeReset);
+  const currentPending = mergePendingHomeworkEvent(undefined, 'daily-test', 1, true, afterCurrentReset);
+  assert.equal(isPendingHomeworkExpired(stalePending, { type: 'daily', hour: 6 }, afterReset), true);
+  assert.equal(isPendingHomeworkExpired(currentPending, { type: 'daily', hour: 6 }, afterReset), false);
+}
+
 function checkGoogleSyncDataContracts(): void {
   const syncDataHelper = require(path.join(projectRoot, 'dist', 'modules', 'syncDataHelper.js'));
 
@@ -3176,6 +3235,7 @@ checkCorruptedConfigResilience();
 checkShoutSuffixStripping();
 checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
+checkPendingHomeworkOrdering();
 checkGoogleSyncDataContracts();
 
 console.log('Refactor regression checks passed.');
