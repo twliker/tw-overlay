@@ -223,8 +223,39 @@ export async function syncWeeklyChatLogs(options?: {
     };
   }
 
+  const lootsDetected = doneData.loots.length;
+  const essencesDetected = (doneData.essences || []).reduce((sum, item) => sum + item.count, 0);
+  const seedsDetected = doneData.seeds.length;
+  const shoutsDetected = doneData.shouts.length;
+  const homeworkDetected = Object.keys(doneData.accumulatedHomework).length;
+  const elsoPointsDetected = doneData.elsoPoints.reduce((sum, item) => sum + item.amount, 0);
+
   // 메인 프로세스에서 단 1회의 트랜잭션으로 초고속 일괄 반영 (0.01초 미만 완료, UI 프리징 제로)
   const batchResult = diaryDb.batchInsertSyncResults(doneData);
+  if (!batchResult.success) {
+    log(`[SYNC] 주간 채팅 로그 DB 반영 실패: ${batchResult.error || '알 수 없는 오류'}`);
+    return {
+      success: false,
+      startDate: startDateStr,
+      endDate: endDateStr,
+      totalFiles: targetFiles.length,
+      totalLines: doneData.totalLines,
+      lootsAdded: 0,
+      shoutsAdded: 0,
+      homeworkUpdated: 0,
+      seedsAdded: 0,
+      elsoPointsAdded: 0,
+      essencesAdded: 0,
+      lootsDetected,
+      homeworkDetected,
+      shoutsDetected,
+      seedsDetected,
+      elsoPointsDetected,
+      essencesDetected,
+      error: `동기화 결과 저장 중 오류가 발생했습니다: ${batchResult.error || '알 수 없는 오류'}`
+    };
+  }
+
   const lootsAdded = batchResult.lootsAdded;
   const essencesAdded = batchResult.essencesAdded;
   const seedsAdded = batchResult.seedsAdded;
@@ -236,13 +267,6 @@ export async function syncWeeklyChatLogs(options?: {
     const updated = contentsChecker.mergeHomeworkCountFromSync(hwId, detectedCount);
     if (updated) homeworkUpdated++;
   }
-
-  const lootsDetected = doneData.loots.length;
-  const essencesDetected = (doneData.essences || []).reduce((sum, item) => sum + item.count, 0);
-  const seedsDetected = doneData.seeds.length;
-  const shoutsDetected = doneData.shouts.length;
-  const homeworkDetected = Object.keys(doneData.accumulatedHomework).length;
-  const elsoPointsDetected = doneData.elsoPoints.reduce((sum, item) => sum + item.amount, 0);
 
   // 동기화 완료 후 다이어리 및 외치기 창에 갱신 브로드캐스트
   broadcastToAllWindows('diary-updated');

@@ -2782,6 +2782,31 @@ function checkChatLogSyncManagerContracts() {
       '기본 지도가 기존 사용자 행을 덮어쓸 수 있습니다.');
     assert.match(diaryDbSource, /Version 2 migration completed/);
 
+    // 배치 중 후반부 쓰기가 실패하면 앞서 증가한 성공 카운터와 DB 변경이 모두 롤백되어야 한다.
+    const rollbackDate = '2099-12-30';
+    const rollbackContent = '[득템] 롤백 검증 아이템';
+    const failedBatch = diaryDb.batchInsertSyncResults({
+      loots: [{ date: rollbackDate, timeOnly: '23:59:58', diaryContent: rollbackContent, count: 1 }],
+      essences: [],
+      seeds: [],
+      elsoPoints: [],
+      shouts: [{ fullTimestamp: 4_102_444_798, sender: null, message: 'NOT NULL 실패 유도' }],
+    });
+    assert.equal(failedBatch.success, false, '롤백된 배치가 성공으로 보고되었습니다.');
+    assert.deepEqual(
+      {
+        lootsAdded: failedBatch.lootsAdded,
+        essencesAdded: failedBatch.essencesAdded,
+        seedsAdded: failedBatch.seedsAdded,
+        elsoPointsAdded: failedBatch.elsoPointsAdded,
+        shoutsAdded: failedBatch.shoutsAdded,
+      },
+      { lootsAdded: 0, essencesAdded: 0, seedsAdded: 0, elsoPointsAdded: 0, shoutsAdded: 0 },
+      '롤백된 배치가 중간 성공 건수를 반환했습니다.',
+    );
+    assert.equal(diaryDb.hasActivityLog(rollbackDate, '23:59:58', rollbackContent), false,
+      '배치 실패 전에 삽입된 활동 기록이 롤백되지 않았습니다.');
+
     // 테스트 후 데이터 정리 및 DB 파일 닫기
     diaryDb.removeActivityLog(testDate, 'loot', testContent);
     if (typeof diaryDb.closeDb === 'function') {

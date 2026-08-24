@@ -1198,11 +1198,25 @@ export interface BatchSyncData {
 }
 
 export interface BatchSyncResult {
+  success: boolean;
   lootsAdded: number;
   essencesAdded: number;
   seedsAdded: number;
   elsoPointsAdded: number;
   shoutsAdded: number;
+  error?: string;
+}
+
+function createFailedBatchSyncResult(error: string): BatchSyncResult {
+  return {
+    success: false,
+    lootsAdded: 0,
+    essencesAdded: 0,
+    seedsAdded: 0,
+    elsoPointsAdded: 0,
+    shoutsAdded: 0,
+    error
+  };
 }
 
 /**
@@ -1211,7 +1225,7 @@ export interface BatchSyncResult {
 export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   flushPendingElso();
   if (!db) initDb();
-  if (!db) return { lootsAdded: 0, essencesAdded: 0, seedsAdded: 0, elsoPointsAdded: 0, shoutsAdded: 0 };
+  if (!db) return createFailedBatchSyncResult('데이터베이스를 초기화하지 못했습니다.');
 
   let lootsAdded = 0;
   let essencesAdded = 0;
@@ -1336,8 +1350,10 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     runBatch();
   } catch (err) {
     log(`[DiaryDB] batchInsertSyncResults failed: ${err}`);
+    // 트랜잭션은 전부 롤백되므로 중간에 증가한 메모리 카운터를 성공 건수로 반환하면 안 된다.
+    return createFailedBatchSyncResult(err instanceof Error ? err.message : String(err));
   }
-  return { lootsAdded, essencesAdded, seedsAdded, elsoPointsAdded, shoutsAdded };
+  return { success: true, lootsAdded, essencesAdded, seedsAdded, elsoPointsAdded, shoutsAdded };
 }
 
 /** 
