@@ -3,9 +3,11 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { app } from 'electron';
-import { AppConfig, ContentsCheckerItem, GoogleSyncPayload, CharacterPreset } from '../shared/types';
+import { AppConfig, ContentsCheckerItem, GoogleChecklistSyncOperation, GoogleSyncPayload, CharacterPreset } from '../shared/types';
 import { log } from './logger';
+import { sanitizeExternalConfigPatch } from './config';
 
 const BACKUP_FILENAME = 'config.backup-sync.json';
 
@@ -146,6 +148,7 @@ const TOP_LEVEL_SOUND_KEYS = new Set<keyof AppConfig>([
 ]);
 
 function cloneValue<T>(value: T): T {
+  if (value === undefined || value === null) return value;
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
@@ -224,27 +227,300 @@ export function extractSyncData(cfg: AppConfig): Partial<AppConfig> {
   };
 }
 
-function buildPayload(data: Partial<AppConfig>, userEmail: string): GoogleSyncPayload {
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function calculateSyncChecksum(data: Partial<AppConfig>): string {
+  return crypto.createHash('sha256').update(stableJson(data), 'utf-8').digest('hex');
+}
+
+function calculateValueChecksum(value: unknown): string {
+  return crypto.createHash('sha256').update(stableJson(value), 'utf-8').digest('hex');
+}
+
+function buildPayload(
+  kind: 'settings' | 'checklist',
+  data: Partial<AppConfig>,
+  userEmail: string,
+  generationId?: string,
+): GoogleSyncPayload {
+  const lastSyncedAt = Date.now();
   return {
     schemaVersion: 1,
     appVersion: app.getVersion(),
-    lastSyncedAt: Date.now(),
+    lastSyncedAt,
     updatedBy: userEmail,
+    kind,
+    revision: `${lastSyncedAt}-${crypto.randomUUID()}`,
+    generationId,
+    checksum: calculateSyncChecksum(data),
     data,
   };
 }
 
-export function buildSettingsSyncPayload(cfg: AppConfig, userEmail: string): GoogleSyncPayload {
-  return buildPayload(extractSettingsSyncData(cfg), userEmail);
+export function buildSettingsSyncPayload(
+  cfg: AppConfig,
+  userEmail: string,
+  generationId?: string,
+): GoogleSyncPayload {
+  return buildPayload('settings', extractSettingsSyncData(cfg), userEmail, generationId);
 }
 
-export function buildChecklistSyncPayload(cfg: AppConfig, userEmail: string): GoogleSyncPayload {
-  return buildPayload(extractChecklistSyncData(cfg), userEmail);
+export function buildChecklistSyncPayload(
+  cfg: AppConfig,
+  installationId: string,
+  generationId?: string,
+  operations: GoogleChecklistSyncOperation[] = [],
+): GoogleSyncPayload {
+  const payload = buildPayload('checklist', extractChecklistSyncData(cfg), installationId, generationId);
+  payload.operations = cloneValue(operations.slice(-1_000));
+  payload.operationsChecksum = calculateValueChecksum(payload.operations);
+  return payload;
 }
 
 /** 구글 드라이브 업로드용 페이로드 생성 */
 export function buildSyncPayload(cfg: AppConfig, userEmail: string): GoogleSyncPayload {
-  return buildPayload(extractSyncData(cfg), userEmail);
+  const data = extractSyncData(cfg);
+  const payload = buildPayload('settings', data, userEmail);
+  // 구 단일 payload API는 UI 미리보기 호환용으로만 남긴다.
+  delete payload.kind;
+  return payload;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Drive에서 받은 JSON을 config에 적용하기 전 형식·종류·체크섬을 검증한다. */
+export function validateSyncPayload(
+  value: unknown,
+  expectedKind: 'settings' | 'checklist',
+): value is GoogleSyncPayload {
+  if (!isPlainObject(value)
+    || value.schemaVersion !== 1
+    || value.kind !== expectedKind
+    || typeof value.appVersion !== 'string'
+    || typeof value.lastSyncedAt !== 'number'
+    || !Number.isFinite(value.lastSyncedAt)
+    || typeof value.updatedBy !== 'string'
+    || typeof value.revision !== 'string'
+    || typeof value.generationId !== 'string'
+    || !isPlainObject(value.data)) return false;
+
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return false;
+  }
+  if (Buffer.byteLength(serialized, 'utf-8') > 5 * 1024 * 1024) return false;
+
+  const allowedKeys = new Set<string>(expectedKind === 'settings'
+    ? SETTINGS_SYNCABLE_KEYS
+    : CHECKLIST_SYNCABLE_KEYS);
+  if (Object.keys(value.data).some(key => !allowedKeys.has(key))) return false;
+  if (!sanitizeExternalConfigPatch(value.data)) return false;
+  if (expectedKind === 'checklist' && value.operations !== undefined) {
+    if (!Array.isArray(value.operations) || value.operations.length > 1_000
+      || value.operations.some(operation => !isPlainObject(operation)
+        || typeof operation.id !== 'string' || operation.id.length > 200
+        || typeof operation.deviceId !== 'string' || operation.deviceId.length > 200
+        || typeof operation.createdAt !== 'number' || !Number.isFinite(operation.createdAt)
+        || !Array.isArray(operation.keys) || operation.keys.length > CHECKLIST_SYNCABLE_KEYS.length
+        || operation.keys.some(key => typeof key !== 'string'
+          || !CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig)))) return false;
+    if (typeof value.operationsChecksum !== 'string'
+      || value.operationsChecksum !== calculateValueChecksum(value.operations)) return false;
+  }
+  if (typeof value.checksum !== 'string'
+    || value.checksum !== calculateSyncChecksum(value.data as Partial<AppConfig>)) return false;
+  return true;
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  return stableJson(left) === stableJson(right);
+}
+
+function resolveValue<T>(base: T | undefined, local: T | undefined, remote: T | undefined): T | undefined {
+  const localChanged = !valuesEqual(local, base);
+  const remoteChanged = !valuesEqual(remote, base);
+  if (!localChanged) return cloneValue(remote);
+  if (!remoteChanged) return cloneValue(local);
+  // 동일 필드를 양쪽에서 바꾼 경우에는 실제 플레이 PC인 로컬을 우선한다.
+  return cloneValue(local);
+}
+
+function mergeRecordThreeWay(
+  base: Record<string, unknown> = {},
+  local: Record<string, unknown> = {},
+  remote: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)]);
+  for (const key of keys) {
+    const resolved = resolveValue(base[key], local[key], remote[key]);
+    if (resolved !== undefined) result[key] = resolved;
+  }
+  return result;
+}
+
+function mergeCompletedStatesThreeWay(
+  base: ContentsCheckerItem['completedState'] = {},
+  local: ContentsCheckerItem['completedState'] = {},
+  remote: ContentsCheckerItem['completedState'] = {},
+): ContentsCheckerItem['completedState'] {
+  const result: ContentsCheckerItem['completedState'] = {};
+  const characterIds = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)]);
+  for (const characterId of characterIds) {
+    const baseState = base[characterId];
+    const localState = local[characterId];
+    const remoteState = remote[characterId];
+    const resolvedWhole = resolveValue(baseState, localState, remoteState);
+    if (!localState || !remoteState || valuesEqual(localState, baseState) || valuesEqual(remoteState, baseState)) {
+      if (resolvedWhole) result[characterId] = resolvedWhole;
+      continue;
+    }
+    result[characterId] = mergeRecordThreeWay(
+      (baseState || {}) as Record<string, unknown>,
+      localState as Record<string, unknown>,
+      remoteState as Record<string, unknown>,
+    ) as unknown as ContentsCheckerItem['completedState'][string];
+  }
+  return result;
+}
+
+function mergeItemsThreeWay(
+  baseItems: ContentsCheckerItem[] = [],
+  localItems: ContentsCheckerItem[] = [],
+  remoteItems: ContentsCheckerItem[] = [],
+): ContentsCheckerItem[] {
+  const base = new Map(baseItems.map(item => [item.id, item]));
+  const local = new Map(localItems.map(item => [item.id, item]));
+  const remote = new Map(remoteItems.map(item => [item.id, item]));
+  const result: ContentsCheckerItem[] = [];
+  const ids = new Set([...base.keys(), ...local.keys(), ...remote.keys()]);
+
+  for (const id of ids) {
+    const baseItem = base.get(id);
+    const localItem = local.get(id);
+    const remoteItem = remote.get(id);
+    const resolvedWhole = resolveValue(baseItem, localItem, remoteItem);
+    if (!localItem || !remoteItem || valuesEqual(localItem, baseItem) || valuesEqual(remoteItem, baseItem)) {
+      if (resolvedWhole) result.push(resolvedWhole);
+      continue;
+    }
+
+    const merged = mergeRecordThreeWay(
+      (baseItem || {}) as unknown as Record<string, unknown>,
+      localItem as unknown as Record<string, unknown>,
+      remoteItem as unknown as Record<string, unknown>,
+    ) as unknown as ContentsCheckerItem;
+    merged.id = id;
+    merged.completedState = mergeCompletedStatesThreeWay(
+      baseItem?.completedState,
+      localItem.completedState,
+      remoteItem.completedState,
+    );
+    result.push(merged);
+  }
+  return result;
+}
+
+function mergeIdArrayThreeWay<T extends { id: string }>(
+  baseValues: T[] = [],
+  localValues: T[] = [],
+  remoteValues: T[] = [],
+): T[] {
+  const base = new Map(baseValues.map(value => [value.id, value]));
+  const local = new Map(localValues.map(value => [value.id, value]));
+  const remote = new Map(remoteValues.map(value => [value.id, value]));
+  const result: T[] = [];
+  for (const id of new Set([...base.keys(), ...local.keys(), ...remote.keys()])) {
+    const resolved = resolveValue(base.get(id), local.get(id), remote.get(id));
+    if (resolved) result.push(resolved);
+  }
+  return result;
+}
+
+function pendingKey(value: AppConfig['pendingHomeworks'] extends Array<infer T> | undefined ? T : never): string {
+  return `${value.id}:${value.resetCycleKey || 'unknown'}`;
+}
+
+function mergePendingThreeWay(
+  baseValues: NonNullable<AppConfig['pendingHomeworks']> = [],
+  localValues: NonNullable<AppConfig['pendingHomeworks']> = [],
+  remoteValues: NonNullable<AppConfig['pendingHomeworks']> = [],
+): NonNullable<AppConfig['pendingHomeworks']> {
+  const base = new Map(baseValues.map(value => [pendingKey(value), value]));
+  const local = new Map(localValues.map(value => [pendingKey(value), value]));
+  const remote = new Map(remoteValues.map(value => [pendingKey(value), value]));
+  const result: NonNullable<AppConfig['pendingHomeworks']> = [];
+  for (const id of new Set([...base.keys(), ...local.keys(), ...remote.keys()])) {
+    const resolved = resolveValue(base.get(id), local.get(id), remote.get(id));
+    if (resolved) result.push(resolved);
+  }
+  return result;
+}
+
+/**
+ * 마지막 정상 동기화본(base)을 기준으로 숙제를 3방향 병합한다.
+ * 한쪽만 바뀐 값은 그쪽을 사용하고, 동일 필드가 양쪽에서 바뀐 경우만 로컬을 우선한다.
+ */
+export function mergeChecklistThreeWay(
+  baseData: Partial<AppConfig> | undefined,
+  localCfg: AppConfig,
+  remoteData: Partial<AppConfig>,
+): Partial<AppConfig> {
+  if (!baseData) {
+    const bootstrapPayload: GoogleSyncPayload = {
+      schemaVersion: 1,
+      appVersion: app.getVersion(),
+      lastSyncedAt: Date.now(),
+      updatedBy: '',
+      data: remoteData,
+    };
+    return extractChecklistSyncData(mergeSyncData(localCfg, bootstrapPayload));
+  }
+  return {
+    contentsCheckerItems: mergeItemsThreeWay(
+      baseData.contentsCheckerItems,
+      localCfg.contentsCheckerItems,
+      remoteData.contentsCheckerItems,
+    ),
+    characterPresets: mergeIdArrayThreeWay(
+      baseData.characterPresets,
+      localCfg.characterPresets,
+      remoteData.characterPresets,
+    ),
+    pendingHomeworks: mergePendingThreeWay(
+      baseData.pendingHomeworks,
+      localCfg.pendingHomeworks,
+      remoteData.pendingHomeworks,
+    ),
+  };
+}
+
+/** 클라우드 설정 스냅샷에 아직 업로드하지 않은 로컬 필드만 다시 얹는다. */
+export function mergeSettingsSnapshot(
+  localCfg: AppConfig,
+  remotePayload: GoogleSyncPayload,
+  localDirtyKeys: string[] = [],
+): AppConfig {
+  const merged = mergeSyncData(localCfg, remotePayload);
+  const dirty = new Set(localDirtyKeys);
+  for (const key of SETTINGS_SYNCABLE_KEYS) {
+    if (dirty.has(String(key)) && localCfg[key] !== undefined) {
+      (merged as any)[key] = cloneValue(localCfg[key]);
+    }
+  }
+  return merged;
 }
 
 /** 동기화 전 로컬 config 안전 백업 생성 */
@@ -420,7 +696,9 @@ export function mergeSyncData(localCfg: AppConfig, cloudPayload: GoogleSyncPaylo
   }
 
   merged.googleSyncLastTime = cloudPayload.lastSyncedAt || Date.now();
-  if (cloudPayload.updatedBy) {
+  // 분리 파일의 updatedBy는 개인정보가 아닌 PC 식별자다. 구 단일 payload에서만
+  // 과거 UI 호환용 이메일 필드로 해석한다.
+  if (cloudPayload.updatedBy && !cloudPayload.kind) {
     merged.googleSyncUserEmail = cloudPayload.updatedBy;
   }
 

@@ -12,6 +12,43 @@ export const META_SYNC_FILE_NAME = 'tw_overlay_sync_meta.json';
 /** 기존 UI·단일 파일 마이그레이션 호환용 별칭. */
 export const SYNC_FILE_NAME = LEGACY_SYNC_FILE_NAME;
 const BOUNDARY = '-------tw_overlay_sync_boundary_314159265';
+let requestController = new AbortController();
+
+export function cancelPendingRequests(): void {
+  requestController.abort();
+  requestController = new AbortController();
+}
+
+async function driveFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  let token = await googleAuth.getValidAccessToken();
+  if (!token) throw new Error('Google 로그인 상태가 아닙니다.');
+
+  const execute = (accessToken: string) => {
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${accessToken}`);
+    return fetch(url, {
+      ...init,
+      headers,
+      signal: AbortSignal.any([requestController.signal, AbortSignal.timeout(15000)]),
+    });
+  };
+
+  let response = await execute(token);
+  if (response.status !== 401) return response;
+  await response.body?.cancel().catch(() => undefined);
+  token = await googleAuth.refreshAfterUnauthorized();
+  if (!token) {
+    googleAuth.invalidateAuth();
+    throw new Error('Google 인증이 만료되었습니다. 다시 로그인해 주세요.');
+  }
+  response = await execute(token);
+  if (response.status === 401) {
+    await response.body?.cancel().catch(() => undefined);
+    googleAuth.invalidateAuth();
+    throw new Error('Google 인증이 만료되었습니다. 다시 로그인해 주세요.');
+  }
+  return response;
+}
 
 export interface DriveFileMeta {
   id: string;
@@ -22,18 +59,10 @@ export interface DriveFileMeta {
 
 /** Google Drive appDataFolder의 모든 파일 목록 조회 (최신 수정순) */
 export async function listSyncFiles(): Promise<DriveFileMeta[]> {
-  const token = await googleAuth.getValidAccessToken();
-  if (!token) {
-    throw new Error('Google 로그인 상태가 아닙니다.');
-  }
-
   const query = encodeURIComponent(`trashed = false`);
   const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,size)`;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  });
+  const res = await driveFetch(url);
 
   if (!res.ok) {
     const errText = await res.text();
@@ -50,18 +79,10 @@ function escapeDriveQueryLiteral(value: string): string {
 
 /** Google Drive appDataFolder에서 지정한 파일 검색 (최신 수정순) */
 export async function findSyncFileByName(fileName: string): Promise<DriveFileMeta | null> {
-  const token = await googleAuth.getValidAccessToken();
-  if (!token) {
-    throw new Error('Google 로그인 상태가 아닙니다.');
-  }
-
   const query = encodeURIComponent(`name = '${escapeDriveQueryLiteral(fileName)}' and trashed = false`);
   const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,size)`;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  });
+  const res = await driveFetch(url);
 
   if (!res.ok) {
     const errText = await res.text();
@@ -82,16 +103,8 @@ export async function findSyncFile(): Promise<DriveFileMeta | null> {
 
 /** Google Drive에서 JSON 파일 다운로드. */
 export async function downloadJsonPayload<T>(fileId: string): Promise<T | null> {
-  const token = await googleAuth.getValidAccessToken();
-  if (!token) {
-    throw new Error('Google 로그인 상태가 아닙니다.');
-  }
-
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15000),
-  });
+  const res = await driveFetch(url);
 
   if (!res.ok) {
     const errText = await res.text();
@@ -118,24 +131,17 @@ export async function uploadJsonPayload(
   payload: unknown,
   existingFileId?: string,
 ): Promise<string> {
-  const token = await googleAuth.getValidAccessToken();
-  if (!token) {
-    throw new Error('Google 로그인 상태가 아닙니다.');
-  }
-
   const payloadString = JSON.stringify(payload, null, 2);
 
   // 1. 기존 파일이 있으면 PATCH로 업데이트
   if (existingFileId) {
     const patchUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=media`;
-    const res = await fetch(patchUrl, {
+    const res = await driveFetch(patchUrl, {
       method: 'PATCH',
       headers: {
-        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json; charset=UTF-8',
       },
       body: payloadString,
-      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {
@@ -174,14 +180,12 @@ export async function uploadJsonPayload(
   ].join('\r\n');
 
   const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-  const res = await fetch(uploadUrl, {
+  const res = await driveFetch(uploadUrl, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`,
       'Content-Type': `multipart/related; boundary=${BOUNDARY}`,
     },
     body: multipartBody,
-    signal: AbortSignal.timeout(15000),
   });
 
   if (!res.ok) {

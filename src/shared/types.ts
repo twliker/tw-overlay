@@ -588,7 +588,30 @@ export interface GoogleSyncPayload {
     appVersion: string;
     lastSyncedAt: number;
     updatedBy: string;
+    kind?: 'settings' | 'checklist';
+    revision?: string;
+    generationId?: string;
+    checksum?: string;
+    operations?: GoogleChecklistSyncOperation[];
+    operationsChecksum?: string;
     data: Partial<AppConfig>;
+}
+
+export interface GoogleChecklistSyncOperation {
+    id: string;
+    deviceId: string;
+    createdAt: number;
+    keys: string[];
+}
+
+export interface GoogleSyncMetaPayload {
+    schemaVersion: number;
+    generationId: string;
+    updatedAt: number;
+    files: {
+        settings?: { id: string; name: string };
+        checklist?: { id: string; name: string };
+    };
 }
 
 export interface GoogleSyncResult {

@@ -3875,7 +3875,7 @@ function checkMissedBossAlertContracts(): void {
     '절전 중 놓친 필드보스 알림을 이력에 기록하지 않습니다.');
 }
 
-function checkGoogleSyncDataContracts(): void {
+async function checkGoogleSyncDataContracts(): Promise<void> {
   const syncDataHelper = require(path.join(projectRoot, 'dist', 'modules', 'syncDataHelper.js'));
 
   // 1. extractSyncData: 동기화 대상 필드만 추출하고 로컬 전용 필드(positions, chatLogPath 등)는 제외
@@ -3951,6 +3951,17 @@ function checkGoogleSyncDataContracts(): void {
   assert.equal(payload.data.userServer, 16);
   assert.equal(syncDataHelper.buildSettingsSyncPayload(sampleLocalConfig, 'tester@gmail.com').data.contentsCheckerItems, undefined);
   assert.equal(syncDataHelper.buildChecklistSyncPayload(sampleLocalConfig, 'tester@gmail.com').data.userServer, undefined);
+  const settingsPayload = syncDataHelper.buildSettingsSyncPayload(sampleLocalConfig, 'device-1', 'generation-1');
+  assert.equal(settingsPayload.kind, 'settings');
+  assert.equal(settingsPayload.generationId, 'generation-1');
+  assert.equal(typeof settingsPayload.revision, 'string');
+  assert.equal(syncDataHelper.validateSyncPayload(settingsPayload, 'settings'), true);
+  assert.equal(syncDataHelper.validateSyncPayload({
+    ...settingsPayload,
+    data: { ...settingsPayload.data, userServer: 99 },
+  }, 'settings'), false, '내용이 바뀐 클라우드 payload의 checksum 검증이 실패하지 않았습니다.');
+  assert.equal(syncDataHelper.validateSyncPayload(settingsPayload, 'checklist'), false,
+    '설정 파일을 숙제 파일로 잘못 허용했습니다.');
 
   // 3. mergeSyncData: 숙제 타임스탬프 기반 병합 및 설정 병합 검증
   const cloudPayload = {
@@ -4038,6 +4049,54 @@ function checkGoogleSyncDataContracts(): void {
   assert.equal(secretMerged.customAlerts[0].soundFile, 'custom_123_local.mp3');
   assert.equal(secretMerged.customAlerts[0].message, '원격 변경');
 
+  const baseChecklist = {
+    contentsCheckerItems: [
+      {
+        id: 'daily-abyss', name: '어비스 심층', category: '일일 숙제', isVisible: true,
+        resetRule: { type: 'daily' },
+        completedState: {
+          'char-1': { isCompleted: false, currentCount: 0 },
+          'char-2': { isCompleted: false, currentCount: 0 },
+          'char-3': { isCompleted: false, currentCount: 0 },
+        },
+      },
+      {
+        id: 'custom-deleted-remotely', name: '원격 삭제', category: '커스텀', isVisible: true,
+        isCustom: true, resetRule: { type: 'weekly' }, completedState: {},
+      },
+    ],
+    characterPresets: [
+      { id: 'char-1', name: '보리스' }, { id: 'char-2', name: '루시안' }, { id: 'char-3', name: '티치엘' },
+    ],
+    pendingHomeworks: [],
+  };
+  const threeWayLocal = {
+    ...sampleLocalConfig,
+    contentsCheckerItems: JSON.parse(JSON.stringify(baseChecklist.contentsCheckerItems)),
+    characterPresets: JSON.parse(JSON.stringify(baseChecklist.characterPresets)),
+    pendingHomeworks: [],
+  };
+  threeWayLocal.contentsCheckerItems[0].completedState['char-2'] = { isCompleted: true, currentCount: 1, lastCompletedAt: 2000 };
+  threeWayLocal.contentsCheckerItems[0].completedState['char-3'] = { isCompleted: true, currentCount: 1, lastCompletedAt: 2100 };
+  const remoteChecklist = JSON.parse(JSON.stringify(baseChecklist));
+  remoteChecklist.contentsCheckerItems = remoteChecklist.contentsCheckerItems.filter((item: any) => item.id !== 'custom-deleted-remotely');
+  remoteChecklist.contentsCheckerItems[0].completedState['char-1'] = { isCompleted: true, currentCount: 1, lastCompletedAt: 1900 };
+  remoteChecklist.contentsCheckerItems[0].completedState['char-3'] = { isCompleted: true, currentCount: 2, lastCompletedAt: 2200 };
+  const threeWay = syncDataHelper.mergeChecklistThreeWay(baseChecklist, threeWayLocal, remoteChecklist);
+  const threeWayItem = threeWay.contentsCheckerItems.find((item: any) => item.id === 'daily-abyss');
+  assert.equal(threeWayItem.completedState['char-1'].currentCount, 1,
+    '원격 PC에서만 바뀐 숙제 완료가 로컬에 반영되지 않았습니다.');
+  assert.equal(threeWayItem.completedState['char-2'].currentCount, 1,
+    '로컬 PC에서만 바뀐 숙제 완료가 보존되지 않았습니다.');
+  assert.equal(threeWayItem.completedState['char-3'].currentCount, 1,
+    '양쪽에서 같은 숙제 필드를 바꾼 충돌에서 로컬 우선 정책이 지켜지지 않았습니다.');
+  assert.equal(threeWay.contentsCheckerItems.some((item: any) => item.id === 'custom-deleted-remotely'), false,
+    '원격에서만 삭제한 커스텀 숙제가 다시 살아났습니다.');
+
+  const dirtySettingsMerged = syncDataHelper.mergeSettingsSnapshot(sampleLocalConfig, settingsPayload, ['userServer']);
+  assert.equal(dirtySettingsMerged.userServer, sampleLocalConfig.userServer,
+    '아직 업로드하지 않은 로컬 설정이 원격 pull에 의해 사라졌습니다.');
+
   const driveSource = read('src/modules/googleDriveSync.ts');
   assert.match(driveSource, /SETTINGS_SYNC_FILE_NAME = 'tw_overlay_settings\.json'/);
   assert.match(driveSource, /CHECKLIST_SYNC_FILE_NAME = 'tw_overlay_checklist\.json'/);
@@ -4046,6 +4105,136 @@ function checkGoogleSyncDataContracts(): void {
     '파일 분리를 위한 이름별 Drive 검색 경계가 없습니다.');
   assert.match(driveSource, /export async function uploadJsonPayload\(/,
     '파일 분리를 위한 범용 JSON 업로드 경계가 없습니다.');
+
+  const managerSource = read('src/modules/cloudSyncManager.ts');
+  assert.doesNotMatch(managerSource, /findSyncFile\(|uploadSyncPayload\(|downloadSyncPayload\(/,
+    '클라우드 매니저가 개발 중 단일 파일 경로를 계속 사용합니다.');
+  assert.match(managerSource, /SETTINGS_DEBOUNCE_MS = 1_500/);
+  assert.match(managerSource, /CHECKLIST_DEBOUNCE_MS = 500/);
+  assert.match(managerSource, /GAME_RUNNING_PULL_MS = 30_000/,
+    '게임 실행 중 다른 PC 변경을 받아오는 30초 pull 주기가 없습니다.');
+  assert.match(managerSource, /mergeChecklistThreeWay/,
+    '마지막 정상 동기화본 기준 숙제 3방향 병합이 실제 전송 경로에 연결되지 않았습니다.');
+  assert.match(managerSource, /checklistOutbox/,
+    '숙제 변경의 내구 outbox가 실제 전송 경로에 연결되지 않았습니다.');
+  assert.match(managerSource, /verifiedIds[\s\S]*?outboxIds\.some/,
+    '숙제 operation이 원격에서 확인되기 전에 outbox를 제거할 수 있습니다.');
+
+  const authSource = read('src/modules/googleAuth.ts');
+  assert.match(authSource, /const loginGeneration = \+\+_loginGeneration/,
+    '취소된 OAuth 콜백의 늦은 토큰 저장을 막는 로그인 세대가 없습니다.');
+  assert.match(authSource, /tokens\.access_token && tokens\.expiry_date[\s\S]*?if \(!tokens\.refresh_token\) return null/,
+    '유효 access token만 있는 세션을 refresh token 검사보다 먼저 허용하지 않습니다.');
+  const driveRequestSource = read('src/modules/googleDriveSync.ts');
+  assert.match(driveRequestSource, /cancelPendingRequests/);
+  assert.match(driveRequestSource, /response\.status !== 401[\s\S]*?refreshAfterUnauthorized/,
+    'Drive 401의 1회 refresh/retry 경계가 없습니다.');
+
+  const cloudSyncDocs = read('docs/google-drive-sync.md');
+  for (const key of syncDataHelper.SETTINGS_SYNCABLE_KEYS) {
+    assert.ok(cloudSyncDocs.includes(`\`${String(key)}\``),
+      `Google Drive 문서에 설정 동기화 키가 누락되었습니다: ${String(key)}`);
+  }
+  for (const key of syncDataHelper.CHECKLIST_SYNCABLE_KEYS) {
+    assert.ok(cloudSyncDocs.includes(`\`${String(key)}\``) || cloudSyncDocs.includes(String(key)),
+      `Google Drive 문서에 숙제 동기화 키가 누락되었습니다: ${String(key)}`);
+  }
+  for (const excluded of ['discordWebhookUrl', 'chatLogPath', 'msgerLogPath', 'customSounds', 'positions']) {
+    assert.ok(cloudSyncDocs.includes(`\`${excluded}\``),
+      `Google Drive 문서에 중요 제외 키가 누락되었습니다: ${excluded}`);
+  }
+
+  const cloudSyncState = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncState.js'));
+  cloudSyncState.resetCacheForTests();
+  const initialState = cloudSyncState.load();
+  assert.equal(typeof initialState.deviceId, 'string');
+  cloudSyncState.update((state: any) => {
+    state.settingsDirtyKeys = ['userServer'];
+    state.checklistOutbox.push({ id: 'operation-1', createdAt: 1000, keys: ['contentsCheckerItems'] });
+  });
+  cloudSyncState.resetCacheForTests();
+  const persistedState = cloudSyncState.load();
+  assert.deepEqual(persistedState.settingsDirtyKeys, ['userServer']);
+  assert.equal(persistedState.checklistOutbox[0].id, 'operation-1');
+
+  // 실제 cloudSyncManager가 분리 파일을 사용하고 다른 PC의 숙제 변경을 echo 없이 받는지 모의 Drive로 검증
+  const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js'));
+  configModule.saveImmediate({
+    googleSyncEnabled: true,
+    googleSyncAutoSync: true,
+    userServer: 16,
+    contentsCheckerItems: sampleLocalConfig.contentsCheckerItems,
+    characterPresets: sampleLocalConfig.characterPresets,
+    pendingHomeworks: [],
+  });
+
+  const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js'));
+  googleAuth.isLoggedIn = () => true;
+  googleAuth.loadStoredProfile = () => ({ email: 'integration@example.com' });
+
+  const googleDrive = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js'));
+  const memoryFiles = new Map<string, { id: string; name: string; modifiedTime: string; payload: any }>();
+  let nextFileId = 1;
+  let uploadCount = 0;
+  googleDrive.listSyncFiles = async () => Array.from(memoryFiles.values()).map(file => ({
+    id: file.id,
+    name: file.name,
+    modifiedTime: file.modifiedTime,
+    size: String(Buffer.byteLength(JSON.stringify(file.payload), 'utf-8')),
+  }));
+  googleDrive.downloadJsonPayload = async (fileId: string) => {
+    const file = memoryFiles.get(fileId);
+    return file ? structuredClone(file.payload) : null;
+  };
+  googleDrive.uploadJsonPayload = async (fileName: string, payloadValue: any, existingFileId?: string) => {
+    uploadCount++;
+    const id = existingFileId || `mock-file-${nextFileId++}`;
+    memoryFiles.set(id, {
+      id,
+      name: fileName,
+      modifiedTime: new Date(Date.now() + uploadCount).toISOString(),
+      payload: structuredClone(payloadValue),
+    });
+    return id;
+  };
+  googleDrive.cancelPendingRequests = () => undefined;
+
+  cloudSyncState.resetCacheForTests();
+  const cloudManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js'));
+  const backupResult = await cloudManager.syncToCloud(true);
+  assert.equal(backupResult.success, true);
+  const names = Array.from(memoryFiles.values()).map(file => file.name).sort();
+  assert.deepEqual(names, [
+    'tw_overlay_checklist.json',
+    'tw_overlay_settings.json',
+    'tw_overlay_sync_meta.json',
+  ]);
+  const uploadedSettings = Array.from(memoryFiles.values()).find(file => file.name === 'tw_overlay_settings.json')!;
+  const uploadedChecklist = Array.from(memoryFiles.values()).find(file => file.name === 'tw_overlay_checklist.json')!;
+  assert.equal(uploadedSettings.payload.data.contentsCheckerItems, undefined,
+    '실제 설정 업로드 파일에 숙제 상태가 섞였습니다.');
+  assert.equal(uploadedChecklist.payload.data.userServer, undefined,
+    '실제 숙제 업로드 파일에 일반 설정이 섞였습니다.');
+
+  const remoteChecklistPayload = structuredClone(uploadedChecklist.payload);
+  const remoteItem = remoteChecklistPayload.data.contentsCheckerItems.find((item: any) => item.id === 'daily-abyss');
+  remoteItem.completedState['char-2'] = { isCompleted: true, currentCount: 1, lastCompletedAt: 5000 };
+  remoteChecklistPayload.lastSyncedAt += 1000;
+  remoteChecklistPayload.revision = `${remoteChecklistPayload.lastSyncedAt}-remote-office`;
+  remoteChecklistPayload.checksum = syncDataHelper.calculateSyncChecksum(remoteChecklistPayload.data);
+  uploadedChecklist.payload = remoteChecklistPayload;
+  uploadedChecklist.modifiedTime = new Date(Date.now() + 10_000).toISOString();
+  const uploadsBeforePull = uploadCount;
+
+  const pullResult = await cloudManager.syncFromCloud(false);
+  assert.equal(pullResult.success, true);
+  const received = configModule.load().contentsCheckerItems
+    .find((item: any) => item.id === 'daily-abyss').completedState['char-2'];
+  assert.equal(received.isCompleted, true,
+    '회사 PC의 원격 숙제 완료가 집 PC 자동 pull에 반영되지 않았습니다.');
+  assert.equal(received.lastCompletedAt, 5000);
+  assert.equal(uploadCount, uploadsBeforePull,
+    '원격 숙제 변경을 적용한 직후 불필요한 echo upload가 발생했습니다.');
 }
 
 checkDiscordNotifierContracts();
@@ -4067,8 +4256,11 @@ checkAbandonedFeeMatchingContracts();
 checkMissedMinuteSchedulerContracts();
 checkMissedCustomAlertContracts();
 checkMissedBossAlertContracts();
-checkGoogleSyncDataContracts();
-
-console.log('Refactor regression checks passed.');
-process.exit(0);
+void checkGoogleSyncDataContracts().then(() => {
+  console.log('Refactor regression checks passed.');
+  process.exit(0);
+}).catch(error => {
+  console.error(error);
+  process.exit(1);
+});
 

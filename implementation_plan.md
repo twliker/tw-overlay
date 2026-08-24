@@ -1,7 +1,7 @@
 # TW-Overlay v3.0.0 정식 릴리즈 구현 계획
 
 작성일: 2026-08-24  
-상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 3 클라우드 분리 계약 기반 완료, Phase 5 작업표시줄 회귀 이력 기반 동적 Z-order 수정의 자동 검증 완료(실기 검증 대기)**
+상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 3 분리 파일·다중 PC 자동 수렴 핵심 경로 구현 및 강화 검증 진행 중, Phase 5 동적 Z-order·독 재사용 실기 검증 완료**
 
 ## 0. 최우선 개발·릴리즈 원칙
 
@@ -47,13 +47,22 @@
 - 듀얼 모니터에서는 외부 foreground 창의 실제 bounds가 게임 전체화면과 겹칠 때만 묶음을 강등한다. 반대편 모니터에만 있는 외부 앱 포커스는 게임 모니터의 묶음을 유지하며, 창이 두 화면에 걸치거나 게임 화면으로 이동하면 즉시 강등한다.
 - 위 계약을 고정하는 회귀 검사와 전체 `npm test` 통과. 단, 실제 Windows 듀얼 모니터·장시간 플레이 증상이 완전히 사라졌다는 판정은 실기 검증 후에만 내린다.
 
-현재 Phase 3에서 완료하고 자동 검증을 통과한 클라우드 기반 단위(코드 수정 `57ddf5a`):
+현재 Phase 3에서 완료하고 자동 검증을 통과한 클라우드 단위:
 
 - `tw_overlay_settings.json`, `tw_overlay_checklist.json`, `tw_overlay_sync_meta.json`의 고정 이름과 이름별 Drive 검색·범용 JSON 업/다운로드 경계 추가
 - 일반 설정과 숙제·캐릭터·pending 이력의 allowlist·payload builder 분리
 - Discord Webhook URL, 절대경로·커스텀 사운드 ID의 업로드 제외와 비정상 원격 payload가 로컬 비밀값·사운드를 덮지 못하는 병합 방어
 - `pendingHomeworks`는 숙제 전용 builder에 포함한다. 클라우드 기능은 미배포 개발 단계이므로 기존 단일 파일 형식의 호환·이전 계약은 두지 않는다.
-- 이 단계는 아직 `cloudSyncManager` 전송 큐를 분리 파일에 연결하지 않았다. 다음 단위에서 파일별 dirty 큐와 실제 업로드를 바로 연결하고, 개발 중 단일 파일은 조회·병합·마이그레이션하지 않는다.
+- 설정 1.5초·숙제 0.5초의 독립 dirty/debounce와 single-flight Drive 전송 큐를 실제 세 파일 업로드에 연결했다. 개발 중 단일 파일은 조회·병합·마이그레이션하지 않는다.
+- PC별 `cloud-sync-state.json`에 installation ID·최초 프로필 상태, 공유 generation, 파일 ID, 원격 revision, 설정 dirty key, 숙제 outbox/확인 operation과 base snapshot을 원자 저장한다.
+- 숙제는 마지막 정상 동기화본 기준 `base/local/remote` 3방향 병합을 적용하고, 원격만 변경된 완료·삭제는 수신하며 같은 필드 양쪽 충돌만 실제 플레이 로컬을 우선한다.
+- 회사·집 상시 실행 시 게임 실행 중 약 30초, 유휴 시 약 5분 pull을 수행하고 앱 시작·게임 시작·절전 복귀·화면 잠금 해제·자동 동기화 재활성화에는 즉시 pull한다.
+- 메타 파일의 Drive file ID·공유 generation을 이름 검색보다 우선하고, 데이터 payload의 종류·schema·revision·checksum·크기·allowlist를 적용 전에 검증한다.
+- 로그아웃·인증 무효화는 진행 Drive 요청을 취소하며 Drive 401은 access token 강제 갱신 후 한 번만 재시도한다.
+- 숙제 업로드 직후 원격 revision·operation ID를 재조회해 확인된 operation만 outbox에서 제거하고, 이후 pull에서 확인 operation이 원격에서 사라졌으면 outbox에 다시 넣어 재게시한다.
+- 메모리 Drive 통합 검사에서 설정/숙제/메타 분리 업로드와 `회사 숙제 변경 → 집 pull → 로컬 UI 상태 반영 → echo upload 없음` 흐름을 검증한다.
+- pull·업로드에는 installation별 jitter와 429·오프라인을 포함한 지수 백오프를 적용하고, 네트워크 오프라인→온라인 전환은 10초 이내 감지해 즉시 pull한다.
+- 남은 강화 작업은 교차 PATCH 동시성 스트레스, 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증이다.
 
 ## 1. 감사 기준과 현재 상태
 
@@ -276,7 +285,7 @@
 
 대상: A-07~A-09, B-05, D-01~D-06, D-09~D-10
 
-진행 상태: 파일명·범용 Drive JSON 경계, 설정/숙제 allowlist·builder 분리, Webhook·로컬 사운드 제외는 완료했다. `cloudSyncManager`의 실제 파일별 dirty 큐·업로드·복원·pull 루프와 meta 파일은 미연결이다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
+진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation 재게시·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드와 회사→집 숙제 수신·echo 방지를 통과했다. 교차 PATCH 동시성 스트레스, 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
 
 1. 클라우드 정식 저장 계약을 처음부터 다음 세 파일로 구성한다. 개발 중 생성된 `tw_overlay_sync.json`은 조회하지 않는다.
    - `tw_overlay_settings.json`: 일반 설정의 클라우드 권위 스냅샷

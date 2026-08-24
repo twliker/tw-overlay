@@ -1,5 +1,5 @@
 import './bootstrap';
-import { app, protocol, net, dialog } from 'electron';
+import { app, protocol, net, dialog, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -76,6 +76,15 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
+  cloudSync.initializeLocalProfileState();
+  powerMonitor.on('resume', () => cloudSync.requestImmediatePull('system-resume'));
+  powerMonitor.on('unlock-screen', () => cloudSync.requestImmediatePull('screen-unlock'));
+  let wasNetworkOnline = net.isOnline();
+  setInterval(() => {
+    const isNetworkOnline = net.isOnline();
+    if (!wasNetworkOnline && isNetworkOnline) cloudSync.requestImmediatePull('network-reconnected');
+    wasNetworkOnline = isNetworkOnline;
+  }, 10_000);
   if (!gotTheLock) return;
 
   // preload가 시작 시 단일 기본 설정 원본을 동기 조회하므로 창 생성보다 먼저 등록해야 합니다.
@@ -230,7 +239,8 @@ app.whenReady().then(() => {
 
     // 구글 드라이브 자동 동기화 (로그인 상태일 때 백그라운드 다운로드)
     const syncStatus = cloudSync.getSyncStatus();
-    if (syncStatus.isLinked && syncStatus.autoSync !== false) {
+    if (syncStatus.isLinked && syncStatus.autoSync !== false && config.load().googleSyncEnabled === true) {
+      cloudSync.startBackgroundSync();
       cloudSync.syncFromCloud(false).catch((err) => {
         log(`[BOOT] 구글 드라이브 시작 동기화 실패: ${err}`);
       });
@@ -250,6 +260,7 @@ app.on('before-quit', (event) => {
   if (isFlushingAndQuitting) return;
 
   appState.isQuitting = true;
+  cloudSync.stopBackgroundSync();
   contentsChecker.cancelPendingDiaryWriteRetries();
   if (config.hasPending()) config.saveImmediate();
   if (!diaryDb.flushPendingElso()) {

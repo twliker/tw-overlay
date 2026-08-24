@@ -860,7 +860,9 @@ export function register(): void {
   ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
   ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
     if (!isBoolean(enabled)) return cloudSync.getSyncStatus();
-    config.save({ googleSyncAutoSync: enabled });
+    config.saveImmediate({ googleSyncAutoSync: enabled });
+    cloudSync.refreshBackgroundSchedule();
+    if (enabled) cloudSync.requestImmediatePull('auto-sync-enabled');
     const status = cloudSync.getSyncStatus();
     broadcastToAllWindows('google-sync-status-changed', status);
     return status;

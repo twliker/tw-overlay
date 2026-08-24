@@ -23,6 +23,7 @@ let _cachedProfile: GoogleUserProfile | null = null;
 let _isLoggingIn = false;
 let _cancelCurrentLogin: (() => void) | null = null;
 let _onAuthInvalidated: (() => void) | null = null;
+let _loginGeneration = 0;
 
 /** 토큰 무효화(만료/철회) 시 실행될 콜백 등록 */
 export function setOnAuthInvalidated(callback: () => void): void {
@@ -162,6 +163,8 @@ export function loadStoredProfile(): GoogleUserProfile | null {
 
 /** 로그아웃 (토큰 및 프로필 삭제) */
 export function logout(): void {
+  _loginGeneration++;
+  if (_isLoggingIn && _cancelCurrentLogin) _cancelCurrentLogin();
   _cachedTokens = null;
   _cachedProfile = null;
 
@@ -186,6 +189,26 @@ export function logout(): void {
   log('[GoogleAuth] 로그아웃 완료');
 }
 
+/** Drive 401 응답 후 refresh token을 보존한 채 access token만 강제로 갱신한다. */
+export async function refreshAfterUnauthorized(): Promise<string | null> {
+  const tokens = loadStoredTokens();
+  if (!tokens?.refresh_token) return null;
+  saveTokens({ ...tokens, access_token: '', expiry_date: 0 });
+  return getValidAccessToken();
+}
+
+/** 재인증으로도 401이 지속될 때 로컬 인증과 UI 상태를 함께 무효화한다. */
+export function invalidateAuth(): void {
+  logout();
+  if (_onAuthInvalidated) {
+    try {
+      _onAuthInvalidated();
+    } catch (error) {
+      log(`[GoogleAuth] 인증 무효화 알림 실패: ${error}`);
+    }
+  }
+}
+
 /** 로그인 여부 확인 */
 export function isLoggedIn(): boolean {
   const tokens = loadStoredTokens();
@@ -193,7 +216,10 @@ export function isLoggedIn(): boolean {
 }
 
 /** Access Token으로 사용자 프로필(이메일 등) 조회 */
-export async function fetchUserProfile(accessToken: string): Promise<GoogleUserProfile | null> {
+export async function fetchUserProfile(
+  accessToken: string,
+  shouldAccept: () => boolean = () => true,
+): Promise<GoogleUserProfile | null> {
   try {
     const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -209,6 +235,7 @@ export async function fetchUserProfile(accessToken: string): Promise<GoogleUserP
       name: data.name,
       picture: data.picture,
     };
+    if (!shouldAccept()) return null;
     saveUserProfile(profile);
     return profile;
   } catch (err) {
@@ -222,14 +249,13 @@ let _refreshPromise: Promise<string | null> | null = null;
 /** 유효한 Access Token 가져오기 (만료 시 자동 Refresh, 중복 요청 방지 락 적용) */
 export async function getValidAccessToken(): Promise<string | null> {
   const tokens = loadStoredTokens();
-  if (!tokens || !tokens.refresh_token) {
-    return null;
-  }
+  if (!tokens) return null;
 
   const now = Date.now();
   if (tokens.access_token && tokens.expiry_date && tokens.expiry_date - now > 5 * 60 * 1000) {
     return tokens.access_token;
   }
+  if (!tokens.refresh_token) return null;
 
   // 이미 다른 비동기 흐름에서 갱신 중인 경우 동일 Promise를 대기
   if (_refreshPromise) {
@@ -330,6 +356,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
   }
 
   _isLoggingIn = true;
+  const loginGeneration = ++_loginGeneration;
 
   return new Promise((resolve) => {
     let server: http.Server | null = null;
@@ -361,6 +388,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
     };
 
     _cancelCurrentLogin = () => {
+      if (_loginGeneration === loginGeneration) _loginGeneration++;
       safeResolve({ success: false, error: '사용자에 의해 인증이 취소되었습니다.' });
     };
 
@@ -461,10 +489,12 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
           scope: tokenData.scope,
         };
 
-        saveTokens(tokens);
-
         // 3. 유저 프로필 조회
-        const profile = await fetchUserProfile(tokens.access_token);
+        const isCurrentLogin = () => !isResolved && _loginGeneration === loginGeneration;
+        if (!isCurrentLogin()) throw new Error('취소되었거나 만료된 로그인 응답입니다.');
+        const profile = await fetchUserProfile(tokens.access_token, isCurrentLogin);
+        if (!isCurrentLogin()) throw new Error('취소되었거나 만료된 로그인 응답입니다.');
+        saveTokens(tokens);
 
         // 4. 브라우저 성공 화면 응답
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

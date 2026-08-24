@@ -138,11 +138,17 @@ export function start(): void {
         const isStateChanged = _currentStatus !== 'running' || !rectEquals(currentRect, lastRect);
 
         if (isStateChanged) {
+            const gameJustStarted = _currentStatus !== 'running';
             wm.syncOverlay(currentRect as GameRect);
             lastRect = currentRect;
             _currentStatus = 'running';
             stableCount = 0;
             nextDelay = POLLING_FAST_MS;
+            if (gameJustStarted) {
+                void import('./cloudSyncManager').then(cloudSync => {
+                    cloudSync.requestImmediatePull('game-started');
+                }).catch(error => log(`[POLL] 게임 시작 클라우드 확인 예약 실패: ${error}`));
+            }
 
         } else {
             stableCount++;
