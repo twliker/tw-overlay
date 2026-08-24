@@ -2817,6 +2817,30 @@ function checkChatLogSyncManagerContracts() {
     assert.equal(diaryDb.hasActivityLog(rollbackDate, '23:59:58', rollbackContent), false,
       '배치 실패 전에 삽입된 활동 기록이 롤백되지 않았습니다.');
 
+    // 동일한 엘소 recovery operation을 재생해도 DB에는 정확히 한 번만 반영되어야 한다.
+    const elsoRecoveryDate = '2099-12-27';
+    const elsoJournalPath = diaryDb.getElsoRecoveryJournalPath();
+    const elsoJournal = {
+      schemaVersion: 1,
+      operationId: 'regression-elso-operation-001',
+      createdAt: Date.now(),
+      entries: [{ date: elsoRecoveryDate, latestTime: '23:59:56', totalAmount: 321 }],
+    };
+    fs.writeFileSync(elsoJournalPath, JSON.stringify(elsoJournal), 'utf8');
+    assert.equal(diaryDb.replayElsoRecoveryJournal(), true);
+    let recoveredElso = diaryDb.getDiaryByDate(elsoRecoveryDate).activityLogs
+      .find((log: { type: string }) => log.type === 'elso');
+    assert.equal(recoveredElso?.amount, 321);
+
+    fs.writeFileSync(elsoJournalPath, JSON.stringify(elsoJournal), 'utf8');
+    assert.equal(diaryDb.replayElsoRecoveryJournal(), true);
+    recoveredElso = diaryDb.getDiaryByDate(elsoRecoveryDate).activityLogs
+      .find((log: { type: string }) => log.type === 'elso');
+    assert.equal(recoveredElso?.amount, 321,
+      '이미 커밋된 엘소 recovery operation이 중복 반영되었습니다.');
+    assert.equal(fs.existsSync(elsoJournalPath), false);
+    diaryDb.removeActivityLog(elsoRecoveryDate, 'elso', '엘소 포인트 획득');
+
     // 테스트 후 데이터 정리 및 DB 파일 닫기
     diaryDb.removeActivityLog(testDate, 'loot', testContent);
     if (typeof diaryDb.closeDb === 'function') {

@@ -1,4 +1,6 @@
 import * as path from 'path';
+import * as fs from 'fs';
+import { randomUUID } from 'crypto';
 import { app } from 'electron';
 import Database = require('better-sqlite3');
 import { log } from './logger';
@@ -20,6 +22,117 @@ const POINTS = {
 const ELSO_FLUSH_DEBOUNCE_MS = 3000;
 let _elsoDebounceTimer: NodeJS.Timeout | null = null;
 const _pendingElsoByDate = new Map<string, { latestTime: string; totalAmount: number }>();
+
+interface ElsoRecoveryJournal {
+  schemaVersion: 1;
+  operationId: string;
+  createdAt: number;
+  entries: Array<{ date: string; latestTime: string; totalAmount: number }>;
+}
+
+export function getElsoRecoveryJournalPath(): string {
+  return path.join(app.getPath('userData'), 'elso-recovery.json');
+}
+
+function validateElsoRecoveryJournal(value: unknown): ElsoRecoveryJournal {
+  if (!value || typeof value !== 'object') throw new Error('복구 기록이 객체가 아닙니다.');
+  const journal = value as Partial<ElsoRecoveryJournal>;
+  if (journal.schemaVersion !== 1 || typeof journal.operationId !== 'string' || journal.operationId.length < 8) {
+    throw new Error('복구 기록 메타데이터가 유효하지 않습니다.');
+  }
+  if (!Number.isFinite(journal.createdAt) || !Array.isArray(journal.entries) || journal.entries.length === 0) {
+    throw new Error('복구 기록 항목이 유효하지 않습니다.');
+  }
+  const entries = journal.entries.map(entry => {
+    if (
+      !entry || typeof entry.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date)
+      || typeof entry.latestTime !== 'string'
+      || !Number.isSafeInteger(entry.totalAmount) || entry.totalAmount <= 0
+    ) {
+      throw new Error('복구 기록에 잘못된 엘소 항목이 있습니다.');
+    }
+    return { date: entry.date, latestTime: entry.latestTime, totalAmount: entry.totalAmount };
+  });
+  return {
+    schemaVersion: 1,
+    operationId: journal.operationId,
+    createdAt: journal.createdAt as number,
+    entries
+  };
+}
+
+function writeElsoRecoveryJournal(journal: ElsoRecoveryJournal): void {
+  const journalPath = getElsoRecoveryJournalPath();
+  const tempPath = `${journalPath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(journal), 'utf8');
+  fs.renameSync(tempPath, journalPath);
+}
+
+function applyElsoRecoveryOperation(journal: ElsoRecoveryJournal): boolean {
+  if (!db) throw new Error('DB가 초기화되지 않았습니다.');
+  let applied = false;
+  db.transaction(() => {
+    const operationResult = db!.prepare(`
+      INSERT OR IGNORE INTO elso_flush_operations (operation_id, committed_at)
+      VALUES (?, ?)
+    `).run(journal.operationId, Date.now());
+    if (operationResult.changes === 0) return;
+
+    const ensureDiary = db!.prepare('INSERT OR IGNORE INTO diaries (date) VALUES (?)');
+    const selectElso = db!.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso'");
+    const updateElso = db!.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
+    const insertElso = db!.prepare("INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, 'elso', '엘소 포인트 획득', ?, ?)");
+
+    for (const entry of journal.entries) {
+      ensureDiary.run(entry.date);
+      const existing = selectElso.get(entry.date) as { id: number; amount: number } | undefined;
+      if (existing) {
+        updateElso.run(entry.latestTime, existing.amount + entry.totalAmount, existing.id);
+      } else {
+        insertElso.run(entry.date, entry.latestTime, entry.totalAmount);
+      }
+    }
+    applied = true;
+  })();
+  return applied;
+}
+
+/** 남아 있는 엘소 복구 기록을 operation ID 기준 정확히 한 번 적용한다. */
+export function replayElsoRecoveryJournal(): boolean {
+  const journalPath = getElsoRecoveryJournalPath();
+  if (!fs.existsSync(journalPath)) return true;
+  if (!db) return false;
+  let journal: ElsoRecoveryJournal;
+  try {
+    journal = validateElsoRecoveryJournal(JSON.parse(fs.readFileSync(journalPath, 'utf8')) as unknown);
+  } catch (error) {
+    const quarantinePath = `${journalPath}.corrupt-${Date.now()}`;
+    try {
+      fs.renameSync(journalPath, quarantinePath);
+      log(`[DiaryDB] Invalid Elso recovery journal quarantined: ${quarantinePath} (${error})`);
+    } catch (quarantineError) {
+      log(`[DiaryDB] Invalid Elso recovery journal quarantine failed: ${quarantineError}`);
+      return false;
+    }
+    return true;
+  }
+
+  try {
+    const applied = applyElsoRecoveryOperation(journal);
+    try {
+      fs.unlinkSync(journalPath);
+    } catch (cleanupError) {
+      // operation ID가 DB에 있으므로 파일이 남아 재생돼도 중복 반영되지 않는다.
+      log(`[DiaryDB] Elso recovery journal cleanup deferred: ${cleanupError}`);
+    }
+    log(`[DiaryDB] Elso recovery journal ${applied ? 'replayed' : 'already committed'}: ${journal.operationId}`);
+    if (applied) notifyUpdate();
+    return true;
+  } catch (error) {
+    log(`[DiaryDB] Elso recovery journal replay failed: ${error}`);
+    return false;
+  }
+}
 
 /** 일지 창 및 오늘의 요약에 갱신 신호를 보냅니다. */
 function notifyUpdate(): void {
@@ -50,11 +163,11 @@ function throttleNotifyUpdate(delayMs = 1000): void {
 
 /** 대기 중인 엘소 포인트가 있는지 여부 */
 export function hasPendingElso(): boolean {
-  return _pendingElsoByDate.size > 0;
+  return _pendingElsoByDate.size > 0 || fs.existsSync(getElsoRecoveryJournalPath());
 }
 
 /** 인메모리 버퍼에 대기 중인 엘소 포인트를 DB에 즉시 1회 트랜잭션으로 커밋합니다. */
-export function flushPendingElso(): void {
+export function flushPendingElso(): boolean {
   if (_elsoDebounceTimer) {
     clearTimeout(_elsoDebounceTimer);
     _elsoDebounceTimer = null;
@@ -63,46 +176,55 @@ export function flushPendingElso(): void {
     clearTimeout(_notifyThrottleTimer);
     _notifyThrottleTimer = null;
   }
-  if (_pendingElsoByDate.size === 0) return;
+  if (_pendingElsoByDate.size === 0) {
+    if (!db && fs.existsSync(getElsoRecoveryJournalPath())) initDb();
+    return replayElsoRecoveryJournal();
+  }
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
+
+  // 이전 실패/종료에서 남은 연산을 먼저 해결해야 새 버퍼와 중복되지 않는다.
+  if (!replayElsoRecoveryJournal()) return false;
 
   const entries = Array.from(_pendingElsoByDate.entries());
   _pendingElsoByDate.clear();
+  const journal: ElsoRecoveryJournal = {
+    schemaVersion: 1,
+    operationId: randomUUID(),
+    createdAt: Date.now(),
+    entries: entries
+      .filter(([, info]) => info.totalAmount > 0)
+      .map(([date, info]) => ({ date, latestTime: info.latestTime, totalAmount: info.totalAmount }))
+  };
 
+  if (journal.entries.length === 0) return true;
+
+  let journalWritten = false;
   try {
-    const transaction = db.transaction(() => {
-      const selectElso = db!.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso'");
-      const updateElso = db!.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
-      const insertElso = db!.prepare("INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, 'elso', '엘소 포인트 획득', ?, ?)");
-
-      for (const [date, info] of entries) {
-        if (info.totalAmount <= 0) continue;
-        ensureDiaryExists(date);
-        const existing = selectElso.get(date) as { id: number; amount: number } | undefined;
-
-        if (existing) {
-          const newAmount = existing.amount + info.totalAmount;
-          updateElso.run(info.latestTime, newAmount, existing.id);
-          log(`[DiaryDB] Elso batch flushed for date ${date}: ${existing.amount} + ${info.totalAmount} = ${newAmount}`);
-        } else {
-          insertElso.run(date, info.latestTime, info.totalAmount);
-          log(`[DiaryDB] Elso batch created for date ${date}: ${info.totalAmount}`);
-        }
-      }
-    });
-
-    transaction();
-    notifyUpdate();
-  } catch (error) {
-    // DB 트랜잭션 실패 시 데이터 유실 방지를 위해 버퍼 복원
-    for (const [date, info] of entries) {
-      const cur = _pendingElsoByDate.get(date) || { latestTime: info.latestTime, totalAmount: 0 };
-      cur.totalAmount += info.totalAmount;
-      cur.latestTime = info.latestTime;
-      _pendingElsoByDate.set(date, cur);
+    writeElsoRecoveryJournal(journal);
+    journalWritten = true;
+    applyElsoRecoveryOperation(journal);
+    try {
+      fs.unlinkSync(getElsoRecoveryJournalPath());
+    } catch (cleanupError) {
+      // DB에는 operation ID가 함께 커밋되어 다음 실행의 재생이 중복 반영되지 않는다.
+      log(`[DiaryDB] Elso recovery journal cleanup deferred: ${cleanupError}`);
     }
+    notifyUpdate();
+    return true;
+  } catch (error) {
+    if (!journalWritten) {
+      // journal 자체를 만들지 못한 경우에만 메모리 버퍼로 복원한다.
+      for (const [date, info] of entries) {
+        const current = _pendingElsoByDate.get(date) || { latestTime: info.latestTime, totalAmount: 0 };
+        current.totalAmount += info.totalAmount;
+        current.latestTime = info.latestTime;
+        _pendingElsoByDate.set(date, current);
+      }
+    }
+    // journal 생성 후 실패했다면 디스크 기록을 다음 실행의 단일 원본으로 유지한다.
     log(`[DiaryDB] flushPendingElso failed: ${error}`);
+    return false;
   }
 }
 
@@ -254,6 +376,11 @@ export function initDb(): void {
         enchant_sub INTEGER NOT NULL,
         accuracy INTEGER NOT NULL,
         raw_profile_data TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS elso_flush_operations (
+        operation_id TEXT PRIMARY KEY,
+        committed_at INTEGER NOT NULL
       );
 
       -- 성능 최적화 인덱스 생성
@@ -427,6 +554,9 @@ export function initDb(): void {
       });
       migrateV3();
       log(`[DiaryDB] Version 3 migration completed: repaired ${repairedUnitAmounts} unit-bearing amount rows.`);
+    }
+    if (!replayElsoRecoveryJournal()) {
+      throw new Error('엘소 복구 기록을 재생하지 못했습니다.');
     }
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
@@ -614,14 +744,15 @@ export function getMonthDateRange(yearMonth: string): { start: string; end: stri
 }
 
 /** 데이터베이스 연결을 명시적으로 닫습니다 (백업 복구용). */
-export function closeDb(): void {
-  flushPendingElso();
+export function closeDb(): boolean {
+  const flushed = flushPendingElso();
   statementCache.clear();
   if (db) {
     db.close();
     db = null;
     log('[DiaryDB] Database connection closed.');
   }
+  return flushed;
 }
 
 /** 특정 날짜의 일지가 없으면 생성합니다. */

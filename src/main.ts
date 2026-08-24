@@ -250,7 +250,9 @@ app.on('before-quit', (event) => {
 
   appState.isQuitting = true;
   if (config.hasPending()) config.saveImmediate();
-  diaryDb.flushPendingElso();
+  if (!diaryDb.flushPendingElso()) {
+    log('[SHUTDOWN] 엘소 DB flush 실패 — 디스크 복구 기록을 다음 실행에 재생합니다.');
+  }
   chatLogManager.stop();
   pollingLoop.stop();
   bossNotifier.stop();
@@ -274,7 +276,9 @@ app.on('before-quit', (event) => {
     new Promise((resolve) => setTimeout(resolve, flushTimeoutMs)),
   ]).finally(() => {
     try {
-      diaryDb.closeDb();
+      if (!diaryDb.closeDb()) {
+        log('[SHUTDOWN] 엘소 flush 미완료 상태로 DB를 닫았습니다. 복구 기록은 유지됩니다.');
+      }
     } catch (err) {
       log(`[SHUTDOWN] DB close error: ${err}`);
     }

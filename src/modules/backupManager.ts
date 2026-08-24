@@ -117,7 +117,7 @@ export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean
     });
     if (!filePath) return false;
 
-    diaryDb.flushPendingElso();
+    if (!diaryDb.flushPendingElso()) throw new Error('대기 중인 엘소 기록을 저장하지 못했습니다.');
     diaryDb.checkpointWal();
     stagingPath = createStagingDirectory(userDataPath, 'export-');
     const snapshotPath = path.join(stagingPath, 'snapshot');
@@ -167,9 +167,9 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
       ? verifyUserDataSnapshot(extractedPath)
       : legacyManifest(extractedPath);
 
-    diaryDb.flushPendingElso();
+    if (!diaryDb.flushPendingElso()) throw new Error('복원 전 엘소 기록을 저장하지 못했습니다.');
     diaryDb.checkpointWal();
-    diaryDb.closeDb();
+    if (!diaryDb.closeDb()) throw new Error('복원 전 엘소 기록 정리를 완료하지 못했습니다.');
     const backupsRoot = path.join(userDataPath, 'backups');
     fs.mkdirSync(backupsRoot, { recursive: true });
     rollbackPath = path.join(backupsRoot, `pre-restore-${timestamp()}`);
