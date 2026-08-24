@@ -750,7 +750,9 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     if (applyManagedWindowSize(key, cfg, b.width, b.height)) config.save(cfg);
   });
 
-  win.on('ready-to-show', () => {
+  // 최초 렌더링 뒤 한 번만 배치·표시합니다. reload/DevTools 연결 등으로
+  // ready-to-show가 다시 발생해도 show/showInactive를 반복하지 않습니다.
+  win.once('ready-to-show', () => {
     if (gameRect) {
       let { x, y } = (callbacks?.calcPosition || winCfg.calcPosition)
         ? (callbacks?.calcPosition || winCfg.calcPosition)!(gameRect, winCfg.pos)
@@ -1472,7 +1474,10 @@ export function syncOverlay(currentRect: GameRect): void {
       const dockCfg = windowRegistry['dock'];
       if (isDockVisible) {
         const { x, y } = dockCfg.calcPosition!(scaledGameRect, dockCfg.pos);
-        const deferDockLayout = pendingDockLayoutChange && currentRect.isForeground !== true;
+        // 설정창이 전경이면 닫히기 전에 독 이동·재표시를 모두 끝냅니다.
+        // 게임 복귀 뒤 showInactive가 마지막 이벤트가 되면 Windows Shell이
+        // 작업표시줄을 다시 노출할 수 있으므로 실제 외부 앱 전경일 때만 연기합니다.
+        const deferDockLayout = pendingDockLayoutChange && !tracker.isGameOrAppForeground();
         if (deferDockLayout) {
           log(`[WINDOW_FOCUS] 게임이 전경으로 돌아올 때까지 독 재배치를 연기합니다. target=(${x},${y})`);
         } else {
@@ -1511,7 +1516,7 @@ export function syncOverlay(currentRect: GameRect): void {
           }
           // hide/showInactive 또는 위치 변경으로 흔들릴 수 있는 TW-Overlay 내부 순서를
           // 독이 입력 가능한 층에 놓이도록 즉시 다시 확정합니다.
-          if (currentRect.isForeground === true) bringGameAndOverlaysToTop();
+          if (tracker.isGameOrAppForeground()) bringGameAndOverlaysToTop();
         }
       }
     } else {
