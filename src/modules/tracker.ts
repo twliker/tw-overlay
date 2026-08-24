@@ -310,8 +310,17 @@ export function promoteWindows(gameHwndStr: string | undefined, electronHwnds: s
         const isAlreadySandwiched = (prevHwnd !== 0n && prevHwnd === lastElectronHwnd);
 
         if (force || !isAlreadySandwiched) {
-            let hwndInsertAfter: bigint = prevHwnd;
-            // 게임이 Non-Topmost 최상위여서 바로 앞 일반 창이 없는 경우(prevHwnd === 0n),
+            // 기준점 탐색: prevHwnd가 우리 창 중 하나라면 외부 앱 또는 HWND_TOP(0n)이 나올 때까지 상위로 거슬러 올라감
+            let baseHwnd = prevHwnd;
+            let depth = 0;
+            const maxDepth = electronHwndBigInts.length + 5;
+            while (baseHwnd !== 0n && electronHwndBigInts.includes(baseHwnd) && depth < maxDepth) {
+                baseHwnd = parseHwnd(win32.GetWindow(baseHwnd, win32.GW_HWNDPREV));
+                depth++;
+            }
+
+            let hwndInsertAfter: bigint = baseHwnd;
+            // 게임이 Non-Topmost 최상위여서 바로 앞 일반 창이 없는 경우(baseHwnd === 0n),
             // HWND_TOP(0n)을 기준점으로 오버레이들을 게임 창 위로 순차 배치
             for (let i = 0; i < electronHwndBigInts.length; i++) {
                 const hBigInt = electronHwndBigInts[i];

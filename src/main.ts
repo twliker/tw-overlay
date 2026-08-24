@@ -169,6 +169,12 @@ app.whenReady().then(() => {
       const electronHwnds = wm.getAllWindowHwnds();
       const isAppFocused = electronHwnds.includes(focusedHwndStr);
       sm.updateFocusState(isGameFocused || isAppFocused);
+      if (isGameFocused && !wm.isAnyUserDragging()) {
+        const gameHwnd = tracker.getGameHwnd();
+        if (gameHwnd && electronHwnds.length > 0) {
+          tracker.promoteWindows(gameHwnd, electronHwnds);
+        }
+      }
     });
 
     pollingLoop.start();

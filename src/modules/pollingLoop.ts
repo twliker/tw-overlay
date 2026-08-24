@@ -131,18 +131,18 @@ export function start(): void {
 
         const isStateChanged = _currentStatus !== 'running' || !rectEquals(currentRect, lastRect) || !isVisible;
 
-        // Z-Order 관리 (게임 창 위치나 가시성이 변경된 경우에만 1회 Z-Order 재배치 수행, 가만히 있는 동안의 100ms SetWindowPos DWM 깜빡임 방지)
-        if (currentRect && 'gameHwnd' in currentRect && isStateChanged && !wm.isAnyUserDragging()) {
-            const windowHwnds = wm.getAllWindowHwnds();
-            tracker.promoteWindows(currentRect.gameHwnd, windowHwnds);
-        }
-
         if (isStateChanged) {
             wm.syncOverlay(currentRect as GameRect);
             lastRect = currentRect;
             _currentStatus = 'running';
             stableCount = 0;
             nextDelay = POLLING_FAST_MS;
+
+            // Z-Order 관리: syncOverlay로 모든 창이 표시(showInactive)된 후 Z-Order 재배치 수행
+            if (currentRect && 'gameHwnd' in currentRect && !wm.isAnyUserDragging()) {
+                const windowHwnds = wm.getAllWindowHwnds();
+                tracker.promoteWindows(currentRect.gameHwnd, windowHwnds);
+            }
         } else {
             stableCount++;
             nextDelay = (stableCount >= STABLE_THRESHOLD_COUNT) ? POLLING_STABLE_MS : POLLING_FAST_MS;
