@@ -2987,6 +2987,11 @@ function checkChatLogSyncManagerContracts() {
     atomicDb.close();
 
     diaryDb.initDb();
+    assert.throws(
+      () => diaryDb.getStmt('SELECT 1'),
+      /DiaryDB가 초기화되지 않아 prepared statement를 만들 수 없습니다/,
+      'DB 초기화 실패 뒤 getStmt가 null 연결을 강제 참조했습니다.',
+    );
     const inspectAtomicDb = new MigrationDatabase(migrationDbPath);
     assert.equal(inspectAtomicDb.pragma('user_version', { simple: true }), 0,
       '실패한 v1 마이그레이션이 user_version을 올렸습니다.');

@@ -233,9 +233,12 @@ const statementCache = new Map<string, Database.Statement>();
 /** 캐시된 Prepared Statement 반환 (SQLite VDBE 재컴파일 방지) */
 export function getStmt(sql: string): Database.Statement<any[]> {
   if (!db) initDb();
+  if (!db) {
+    throw new Error('DiaryDB가 초기화되지 않아 prepared statement를 만들 수 없습니다.');
+  }
   let stmt = statementCache.get(sql);
   if (!stmt) {
-    stmt = db!.prepare(sql);
+    stmt = db.prepare(sql);
     statementCache.set(sql, stmt);
   }
   return stmt as Database.Statement<any[]>;
