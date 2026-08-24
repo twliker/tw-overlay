@@ -37,6 +37,7 @@ export const keybd_event = user32.func('__stdcall', 'keybd_event', 'void', ['uin
 export const GetWindowThreadProcessId = user32.func('__stdcall', 'GetWindowThreadProcessId', 'uint32', ['intptr', koffi.out(koffi.pointer('uint32'))]);
 export const EnumWindows = user32.func('__stdcall', 'EnumWindows', 'bool', ['void *', 'intptr']);
 export const GetWindowTextW = user32.func('__stdcall', 'GetWindowTextW', 'int', ['intptr', koffi.out(koffi.pointer('char16')), 'int']);
+export const GetClassNameW = user32.func('__stdcall', 'GetClassNameW', 'int', ['intptr', koffi.out(koffi.pointer('char16')), 'int']);
 export const GetWindowLongW = user32.func('__stdcall', 'GetWindowLongW', 'long', ['intptr', 'int']);
 export const GetAsyncKeyState = user32.func('__stdcall', 'GetAsyncKeyState', 'short', ['int']);
 

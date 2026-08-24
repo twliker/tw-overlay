@@ -1166,8 +1166,8 @@ function checkWindowedFullscreenFocusContracts(): void {
 
   assert.match(polling, /const TRANSIENT_STATE_CONFIRM_SAMPLES = 2/,
     '순간적인 게임 창 탐지 실패를 재확인하는 방어가 없습니다.');
-  assert.match(polling, /currentRect\.isForeground && !wm\.isAnyUserDragging\(\)/,
-    '외부 프로그램이 전경인 동안 게임과 오버레이를 승격시킬 수 있습니다.');
+  assert.match(polling, /const promotion = tracker\.promoteWindows\(currentRect\.gameHwnd, windowHwnds\)/,
+    '폴링 Z-order 정책이 게임·TW-Overlay·실제 외부 창 포커스를 공통 판별하는 샌드위치 경계를 사용하지 않습니다.');
 
   const focusStart = tracker.indexOf('export function focusGameWindow(): boolean');
   const focusEnd = tracker.indexOf('export function isGameOrAppForeground', focusStart);
@@ -1184,8 +1184,22 @@ function checkWindowedFullscreenFocusContracts(): void {
   assert.match(manager, /canRestoreFocus:[^\n]*tracker\.canAutomaticallyRestoreGameFocus\(\)/,
     '지연 포커스 복구 실행 직전에 외부 창 포커스를 재확인하지 않습니다.');
 
-  assert.match(manager, /function bringGameAndOverlaysToTop\(\): void \{[\s\S]*?if \(isGameFullscreen\) \{[\s\S]*?return;/,
-    '창모드 전체화면에서 게임 Z-order 변경을 차단하지 않습니다.');
+  const sandwichStart = manager.indexOf('function bringGameAndOverlaysToTop(): void');
+  const sandwichEnd = manager.indexOf('export const isAnyUserDragging', sandwichStart);
+  assert.ok(sandwichStart >= 0 && sandwichEnd > sandwichStart, '샌드위치 Z-order 함수를 찾지 못했습니다.');
+  const sandwichSource = manager.slice(sandwichStart, sandwichEnd);
+  assert.match(sandwichSource, /tracker\.promoteWindows\(gameHwndStr, getAllWindowHwnds\(\)\)/,
+    'TW-Overlay 포커스 시 오버레이를 게임 바로 위로 정렬하지 않습니다.');
+  assert.doesNotMatch(sandwichSource, /placeGameBelowWindow|promoteWindows\([^\n]*true\)/,
+    '샌드위치 정책이 게임 창 자체를 이동하거나 외부 포커스 보호를 우회합니다.');
+  assert.doesNotMatch(tracker, /export function placeGameBelowWindow/,
+    '샌드위치 정책 외부에서 게임 창 Z-order를 직접 이동하는 API가 남아 있습니다.');
+  assert.match(tracker, /className === 'Shell_TrayWnd' \|\| className === 'Shell_SecondaryTrayWnd'/,
+    '우리 설정창 종료 후 작업표시줄이 foreground를 가져간 경우를 구분하지 않습니다.');
+  assert.match(manager, /const deferDockLayout = isFullscreen && currentRect\.isForeground !== true/,
+    '전체화면에서 설정창이 전경인 동안 독 재배치를 연기하지 않습니다.');
+  assert.match(manager, /if \(isDockPositionChange && isGameFullscreen\)/,
+    '작업표시줄 복구 예외가 일반 창모드에까지 불필요하게 확대되었습니다.');
   assert.match(manager, /overlayWindow\?\.showInactive\(\)/,
     '브라우저 오버레이 자동 생성이 포커스를 획득할 수 있습니다.');
   assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply'/,

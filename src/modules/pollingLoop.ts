@@ -143,11 +143,12 @@ export function start(): void {
             nextDelay = POLLING_FAST_MS;
 
             // Z-Order 관리: syncOverlay로 모든 창이 표시(showInactive)된 후 Z-Order 재배치 수행
-            if (currentRect && 'gameHwnd' in currentRect && currentRect.isForeground && !wm.isAnyUserDragging()) {
+            if (currentRect && 'gameHwnd' in currentRect && !wm.isAnyUserDragging()) {
                 const windowHwnds = wm.getAllWindowHwnds();
-                tracker.promoteWindows(currentRect.gameHwnd, windowHwnds);
-            } else if (currentRect && 'gameHwnd' in currentRect && !currentRect.isForeground) {
-                log('[POLL] 외부 창이 전경이므로 게임/오버레이 Z-order 재배치를 건너뜁니다.');
+                const promotion = tracker.promoteWindows(currentRect.gameHwnd, windowHwnds);
+                if (!promotion.isGameOrAppFocused) {
+                    log('[POLL] 실제 외부 창이 전경이므로 샌드위치 재배치를 건너뜁니다.');
+                }
             }
         } else {
             stableCount++;

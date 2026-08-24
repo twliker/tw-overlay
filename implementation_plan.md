@@ -41,7 +41,8 @@
 - 사용자가 명시적으로 연 입력 도구 창의 기존 `show()`/포커스 동작은 보존
 - 순간적 게임 미탐지·최소화 판정을 2회 연속 표본으로 재확인해 불필요한 `hideAll()`·창 재생성 방지
 - 외부 프로그램이 전경이면 폴링·클릭 투과 지연 경로의 Z-order 재배치와 지연 포커스 복구를 차단
-- 창모드 전체화면에서 `placeGameBelowWindow()` 경로 차단, 실제 `IsIconic`일 때만 `SW_RESTORE` 호출, 자동 `BringWindowToTop`·가상 Alt 키 제거
+- 일반 창모드·창모드 전체화면 모두에서 게임 Z-order를 직접 옮기는 `placeGameBelowWindow()` API 제거, 실제 `IsIconic`일 때만 `SW_RESTORE` 호출, 자동 `BringWindowToTop`·가상 Alt 키 제거
+- 모든 창모드의 Z-order를 `실제 외부 앱 > TW-Overlay > 테일즈위버`로 단일화한다. 게임 또는 TW-Overlay가 foreground일 때만 `SWP_NOACTIVATE`로 우리 창을 게임 바로 위에 정렬하고, 실제 외부 앱이 foreground면 정렬을 수행하지 않는다.
 - 위 계약을 고정하는 회귀 검사와 전체 `npm test` 통과. 단, 실제 Windows 듀얼 모니터·장시간 플레이 증상이 완전히 사라졌다는 판정은 실기 검증 후에만 내린다.
 
 현재 Phase 3에서 완료하고 자동 검증을 통과한 클라우드 기반 단위(코드 수정 `57ddf5a`):
@@ -154,7 +155,7 @@
 - **F-04 [P2]** 대형 관리 창 너비가 작업 영역을 초과하고 높이/최소 높이 조건이 충돌한다 (`managedWindowSizing.ts:29-47`).
 - **F-05 [P2]** 스캠 토스트가 공통 제거 경로를 우회해 마우스 무시 상태가 복원되지 않는다 (`index.html:727`, `738-740`).
 - **F-06 [P3]** 프로세스 우선순위 상승 실패 시 매 폴링마다 OpenProcess를 재시도한다 (`pollingLoop.ts:108-115`). 핸들 누수는 확인되지 않았다.
-- **F-07 [P1, 코드 수정·자동 검증 완료/실기 대기]** 창모드 전체화면 게임과 같은 모니터에서 독 위치 변경·독 메뉴 클릭 후 Windows 작업표시줄이 노출된 채 복구되지 않을 수 있었다. 수정 전에는 독이 포커스를 얻고 게임을 독 아래 Z-order로 옮기거나, 최소화되지 않은 게임에도 `SW_RESTORE`·`BringWindowToTop`·가상 Alt 입력을 호출할 수 있었다. 현재는 독 no-activate, 전체화면 게임 Z-order 변경 금지, `IsIconic` 조건부 복원, 강제 top/Alt 제거, 예약·실행 직전 외부 foreground 검사로 방어한다 (`windowManager.ts`, `tracker.ts`, `windowFocusController.ts`).
+- **F-07 [P1, 2차 코드 수정·자동 검증 완료/실기 재검증 필요]** 창모드 전체화면 게임과 같은 모니터에서 독 하단→상단 설정 변경 직후 Windows 작업표시줄이 노출된 채 복구되지 않는 증상이 1차 수정 후에도 재현됐다. 재현 로그에서 설정창 종료 후에도 폴링이 foreground를 계속 외부 창으로 판정했고 게임 복구 호출이 없었다. 이에 따라 설정창이 전경인 전체화면에서 독 재배치를 연기하고, 설정창 종료 직후 foreground가 게임·TW-Overlay·`Shell_TrayWnd`일 때만 게임 foreground를 재확립한다. Chrome 등 실제 외부 앱이면 복구를 거부한다. Z-order는 모든 창모드에서 게임은 건드리지 않고 TW-Overlay만 게임 바로 위에 정렬하는 단일 샌드위치 정책으로 변경했다.
 - **F-08 [P1, 코드 수정·자동 검증 완료/실기 대기]** 독 조작이나 Alt+Tab 없이 정상 플레이 중 작업표시줄이 갑자기 나타나는 증상도 보고되었다. 수정 전에는 폴링이 단 한 번의 `null`/최소화 표본에서 `hideAll()` 후 관리 창을 `show()`로 재생성해 자동으로 포커스를 흔들 수 있었다. 현재는 순간 이상 표본을 연속 재확인하고, 게임/설정 동기화로 생성된 브라우저·채팅·서브채팅·숙제·독 창을 `showInactive()`로 연다. 이 경로는 확정 위험이었지만 보고된 모든 증상의 단일 원인으로는 확정하지 않는다. 보스·채팅·거래·갤러리 알림은 근거 없이 비활성화하지 않고 Windows 실기 소크 테스트와 표시 사유 로그로 남은 상관관계를 확인한다.
 
 ### G. 렌더러 DOM·비동기 상태
@@ -391,7 +392,7 @@
 18. `focusGameWindow()`는 `IsIconic`인 경우에만 `SW_RESTORE`를 호출하고, 그 외에는 show state를 바꾸지 않는다. 정상 복구에서는 top-level 게임을 활성화하는 `BringWindowToTop`을 제거하고 사용자 유발 조건을 통과한 `SetForegroundWindow` 반환값으로만 성공을 판정한다.
 19. 자동 복구 경로에서는 가상 Alt 키 fallback을 제거한다. 명시적인 사용자 복귀 명령에서도 외부 앱/메뉴가 전경이면 사용하지 않으며, 불가피하게 유지할 경우 별도 opt-in 진단 플래그 아래 마지막 수단으로만 격리한다.
 20. 독 클릭·위치 변경 같은 일시 동작은 사용자 드래그/활성 도구 창이 없을 때만 세대 토큰이 있는 지연 포커스 복구를 수행한다. 예약 시 원인 창/foreground HWND를 기록하고 새 focus·Alt+Tab·창 열기 이벤트에서 취소하며 실행 시 외부 프로세스가 전경이면 폐기한다.
-21. 창모드 전체화면에서는 게임의 TOPMOST/NOTOPMOST 스타일이나 show state를 임의로 바꾸지 않고, 게임이 이미 foreground가 된 뒤 오버레이만 `SWP_NOACTIVATE`로 정렬한다. `placeGameBelowWindow()` 기반 게임 이동은 전체화면 경로에서 사용하지 않는다.
+21. 일반 창모드와 창모드 전체화면 모두에서 게임의 Z-order·TOPMOST/NOTOPMOST 스타일·show state를 임의로 바꾸지 않는다. foreground가 게임 또는 TW-Overlay일 때만 오버레이를 `SWP_NOACTIVATE`로 게임 바로 위에 정렬한다. `placeGameBelowWindow()` API는 제거하고 실제 외부 앱 foreground에서는 정렬을 실행하지 않는다.
 22. 전체화면 bounds 판정은 DPI/DWM 반올림을 고려한 1~2 DIP 허용 오차를 적용하되 display `bounds`와 `workArea`를 구분해 최대화 창을 전체화면으로 오인하지 않는다.
 23. foreground HWND, 게임 `IsIconic`, 전체화면 bounds 판정, 포커스 복구 허용/거부 이유, Win32 API 반환값, Z-order 재배치 이유를 진단 로그로 남겨 작업표시줄 노출 경로를 재현 가능하게 한다.
 24. 새 포커스 정책은 런타임 설정이 아닌 내부 안전 롤백 플래그로 격리해 Windows 실기 회귀가 발견되면 게임 창 상태를 더 건드리지 않는 보수적 경로로 즉시 되돌릴 수 있게 한다.

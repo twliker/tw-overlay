@@ -43,27 +43,12 @@ let pendingCoefficientItem: EquipmentDictionaryItem | null = null;
 let pendingEvolutionItem: EquipmentDictionaryItem | null = null;
 let pendingSettingsTab: string | null = null;
 
-/** TW-Overlay 포커스 시: 게임 창을 우리 창 바로 아래에 배치하여 브라우저 위로 올림 */
+/** 게임/TW-Overlay가 전경일 때 우리 창만 게임 바로 위에 샌드위치로 배치한다. */
 function bringGameAndOverlaysToTop(): void {
   if (!gameRect || programmaticMoves.isAnyUserDragging()) return;
-  if (isGameFullscreen) {
-    log('[WINDOW_FOCUS] 창모드 전체화면에서는 게임 Z-order를 변경하지 않습니다.');
-    return;
-  }
   const gameHwndStr = tracker.getGameHwnd();
   if (!gameHwndStr) return;
-  const focusedWin = BrowserWindow.getFocusedWindow();
-  if (!focusedWin || focusedWin.isDestroyed()) return;
-  // 포커스된 우리 창의 HWND를 기준점으로 게임을 바로 아래에 배치 (포커스 유지)
-  const handleBuf = focusedWin.getNativeWindowHandle();
-  const focusedHwnd = handleBuf.length >= 8 ? handleBuf.readBigUInt64LE().toString() : handleBuf.readUInt32LE(0).toString();
-  tracker.placeGameBelowWindow(focusedHwnd);
-  // 나머지 오버레이도 게임 위로 재배치
-  // force=true: placeGameBelowWindow로 게임이 이동한 후 game-overlay가 게임 뒤로 밀리는 것을 방지
-  const hwnds = getAllWindowHwnds();
-  if (hwnds.length > 0) {
-    tracker.promoteWindows(gameHwndStr, hwnds, true);
-  }
+  tracker.promoteWindows(gameHwndStr, getAllWindowHwnds());
 }
 
 export const isAnyUserDragging = () => programmaticMoves.isAnyUserDragging();
@@ -195,6 +180,12 @@ Object.assign(windowRegistry.settings, {
       gameOverlayWindow.setAlwaysOnTop(false);
       gameOverlayWindow.webContents.send('game-overlay-edit-mode', false, true);
     }
+    if (pendingFullscreenDockLayoutRestore) {
+      setTimeout(() => {
+        if (appState.isQuitting || !pendingFullscreenDockLayoutRestore) return;
+        tracker.restoreGameAfterOwnedWindowClose('settings-dock-layout-change');
+      }, FOCUS_RESTORE_DELAY_MS);
+    }
   },
 } satisfies Partial<ManagedWindow>);
 Object.assign(windowRegistry.contentsChecker, {
@@ -226,6 +217,7 @@ let lastKnownGameRect: GameRect | null = null;
 let physicalGameRect: GameRect | null = null;
 let lastForegroundSize: { width: number; height: number } | null = null;
 let isGameFullscreen = false;
+let pendingFullscreenDockLayoutRestore = false;
 
 /** 게임이 실행 중이거나, 최소화/종료 직전 마지막으로 감지되었던 게임창 모니터(주/서브)의 작업 영역 중앙 좌표를 계산합니다. */
 function resolveFallbackWindowPosition(
@@ -1477,17 +1469,26 @@ export function syncOverlay(currentRect: GameRect): void {
       const dockCfg = windowRegistry['dock'];
       if (isDockVisible) {
         const { x, y } = dockCfg.calcPosition!(scaledGameRect, dockCfg.pos);
-        if (!dockCfg.ref || dockCfg.ref.isDestroyed()) {
-          createToggleableWindow('dock', undefined, 'game-resync');
+        const deferDockLayout = isFullscreen && currentRect.isForeground !== true;
+        if (deferDockLayout && pendingFullscreenDockLayoutRestore) {
+          log(`[WINDOW_FOCUS] 외부 창이 전경인 전체화면에서 독 재배치를 연기합니다. target=(${x},${y})`);
         } else {
-          if (!dockCfg.ref.isVisible()) dockCfg.ref.showInactive();
-          const b = dockCfg.ref.getBounds();
-          // 독바는 전체화면 모드일 때도 게임 창 가장자리에 항상 도킹되어 보여야 함
-          if (hasPositionChanged(b, { x, y }, POSITION_THRESHOLD)) {
-            if (isValidCoordinate(x) && isValidCoordinate(y)) {
-              setProgrammaticMove('dock', x, y);
-              dockCfg.ref.setPosition(x, y);
+          if (!dockCfg.ref || dockCfg.ref.isDestroyed()) {
+            createToggleableWindow('dock', undefined, 'game-resync');
+          } else {
+            if (!dockCfg.ref.isVisible()) dockCfg.ref.showInactive();
+            const b = dockCfg.ref.getBounds();
+            // 독바는 전체화면 모드일 때도 게임 창 가장자리에 항상 도킹되어 보여야 함
+            if (hasPositionChanged(b, { x, y }, POSITION_THRESHOLD)) {
+              if (isValidCoordinate(x) && isValidCoordinate(y)) {
+                setProgrammaticMove('dock', x, y);
+                dockCfg.ref.setPosition(x, y);
+              }
             }
+          }
+          if (pendingFullscreenDockLayoutRestore && currentRect.isForeground === true) {
+            pendingFullscreenDockLayoutRestore = false;
+            tracker.restoreGameAfterOwnedWindowClose('fullscreen-dock-layout-applied');
           }
         }
       }
@@ -1591,6 +1592,14 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
   }
   const sanitizedSettings = { ...newSettings };
   const current = config.load(), updated = { ...current, ...sanitizedSettings };
+  const isDockPositionChange = sanitizedSettings.sidebarPosition !== undefined
+    && sanitizedSettings.sidebarPosition !== current.sidebarPosition
+    && (sanitizedSettings.sidebarPosition === 'dock' || sanitizedSettings.sidebarPosition === 'dock-top')
+    && (current.sidebarPosition === 'dock' || current.sidebarPosition === 'dock-top');
+  if (isDockPositionChange && isGameFullscreen) {
+    pendingFullscreenDockLayoutRestore = true;
+    log(`[WINDOW_FOCUS] 전체화면 독 배치 변경 대기: ${current.sidebarPosition} -> ${sanitizedSettings.sidebarPosition}`);
+  }
   const { isSidebarResize, ...saveSettings } = sanitizedSettings;
   config.saveImmediate(saveSettings);
   if (overlayWindow) {

@@ -19,6 +19,7 @@ let onForegroundChangeCallback: ((isGameFocused: boolean, focusedHwnd: string) =
 
 // --- 메모리 최적화를 위한 재사용 버퍼 ---
 const titleBuffer = Buffer.alloc(TITLE_BUFFER_LENGTH * 2);
+const classNameBuffer = Buffer.alloc(256 * 2);
 const nameBuffer = Buffer.alloc(512);
 const pidPtr = Buffer.alloc(4);
 const sizePtr = Buffer.alloc(4);
@@ -361,39 +362,6 @@ export async function boostGameProcess(): Promise<string | undefined> {
     }
 }
 
-/** 게임 창을 지정된 창 바로 아래 Z-Order에 배치 (포커스 변경 없음) */
-export function placeGameBelowWindow(insertAfterHwndStr: string): void {
-    if (!cachedHwnd || !isHwndValid(cachedHwnd)) return;
-    try {
-        let insertAfterHwnd: bigint;
-        try {
-            insertAfterHwnd = BigInt(insertAfterHwndStr);
-        } catch {
-            return;
-        }
-
-        // 대상 창의 EXSTYLE을 확인하여 Topmost인지 검사
-        let isTargetTopmost = false;
-        if (win32.GetWindowLongW) {
-            const exStyle = win32.GetWindowLongW(insertAfterHwnd, win32.GWL_EXSTYLE);
-            isTargetTopmost = (exStyle & win32.WS_EX_TOPMOST) !== 0;
-        }
-
-        const flags = win32.SWP_NOMOVE | win32.SWP_NOSIZE | win32.SWP_NOACTIVATE |
-            win32.SWP_NOOWNERZORDER | win32.SWP_NOSENDCHANGING | win32.SWP_NOREDRAW;
-
-        // 대상 창이 Topmost인 경우 게임 창이 Topmost로 강제 승격(전염)되지 않도록 HWND_NOTOPMOST 적용
-        if (isTargetTopmost) {
-            win32.SetWindowPos(cachedHwnd, win32.HWND_NOTOPMOST, 0, 0, 0, 0, flags);
-        } else {
-            win32.SetWindowPos(cachedHwnd, insertAfterHwnd, 0, 0, 0, 0, flags);
-        }
-    } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        log(`[TRACKER] placeGameBelowWindow failed: ${msg}`);
-    }
-}
-
 export function focusGameWindow(): boolean {
     if (!cachedHwnd || !isHwndValid(cachedHwnd)) return false;
     try {
@@ -415,6 +383,49 @@ export function focusGameWindow(): boolean {
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRACKER] Focus failed: ${msg}`);
+        return false;
+    }
+}
+
+function getWindowClassName(hwnd: bigint): string {
+    if (hwnd === 0n || !win32.GetClassNameW) return '';
+    classNameBuffer.fill(0);
+    const length = win32.GetClassNameW(hwnd, classNameBuffer, 256);
+    return length > 0 ? classNameBuffer.toString('utf16le', 0, length * 2) : '';
+}
+
+function isTaskbarWindow(hwnd: bigint): boolean {
+    const className = getWindowClassName(hwnd);
+    return className === 'Shell_TrayWnd' || className === 'Shell_SecondaryTrayWnd';
+}
+
+/**
+ * TW-Overlay 설정창 종료로 Windows 작업표시줄이 잠시 foreground를 가져간 경우만
+ * 게임 포커스를 복원한다. 실제 외부 앱이 foreground면 반드시 거부한다.
+ */
+export function restoreGameAfterOwnedWindowClose(reason: string): boolean {
+    if (!cachedHwnd || !isHwndValid(cachedHwnd) || !win32.GetForegroundWindow) return false;
+    try {
+        const fgHwnd = parseHwnd(win32.GetForegroundWindow());
+        const wm = require('./windowManager');
+        const appHwnds = wm.getAllWindowHwnds().map((h: string) => BigInt(h));
+        const foregroundClass = getWindowClassName(fgHwnd);
+        const allowed = fgHwnd === 0n
+            || fgHwnd === cachedHwnd
+            || appHwnds.includes(fgHwnd)
+            || isTaskbarWindow(fgHwnd);
+        log(`[TRACKER] Owned-window restore check reason=${reason} allowed=${allowed} foreground=${fgHwnd} class=${foregroundClass || 'unknown'} game=${cachedHwnd}`);
+        if (!allowed) return false;
+
+        // 게임이 이미 foreground여도 설정창 종료 후 Shell의 전체화면 판정을 재평가하도록
+        // SetForegroundWindow를 한 번 명시적으로 호출한다. show state·TOPMOST·가상 키는 변경하지 않는다.
+        const requested = win32.SetForegroundWindow ? !!win32.SetForegroundWindow(cachedHwnd) : false;
+        const currentHwnd = parseHwnd(win32.GetForegroundWindow());
+        const focused = currentHwnd === cachedHwnd;
+        log(`[TRACKER] Owned-window restore ${focused ? 'succeeded' : 'failed'} reason=${reason} requested=${requested} current=${currentHwnd}`);
+        return focused;
+    } catch (error) {
+        log(`[TRACKER] Owned-window restore failed reason=${reason}: ${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
 }
