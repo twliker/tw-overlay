@@ -42,6 +42,43 @@ export const BOSS_SCHEDULE: BossTime[] = [
   { time: '23:00', name: '스페르첸드' }
 ];
 
+interface DueBossAlert extends BossTime {
+  offset: number;
+  firedKey: string;
+  notifyKey: string;
+  soundFile: string;
+}
+
+function formatBossMinuteKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    + ` ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+/** 실제 보스 알림과 절전 중 놓친 이력이 같은 오프셋/개별 보스 설정을 사용한다. */
+export function getDueBossAlertsAt(cfg: ReturnType<typeof config.load>, now: Date): DueBossAlert[] {
+  if (!cfg.fieldBossNotifyEnabled) return [];
+  const offsets = cfg.fieldBossNotifyOffsets || [0];
+  const firedKey = formatBossMinuteKey(now);
+  const due: DueBossAlert[] = [];
+
+  for (const offset of offsets) {
+    const targetTime = new Date(now.getTime() + offset * 60_000);
+    const targetHHmm = `${String(targetTime.getHours()).padStart(2, '0')}:${String(targetTime.getMinutes()).padStart(2, '0')}`;
+    for (const boss of BOSS_SCHEDULE.filter(entry => entry.time === targetHHmm)) {
+      const bossSetting = cfg.fieldBossSettings?.[boss.name];
+      if (!bossSetting?.enabled) continue;
+      due.push({
+        ...boss,
+        offset,
+        firedKey,
+        notifyKey: `${firedKey}_${boss.name}_${offset}`,
+        soundFile: bossSetting.soundFile
+      });
+    }
+  }
+  return due;
+}
+
 /** 보스별 출현 시간 문자열 반환 */
 export function getBossTimes(bossName: string): string[] {
   return BOSS_SCHEDULE.filter(b => b.name === bossName).map(b => b.time);
@@ -53,7 +90,7 @@ let _lastCleanupDate = new Date().getDate();
 
 /** 알림 루프 시작 */
 export function start(): void {
-  if (!minuteScheduler.start(checkBossTime)) return;
+  if (!minuteScheduler.start(checkBossTime, recordMissedBossAlerts)) return;
   log('[BOSS] 보스 알림 감시 시작 (정밀 동기화 모드)');
 }
 
@@ -86,29 +123,27 @@ function checkBossTime(): void {
   });
 
   const cfg = config.load();
-  if (!cfg.fieldBossNotifyEnabled) return;
+  for (const due of getDueBossAlertsAt(cfg, now)) {
+    if (_notifiedBossKeys.has(due.notifyKey)) continue;
+    _notifiedBossKeys.add(due.notifyKey);
+    const message = due.offset === 0 ? due.name : `${due.name} ${due.offset}분 전`;
+    log(`[BOSS] 알림 조건 충족: ${message} (사운드: ${due.soundFile})`);
+    notify(due.name, due.soundFile, due.time, due.offset);
+  }
+}
 
-  const currentTimeKey = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const offsets = cfg.fieldBossNotifyOffsets || [0];
-
-  offsets.forEach(offset => {
-    // 현재 시간에 오프셋을 더해 '곧 출현할 보스'를 찾음
-    const targetTime = new Date(now.getTime() + offset * 60000);
-    const HHmm = `${String(targetTime.getHours()).padStart(2, '0')}:${String(targetTime.getMinutes()).padStart(2, '0')}`;
-    const bosses = BOSS_SCHEDULE.filter(b => b.time === HHmm);
-    bosses.forEach(boss => {
-      const bossSetting = cfg.fieldBossSettings?.[boss.name];
-      if (bossSetting && bossSetting.enabled) {
-        const notifyKey = `${currentTimeKey}_${boss.name}_${offset}`;
-        if (_notifiedBossKeys.has(notifyKey)) return;
-        _notifiedBossKeys.add(notifyKey);
-
-        const message = offset === 0 ? boss.name : `${boss.name} ${offset}분 전`;
-        log(`[BOSS] 알림 조건 충족: ${message} (사운드: ${bossSetting.soundFile})`);
-        notify(boss.name, bossSetting.soundFile, boss.time, offset);
-      }
-    });
-  });
+/** 절전 중 지난 필드보스 알림은 재생하지 않고 알람 이력에만 남긴다. */
+function recordMissedBossAlerts(timestamps: number[]): void {
+  const cfg = config.load();
+  for (const timestamp of timestamps) {
+    for (const due of getDueBossAlertsAt(cfg, new Date(timestamp))) {
+      if (_notifiedBossKeys.has(due.notifyKey)) continue;
+      _notifiedBossKeys.add(due.notifyKey);
+      const message = due.offset === 0 ? `[${due.name}] 출현` : `[${due.name}] ${due.offset}분 전`;
+      diaryDb.addAlarmLog('boss', '절전 중 놓친 알람', `[${due.firedKey}] ${message}`);
+      log(`[BOSS] 절전 중 놓친 알람 이력 기록: ${due.firedKey} ${message}`);
+    }
+  }
 }
 
 function notify(bossName: string, soundFile: string, spawnTime: string, offset: number): void {

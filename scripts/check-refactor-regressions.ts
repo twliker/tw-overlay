@@ -3341,6 +3341,96 @@ function checkAbandonedFeeMatchingContracts(): void {
   abandonedTracker.reset();
 }
 
+function checkMissedMinuteSchedulerContracts(): void {
+  const { getMissedMinuteTimestamps } = require(
+    path.join(projectRoot, 'dist', 'modules', 'minuteAlignedScheduler.js'),
+  ) as {
+    getMissedMinuteTimestamps(lastCheckedAt: number, resumedAt: number, maxLookbackMs?: number): number[];
+  };
+
+  const at = (hour: number, minute: number, second = 0) =>
+    new Date(2026, 7, 25, hour, minute, second).getTime();
+  assert.deepEqual(
+    getMissedMinuteTimestamps(at(10, 0, 10), at(10, 5, 30)),
+    [at(10, 1), at(10, 2), at(10, 3), at(10, 4)],
+    '절전 중 완전히 지나간 분 목록이 정확하지 않습니다.',
+  );
+  assert.deepEqual(getMissedMinuteTimestamps(at(10, 5), at(10, 5, 30)), [],
+    '복귀한 현재 분을 놓친 알림으로 소급했습니다.');
+  assert.deepEqual(getMissedMinuteTimestamps(at(10, 5), at(10, 4)), []);
+
+  const schedulerSource = read('src/modules/minuteAlignedScheduler.ts');
+  assert.match(schedulerSource, /if \(this\.resumeDelayTimer\)[\s\S]*?clearTimeout\(this\.resumeDelayTimer\)/,
+    'resume/unlock 중복 지연 타이머를 취소하지 않습니다.');
+}
+
+function checkMissedCustomAlertContracts(): void {
+  const { getDueCustomAlertsAt } = require(
+    path.join(projectRoot, 'dist', 'modules', 'customNotifier.js'),
+  ) as {
+    getDueCustomAlertsAt(alerts: any[], now: Date): Array<{ message: string; firedKey: string }>;
+  };
+  const daily = {
+    id: 'daily-test', enabled: true, type: 'daily', time: '10:00', offsets: [5, 0],
+    message: '일일 테스트', soundFile: 'orb.mp3',
+  };
+  assert.deepEqual(
+    getDueCustomAlertsAt([daily], new Date(2026, 7, 25, 9, 55)).map(due => due.message),
+    ['[5분 전] 일일 테스트'],
+  );
+  assert.deepEqual(
+    getDueCustomAlertsAt([daily], new Date(2026, 7, 25, 10, 0)).map(due => due.message),
+    ['일일 테스트'],
+  );
+  const hourly = {
+    id: 'hourly-test', enabled: true, type: 'hourly', minute: 10, offsets: [5],
+    message: '매시 테스트', soundFile: 'orb.mp3',
+  };
+  assert.deepEqual(
+    getDueCustomAlertsAt([hourly], new Date(2026, 7, 25, 11, 5)).map(due => due.message),
+    ['[5분 전] 매시 테스트'],
+  );
+
+  const customNotifierSource = read('src/modules/customNotifier.ts');
+  assert.match(customNotifierSource,
+    /minuteScheduler\.start\(checkAlerts, recordMissedAlerts\)/,
+    '커스텀 알림이 절전 중 놓친 분 기록 콜백을 등록하지 않습니다.');
+  assert.match(customNotifierSource,
+    /'절전 중 놓친 알람'[\s\S]*?diaryDb\.addAlarmLog|diaryDb\.addAlarmLog\([\s\S]*?'절전 중 놓친 알람'/,
+    '절전 중 놓친 커스텀 알림을 이력에 기록하지 않습니다.');
+}
+
+function checkMissedBossAlertContracts(): void {
+  const { getDueBossAlertsAt } = require(
+    path.join(projectRoot, 'dist', 'modules', 'bossNotifier.js'),
+  ) as {
+    getDueBossAlertsAt(config: Record<string, unknown>, now: Date): Array<{ name: string; offset: number }>;
+  };
+  const bossConfig = {
+    fieldBossNotifyEnabled: true,
+    fieldBossNotifyOffsets: [5, 0],
+    fieldBossSettings: {
+      골론: { name: '골론', enabled: true, soundFile: 'boss.mp3' },
+    },
+  };
+  assert.deepEqual(
+    getDueBossAlertsAt(bossConfig, new Date(2026, 7, 25, 5, 55))
+      .map(due => ({ name: due.name, offset: due.offset })),
+    [{ name: '골론', offset: 5 }],
+  );
+  assert.deepEqual(
+    getDueBossAlertsAt(bossConfig, new Date(2026, 7, 25, 6, 0))
+      .map(due => ({ name: due.name, offset: due.offset })),
+    [{ name: '골론', offset: 0 }],
+  );
+
+  const bossSource = read('src/modules/bossNotifier.ts');
+  assert.match(bossSource, /minuteScheduler\.start\(checkBossTime, recordMissedBossAlerts\)/,
+    '필드보스 알림이 절전 중 놓친 분 기록 콜백을 등록하지 않습니다.');
+  assert.match(bossSource, /diaryDb\.addAlarmLog\('boss', '절전 중 놓친 알람'/,
+    '절전 중 놓친 필드보스 알림을 이력에 기록하지 않습니다.');
+}
+
 function checkGoogleSyncDataContracts(): void {
   const syncDataHelper = require(path.join(projectRoot, 'dist', 'modules', 'syncDataHelper.js'));
 
@@ -3462,6 +3552,9 @@ checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
+checkMissedMinuteSchedulerContracts();
+checkMissedCustomAlertContracts();
+checkMissedBossAlertContracts();
 checkGoogleSyncDataContracts();
 
 console.log('Refactor regression checks passed.');
