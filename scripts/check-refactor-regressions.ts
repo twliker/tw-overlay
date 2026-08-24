@@ -2927,6 +2927,113 @@ function checkCustomTabHistoryContracts(): void {
   }, '커스텀 탭 ID resetLastReadIndex 호출 시 예외가 발생했습니다.');
 }
 
+function checkGoogleSyncDataContracts(): void {
+  const syncDataHelper = require(path.join(projectRoot, 'dist', 'modules', 'syncDataHelper.js'));
+
+  // 1. extractSyncData: 동기화 대상 필드만 추출하고 로컬 전용 필드(positions, chatLogPath 등)는 제외
+  const sampleLocalConfig = {
+    userServer: 16,
+    lootKeywords: ['샤를란', '엔키라'],
+    positions: { overlay: { x: 100, y: 100, width: 400, height: 300 } },
+    chatLogPath: 'C:\\Nexon\\TalesWeaver\\ChatLog',
+    googleSyncLastTime: 123456789,
+    googleSyncUserEmail: 'test@gmail.com',
+    contentsCheckerItems: [
+      {
+        id: 'daily-abyss',
+        name: '어비스 심층',
+        category: '일일 숙제',
+        isVisible: true,
+        resetRule: { type: 'daily' },
+        completedState: {
+          'char-1': { isCompleted: true, lastCompletedAt: 1000 },
+          'char-2': { isCompleted: false, lastCompletedAt: 500 }
+        }
+      }
+    ],
+    characterPresets: [
+      { id: 'char-1', name: '보리스' },
+      { id: 'char-2', name: '루시안' }
+    ]
+  };
+
+  const extracted = syncDataHelper.extractSyncData(sampleLocalConfig);
+  assert.equal(extracted.userServer, 16);
+  assert.deepEqual(extracted.lootKeywords, ['샤를란', '엔키라']);
+  assert.equal(extracted.positions, undefined, 'positions 필드가 동기화 데이터에 포함되었습니다.');
+  assert.equal(extracted.chatLogPath, undefined, 'chatLogPath 필드가 동기화 데이터에 포함되었습니다.');
+
+  // 2. buildSyncPayload: 메타데이터 및 스키마 검증
+  const payload = syncDataHelper.buildSyncPayload(sampleLocalConfig, 'tester@gmail.com');
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.updatedBy, 'tester@gmail.com');
+  assert.ok(payload.lastSyncedAt > 0);
+  assert.equal(payload.data.userServer, 16);
+
+  // 3. mergeSyncData: 숙제 타임스탬프 기반 병합 및 설정 병합 검증
+  const cloudPayload = {
+    schemaVersion: 1,
+    appVersion: '2.7.0',
+    lastSyncedAt: 2000,
+    updatedBy: 'tester@gmail.com',
+    data: {
+      userServer: 7, // 하이아칸으로 변경됨
+      lootKeywords: ['샤를란', '엔키라', '아퀼루스'],
+      contentsCheckerItems: [
+        {
+          id: 'daily-abyss',
+          name: '어비스 심층',
+          category: '일일 숙제',
+          isVisible: true,
+          resetRule: { type: 'daily' },
+          completedState: {
+            'char-1': { isCompleted: false, lastCompletedAt: 800 }, // 로컬(1000)이 더 최신이므로 로컬 유지되어야 함
+            'char-2': { isCompleted: true, lastCompletedAt: 1500 }   // 클라우드(1500)가 더 최신이므로 클라우드 반영되어야 함
+          }
+        },
+        {
+          id: 'custom-homework-1',
+          name: '신규 커스텀 숙제',
+          category: '커스텀',
+          isVisible: true,
+          isCustom: true,
+          resetRule: { type: 'weekly' },
+          completedState: {}
+        }
+      ],
+      characterPresets: [
+        { id: 'char-1', name: '보리스(수정)' },
+        { id: 'char-3', name: '티치엘' } // 신규 캐릭터 추가
+      ]
+    }
+  };
+
+  const merged = syncDataHelper.mergeSyncData(sampleLocalConfig, cloudPayload);
+
+  // 일반 설정 병합 확인
+  assert.equal(merged.userServer, 7);
+  assert.deepEqual(merged.lootKeywords, ['샤를란', '엔키라', '아퀼루스']);
+  // 로컬 전용 설정 유지 확인
+  assert.equal(merged.chatLogPath, 'C:\\Nexon\\TalesWeaver\\ChatLog');
+  assert.ok(merged.positions?.overlay);
+
+  // 숙제 체크리스트 타임스탬프 기반 병합 검증
+  const mergedAbyss = merged.contentsCheckerItems?.find((i: any) => i.id === 'daily-abyss');
+  assert.ok(mergedAbyss);
+  assert.equal(mergedAbyss.completedState['char-1'].isCompleted, true, '로컬의 최신 완료 기록(1000)이 보존되지 않았습니다.');
+  assert.equal(mergedAbyss.completedState['char-1'].lastCompletedAt, 1000);
+  assert.equal(mergedAbyss.completedState['char-2'].isCompleted, true, '클라우드의 최신 완료 기록(1500)이 반영되지 않았습니다.');
+  assert.equal(mergedAbyss.completedState['char-2'].lastCompletedAt, 1500);
+
+  // 클라우드의 신규 커스텀 숙제 추가 확인
+  const customItem = merged.contentsCheckerItems?.find((i: any) => i.id === 'custom-homework-1');
+  assert.ok(customItem, '클라우드의 신규 커스텀 숙제가 병합되지 않았습니다.');
+
+  // 캐릭터 프리셋 병합 확인
+  assert.equal(merged.characterPresets?.length, 3); // char-1, char-2, char-3
+  assert.ok(merged.characterPresets?.some((c: any) => c.id === 'char-3'));
+}
+
 checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
@@ -2936,6 +3043,7 @@ checkCorruptedConfigResilience();
 checkShoutSuffixStripping();
 checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
+checkGoogleSyncDataContracts();
 
 console.log('Refactor regression checks passed.');
 process.exit(0);

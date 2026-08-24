@@ -12,6 +12,8 @@ const BACKUP_FILENAME = 'config.backup-sync.json';
 /** 클라우드 동기화 대상 필드 목록 */
 const SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'contentsCheckerItems',
+  'contentsCheckerEnabled',
+  'autoOpenContentsChecker',
   'characterPresets',
   'selectedCharacterId',
   'lootKeywords',
@@ -31,6 +33,11 @@ const SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'huntingExpSelectedGroundId',
   'huntingExpKillsPerHour',
   'huntingExpHappyHour',
+  'showXpWidget',
+  'xpAutoStart',
+  'ignoreNegativeXp',
+  'showTodaySummaryHud',
+  'todaySummaryCollapsed',
   'buffTimerBuffs',
   'buffTimerWarnSeconds',
   'buffTimerCenterAlert',
@@ -40,6 +47,7 @@ const SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'buffTimerSound',
   'buffTimerEnabled',
   'showBuffHud',
+  'showHudShortcuts',
   'fieldBossSettings',
   'fieldBossNotifyEnabled',
   'fieldBossNotifyOffsets',
@@ -50,14 +58,47 @@ const SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'discordKeywords',
   'discordRules',
   'ethosAlertEnabled',
+  'ethosAlertSound',
+  'ethosAlertVolume',
   'abyssApostleAlertEnabled',
+  'abyssApostleStartSound',
+  'abyssApostleEndSound',
+  'abyssApostleVolume',
   'lokagosAlertEnabled',
+  'lokagosAlertSound',
+  'lokagosAlertVolume',
   'waveMonsterWarningEnabled',
+  'waveMonsterWarningSound',
+  'waveMonsterWarningVolume',
   'essenceAlertEnabled',
+  'essenceAlertSound',
+  'essenceAlertVolume',
   'specialMonsterAlertEnabled',
   'abandonedAlertEnabled',
+  'pittaHillAlertEnabled',
+  'questCompleteAlertEnabled',
+  'abandonedAutoHideMinutes',
+  'abandonedEnabled',
+  'scamDetectorEnabled',
+  'scamAlertSound',
+  'volumeContentsChecker',
+  'volumeCalculators',
+  'followGameWindow',
   'gameExitReminderEnabled',
   'gameExitReminderMessage',
+  'chatOverlayEnabled',
+  'chatOverlaySubEnabled',
+  'chatOverlaySub2Enabled',
+  'chatOverlayFontSize',
+  'chatOverlayOpacity',
+  'chatOverlaySubOpacity',
+  'chatOverlaySub2Opacity',
+  'chatOverlayClickThrough',
+  'chatOverlaySelectedChannels',
+  'chatOverlayTab',
+  'chatOverlaySubTab',
+  'chatOverlaySub2Tab',
+  'chatOverlayCustomTabs',
   'chatOverlayKeywords',
   'chatOverlayBlacklistFilters',
   'chatOverlayShowNpcChat',
@@ -132,6 +173,7 @@ function mergeContentsCheckerItems(
     // 기본 속성 병합 (커스텀 여부, 표시 여부 등)
     if (cloudItem.isVisible !== undefined) localItem.isVisible = cloudItem.isVisible;
     if (cloudItem.isCustom !== undefined) localItem.isCustom = cloudItem.isCustom;
+    if (cloudItem.maxCount !== undefined) localItem.maxCount = cloudItem.maxCount;
 
     // 캐릭터별 완료 상태 병합
     if (cloudItem.completedState) {
@@ -154,9 +196,15 @@ function mergeContentsCheckerItems(
             ...cloudState,
           };
         } else if (localTime === cloudTime) {
-          // 시간이 같을 때 완료 여부 or 제외 여부 반영
+          // 시간이 같을 때 완료 여부, 제외 여부, 누적 횟수 반영
           if (cloudState.isExcluded !== undefined) {
             localState.isExcluded = cloudState.isExcluded;
+          }
+          if (cloudState.isCompleted && !localState.isCompleted) {
+            localState.isCompleted = true;
+          }
+          if (cloudState.currentCount !== undefined && (localState.currentCount === undefined || cloudState.currentCount > (localState.currentCount || 0))) {
+            localState.currentCount = cloudState.currentCount;
           }
         }
       }
