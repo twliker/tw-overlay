@@ -875,8 +875,12 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
       // 이미 해당 숙제가 오늘/이번주 기록되어 있는지 확인
       const existing = getStmt('SELECT id FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { id: number } | undefined;
       if (existing) {
-        // 동일 날짜 내 재완료인 경우 완료 시각만 갱신
-        getStmt('UPDATE homework_logs SET completed_at = ? WHERE id = ?').run(completedAt, existing.id);
+        // 1회 초기화권 이후 재완료도 같은 행의 최신 완료 시각/메타데이터로 갱신한다.
+        getStmt(`
+          UPDATE homework_logs
+          SET content_name = ?, category = ?, type = ?, completed_at = ?
+          WHERE id = ?
+        `).run(contentName, category, type, completedAt, existing.id);
         return;
       }
 

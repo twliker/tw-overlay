@@ -2750,6 +2750,23 @@ function checkChatLogSyncManagerContracts() {
     assert.equal(diaryDb.removeManualActivityLogById(automaticLog.id), false,
       '자동 감지 기록이 수동 삭제 API로 삭제되었습니다.');
 
+    diaryDb.addHomeworkLog(testDate, 'test-homework', '이전 이름', '이전 분류', 'daily', 1_000);
+    diaryDb.addHomeworkLog(testDate, 'test-homework', '최신 이름', '최신 분류', 'weekly', 2_000);
+    const updatedHomework = diaryDb.getDiaryByDate(testDate).homeworkLogs
+      .filter((log: { content_id: string }) => log.content_id === 'test-homework');
+    assert.equal(updatedHomework.length, 1, '초기화권 재완료가 별도 숙제 행으로 중복 저장되었습니다.');
+    assert.deepEqual(
+      {
+        name: updatedHomework[0].content_name,
+        category: updatedHomework[0].category,
+        type: updatedHomework[0].type,
+        completedAt: updatedHomework[0].completed_at,
+      },
+      { name: '최신 이름', category: '최신 분류', type: 'weekly', completedAt: 2_000 },
+      '숙제 재완료 시 최신 완료 시각과 메타데이터가 함께 갱신되지 않았습니다.',
+    );
+    diaryDb.removeHomeworkLog(testDate, 'test-homework');
+
     const grounds = diaryDb.getHuntingGrounds() as Array<{ id: string; name: string; image_path: string }>;
     assert.deepEqual(
       grounds.filter(ground => ['forge', 'golgotha', 'void'].includes(ground.id))
