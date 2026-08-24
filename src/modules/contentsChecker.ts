@@ -423,7 +423,7 @@ export function init(): void {
       log(`[Contents Checker] 중복 항목 감지 및 병합: ${item.id} (${item.name})`);
 
       // 더 가치 있는 설정 보존 (가시성이 켜져 있거나 완료 횟수가 더 많은 상태 우선)
-      if (item.isVisible) {
+      if (item.isVisible !== false) {
         existing.isVisible = true;
       }
       if (item.completedState) {
@@ -676,7 +676,7 @@ function syncDiaryStats(items: ContentsCheckerItem[]) {
     // 해당 캐릭터에 대해 가시성이 있고 제외되지 않은 아이템만 필터링
     const visibleItems = items.filter(i => {
       const state = i.completedState?.[charId];
-      return i.isVisible && !state?.isExcluded;
+      return i.isVisible !== false && !state?.isExcluded;
     });
     
     dailyTotal += visibleItems.filter(i => i.resetRule.type === 'daily').length;
@@ -893,7 +893,8 @@ export function toggleVisibility(id: string): void {
   const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
   if (item) {
-    item.isVisible = !item.isVisible;
+    // 레거시 데이터의 undefined는 보임 상태이므로 첫 토글에서는 숨김(false)이 되어야 한다.
+    item.isVisible = item.isVisible === false;
     config.saveImmediate({ contentsCheckerItems: items });
     refreshUI();
   }

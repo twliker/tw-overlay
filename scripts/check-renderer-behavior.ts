@@ -60,6 +60,7 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
           makeItem('normal-ga', '가람', '테스트'),
           makeItem('normal-2', '하늘2', '테스트'),
           makeItem('normal-na', '나래', '테스트'),
+          { ...makeItem('legacy-visible', '레거시 보임', '레거시'), isVisible: undefined },
           makeItem('custom-safe', '<img id="injected-item">사용자 숙제', '사용자"><img id="injected-category">', true)
         ],
         pendingHomeworks: []
@@ -71,6 +72,8 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
         .map(cell => cell.querySelector('.text-xs')?.textContent);
       const customCell = Array.from(document.querySelectorAll('.item-info'))
         .find(cell => cell.title.includes('사용자 숙제'));
+      const legacyVisibleCell = Array.from(document.querySelectorAll('.item-info'))
+        .find(cell => cell.title.includes('레거시 보임'));
       const displayText = window.normalizeChatDisplayText('&nbsp &nbsp &nbsp 을 것이오!');
       const displayNode = document.createElement('span');
       displayNode.textContent = displayText;
@@ -140,6 +143,7 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
         customName: customCell?.querySelector('.text-xs')?.textContent,
         customBadge: Array.from(customCell?.querySelectorAll('span') || [])
           .some(span => span.textContent === 'CUSTOM'),
+        legacyVisible: Boolean(legacyVisibleCell) && !legacyVisibleCell.classList.contains('hidden-row'),
         injectedElementCount: document.querySelectorAll(
           '#injected-character, #injected-item, #injected-category'
         ).length,
@@ -161,6 +165,7 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
     characterName: string;
     customName: string;
     customBadge: boolean;
+    legacyVisible: boolean;
     injectedElementCount: number;
     displayText: string;
   };
@@ -183,6 +188,7 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
   assert.equal(result.characterName, '캐릭터"><img id="injected-character">');
   assert.equal(result.customName, '<img id="injected-item">사용자 숙제');
   assert.equal(result.customBadge, true);
+  assert.equal(result.legacyVisible, true, 'isVisible 없는 레거시 숙제가 화면에서 숨겨졌습니다.');
   assert.equal(result.injectedElementCount, 0);
   assert.equal(result.displayText, '을 것이오!');
 }

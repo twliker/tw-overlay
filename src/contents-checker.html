@@ -700,7 +700,7 @@
                 header.className = 'sticky-row char-header';
 
                 // 해당 캐릭터가 제외하지 않은 숙제들만 모수로 계산
-                const charItems = items.filter(i => i.isVisible && !i.completedState?.[char.id]?.isExcluded);
+                const charItems = items.filter(i => i.isVisible !== false && !i.completedState?.[char.id]?.isExcluded);
                 const charDone = charItems.filter(i => i.completedState?.[char.id]?.isCompleted).length;
                 const charPercent = charItems.length > 0 ? Math.round((charDone / charItems.length) * 100) : 0;
 
@@ -814,7 +814,7 @@
             const renderCategory = (sectionKey, catName, catItems) => {
                 const catKey = `${sectionKey}-${catName}`;
                 const isCatCollapsed = collapsedCategories.has(catKey);
-                const visibleItems = isEditMode ? catItems : catItems.filter(i => i.isVisible);
+                const visibleItems = isEditMode ? catItems : catItems.filter(i => i.isVisible !== false);
                 if (visibleItems.length === 0) return;
                 const categoryBlockStart = table.children.length;
 
@@ -919,7 +919,7 @@
                     visibleItems.forEach(item => {
                         const infoCell = document.createElement('div');
                         infoCell.title = `[${item.category}] ${item.name}`;
-                        infoCell.className = `matrix-cell item-info sticky-col ${!item.isVisible ? 'hidden-row' : ''}`;
+                        infoCell.className = `matrix-cell item-info sticky-col ${item.isVisible === false ? 'hidden-row' : ''}`;
 
                         const timeStr = String(item.resetRule.hour || 0).padStart(2, '0') + ':00';
                         const resetInfo = item.resetRule.type === 'daily' ? `매일 ${timeStr}` : `${DAYS[item.resetRule.dayOfWeek || 1]} ${timeStr}`;
@@ -1010,7 +1010,7 @@
                                 });
                             }
                             actions.appendChild(window.contentsDomRendering.createIconButton({
-                                icon: item.isVisible ? 'eye' : 'eye-off',
+                                icon: item.isVisible !== false ? 'eye' : 'eye-off',
                                 className: 'p-1 hover:text-violet-400 transition-colors',
                                 iconClassName: 'w-3.5 h-3.5',
                                 onClick: (event) => {
@@ -1054,7 +1054,7 @@
                             const isExcluded = state?.isExcluded || false;
                             const max = item.maxCount || 1;
                             const current = state?.currentCount || 0;
-                            checkCell.className = `matrix-cell ${!item.isVisible ? 'hidden-row' : ''}`;
+                            checkCell.className = `matrix-cell ${item.isVisible === false ? 'hidden-row' : ''}`;
 
                             if (isExcluded) {
                                 const checkbox = document.createElement('div');
@@ -1117,7 +1117,7 @@
 
             const renderSection = (title, categoriesObj, icon, typeClass) => {
                 const isSecCollapsed = collapsedSections.has(title);
-                const hasVisibleContent = Object.values(categoriesObj).some(arr => isEditMode ? arr.length > 0 : arr.some(i => i.isVisible));
+                const hasVisibleContent = Object.values(categoriesObj).some(arr => isEditMode ? arr.length > 0 : arr.some(i => i.isVisible !== false));
                 if (!hasVisibleContent) return;
 
                 // Section Header
@@ -1148,7 +1148,7 @@
             renderSection('완료됨', grouped['완료됨'], 'check-circle-2', 'completed');
 
             // --- 4. 통계 갱신 ---
-            const activeItems = items.filter(i => i.isVisible);
+            const activeItems = items.filter(i => i.isVisible !== false);
             let totalPossible = 0;
             let totalDone = 0;
             activeItems.forEach(i => {
@@ -1183,7 +1183,7 @@
 
                 // 해당 캐릭터의 같은 타입(일일/주간) 숙제들 중 현재 보이고 제외되지 않은 것만 필터링
                 const sameTypeItems = configData.contentsCheckerItems.filter(i => 
-                    i.isVisible && i.resetRule.type === type && !i.completedState?.[charId]?.isExcluded
+                    i.isVisible !== false && i.resetRule.type === type && !i.completedState?.[charId]?.isExcluded
                 );
 
                 // 현재 해당 캐릭터가 완료한 개수 (클릭 전 기준)

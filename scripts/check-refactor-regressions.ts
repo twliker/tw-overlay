@@ -3175,6 +3175,19 @@ function checkPendingHomeworkOrdering(): void {
   assert.equal(isPendingHomeworkExpired(currentPending, { type: 'daily', hour: 6 }, afterReset), false);
 }
 
+function checkContentsVisibilityContracts(): void {
+  const checkerSource = read('src/modules/contentsChecker.ts');
+  const checkerHtml = read('src/contents-checker.html');
+  assert.doesNotMatch(checkerSource, /return i\.isVisible && !state\?\.isExcluded/,
+    '모듈 통계가 isVisible 없는 레거시 숙제를 숨김 처리합니다.');
+  assert.match(checkerSource, /item\.isVisible = item\.isVisible === false/,
+    'isVisible 없는 레거시 숙제의 첫 토글이 숨김으로 전환되지 않습니다.');
+  assert.doesNotMatch(checkerHtml, /filter\(i => i\.isVisible\)/,
+    '화면에 isVisible 없는 레거시 숙제를 제외하는 truthy 필터가 남아 있습니다.');
+  assert.match(checkerHtml, /filter\(i => i\.isVisible !== false\)/,
+    '화면 가시성의 기본 보임 계약이 없습니다.');
+}
+
 function checkXpExchangeContracts(): void {
   const { XP_PER_ESSENCE, getEssenceExchangeCount } = require(
     path.join(projectRoot, 'dist', 'modules', 'xpTracker.js'),
@@ -3373,6 +3386,7 @@ checkShoutSuffixStripping();
 checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
 checkPendingHomeworkOrdering();
+checkContentsVisibilityContracts();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
 checkGoogleSyncDataContracts();
