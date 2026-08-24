@@ -1163,11 +1163,16 @@ function checkWindowedFullscreenFocusContracts(): void {
   const manager = read('src/modules/windowManager.ts');
   const polling = read('src/modules/pollingLoop.ts');
   const tracker = read('src/modules/tracker.ts');
+  const zOrderController = read('src/modules/zOrderController.ts');
 
   assert.match(polling, /const TRANSIENT_STATE_CONFIRM_SAMPLES = 2/,
     '순간적인 게임 창 탐지 실패를 재확인하는 방어가 없습니다.');
-  assert.match(polling, /const promotion = tracker\.promoteWindows\(currentRect\.gameHwnd, windowHwnds\)/,
+  assert.match(polling, /tracker\.reconcileGameZOrder\(currentRect\.gameHwnd, windowHwnds\)/,
     '폴링 Z-order 정책이 게임·TW-Overlay·실제 외부 창 포커스를 공통 판별하는 샌드위치 경계를 사용하지 않습니다.');
+  assert.match(polling, /tracker\.releaseGameZOrder\(\);[\s\S]*?wm\.resetGameSessionState\(\)/,
+    '게임 종료 시 동적 Topmost 상태를 해제하지 않습니다.');
+  assert.match(polling, /tracker\.releaseGameZOrder\(\);[\s\S]*?wm\.hideAll\(\)/,
+    '게임 최소화 시 동적 Topmost 상태를 해제하지 않습니다.');
 
   const focusStart = tracker.indexOf('export function focusGameWindow(): boolean');
   const focusEnd = tracker.indexOf('export function isGameOrAppForeground', focusStart);
@@ -1188,12 +1193,36 @@ function checkWindowedFullscreenFocusContracts(): void {
   const sandwichEnd = manager.indexOf('export const isAnyUserDragging', sandwichStart);
   assert.ok(sandwichStart >= 0 && sandwichEnd > sandwichStart, '샌드위치 Z-order 함수를 찾지 못했습니다.');
   const sandwichSource = manager.slice(sandwichStart, sandwichEnd);
-  assert.match(sandwichSource, /tracker\.promoteWindows\(gameHwndStr, getAllWindowHwnds\(\)\)/,
+  assert.match(sandwichSource, /tracker\.reconcileGameZOrder\(gameHwndStr, getAllWindowHwnds\(\)\)/,
     'TW-Overlay 포커스 시 오버레이를 게임 바로 위로 정렬하지 않습니다.');
-  assert.doesNotMatch(sandwichSource, /placeGameBelowWindow|promoteWindows\([^\n]*true\)/,
+  assert.doesNotMatch(sandwichSource, /placeGameBelowWindow|reconcileGameZOrder\([^\n]*true\)/,
     '샌드위치 정책이 게임 창 자체를 이동하거나 외부 포커스 보호를 우회합니다.');
   assert.doesNotMatch(tracker, /export function placeGameBelowWindow/,
     '샌드위치 정책 외부에서 게임 창 Z-order를 직접 이동하는 API가 남아 있습니다.');
+  assert.match(tracker, /gameOverlayZOrderController\.reconcile\(/,
+    'tracker가 포커스·위치 사건을 단일 Z-order 상태 관리자에 전달하지 않습니다.');
+  assert.doesNotMatch(tracker, /SetWindowPos\(/,
+    'tracker에 상태 관리자 밖의 직접 Z-order 쓰기가 남아 있습니다.');
+  assert.match(zOrderController, /targetState === 'external-game-monitor'[\s\S]*?this\.native\.notTopmost[\s\S]*?externalIsTopmost \? this\.native\.top : foregroundHwnd[\s\S]*?placeWindowStack\(placementAnchor, groupHwnds\)/,
+    '외부 프로그램 전경에서 게임 묶음을 강등하고 외부 창 아래로 배치하지 않습니다.');
+  assert.match(zOrderController, /const externalIsTopmost = this\.native\.isTopmost\(foregroundHwnd\)/,
+    '시작 메뉴·작업표시줄 Topmost HWND 뒤에 삽입해 게임 묶음을 다시 Topmost로 전염시킬 수 있습니다.');
+  assert.match(zOrderController, /return rectsOverlap\(input\.foregroundRect, input\.gameRect\)[\s\S]*?'external-game-monitor'[\s\S]*?'external-other-monitor'/,
+    '외부 창이 게임 화면과 실제로 겹칠 때만 게임 묶음을 강등하는 경계가 없습니다.');
+  assert.match(zOrderController, /first\.left < second\.right[\s\S]*?first\.bottom > second\.top/,
+    '듀얼 모니터 창 겹침 판정이 네 방향 경계를 모두 검사하지 않습니다.');
+  assert.match(tracker, /SetWinEventHook\([\s\S]*?EVENT_OBJECT_LOCATIONCHANGE,[\s\S]*?EVENT_OBJECT_LOCATIONCHANGE/,
+    '반대편 모니터의 전경 창 이동을 실시간 감지하는 위치 이벤트 훅이 없습니다.');
+  assert.match(tracker, /event === win32\.EVENT_OBJECT_LOCATIONCHANGE[\s\S]*?safeHwnd === foregroundHwnd[\s\S]*?onForegroundChangeCallback/,
+    '전경 외부 창의 모니터 진입을 폴링 전에 즉시 Z-order 재판정하지 않습니다.');
+  assert.match(tracker, /if \(hLocationEventHook\)[\s\S]*?UnhookWinEvent\(hLocationEventHook\)/,
+    '앱 종료 시 위치 이벤트 훅을 해제하지 않습니다.');
+  assert.match(zOrderController, /isTaskbarAboveWindow\(groupHwnds\[0\], gameHwnd\)[\s\S]*?placeWindowStack\(this\.native\.topmost, groupHwnds\)/,
+    '게임/TW-Overlay 전경에서 작업표시줄 위로 묶음을 복구하는 정책이 없습니다.');
+  assert.match(zOrderController, /this\.native\.isTaskbarWindow\(current\)[\s\S]*?rectsOverlap\(currentRect, gameRect\)/,
+    '듀얼 모니터의 다른 화면 작업표시줄까지 게임 위 작업표시줄로 오인합니다.');
+  assert.match(tracker, /export function releaseGameZOrder\(\): void[\s\S]*?gameOverlayZOrderController\.release/,
+    '앱 종료 시 게임 창의 동적 Topmost 상태를 해제하는 경로가 없습니다.');
   assert.match(tracker, /className === 'Shell_TrayWnd' \|\| className === 'Shell_SecondaryTrayWnd'/,
     '우리 설정창 종료 후 작업표시줄이 foreground를 가져간 경우를 구분하지 않습니다.');
   assert.match(manager, /const deferDockLayout = pendingDockLayoutChange && !tracker\.isGameOrAppForeground\(\)/,
@@ -1208,24 +1237,139 @@ function checkWindowedFullscreenFocusContracts(): void {
     '개발 실행이 분리형 DevTools 창을 항상 열어 전체화면 실기 검증을 오염시킵니다.');
   assert.doesNotMatch(manager, /if \(IS_DEV\)[^{\n]*\{?[^\n]*openDevTools/,
     '명시적 --devtools 옵션 없이 분리형 DevTools 창을 자동으로 엽니다.');
-  assert.match(tracker, /for \(let i = electronHwndBigInts\.length - 1; isAlreadySandwiched && i > 0; i--\)/,
+  assert.match(zOrderController, /for \(let i = overlayHwnds\.length - 1; i > 0; i--\)/,
     '게임 바로 위 한 창만 확인하고 TW-Overlay 내부 Z-order가 갈라진 상태를 정상으로 오판합니다.');
   assert.match(manager, /overlayWindow\?\.showInactive\(\)/,
     '브라우저 오버레이 자동 생성이 포커스를 획득할 수 있습니다.');
-  assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply'/,
+  assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply' \| 'preload'/,
     '사용자가 연 창과 자동 재생성을 구분하는 표시 정책이 없습니다.');
   assert.match(manager, /showReason === 'user-open' && !isPassiveOverlay[\s\S]*?win\.show\(\);[\s\S]*?win\.showInactive\(\);/,
     '자동 재생성된 관리 창이 비활성 상태로 표시되지 않습니다.');
-  assert.match(manager, /\.\.\.\(key === 'dock' \? \{ focusable: false \} : \{\}\)/,
-    '독 창이 게임의 포커스를 획득할 수 있습니다.');
+  assert.doesNotMatch(manager, /key === 'dock'[^\n]*focusable: false/,
+    '독 창이 no-activate로 생성되어 hover만 되고 클릭이 전달되지 않을 수 있습니다.');
   assert.ok((manager.match(/'game-resync'/g) ?? []).length >= 6,
     '게임 동기화 중 생성되는 창의 비활성 표시 사유가 누락되었습니다.');
   const clickThroughStart = manager.indexOf('export function toggleClickThrough(): boolean');
   const clickThroughEnd = manager.indexOf('export function toggleSidebar(): boolean', clickThroughStart);
   assert.ok(clickThroughStart >= 0 && clickThroughEnd > clickThroughStart,
     '클릭 투과 전환 함수를 찾지 못했습니다.');
-  assert.doesNotMatch(manager.slice(clickThroughStart, clickThroughEnd), /promoteWindows\([^\n]*true\)/,
+  assert.doesNotMatch(manager.slice(clickThroughStart, clickThroughEnd), /reconcileGameZOrder\([^\n]*true\)/,
     '클릭 투과 전환이 외부 프로그램 전환 후에도 Z-order를 강제 변경할 수 있습니다.');
+
+  const dockToggleStart = manager.indexOf('export function toggleDockWindow(): void');
+  const dockToggleEnd = manager.indexOf('export function toggleContentsCheckerWindow', dockToggleStart);
+  assert.ok(dockToggleStart >= 0 && dockToggleEnd > dockToggleStart, '독 토글 함수를 찾지 못했습니다.');
+  const dockToggleSource = manager.slice(dockToggleStart, dockToggleEnd);
+  assert.match(dockToggleSource, /if \(winCfg\.ref\.isVisible\(\)\)[\s\S]*?winCfg\.ref\.hide\(\)/,
+    '독을 숨길 때 창을 유지하지 않아 다음 표시에 renderer 재생성 지연이 발생합니다.');
+  assert.doesNotMatch(dockToggleSource, /winCfg\.ref\.close\(\)/,
+    '단축키 독 숨김이 창을 파괴해 다음 표시를 지연시킵니다.');
+  assert.match(dockToggleSource, /winCfg\.ref\.setPosition\(x, y\);[\s\S]*?winCfg\.ref\.showInactive\(\)/,
+    '숨긴 독의 위치를 먼저 확정하지 않아 표시 직후 화면 점프가 발생할 수 있습니다.');
+  assert.match(manager, /if \(!isDockVisible\)[\s\S]*?dockCfg\.ref\.hide\(\)/,
+    '안정 폴링이 숨긴 독 창을 닫아 재사용 최적화를 무효화합니다.');
+  assert.match(manager, /createToggleableWindow\('dock', undefined, 'preload'\)/,
+    '독 모드 진입 시 숨은 renderer를 미리 준비하지 않아 첫 단축키 표시가 지연됩니다.');
+  assert.match(manager, /showReason === 'preload'[\s\S]*?showMethod = 'preload-hidden'/,
+    '사전 로딩한 독이 준비 과정에서 화면에 노출될 수 있습니다.');
+  const ipcHandlers = read('src/modules/ipcHandlers.ts');
+  assert.match(ipcHandlers, /ipcMain\.on\('save-quick-slots'[\s\S]*?config\.saveImmediate\(\{ quickSlots: slots \}\);[\s\S]*?wm\.broadcastConfig\(\)/,
+    '퀵링크 저장 후 재사용 중인 독 renderer에 최신 설정을 즉시 전달하지 않습니다.');
+  assert.match(read('src/dock.html'), /onConfigData\(\(config\) => \{[\s\S]*?appConfig = config;[\s\S]*?renderDock\(\)/,
+    '독 renderer가 퀵링크·위치 설정 변경을 수신해 즉시 다시 그리지 않습니다.');
+
+  const zOrderRuntime = require(path.join(projectRoot, 'dist', 'modules', 'zOrderController.js')) as {
+    GameOverlayZOrderController: new (
+      native: {
+        top: bigint;
+        topmost: bigint;
+        notTopmost: bigint;
+        getForegroundWindow(): bigint;
+        getWindowRect(hwnd: bigint): { left: number; top: number; right: number; bottom: number } | null;
+        getWindowAbove(hwnd: bigint): bigint;
+        isTopmost(hwnd: bigint): boolean;
+        isTaskbarWindow(hwnd: bigint): boolean;
+        setWindowAfter(hwnd: bigint, insertAfter: bigint): boolean;
+      },
+      writeLog?: (message: string) => void,
+    ) => {
+      getState(): string;
+      reconcile(input: { gameHwnd: bigint; overlayHwnds: bigint[] }): { state: string };
+      release(gameHwnd?: bigint): void;
+    };
+  };
+  const gameHwnd = 10n;
+  const firstOverlayHwnd = 20n;
+  const secondOverlayHwnd = 21n;
+  const externalHwnd = 30n;
+  let foregroundHwnd = gameHwnd;
+  let setWindowCallCount = 0;
+  const topmostHwnds = new Set<bigint>([gameHwnd, firstOverlayHwnd, secondOverlayHwnd]);
+  const windowAbove = new Map<bigint, bigint>([
+    [firstOverlayHwnd, 0n],
+    [secondOverlayHwnd, firstOverlayHwnd],
+    [gameHwnd, secondOverlayHwnd],
+  ]);
+  const rects = new Map<bigint, { left: number; top: number; right: number; bottom: number }>([
+    [gameHwnd, { left: 0, top: 0, right: 100, bottom: 100 }],
+    [externalHwnd, { left: 200, top: 0, right: 300, bottom: 100 }],
+  ]);
+  const fakeNative = {
+    top: 0n,
+    topmost: -1n,
+    notTopmost: -2n,
+    getForegroundWindow: (): bigint => foregroundHwnd,
+    getWindowRect: (hwnd: bigint) => rects.get(hwnd) ?? null,
+    getWindowAbove: (hwnd: bigint): bigint => windowAbove.get(hwnd) ?? 0n,
+    isTopmost: (hwnd: bigint): boolean => topmostHwnds.has(hwnd),
+    isTaskbarWindow: (_hwnd: bigint): boolean => false,
+    setWindowAfter: (hwnd: bigint, insertAfter: bigint): boolean => {
+      setWindowCallCount++;
+      if (insertAfter === -2n) {
+        topmostHwnds.delete(hwnd);
+      } else if (insertAfter === -1n || topmostHwnds.has(insertAfter)) {
+        topmostHwnds.add(hwnd);
+      }
+      windowAbove.set(hwnd, insertAfter > 0n ? insertAfter : 0n);
+      return true;
+    },
+  };
+  const zOrder = new zOrderRuntime.GameOverlayZOrderController(fakeNative, () => undefined);
+  const zOrderInput = { gameHwnd, overlayHwnds: [firstOverlayHwnd, secondOverlayHwnd] };
+
+  assert.equal(zOrder.reconcile(zOrderInput).state, 'game-active');
+  assert.equal(setWindowCallCount, 0, '정상인 동일 z-order 상태에서도 Win32 쓰기를 수행합니다.');
+  assert.equal(zOrder.reconcile(zOrderInput).state, 'game-active');
+  assert.equal(setWindowCallCount, 0, '동일 상태 재평가가 멱등적이지 않습니다.');
+
+  foregroundHwnd = firstOverlayHwnd;
+  assert.equal(zOrder.reconcile(zOrderInput).state, 'overlay-active');
+  assert.equal(setWindowCallCount, 0,
+    '정상적인 TW-Overlay 내부 포커스 전환만으로 불필요한 z-order 쓰기를 수행합니다.');
+
+  foregroundHwnd = externalHwnd;
+  assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
+  assert.equal(setWindowCallCount, 0, '다른 모니터 외부 창만 활성화됐는데 게임 묶음을 강등합니다.');
+
+  rects.set(externalHwnd, { left: 50, top: 0, right: 150, bottom: 100 });
+  assert.equal(zOrder.reconcile(zOrderInput).state, 'external-game-monitor');
+  const callsAfterDemotion = setWindowCallCount;
+  assert.ok(callsAfterDemotion > 0, '외부 창이 게임 모니터에 진입했는데 게임 묶음을 강등하지 않습니다.');
+  zOrder.reconcile(zOrderInput);
+  assert.equal(setWindowCallCount, callsAfterDemotion,
+    '게임 모니터의 동일 외부 창 상태에서 강등 쓰기를 반복합니다.');
+
+  rects.set(externalHwnd, { left: 200, top: 0, right: 300, bottom: 100 });
+  assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
+  const callsAfterPromotion = setWindowCallCount;
+  assert.ok(callsAfterPromotion > callsAfterDemotion,
+    '외부 창이 다른 모니터로 돌아갔는데 게임 묶음을 복원하지 않습니다.');
+  zOrder.reconcile(zOrderInput);
+  assert.equal(setWindowCallCount, callsAfterPromotion,
+    '복원된 동일 상태에서 승격 쓰기를 반복합니다.');
+
+  zOrder.release(gameHwnd);
+  assert.equal(zOrder.getState(), 'inactive');
 }
 
 function checkEmbeddedWebWindowContracts(): void {

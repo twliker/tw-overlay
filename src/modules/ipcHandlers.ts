@@ -700,8 +700,9 @@ export function register(): void {
   ipcMain.on('save-quick-slots', (_e, slots: QuickSlotItem[]) => {
     if (!Array.isArray(slots) || slots.length > 100 || !slots.every(isValidQuickSlot)) return;
     config.saveImmediate({ quickSlots: slots });
-    const sidebar = wm.getMainWindow();
-    if (sidebar) sidebar.webContents.send('config-data', config.load());
+    // 독 renderer를 hide/show로 재사용하므로 사이드바뿐 아니라 숨겨진 독에도
+    // 최신 퀵링크 설정을 즉시 전달해 다음 표시와 현재 UI를 모두 갱신합니다.
+    wm.broadcastConfig();
   });
 
   // 갤러리 모니터 핸들러

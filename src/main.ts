@@ -172,11 +172,12 @@ app.whenReady().then(() => {
       const electronHwnds = wm.getAllWindowHwnds();
       const isAppFocused = electronHwnds.includes(focusedHwndStr);
       sm.updateFocusState(isGameFocused || isAppFocused);
-      if (isGameFocused && !wm.isAnyUserDragging()) {
-        const gameHwnd = tracker.getGameHwnd();
-        if (gameHwnd && electronHwnds.length > 0) {
-          tracker.promoteWindows(gameHwnd, electronHwnds);
-        }
+      const isExternalFocused = !isGameFocused && !isAppFocused;
+      const gameHwnd = tracker.getGameHwnd();
+      // 외부 프로그램 전환은 드래그 상태와 무관하게 즉시 강등해야 한다.
+      // 게임/TW-Overlay 내부 재정렬만 사용자 드래그 중에는 건너뛴다.
+      if (gameHwnd && electronHwnds.length > 0 && (isExternalFocused || !wm.isAnyUserDragging())) {
+        tracker.reconcileGameZOrder(gameHwnd, electronHwnds);
       }
     });
 

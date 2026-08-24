@@ -9,11 +9,13 @@
 import { GAME_PROCESS_NAME, GameQueryResult, TITLE_BUFFER_LENGTH } from './constants';
 import { log } from './logger';
 import * as win32 from './win32';
+import { gameOverlayZOrderController } from './zOrderController';
 import koffi from 'koffi';
 
 let cachedHwnd: bigint | null = null;
 let lastProcessId: number | null = null;
 let hEventHook: bigint | null = null;
+let hLocationEventHook: bigint | null = null;
 let onWindowEventCallback: (() => void) | null = null;
 let onForegroundChangeCallback: ((isGameFocused: boolean, focusedHwnd: string) => void) | null = null;
 
@@ -102,7 +104,7 @@ const enumCallback = koffi.register((hwnd: any, _lParam: bigint) => {
 const WinEventProcProto = koffi.proto('__stdcall', 'void', ['intptr', 'uint32', 'intptr', 'int32', 'int32', 'uint32', 'uint32']);
 const WinEventProcPtr = koffi.pointer(WinEventProcProto);
 
-const winEventProcInstance = koffi.register((_hWinEventHook: bigint, event: number, hwnd: any, _idObject: number, _idChild: number, _dwEventThread: number, _dwmsEventTime: number) => {
+const winEventProcInstance = koffi.register((_hWinEventHook: bigint, event: number, hwnd: any, idObject: number, idChild: number, _dwEventThread: number, _dwmsEventTime: number) => {
     const safeHwnd = parseHwnd(hwnd);
     if (cachedHwnd && safeHwnd === cachedHwnd) {
         if (onWindowEventCallback) onWindowEventCallback();
@@ -112,22 +114,49 @@ const winEventProcInstance = koffi.register((_hWinEventHook: bigint, event: numb
         const isGameFocused = cachedHwnd !== null && safeHwnd === cachedHwnd;
         onForegroundChangeCallback(isGameFocused, safeHwnd.toString());
     }
+
+    // 반대편 모니터의 전경 창을 게임 모니터로 끌어오는 동안에는 foreground가
+    // 바뀌지 않는다. 해당 전경 창의 이동도 즉시 다시 판정해야 Topmost인 게임이
+    // 최대 1초 동안 외부 창을 가리는 현상이 생기지 않는다.
+    if (event === win32.EVENT_OBJECT_LOCATIONCHANGE
+        && idObject === win32.OBJID_WINDOW
+        && idChild === 0
+        && onForegroundChangeCallback
+        && win32.GetForegroundWindow) {
+        const foregroundHwnd = parseHwnd(win32.GetForegroundWindow());
+        if (safeHwnd !== 0n && safeHwnd === foregroundHwnd) {
+            const isGameFocused = cachedHwnd !== null && safeHwnd === cachedHwnd;
+            onForegroundChangeCallback(isGameFocused, safeHwnd.toString());
+        }
+    }
 }, WinEventProcPtr);
 
 
 // --- 내부 함수 ---
 
 function setupEventHook(): void {
-    if (hEventHook) return;
-    hEventHook = win32.SetWinEventHook(
-        win32.EVENT_SYSTEM_FOREGROUND,
-        win32.EVENT_SYSTEM_FOREGROUND,
-        0n,
-        winEventProcInstance,
-        0,
-        0,
-        win32.WINEVENT_OUTOFCONTEXT
-    );
+    if (!hEventHook) {
+        hEventHook = win32.SetWinEventHook(
+            win32.EVENT_SYSTEM_FOREGROUND,
+            win32.EVENT_SYSTEM_FOREGROUND,
+            0n,
+            winEventProcInstance,
+            0,
+            0,
+            win32.WINEVENT_OUTOFCONTEXT
+        );
+    }
+    if (!hLocationEventHook) {
+        hLocationEventHook = win32.SetWinEventHook(
+            win32.EVENT_OBJECT_LOCATIONCHANGE,
+            win32.EVENT_OBJECT_LOCATIONCHANGE,
+            0n,
+            winEventProcInstance,
+            0,
+            0,
+            win32.WINEVENT_OUTOFCONTEXT
+        );
+    }
 }
 
 function findGameWindow(): bigint | null {
@@ -273,28 +302,26 @@ export async function queryGameRect(): Promise<GameQueryResult> {
 }
 
 export function stop() {
+    releaseGameZOrder();
     if (hEventHook) {
         win32.UnhookWinEvent(hEventHook);
         hEventHook = null;
     }
+    if (hLocationEventHook) {
+        win32.UnhookWinEvent(hLocationEventHook);
+        hLocationEventHook = null;
+    }
     cachedHwnd = null;
 }
 
-/** 
- * 오버레이 창들을 게임 바로 위로 올림 (Z-Order 샌드위치 최적화 로직)
+/**
+ * 포커스·창 이동·안정 폴링 사건을 단일 z-order 상태 관리자에 전달한다.
+ * 이 함수 밖에서는 게임/TW-Overlay 묶음의 Win32 순서를 결정하지 않는다.
  */
-export function promoteWindows(gameHwndStr: string | undefined, electronHwnds: string[], force: boolean = false): { isGameOrAppFocused: boolean } {
-    if (!gameHwndStr || electronHwnds.length === 0 || !win32.SetWindowPos) return { isGameOrAppFocused: false };
-
-    let isFocused = false;
+export function reconcileGameZOrder(gameHwndStr: string | undefined, electronHwnds: string[]): { isGameOrAppFocused: boolean } {
+    if (!gameHwndStr || electronHwnds.length === 0) return { isGameOrAppFocused: false };
     try {
         const gameHwnd = BigInt(gameHwndStr);
-        const flags = win32.SWP_NOMOVE | win32.SWP_NOSIZE | win32.SWP_NOACTIVATE |
-            win32.SWP_NOOWNERZORDER | win32.SWP_NOSENDCHANGING |
-            win32.SWP_DEFERERASE | win32.SWP_NOCOPYBITS | win32.SWP_NOREDRAW;
-
-        const fgHwnd = parseHwnd(win32.GetForegroundWindow());
-        const isGameFocused = (fgHwnd === gameHwnd);
         const electronHwndBigInts = electronHwnds
             .map(h => {
                 try {
@@ -304,54 +331,17 @@ export function promoteWindows(gameHwndStr: string | undefined, electronHwnds: s
                 }
             })
             .filter(h => h !== 0n);
-        // 사이드바를 포함한 모든 앱 윈도우 중 하나라도 포커스를 가졌는지 체크
-        const isOurAppFocused = electronHwndBigInts.includes(fgHwnd);
-
-        isFocused = isGameFocused || isOurAppFocused;
-
-        // 다른 일반 앱(크롬, 디스코드 등)이 포커스를 가진 상태라면 오버레이가 외부 앱 위로 튀어나오지 않도록 절대 Z-Order를 승격하지 않음
-        if (!isFocused && !force) {
-            return { isGameOrAppFocused: false };
-        }
-
-        // 항상 샌드위치 배치: 게임 창 바로 앞(Z+1)에 오버레이 배치
-        const prevHwnd = parseHwnd(win32.GetWindow(gameHwnd, win32.GW_HWNDPREV));
-        const lastElectronHwnd = electronHwndBigInts[electronHwndBigInts.length - 1];
-
-        // 맨 아래 오버레이만 게임 바로 앞에 있다고 전체 순서가 정상인 것은 아닙니다.
-        // 전체화면 투명층이 독 위로 뒤집히면 독은 보이지만 마우스 입력이 게임으로
-        // 통과하므로, 앱 창 사이의 모든 인접 관계까지 확인합니다.
-        let isAlreadySandwiched = prevHwnd !== 0n && prevHwnd === lastElectronHwnd;
-        for (let i = electronHwndBigInts.length - 1; isAlreadySandwiched && i > 0; i--) {
-            const windowDirectlyAbove = parseHwnd(win32.GetWindow(electronHwndBigInts[i], win32.GW_HWNDPREV));
-            isAlreadySandwiched = windowDirectlyAbove === electronHwndBigInts[i - 1];
-        }
-
-        if (force || !isAlreadySandwiched) {
-            // 기준점 탐색: prevHwnd가 우리 창 중 하나라면 외부 앱 또는 HWND_TOP(0n)이 나올 때까지 상위로 거슬러 올라감
-            let baseHwnd = prevHwnd;
-            let depth = 0;
-            const maxDepth = electronHwndBigInts.length + 5;
-            while (baseHwnd !== 0n && electronHwndBigInts.includes(baseHwnd) && depth < maxDepth) {
-                baseHwnd = parseHwnd(win32.GetWindow(baseHwnd, win32.GW_HWNDPREV));
-                depth++;
-            }
-
-            let hwndInsertAfter: bigint = baseHwnd;
-            // 게임이 Non-Topmost 최상위여서 바로 앞 일반 창이 없는 경우(baseHwnd === 0n),
-            // HWND_TOP(0n)을 기준점으로 오버레이들을 게임 창 위로 순차 배치
-            for (let i = 0; i < electronHwndBigInts.length; i++) {
-                const hBigInt = electronHwndBigInts[i];
-                win32.SetWindowPos(hBigInt, hwndInsertAfter, 0, 0, 0, 0, flags);
-                hwndInsertAfter = hBigInt;
-            }
-        }
-
+        if (electronHwndBigInts.length === 0) return { isGameOrAppFocused: false };
+        const result = gameOverlayZOrderController.reconcile({
+            gameHwnd,
+            overlayHwnds: electronHwndBigInts,
+        });
+        return { isGameOrAppFocused: result.isGameOrAppFocused };
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        log(`[TRACKER] Promote failed: ${msg}`);
+        log(`[TRACKER] Z-order event forwarding failed: ${msg}`);
+        return { isGameOrAppFocused: false };
     }
-    return { isGameOrAppFocused: isFocused };
 }
 
 export async function boostGameProcess(): Promise<string | undefined> {
@@ -390,6 +380,16 @@ export function focusGameWindow(): boolean {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRACKER] Focus failed: ${msg}`);
         return false;
+    }
+}
+
+/** 앱 종료·게임 숨김 시 게임 창에 Topmost 상태를 남기지 않는다. */
+export function releaseGameZOrder(): void {
+    try {
+        gameOverlayZOrderController.release(cachedHwnd ?? 0n);
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        log(`[TRACKER] Z-Order release failed: ${msg}`);
     }
 }
 

@@ -48,7 +48,7 @@ function bringGameAndOverlaysToTop(): void {
   if (!gameRect || programmaticMoves.isAnyUserDragging()) return;
   const gameHwndStr = tracker.getGameHwnd();
   if (!gameHwndStr) return;
-  tracker.promoteWindows(gameHwndStr, getAllWindowHwnds());
+  tracker.reconcileGameZOrder(gameHwndStr, getAllWindowHwnds());
 }
 
 export const isAnyUserDragging = () => programmaticMoves.isAnyUserDragging();
@@ -683,7 +683,7 @@ function recoverCompletelyOffscreenBrowserOverlay(
   return { x: recoveredX, y: recoveredY, recovered: true };
 }
 
-type ManagedWindowShowReason = 'user-open' | 'game-resync' | 'settings-apply';
+type ManagedWindowShowReason = 'user-open' | 'game-resync' | 'settings-apply' | 'preload';
 
 function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   onReady?: (win: BrowserWindow) => void,
@@ -727,7 +727,6 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     minHeight: sizing.minHeight,
     transparent: needsTransparent,
     backgroundColor: needsTransparent ? undefined : '#0f0e1a',
-    ...(key === 'dock' ? { focusable: false } : {}),
   }));
   if (sizing.isResizable) {
     win.setResizable(true);
@@ -789,12 +788,16 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     isInitialPositionApplied = true;
     win.webContents.send('config-data', config.load());
     if (callbacks?.onReady || winCfg.onOpen) (callbacks?.onReady || winCfg.onOpen)!(win);
+    const shouldShowPreloadedDock = showReason === 'preload' && key === 'dock' && isDockVisible;
+    let showMethod = 'preload-hidden';
     if (showReason === 'user-open' && !isPassiveOverlay) {
       win.show();
-    } else {
+      showMethod = 'show';
+    } else if (showReason !== 'preload' || shouldShowPreloadedDock) {
       win.showInactive();
+      showMethod = 'showInactive';
     }
-    log(`[WINDOW_SHOW] ${key} reason=${showReason} method=${showReason === 'user-open' && !isPassiveOverlay ? 'show' : 'showInactive'}`);
+    log(`[WINDOW_SHOW] ${key} reason=${showReason} method=${showMethod}`);
     sendActiveWindowsStatus();
     if (SHOULD_AUTO_OPEN_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
   });
@@ -1224,15 +1227,28 @@ export function toggleDockWindow(): void {
 
   const winCfg = windowRegistry['dock'];
   if (winCfg.ref && !winCfg.ref.isDestroyed()) {
-    if (winCfg.ref.isVisible()) {
+    const isPreloading = winCfg.ref.webContents.isLoadingMainFrame();
+    if (winCfg.ref.isVisible() || (isPreloading && isDockVisible)) {
       isDockVisible = false;
-      winCfg.ref.close();
+      // 독은 단축키로 자주 토글되므로 renderer를 파괴하지 않고 숨겨 즉시 재사용합니다.
+      if (winCfg.ref.isVisible()) winCfg.ref.hide();
     } else {
       isDockVisible = true;
-      winCfg.ref.showInactive();
       if (gameRect) {
         const { x, y } = winCfg.calcPosition!(gameRect, winCfg.pos);
-        winCfg.ref.setPosition(x, y);
+        if (isValidCoordinate(x) && isValidCoordinate(y)) {
+          setProgrammaticMove('dock', x, y);
+          winCfg.ref.setPosition(x, y);
+        }
+      }
+      // 위치를 먼저 확정한 뒤 기존 renderer를 표시해 재생성 지연과 화면 점프를 없앱니다.
+      if (!isPreloading) {
+        winCfg.ref.showInactive();
+        bringGameAndOverlaysToTop();
+        sendActiveWindowsStatus();
+        log('[DOCK_TOGGLE] 기존 독 창 즉시 표시');
+      } else {
+        log('[DOCK_TOGGLE] 독 사전 로딩 완료 후 표시 예약');
       }
     }
   } else {
@@ -1310,8 +1326,12 @@ export function syncOverlay(currentRect: GameRect): void {
       if (mainWindow.isVisible()) mainWindow.hide();
       const dockCfg = windowRegistry['dock'];
       if (!isDockVisible) {
-        if (dockCfg.ref && !dockCfg.ref.isDestroyed()) {
-          dockCfg.ref.close();
+        if (!dockCfg.ref || dockCfg.ref.isDestroyed()) {
+          // 독 모드 진입 시 renderer를 숨은 상태로 준비해 첫 단축키 표시도 즉시 처리합니다.
+          createToggleableWindow('dock', undefined, 'preload');
+        } else if (dockCfg.ref.isVisible()) {
+          // 독 모드에서는 숨긴 창을 유지해 다음 단축키 입력에서 즉시 재사용합니다.
+          dockCfg.ref.hide();
         }
       }
     } else {
@@ -1758,7 +1778,7 @@ export function toggleClickThrough(): boolean {
       const hwnds = getAllWindowHwnds();
       if (hwnds.length > 0) {
         // 지연 시간 사이 외부 프로그램으로 전환했다면 그 창의 Z-order를 침범하지 않는다.
-        tracker.promoteWindows(gameHwndStr, hwnds);
+        tracker.reconcileGameZOrder(gameHwndStr, hwnds);
       }
     }
   }, 150);

@@ -61,6 +61,7 @@ export const UnhookWinEvent = user32.func('__stdcall', 'UnhookWinEvent', 'bool',
 
 // --- Constants ---
 export const EVENT_OBJECT_LOCATIONCHANGE = 0x800B; // 위치/크기 변경
+export const OBJID_WINDOW = 0x00000000;
 export const EVENT_SYSTEM_FOREGROUND = 0x0003;      // 창 활성화 변경
 export const EVENT_SYSTEM_MINIMIZESTART = 0x0016;  // 최소화 시작
 export const EVENT_SYSTEM_MINIMIZEEND = 0x0017;    // 최소화 종료 (복구)
