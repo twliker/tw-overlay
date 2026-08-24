@@ -3714,6 +3714,17 @@ function checkGoogleSyncDataContracts(): void {
   const sampleLocalConfig = {
     userServer: 16,
     lootKeywords: ['샤를란', '엔키라'],
+    discordWebhookUrl: 'https://discord.com/api/webhooks/secret-token',
+    customSounds: [{ name: '로컬 알림음', file: 'custom_123_local.mp3' }],
+    wordAlarmSound: 'custom_123_local.mp3',
+    buffTimerSound: 'orb.mp3',
+    fieldBossSettings: {
+      '골론': { name: '골론', enabled: true, soundFile: 'custom_123_local.mp3' },
+      '아칸': { name: '아칸', enabled: true, soundFile: 'orb.mp3' },
+    },
+    customAlerts: [
+      { id: 'custom-alert-1', enabled: true, type: 'daily', time: '12:30', offsets: [0], message: '테스트', soundFile: 'custom_123_local.mp3' },
+    ],
     positions: { overlay: { x: 100, y: 100, width: 400, height: 300 } },
     chatLogPath: 'C:\\Nexon\\TalesWeaver\\ChatLog',
     googleSyncLastTime: 123456789,
@@ -3734,7 +3745,10 @@ function checkGoogleSyncDataContracts(): void {
     characterPresets: [
       { id: 'char-1', name: '보리스' },
       { id: 'char-2', name: '루시안' }
-    ]
+    ],
+    pendingHomeworks: [
+      { id: 'pending-1', contentId: 'daily-abyss', detectedAt: 900 },
+    ],
   };
 
   const extracted = syncDataHelper.extractSyncData(sampleLocalConfig);
@@ -3742,6 +3756,25 @@ function checkGoogleSyncDataContracts(): void {
   assert.deepEqual(extracted.lootKeywords, ['샤를란', '엔키라']);
   assert.equal(extracted.positions, undefined, 'positions 필드가 동기화 데이터에 포함되었습니다.');
   assert.equal(extracted.chatLogPath, undefined, 'chatLogPath 필드가 동기화 데이터에 포함되었습니다.');
+  assert.equal(extracted.pendingHomeworks, undefined,
+    '3방향 병합 없는 기존 단일 파일에 pending 숙제가 새로 포함되었습니다.');
+  assert.equal(extracted.discordWebhookUrl, undefined, 'Discord Webhook URL이 동기화 데이터에 포함되었습니다.');
+  assert.equal(extracted.wordAlarmSound, undefined, '로컬 커스텀 사운드 ID가 동기화 데이터에 포함되었습니다.');
+  assert.equal(extracted.buffTimerSound, 'orb.mp3', '내장 사운드 ID가 동기화 데이터에서 누락되었습니다.');
+  assert.equal(extracted.fieldBossSettings['골론'].soundFile, undefined,
+    '필드보스 설정의 로컬 커스텀 사운드가 포함되었습니다.');
+  assert.equal(extracted.fieldBossSettings['아칸'].soundFile, 'orb.mp3');
+  assert.equal(extracted.customAlerts[0].soundFile, undefined,
+    '커스텀 알림의 로컬 커스텀 사운드가 포함되었습니다.');
+
+  const settingsData = syncDataHelper.extractSettingsSyncData(sampleLocalConfig);
+  const checklistData = syncDataHelper.extractChecklistSyncData(sampleLocalConfig);
+  assert.equal(settingsData.contentsCheckerItems, undefined, '설정 파일에 숙제 상태가 섞였습니다.');
+  assert.equal(settingsData.characterPresets, undefined, '설정 파일에 캐릭터 프리셋이 섞였습니다.');
+  assert.equal(checklistData.userServer, undefined, '숙제 파일에 일반 설정이 섞였습니다.');
+  assert.deepEqual(checklistData.contentsCheckerItems, sampleLocalConfig.contentsCheckerItems);
+  assert.deepEqual(checklistData.characterPresets, sampleLocalConfig.characterPresets);
+  assert.deepEqual(checklistData.pendingHomeworks, sampleLocalConfig.pendingHomeworks);
 
   // 2. buildSyncPayload: 메타데이터 및 스키마 검증
   const payload = syncDataHelper.buildSyncPayload(sampleLocalConfig, 'tester@gmail.com');
@@ -3749,6 +3782,8 @@ function checkGoogleSyncDataContracts(): void {
   assert.equal(payload.updatedBy, 'tester@gmail.com');
   assert.ok(payload.lastSyncedAt > 0);
   assert.equal(payload.data.userServer, 16);
+  assert.equal(syncDataHelper.buildSettingsSyncPayload(sampleLocalConfig, 'tester@gmail.com').data.contentsCheckerItems, undefined);
+  assert.equal(syncDataHelper.buildChecklistSyncPayload(sampleLocalConfig, 'tester@gmail.com').data.userServer, undefined);
 
   // 3. mergeSyncData: 숙제 타임스탬프 기반 병합 및 설정 병합 검증
   const cloudPayload = {
@@ -3812,6 +3847,38 @@ function checkGoogleSyncDataContracts(): void {
   // 캐릭터 프리셋 병합 확인
   assert.equal(merged.characterPresets?.length, 3); // char-1, char-2, char-3
   assert.ok(merged.characterPresets?.some((c: any) => c.id === 'char-3'));
+
+  const secretCloudPayload = {
+    ...cloudPayload,
+    data: {
+      discordWebhookUrl: 'https://discord.com/api/webhooks/remote-secret',
+      wordAlarmSound: 'C:\\Users\\remote\\secret.mp3',
+      fieldBossSettings: {
+        '골론': { name: '골론', enabled: false, soundFile: 'custom_remote.mp3' },
+      },
+      customAlerts: [
+        { id: 'custom-alert-1', enabled: false, type: 'daily', time: '13:30', offsets: [0], message: '원격 변경', soundFile: 'custom_remote.mp3' },
+      ],
+    },
+  };
+  const secretMerged = syncDataHelper.mergeSyncData(sampleLocalConfig, secretCloudPayload);
+  assert.equal(secretMerged.discordWebhookUrl, sampleLocalConfig.discordWebhookUrl,
+    '구버전/비정상 클라우드 payload가 로컬 Webhook URL을 덮었습니다.');
+  assert.equal(secretMerged.wordAlarmSound, sampleLocalConfig.wordAlarmSound,
+    '원격 로컬 사운드 경로가 현재 PC 설정을 덮었습니다.');
+  assert.equal(secretMerged.fieldBossSettings['골론'].soundFile, 'custom_123_local.mp3');
+  assert.equal(secretMerged.fieldBossSettings['골론'].enabled, false);
+  assert.equal(secretMerged.customAlerts[0].soundFile, 'custom_123_local.mp3');
+  assert.equal(secretMerged.customAlerts[0].message, '원격 변경');
+
+  const driveSource = read('src/modules/googleDriveSync.ts');
+  assert.match(driveSource, /SETTINGS_SYNC_FILE_NAME = 'tw_overlay_settings\.json'/);
+  assert.match(driveSource, /CHECKLIST_SYNC_FILE_NAME = 'tw_overlay_checklist\.json'/);
+  assert.match(driveSource, /META_SYNC_FILE_NAME = 'tw_overlay_sync_meta\.json'/);
+  assert.match(driveSource, /export async function findSyncFileByName\(fileName: string\)/,
+    '파일 분리를 위한 이름별 Drive 검색 경계가 없습니다.');
+  assert.match(driveSource, /export async function uploadJsonPayload\(/,
+    '파일 분리를 위한 범용 JSON 업로드 경계가 없습니다.');
 }
 
 checkDiscordNotifierContracts();
