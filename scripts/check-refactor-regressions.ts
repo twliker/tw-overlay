@@ -3160,6 +3160,12 @@ function checkXpExchangeContracts(): void {
   assert.equal(getEssenceExchangeCount(-10_000_000_001), 0,
     '정확한 100억 배수가 아닌 음수 XP를 경험의 정수 교환으로 오인했습니다.');
   assert.equal(getEssenceExchangeCount(10_000_000_000), 0);
+
+  const processorSource = read('src/modules/chatLogProcessor.ts');
+  assert.match(processorSource, /const essenceCount = getEssenceExchangeCount\(data\.amount\)/,
+    'XP HUD와 모험일지가 서로 다른 경험의 정수 교환 판정을 사용합니다.');
+  assert.doesNotMatch(processorSource, /data\.amount <= -9_000_000_000/,
+    '모험일지 경로에 기존 90억 교환 판정이 남아 있습니다.');
 }
 
 function checkGoogleSyncDataContracts(): void {

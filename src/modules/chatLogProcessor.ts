@@ -2,7 +2,7 @@ import { chatParser } from './chatParser';
 import * as diaryDb from './diaryDb';
 import * as config from './config';
 import { log } from './logger';
-import { xpTracker } from './xpTracker';
+import { getEssenceExchangeCount, xpTracker } from './xpTracker';
 import { abandonedTracker } from './abandonedTracker';
 import * as contentsChecker from './contentsChecker';
 import { discordNotifier } from './discordNotifier';
@@ -435,18 +435,16 @@ class ChatLogProcessor {
     // 2-2. 경험치 변동 처리
     chatParser.on('XP_CHANGED', (data) => {
       // 100억 단위 경험치 차감(경험의 정수 수동/자동 교환) 시 모험일지 및 요약에 기록합니다.
-      if (data.amount <= -9_000_000_000) {
-        const essenceCount = Math.round(Math.abs(data.amount) / 10_000_000_000);
-        if (essenceCount > 0) {
-          const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
-          diaryDb.addActivityLog(
-            data.date,
-            timeOnly,
-            'loot',
-            formatLootDiaryContent('경험의 정수'),
-            essenceCount,
-          );
-        }
+      const essenceCount = getEssenceExchangeCount(data.amount);
+      if (essenceCount > 0) {
+        const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+        diaryDb.addActivityLog(
+          data.date,
+          timeOnly,
+          'loot',
+          formatLootDiaryContent('경험의 정수'),
+          essenceCount,
+        );
       }
 
       const chatItem = this.createChatItem({
