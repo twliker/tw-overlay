@@ -1960,13 +1960,19 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
     decodeChatLogBuffer(buffer: Buffer): { content: string; encoding: string; damaged: boolean };
     normalizeChatLogLines(lines: string[]): string[];
   };
-  const { parseItemAcquisition, formatLootDiaryContent } = require(path.join(projectRoot, 'dist/modules/itemAcquisition.js')) as {
+  const { parseItemAcquisition, parseItemAcquisitions, formatLootDiaryContent } = require(path.join(projectRoot, 'dist/modules/itemAcquisition.js')) as {
     parseItemAcquisition(message: string, context?: { isSelfChat?: boolean }): {
       itemName: string;
       count: number;
       source: string;
       isOwn: boolean;
     } | null;
+    parseItemAcquisitions(message: string, context?: { isSelfChat?: boolean }): Array<{
+      itemName: string;
+      count: number;
+      source: string;
+      isOwn: boolean;
+    }>;
     formatLootDiaryContent(itemName: string): string;
   };
   assert.equal(formatLootDiaryContent(' 경험의\u200B  정수 '), '[득템] 경험의 정수');
@@ -2026,6 +2032,14 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
   assert.deepEqual(parseItemAcquisition('[장비 강화석] 10개를 입수했습니다.'), {
     itemName: '장비 강화석', count: 10, source: 'direct', isOwn: true,
   });
+  assert.deepEqual(
+    parseItemAcquisitions('미션 보상으로 [장비 강화석] 1,000개, [경험의 정수] 2개를 획득했습니다.'),
+    [
+      { itemName: '장비 강화석', count: 1000, source: 'direct', isOwn: true },
+      { itemName: '경험의 정수', count: 2, source: 'direct', isOwn: true },
+    ],
+    '복수 아이템 파서가 천 단위 쉼표를 아이템 구분자로 잘못 분리했습니다.',
+  );
   assert.deepEqual(parseItemAcquisition('하급 마정석 3개를 획득 하였습니다.'), {
     itemName: '하급 마정석', count: 3, source: 'direct', isOwn: true,
   });
@@ -2825,6 +2839,23 @@ function checkChatLogSyncManagerContracts() {
       DROP TRIGGER regression_fail_word_alarm;
       DROP TRIGGER regression_fail_shout;
     `);
+
+    // 5초 버킷이 아니라 실시간 삽입과 같은 실제 시간 차로 레거시 외치기를 정리해야 한다.
+    const shoutBaseTimestamp = 4_102_444_000;
+    const insertLegacyShout = boundaryDb.prepare(
+      'INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)',
+    );
+    insertLegacyShout.run(shoutBaseTimestamp, 'dedupe-sender', 'dedupe-message');
+    insertLegacyShout.run(shoutBaseTimestamp + 4, 'dedupe-sender', 'dedupe-message');
+    insertLegacyShout.run(shoutBaseTimestamp + 8, 'dedupe-sender', 'dedupe-message');
+    diaryDb.deduplicateShoutHistory();
+    const deduplicatedShouts = diaryDb.getShoutHistory(24 * 365 * 100)
+      .filter((row: { sender: string }) => row.sender === 'dedupe-sender')
+      .map((row: { timestamp: number }) => row.timestamp)
+      .sort((a: number, b: number) => a - b);
+    assert.deepEqual(deduplicatedShouts, [shoutBaseTimestamp, shoutBaseTimestamp + 8],
+      '레거시 외치기 정리가 실제 마지막 보존 행 기준 ±5초 계약과 다릅니다.');
+
     boundaryDb.close();
 
     const contentsSource = read('src/modules/contentsChecker.ts');

@@ -218,7 +218,8 @@ function parseMultiItemAcquisition(normalized: string): ItemAcquisition[] {
   if (multiMatch && multiMatch[1].includes(',')) {
     const isOwn = !normalized.startsWith('누군가');
     const items: ItemAcquisition[] = [];
-    const parts = multiMatch[1].split(',');
+    // 수량 안의 천 단위 쉼표(1,000)는 유지하고 아이템 구분 쉼표만 나눈다.
+    const parts = multiMatch[1].split(/,(?!\d)/u);
     for (const part of parts) {
       const itemMatch = part.trim().match(/^(?:\[([^\]]+)\]|([^,\d]+?))\s*(?:아이템(?:을\(를\)|을|를)?\s*)?\[?([\d,]+)\]?개(?:를|을)?$/);
       if (itemMatch) {

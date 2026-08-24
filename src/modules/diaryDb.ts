@@ -1322,25 +1322,49 @@ export function addShoutLogWithTimestampIfAbsent(timestamp: number, sender: stri
   if (!db) initDb();
   if (!db) return false;
 
-  const existing = db.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5').get(sender, message, timestamp);
-  if (existing) return false;
+  try {
+    const existing = db.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5').get(sender, message, timestamp);
+    if (existing) return false;
 
-  const stmt = db.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)');
-  stmt.run(timestamp, sender, message);
-  return true;
+    db.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)')
+      .run(timestamp, sender, message);
+    return true;
+  } catch (err) {
+    log(`[DiaryDB] addShoutLogWithTimestampIfAbsent failed: ${err}`);
+    return false;
+  }
 }
 
 /** 기존 DB에 존재하는 5초 이내 동일 발신자/메시지 중복을 정리합니다. */
 function deduplicateShoutHistoryOrThrow(): void {
   if (!db) throw new Error('DB가 초기화되지 않았습니다.');
-  db.exec(`
-    DELETE FROM shout_history
-    WHERE id NOT IN (
-      SELECT MIN(id)
-      FROM shout_history
-      GROUP BY sender, message, CAST(timestamp / 5 AS INT)
-    )
-  `);
+  const rows = db.prepare(`
+    SELECT id, timestamp, sender, message
+    FROM shout_history
+    ORDER BY sender ASC, message ASC, timestamp ASC, id ASC
+  `).all() as Array<{ id: number; timestamp: number; sender: string; message: string }>;
+  const deleteRow = db.prepare('DELETE FROM shout_history WHERE id = ?');
+
+  db.transaction(() => {
+    let previousSender: string | null = null;
+    let previousMessage: string | null = null;
+    let lastKeptTimestamp: number | null = null;
+    for (const row of rows) {
+      if (row.sender !== previousSender || row.message !== previousMessage) {
+        previousSender = row.sender;
+        previousMessage = row.message;
+        lastKeptTimestamp = row.timestamp;
+        continue;
+      }
+
+      // 실시간 삽입 계약과 동일하게 마지막으로 실제 보존한 행에서 ±5초 이내만 제거한다.
+      if (lastKeptTimestamp !== null && row.timestamp - lastKeptTimestamp <= 5) {
+        deleteRow.run(row.id);
+      } else {
+        lastKeptTimestamp = row.timestamp;
+      }
+    }
+  })();
 }
 
 export function deduplicateShoutHistory(): void {
