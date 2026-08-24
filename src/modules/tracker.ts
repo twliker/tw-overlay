@@ -394,35 +394,28 @@ export function placeGameBelowWindow(insertAfterHwndStr: string): void {
     }
 }
 
-export function focusGameWindow(): void {
-    if (!cachedHwnd || !isHwndValid(cachedHwnd)) return;
+export function focusGameWindow(): boolean {
+    if (!cachedHwnd || !isHwndValid(cachedHwnd)) return false;
     try {
         // 이미 게임 창이 활성화 상태라면 아무것도 하지 않습니다 (깜박임 방지)
         const fgHwnd = parseHwnd(win32.GetForegroundWindow());
-        if (fgHwnd === cachedHwnd) return;
+        if (fgHwnd === cachedHwnd) return true;
 
-        if (win32.ShowWindow) {
+        // 실제 최소화된 경우에만 show state를 복원한다. 창모드 전체화면의 정상 show state는 건드리지 않는다.
+        if (win32.IsIconic && win32.IsIconic(cachedHwnd) && win32.ShowWindow) {
             win32.ShowWindow(cachedHwnd, win32.SW_RESTORE);
         }
-        if (win32.BringWindowToTop) {
-            win32.BringWindowToTop(cachedHwnd);
-        }
-        if (win32.SetForegroundWindow) {
-            win32.SetForegroundWindow(cachedHwnd);
-        }
-
-        // 일반 포커스 실패 시에만 최후 수단으로 Alt 키 트릭 시도
+        const requested = win32.SetForegroundWindow
+            ? !!win32.SetForegroundWindow(cachedHwnd)
+            : false;
         const newFgHwnd = parseHwnd(win32.GetForegroundWindow());
-        if (newFgHwnd !== cachedHwnd && win32.keybd_event) {
-            win32.keybd_event(win32.VK_MENU, 0, 0, 0);
-            win32.keybd_event(win32.VK_MENU, 0, win32.KEYEVENTF_KEYUP, 0);
-            if (win32.SetForegroundWindow) {
-                win32.SetForegroundWindow(cachedHwnd);
-            }
-        }
+        const focused = newFgHwnd === cachedHwnd;
+        log(`[TRACKER] Automatic focus restore ${focused ? 'succeeded' : 'skipped/failed'} (requested=${requested}, previous=${fgHwnd}, current=${newFgHwnd})`);
+        return focused;
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRACKER] Focus failed: ${msg}`);
+        return false;
     }
 }
 
@@ -443,4 +436,21 @@ export function isGameOrAppForeground(): boolean {
         // 에러 시 안전하게 false 반환
     }
     return false;
+}
+
+/** 자동 포커스 복구가 외부 프로그램의 포커스를 빼앗지 않는 상태인지 확인한다. */
+export function canAutomaticallyRestoreGameFocus(): boolean {
+    try {
+        if (!win32.GetForegroundWindow) return false;
+        const fgHwnd = parseHwnd(win32.GetForegroundWindow());
+        // 창 닫힘 직후 Windows가 잠시 foreground를 비운 과도기는 복구를 허용하되,
+        // 실제 외부 HWND가 전경이면 반드시 거부한다.
+        if (fgHwnd === 0n) return true;
+        if (cachedHwnd && fgHwnd === cachedHwnd) return true;
+        const wm = require('./windowManager');
+        const electronHwndBigInts = wm.getAllWindowHwnds().map((h: string) => BigInt(h));
+        return electronHwndBigInts.includes(fgHwnd);
+    } catch {
+        return false;
+    }
 }

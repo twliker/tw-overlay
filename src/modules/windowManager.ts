@@ -46,6 +46,10 @@ let pendingSettingsTab: string | null = null;
 /** TW-Overlay 포커스 시: 게임 창을 우리 창 바로 아래에 배치하여 브라우저 위로 올림 */
 function bringGameAndOverlaysToTop(): void {
   if (!gameRect || programmaticMoves.isAnyUserDragging()) return;
+  if (isGameFullscreen) {
+    log('[WINDOW_FOCUS] 창모드 전체화면에서는 게임 Z-order를 변경하지 않습니다.');
+    return;
+  }
   const gameHwndStr = tracker.getGameHwnd();
   if (!gameHwndStr) return;
   const focusedWin = BrowserWindow.getFocusedWindow();
@@ -257,8 +261,8 @@ const focusController = new WindowFocusController({
   focusDebounceMs: 50,
   focusRestoreDelayMs: FOCUS_RESTORE_DELAY_MS,
   onWindowFocused: bringGameAndOverlaysToTop,
-  canScheduleRestore: () => !appState.isQuitting,
-  canRestoreFocus: () => gameRect !== null,
+  canScheduleRestore: () => !appState.isQuitting && gameRect !== null && tracker.canAutomaticallyRestoreGameFocus(),
+  canRestoreFocus: () => gameRect !== null && tracker.canAutomaticallyRestoreGameFocus(),
   restoreFocus: () => tracker.focusGameWindow(),
 });
 
@@ -580,7 +584,7 @@ function createOverlayWindow(targetUrl?: string): void {
   overlayWindow.once('ready-to-show', () => {
     updateViewBounds();
     if (isOverlayVisible) {
-      overlayWindow?.show();
+      overlayWindow?.showInactive();
       sendActiveWindowsStatus();
       if (physicalGameRect) { isTracking = false; syncOverlay(physicalGameRect); }
     }
@@ -684,10 +688,12 @@ function recoverCompletelyOffscreenBrowserOverlay(
   return { x: recoveredX, y: recoveredY, recovered: true };
 }
 
+type ManagedWindowShowReason = 'user-open' | 'game-resync' | 'settings-apply';
+
 function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   onReady?: (win: BrowserWindow) => void,
   calcPosition?: (gr: GameRect, pos: WindowPosition) => { x: number, y: number }
-}): boolean {
+}, showReason: ManagedWindowShowReason = 'user-open'): boolean {
   const winCfg = windowRegistry[key];
   if (!winCfg || (winCfg.ref && !winCfg.ref.isDestroyed())) {
     if (winCfg?.ref && !winCfg.ref.isDestroyed()) {
@@ -712,6 +718,10 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   // contentsChecker는 불투명 창이므로 transparent: false로 두어 네이티브 리사이즈 활성화
   // chatOverlay 계열은 HTML 내 자체 드래그 핸들러를 사용하므로 투명도(transparent: true)를 강제 유지
   const needsTransparent = sizing.isTransparent;
+  const isPassiveOverlay = key === 'dock'
+    || key === 'chatOverlay'
+    || key === 'chatOverlaySub'
+    || key === 'chatOverlaySub2';
 
   let isClosing = false;
   const win = new BrowserWindow(getStandardOptions(finalW, finalH, {
@@ -721,7 +731,8 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     minWidth: sizing.minWidth,
     minHeight: sizing.minHeight,
     transparent: needsTransparent,
-    backgroundColor: needsTransparent ? undefined : '#0f0e1a'
+    backgroundColor: needsTransparent ? undefined : '#0f0e1a',
+    ...(key === 'dock' ? { focusable: false } : {}),
   }));
   if (sizing.isResizable) {
     win.setResizable(true);
@@ -781,7 +792,12 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     isInitialPositionApplied = true;
     win.webContents.send('config-data', config.load());
     if (callbacks?.onReady || winCfg.onOpen) (callbacks?.onReady || winCfg.onOpen)!(win);
-    win.show();
+    if (showReason === 'user-open' && !isPassiveOverlay) {
+      win.show();
+    } else {
+      win.showInactive();
+    }
+    log(`[WINDOW_SHOW] ${key} reason=${showReason} method=${showReason === 'user-open' && !isPassiveOverlay ? 'show' : 'showInactive'}`);
     sendActiveWindowsStatus();
     if (IS_DEV) win.webContents.openDevTools({ mode: 'detach' });
   });
@@ -1216,7 +1232,7 @@ export function toggleDockWindow(): void {
       winCfg.ref.close();
     } else {
       isDockVisible = true;
-      winCfg.ref.show();
+      winCfg.ref.showInactive();
       if (gameRect) {
         const { x, y } = winCfg.calcPosition!(gameRect, winCfg.pos);
         winCfg.ref.setPosition(x, y);
@@ -1391,7 +1407,7 @@ export function syncOverlay(currentRect: GameRect): void {
     if (isChatOverlayVisible) {
       const chatWinCfg = windowRegistry['chatOverlay'];
       if (!chatWinCfg.ref || chatWinCfg.ref.isDestroyed()) {
-        createToggleableWindow('chatOverlay');
+        createToggleableWindow('chatOverlay', undefined, 'game-resync');
       } else {
         if (!chatWinCfg.ref.isVisible()) {
           chatWinCfg.ref.showInactive();
@@ -1408,7 +1424,7 @@ export function syncOverlay(currentRect: GameRect): void {
     if (isChatOverlayVisible && isChatOverlaySubVisible) {
       const subWinCfg = windowRegistry['chatOverlaySub'];
       if (!subWinCfg.ref || subWinCfg.ref.isDestroyed()) {
-        createToggleableWindow('chatOverlaySub');
+        createToggleableWindow('chatOverlaySub', undefined, 'game-resync');
       } else {
         if (!subWinCfg.ref.isVisible()) {
           subWinCfg.ref.showInactive();
@@ -1425,7 +1441,7 @@ export function syncOverlay(currentRect: GameRect): void {
     if (isChatOverlayVisible && isChatOverlaySub2Visible) {
       const sub2WinCfg = windowRegistry['chatOverlaySub2'];
       if (!sub2WinCfg.ref || sub2WinCfg.ref.isDestroyed()) {
-        createToggleableWindow('chatOverlaySub2');
+        createToggleableWindow('chatOverlaySub2', undefined, 'game-resync');
       } else {
         if (!sub2WinCfg.ref.isVisible()) {
           sub2WinCfg.ref.showInactive();
@@ -1449,7 +1465,7 @@ export function syncOverlay(currentRect: GameRect): void {
               win.webContents.send('config-data', config.load());
             });
           }
-        });
+        }, 'game-resync');
       } else {
         if (!contentsWinCfg.ref.isVisible()) {
           contentsWinCfg.ref.showInactive();
@@ -1462,7 +1478,7 @@ export function syncOverlay(currentRect: GameRect): void {
       if (isDockVisible) {
         const { x, y } = dockCfg.calcPosition!(scaledGameRect, dockCfg.pos);
         if (!dockCfg.ref || dockCfg.ref.isDestroyed()) {
-          createToggleableWindow('dock');
+          createToggleableWindow('dock', undefined, 'game-resync');
         } else {
           if (!dockCfg.ref.isVisible()) dockCfg.ref.showInactive();
           const b = dockCfg.ref.getBounds();
@@ -1620,7 +1636,7 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
     const chatWinCfg = windowRegistry['chatOverlay'];
     if (isChatOverlayVisible) {
       if (gameRect && (!chatWinCfg.ref || chatWinCfg.ref.isDestroyed())) {
-        createToggleableWindow('chatOverlay');
+        createToggleableWindow('chatOverlay', undefined, 'settings-apply');
       }
     } else {
       if (chatWinCfg.ref && !chatWinCfg.ref.isDestroyed()) {
@@ -1704,7 +1720,8 @@ export function toggleClickThrough(): boolean {
     if (gameHwndStr) {
       const hwnds = getAllWindowHwnds();
       if (hwnds.length > 0) {
-        tracker.promoteWindows(gameHwndStr, hwnds, true);
+        // 지연 시간 사이 외부 프로그램으로 전환했다면 그 창의 Z-order를 침범하지 않는다.
+        tracker.promoteWindows(gameHwndStr, hwnds);
       }
     }
   }, 150);

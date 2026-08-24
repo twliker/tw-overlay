@@ -1159,6 +1159,51 @@ function checkWindowFocusControllerContracts(): void {
   controller.cancelPendingRestore();
 }
 
+function checkWindowedFullscreenFocusContracts(): void {
+  const manager = read('src/modules/windowManager.ts');
+  const polling = read('src/modules/pollingLoop.ts');
+  const tracker = read('src/modules/tracker.ts');
+
+  assert.match(polling, /const TRANSIENT_STATE_CONFIRM_SAMPLES = 2/,
+    '순간적인 게임 창 탐지 실패를 재확인하는 방어가 없습니다.');
+  assert.match(polling, /currentRect\.isForeground && !wm\.isAnyUserDragging\(\)/,
+    '외부 프로그램이 전경인 동안 게임과 오버레이를 승격시킬 수 있습니다.');
+
+  const focusStart = tracker.indexOf('export function focusGameWindow(): boolean');
+  const focusEnd = tracker.indexOf('export function isGameOrAppForeground', focusStart);
+  assert.ok(focusStart >= 0 && focusEnd > focusStart, '자동 게임 포커스 복구 함수를 찾지 못했습니다.');
+  const focusGameWindow = tracker.slice(focusStart, focusEnd);
+  assert.match(focusGameWindow, /win32\.IsIconic && win32\.IsIconic\(cachedHwnd\)/,
+    '실제 최소화 여부를 확인하지 않고 게임 창 상태를 복원합니다.');
+  assert.doesNotMatch(focusGameWindow, /BringWindowToTop|keybd_event/,
+    '자동 포커스 복구가 강제 Z-order 변경 또는 Alt 키 입력을 사용합니다.');
+  assert.match(tracker, /export function canAutomaticallyRestoreGameFocus\(\): boolean/,
+    '외부 창 포커스를 보호하는 자동 복구 허용 검사가 없습니다.');
+  assert.match(manager, /canScheduleRestore:[^\n]*tracker\.canAutomaticallyRestoreGameFocus\(\)/,
+    '지연 포커스 복구 예약 시점에 외부 창 포커스를 확인하지 않습니다.');
+  assert.match(manager, /canRestoreFocus:[^\n]*tracker\.canAutomaticallyRestoreGameFocus\(\)/,
+    '지연 포커스 복구 실행 직전에 외부 창 포커스를 재확인하지 않습니다.');
+
+  assert.match(manager, /function bringGameAndOverlaysToTop\(\): void \{[\s\S]*?if \(isGameFullscreen\) \{[\s\S]*?return;/,
+    '창모드 전체화면에서 게임 Z-order 변경을 차단하지 않습니다.');
+  assert.match(manager, /overlayWindow\?\.showInactive\(\)/,
+    '브라우저 오버레이 자동 생성이 포커스를 획득할 수 있습니다.');
+  assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply'/,
+    '사용자가 연 창과 자동 재생성을 구분하는 표시 정책이 없습니다.');
+  assert.match(manager, /showReason === 'user-open' && !isPassiveOverlay[\s\S]*?win\.show\(\);[\s\S]*?win\.showInactive\(\);/,
+    '자동 재생성된 관리 창이 비활성 상태로 표시되지 않습니다.');
+  assert.match(manager, /\.\.\.\(key === 'dock' \? \{ focusable: false \} : \{\}\)/,
+    '독 창이 게임의 포커스를 획득할 수 있습니다.');
+  assert.ok((manager.match(/'game-resync'/g) ?? []).length >= 6,
+    '게임 동기화 중 생성되는 창의 비활성 표시 사유가 누락되었습니다.');
+  const clickThroughStart = manager.indexOf('export function toggleClickThrough(): boolean');
+  const clickThroughEnd = manager.indexOf('export function toggleSidebar(): boolean', clickThroughStart);
+  assert.ok(clickThroughStart >= 0 && clickThroughEnd > clickThroughStart,
+    '클릭 투과 전환 함수를 찾지 못했습니다.');
+  assert.doesNotMatch(manager.slice(clickThroughStart, clickThroughEnd), /promoteWindows\([^\n]*true\)/,
+    '클릭 투과 전환이 외부 프로그램 전환 후에도 Z-order를 강제 변경할 수 있습니다.');
+}
+
 function checkEmbeddedWebWindowContracts(): void {
   const embeddedModule = require(path.join(projectRoot, 'dist', 'modules', 'embeddedWebTool.js')) as {
     calculateEmbeddedWebToolBounds: (
@@ -3036,6 +3081,7 @@ checkWindowRestoreAndSettingsNavigationContracts();
 checkDependencyOverrideContracts();
 checkSidebarMenuRegistryContracts();
 checkWindowFocusControllerContracts();
+checkWindowedFullscreenFocusContracts();
 checkEmbeddedWebWindowContracts();
 checkFocusedChatContracts();
 checkLifecycleAndIpcSafetyContracts();
