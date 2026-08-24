@@ -216,15 +216,11 @@ export function extractChecklistSyncData(cfg: AppConfig): Partial<AppConfig> {
   return result;
 }
 
-/** 기존 단일 파일 호환용 페이로드 데이터. */
+/** 분리 전송 큐를 연결하는 동안의 내부 통합 페이로드 데이터. */
 export function extractSyncData(cfg: AppConfig): Partial<AppConfig> {
-  const checklistData = extractChecklistSyncData(cfg);
-  // 기존 단일 파일은 pending operation 병합 계약이 없었다.
-  // 분리 파일의 outbox/3방향 병합이 연결되기 전까지 레거시 payload의 기존 동작을 보존한다.
-  delete checklistData.pendingHomeworks;
   return {
     ...extractSettingsSyncData(cfg),
-    ...checklistData,
+    ...extractChecklistSyncData(cfg),
   };
 }
 

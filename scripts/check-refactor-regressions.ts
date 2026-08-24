@@ -3756,8 +3756,7 @@ function checkGoogleSyncDataContracts(): void {
   assert.deepEqual(extracted.lootKeywords, ['샤를란', '엔키라']);
   assert.equal(extracted.positions, undefined, 'positions 필드가 동기화 데이터에 포함되었습니다.');
   assert.equal(extracted.chatLogPath, undefined, 'chatLogPath 필드가 동기화 데이터에 포함되었습니다.');
-  assert.equal(extracted.pendingHomeworks, undefined,
-    '3방향 병합 없는 기존 단일 파일에 pending 숙제가 새로 포함되었습니다.');
+  assert.deepEqual(extracted.pendingHomeworks, sampleLocalConfig.pendingHomeworks);
   assert.equal(extracted.discordWebhookUrl, undefined, 'Discord Webhook URL이 동기화 데이터에 포함되었습니다.');
   assert.equal(extracted.wordAlarmSound, undefined, '로컬 커스텀 사운드 ID가 동기화 데이터에 포함되었습니다.');
   assert.equal(extracted.buffTimerSound, 'orb.mp3', '내장 사운드 ID가 동기화 데이터에서 누락되었습니다.');
@@ -3863,7 +3862,7 @@ function checkGoogleSyncDataContracts(): void {
   };
   const secretMerged = syncDataHelper.mergeSyncData(sampleLocalConfig, secretCloudPayload);
   assert.equal(secretMerged.discordWebhookUrl, sampleLocalConfig.discordWebhookUrl,
-    '구버전/비정상 클라우드 payload가 로컬 Webhook URL을 덮었습니다.');
+    '비정상 클라우드 payload가 로컬 Webhook URL을 덮었습니다.');
   assert.equal(secretMerged.wordAlarmSound, sampleLocalConfig.wordAlarmSound,
     '원격 로컬 사운드 경로가 현재 PC 설정을 덮었습니다.');
   assert.equal(secretMerged.fieldBossSettings['골론'].soundFile, 'custom_123_local.mp3');

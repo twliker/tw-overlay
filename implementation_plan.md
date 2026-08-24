@@ -48,9 +48,9 @@
 
 - `tw_overlay_settings.json`, `tw_overlay_checklist.json`, `tw_overlay_sync_meta.json`의 고정 이름과 이름별 Drive 검색·범용 JSON 업/다운로드 경계 추가
 - 일반 설정과 숙제·캐릭터·pending 이력의 allowlist·payload builder 분리
-- Discord Webhook URL, 절대경로·커스텀 사운드 ID의 업로드 제외와 구버전/비정상 원격 payload가 로컬 비밀값·사운드를 덮지 못하는 병합 방어
-- 신규 숙제 파일의 `pendingHomeworks`는 전용 builder에 포함하되, 3방향 병합·outbox가 없는 기존 단일 파일에는 새로 섞지 않아 기존 동작 보존
-- 이 단계는 아직 `cloudSyncManager` 전송 큐를 분리 파일에 연결하지 않았으므로 실제 Drive 저장 구조는 기존 단일 파일 호환 경로를 유지한다. 다음 단위에서 파일별 dirty 큐·실제 업로드·레거시 마이그레이션을 연결한다.
+- Discord Webhook URL, 절대경로·커스텀 사운드 ID의 업로드 제외와 비정상 원격 payload가 로컬 비밀값·사운드를 덮지 못하는 병합 방어
+- `pendingHomeworks`는 숙제 전용 builder에 포함한다. 클라우드 기능은 미배포 개발 단계이므로 기존 단일 파일 형식의 호환·이전 계약은 두지 않는다.
+- 이 단계는 아직 `cloudSyncManager` 전송 큐를 분리 파일에 연결하지 않았다. 다음 단위에서 파일별 dirty 큐와 실제 업로드를 바로 연결하고, 개발 중 단일 파일은 조회·병합·마이그레이션하지 않는다.
 
 ## 1. 감사 기준과 현재 상태
 
@@ -273,9 +273,9 @@
 
 대상: A-07~A-09, B-05, D-01~D-06, D-09~D-10
 
-진행 상태: 파일명·범용 Drive JSON 경계, 설정/숙제 allowlist·builder 분리, Webhook·로컬 사운드 제외는 완료했다. `cloudSyncManager`의 실제 파일별 dirty 큐·업로드·복원·pull 루프, meta 파일과 레거시 마이그레이션은 미연결이다.
+진행 상태: 파일명·범용 Drive JSON 경계, 설정/숙제 allowlist·builder 분리, Webhook·로컬 사운드 제외는 완료했다. `cloudSyncManager`의 실제 파일별 dirty 큐·업로드·복원·pull 루프와 meta 파일은 미연결이다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
 
-1. 기존 단일 `tw_overlay_sync.json`을 다음 세 파일로 분리한다.
+1. 클라우드 정식 저장 계약을 처음부터 다음 세 파일로 구성한다. 개발 중 생성된 `tw_overlay_sync.json`은 조회하지 않는다.
    - `tw_overlay_settings.json`: 일반 설정의 클라우드 권위 스냅샷
    - `tw_overlay_checklist.json`: 숙제 정의·캐릭터·리셋 주기별 진행 상태·tombstone
    - `tw_overlay_sync_meta.json`: 스키마 버전과 두 데이터 파일의 Drive file ID·종류·생성 세대
@@ -301,7 +301,7 @@
 21. 새 PC에서는 클라우드를 초기 로컬 기준값으로 허용한다. 앱 데이터 생성 전에 로컬 전용 설치 메타데이터(`installationId`, `createdAt`, `profileState`)와 기존 `config.json`/`diary.db` 존재 여부를 검사한다. 모두 없던 프로필만 `fresh`로 판정하고, 일부 파일이 있거나 손상되어 애매하면 `established/needs-confirmation`으로 두어 자동 덮어쓰기를 금지한다. 설치 표식은 클라우드에 올리지 않는다.
 22. `fresh` 프로필에서 메타→설정→숙제 파일 순으로 검증·적용한다. 설정은 클라우드 스냅샷, 숙제는 로컬이 비어 있으므로 클라우드 기준 상태를 적용하며 각 파일에 없는 신규 앱 기본 키만 추가한다. 어느 한 파일이 없거나 손상돼도 정상인 다른 파일은 독립 복원하고 부분 복원 상태를 UI에 표시한다.
 23. 명시적 복원은 설정/숙제를 각각 선택 가능하게 한다. 설정 복원은 클라우드 필드 교체, 숙제 복원은 3방향 병합이며, 실행 전에 파일별 변경 미리보기와 로컬 백업을 만든다.
-24. 기존 단일 `tw_overlay_sync.json`이 있고 분리형 메타가 없으면 한 번만 읽어 allowlist에 따라 설정/숙제 payload로 분리한다. 두 데이터 파일 업로드와 재다운로드 검증이 끝난 뒤 메타 파일을 마지막에 게시하고, 기존 단일 파일은 최소 한 릴리즈 동안 읽기 전용 복구본으로 남겨 부분 마이그레이션에서 데이터가 사라지지 않게 한다. 파일명에는 스키마 버전을 붙이지 않고 각 JSON 내부의 `schemaVersion`으로만 호환성을 판별한다.
+24. 개발 중 단일 `tw_overlay_sync.json`은 정식 입력으로 취급하지 않고 조회·분할·병합·재업로드하지 않는다. 파일명에는 스키마 버전을 붙이지 않고 각 JSON 내부의 `schemaVersion`으로만 호환성을 판별한다.
 25. abort된 업로드도 서버에 반영됐을 수 있으므로 다음 실행에서 checksum/modifiedTime/revision을 조회해 성공 여부를 조정한다.
 26. 종료를 `정지 요청 → 모든 창/트레이 즉시 숨김 → 신규 dirty 생산 정지 → config/outbox flush → 두 클라우드 dirty 큐 최대 3초 drain/취소 → WAL checkpoint → DB close → 최종 quit` 단일 상태 머신으로 만든다. 시간 초과 시 파일 종류별 recovery marker를 남겨 다음 시작에 조용히 재시도한다.
 27. 외부 두 번째 quit는 계속 막고 finalizer만 최종 종료를 허용한다. Windows 로그오프·시스템 종료처럼 긴 대기가 불가능한 경로는 원자적 recovery marker를 먼저 기록하는 fast path로 분리한다.
@@ -322,7 +322,7 @@
 
 사이드이펙트 방어:
 
-- 세 파일의 스키마 버전을 독립적으로 올리고 구버전 단일 payload→분리 파일 마이그레이션과 round-trip 테스트를 추가한다.
+- 세 파일의 스키마 버전을 독립적으로 올리고 각 파일의 독립 round-trip·손상·부분 부재 테스트를 추가한다.
 - 큐 테스트는 설정 debounce 중 숙제 감지, 설정 upload 중 숙제 dirty, 숙제 upload 중 설정 변경, restore 중 dirty update, logout 중 fetch, 종료 중 두 번째 quit를 포함한다.
 - 설정 변경이 숙제 파일을 쓰지 않고 숙제 감지가 설정 파일을 쓰지 않는지 Drive mock의 file ID별 호출로 검증한다.
 - 클라우드 적용 origin token이 저장 이벤트를 다시 발생시키지 않는지, 연속 UI 입력 100회가 한두 번의 설정 업로드로 합쳐지는지 검사한다.
@@ -330,7 +330,7 @@
 - 회사·집 PC를 각각 독립 설치 ID와 base snapshot으로 실행하는 테스트를 추가한다. 회사 PC에서 숙제 완료→500ms 내 업로드→집 PC 유휴 pull 또는 게임 시작 즉시 pull→집 PC UI 반영→echo upload 없음의 전 과정을 검증한다.
 - 집 PC가 절전 중이거나 네트워크가 끊긴 동안 회사 PC에서 여러 숙제를 완료한 뒤, 집 PC 복귀/게임 시작 시 중간 revision을 놓치지 않고 최종 상태로 수렴하는지 검증한다.
 - 회사 PC 업로드와 집 PC의 로컬 완료가 같은 시점에 교차하는 fixture에서 양쪽 operation ID가 최종 원격 payload와 두 로컬 상태에 모두 남고, 이후 아무 조작 없이 pull만으로 같은 결과가 되는지 검증한다.
-- fresh/established/needs-confirmation/레거시 무표식 설치, 중복 파일명, 손상된 메타, 설정만 존재, 숙제만 존재, 단일 파일 마이그레이션 중 각 단계 종료 fixture를 추가한다.
+- fresh/established/needs-confirmation 설치, 중복 파일명, 손상된 메타, 설정만 존재, 숙제만 존재 상태의 fixture를 추가한다. 개발 중 단일 파일은 발견되어도 무시되는지 검사한다.
 - 새 PC 부분 복원에서 정상 파일의 사용자 값은 보존되고 없는 신규 기본 키만 추가되는지 검사한다. 기존 PC 자동 동기화에서는 일반 설정만 클라우드로 교체되고 숙제 상태는 3방향 병합되며, PC 종속·민감 필드와 로컬 이력은 변하지 않는지 검증한다.
 - 오프라인 로컬 설정 변경과 다른 PC의 클라우드 설정 변경이 충돌하는 fixture에서 클라우드 설정이 적용되고 직전 로컬 설정 백업으로 되돌릴 수 있는지 검증한다.
 - fetch abort 직전 서버 반영, 응답 유실, 다른 PC의 직후 overwrite, 재시작 reconciliation을 파일별로 테스트한다.
