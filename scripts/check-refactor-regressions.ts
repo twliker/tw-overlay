@@ -2756,8 +2756,8 @@ function checkChatLogSyncManagerContracts() {
     assert.equal(diaryDb.removeManualActivityLogById(automaticLog.id), false,
       '자동 감지 기록이 수동 삭제 API로 삭제되었습니다.');
 
-    diaryDb.addHomeworkLog(testDate, 'test-homework', '이전 이름', '이전 분류', 'daily', 1_000);
-    diaryDb.addHomeworkLog(testDate, 'test-homework', '최신 이름', '최신 분류', 'weekly', 2_000);
+    assert.equal(diaryDb.addHomeworkLog(testDate, 'test-homework', '이전 이름', '이전 분류', 'daily', 1_000), true);
+    assert.equal(diaryDb.addHomeworkLog(testDate, 'test-homework', '최신 이름', '최신 분류', 'weekly', 2_000), true);
     const updatedHomework = diaryDb.getDiaryByDate(testDate).homeworkLogs
       .filter((log: { content_id: string }) => log.content_id === 'test-homework');
     assert.equal(updatedHomework.length, 1, '초기화권 재완료가 별도 숙제 행으로 중복 저장되었습니다.');
@@ -2771,7 +2771,69 @@ function checkChatLogSyncManagerContracts() {
       { name: '최신 이름', category: '최신 분류', type: 'weekly', completedAt: 2_000 },
       '숙제 재완료 시 최신 완료 시각과 메타데이터가 함께 갱신되지 않았습니다.',
     );
-    diaryDb.removeHomeworkLog(testDate, 'test-homework');
+    assert.equal(diaryDb.removeHomeworkLog(testDate, 'test-homework'), true);
+
+    // 공개 DB 쓰기 API는 트랜잭션 실패를 성공처럼 보고하거나 예외로 앱까지 전파하지 않아야 한다.
+    const BoundaryDatabase = require('better-sqlite3');
+    const boundaryDb = new BoundaryDatabase(path.join(isolatedUserData, 'diary.db'));
+    boundaryDb.exec(`
+      CREATE TRIGGER regression_fail_homework_insert
+      BEFORE INSERT ON homework_logs
+      WHEN NEW.content_id = 'failure-homework'
+      BEGIN SELECT RAISE(ABORT, 'forced homework write failure'); END;
+
+      CREATE TRIGGER regression_fail_homework_stats
+      BEFORE UPDATE ON diaries
+      WHEN NEW.date = '2099-12-26'
+      BEGIN SELECT RAISE(ABORT, 'forced homework stats failure'); END;
+
+      CREATE TRIGGER regression_fail_alarm_log
+      BEFORE INSERT ON alarm_logs
+      WHEN NEW.title = 'failure-alarm'
+      BEGIN SELECT RAISE(ABORT, 'forced alarm write failure'); END;
+
+      CREATE TRIGGER regression_fail_word_alarm
+      BEFORE INSERT ON word_alarm_history
+      WHEN NEW.keyword = 'failure-keyword'
+      BEGIN SELECT RAISE(ABORT, 'forced word alarm failure'); END;
+
+      CREATE TRIGGER regression_fail_shout
+      BEFORE INSERT ON shout_history
+      WHEN NEW.sender = 'failure-sender'
+      BEGIN SELECT RAISE(ABORT, 'forced shout write failure'); END;
+    `);
+    assert.equal(
+      diaryDb.addHomeworkLog('2099-12-26', 'failure-homework', '실패 숙제', '테스트', 'daily', 3_000),
+      false,
+      '실패한 숙제 로그 쓰기가 성공으로 보고되었습니다.',
+    );
+    assert.equal(
+      diaryDb.updateHomeworkStats('2099-12-26', 1, 2, 3, 4),
+      false,
+      '실패한 숙제 통계 쓰기가 성공으로 보고되었습니다.',
+    );
+    assert.equal(diaryDb.addAlarmLog('etc', 'failure-alarm', '실패 검증'), false,
+      '실패한 알람 이력 쓰기가 성공으로 보고되었습니다.');
+    assert.equal(diaryDb.addWordAlarmHistory('failure-keyword', '테스터', '실패 검증', []), -1,
+      '실패한 지정 단어 이력이 유효한 row ID를 반환했습니다.');
+    assert.equal(diaryDb.addShoutLog('failure-sender', '실패 검증'), false,
+      '실패한 외치기 이력 쓰기가 성공으로 보고되었습니다.');
+    boundaryDb.exec(`
+      DROP TRIGGER regression_fail_homework_insert;
+      DROP TRIGGER regression_fail_homework_stats;
+      DROP TRIGGER regression_fail_alarm_log;
+      DROP TRIGGER regression_fail_word_alarm;
+      DROP TRIGGER regression_fail_shout;
+    `);
+    boundaryDb.close();
+
+    const contentsSource = read('src/modules/contentsChecker.ts');
+    assert.match(contentsSource, /runDiaryWriteWithRetry\(`homework-log:/,
+      '숙제 일지 쓰기 실패의 제한 재시도 경계가 없습니다.');
+    assert.match(contentsSource, /pendingDiaryWriteRetries\.get\(key\) !== state/,
+      '이전 숙제 쓰기 재시도가 최신 완료·해제 상태를 덮을 수 있습니다.');
+    assert.match(read('src/main.ts'), /contentsChecker\.cancelPendingDiaryWriteRetries\(\)/,
+      '종료 중 숙제 일지 재시도 타이머를 취소하지 않습니다.');
 
     const grounds = diaryDb.getHuntingGrounds() as Array<{ id: string; name: string; image_path: string }>;
     assert.deepEqual(

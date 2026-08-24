@@ -96,13 +96,17 @@ function recordMissedAlerts(timestamps: number[]): void {
     const scheduledAt = new Date(timestamp);
     for (const due of getDueCustomAlertsAt(alerts, scheduledAt)) {
       if (_fired.get(due.dedupeId) === due.firedKey) continue;
-      _fired.set(due.dedupeId, due.firedKey);
-      diaryDb.addAlarmLog(
+      const recorded = diaryDb.addAlarmLog(
         'custom',
         '절전 중 놓친 알람',
         `[${due.firedKey}] ${due.message}`
       );
-      log(`[CUSTOM_ALERT] 절전 중 놓친 알람 이력 기록: ${due.firedKey} ${due.message}`);
+      if (recorded) {
+        _fired.set(due.dedupeId, due.firedKey);
+        log(`[CUSTOM_ALERT] 절전 중 놓친 알람 이력 기록: ${due.firedKey} ${due.message}`);
+      } else {
+        log(`[CUSTOM_ALERT] 절전 중 놓친 알람 이력 기록 실패: ${due.firedKey} ${due.message}`);
+      }
     }
   }
 }

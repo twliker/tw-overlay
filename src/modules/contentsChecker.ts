@@ -151,6 +151,14 @@ const clonePending = (pending: PendingHomework[] | undefined): PendingHomework[]
 let initializationCompleted = false;
 const MAX_PENDING_SOURCE_EVENT_IDS = 128;
 const MAX_PENDING_HOMEWORK_ITEMS = 256;
+const DIARY_WRITE_RETRY_DELAYS_MS = [250, 1000, 4000] as const;
+
+interface DiaryWriteRetryState {
+  generation: number;
+  timer?: NodeJS.Timeout;
+}
+
+const pendingDiaryWriteRetries = new Map<string, DiaryWriteRetryState>();
 
 type HomeworkCompletedState = ContentsCheckerItem['completedState'][string];
 
@@ -177,6 +185,42 @@ function getStateCount(state: HomeworkCompletedState | undefined, max: number): 
   if (!state) return 0;
   const rawCount = state.currentCount ?? (state.isCompleted ? max : 0);
   return Math.max(0, Math.min(max, Number.isFinite(rawCount) ? Math.trunc(rawCount) : 0));
+}
+
+/** 일시적인 DB 쓰기 실패는 최신 작업만 제한적으로 재시도한다. */
+function runDiaryWriteWithRetry(key: string, write: () => boolean): boolean {
+  const previous = pendingDiaryWriteRetries.get(key);
+  if (previous?.timer) clearTimeout(previous.timer);
+  const state: DiaryWriteRetryState = { generation: (previous?.generation || 0) + 1 };
+  pendingDiaryWriteRetries.set(key, state);
+
+  const run = (retryIndex: number): boolean => {
+    if (pendingDiaryWriteRetries.get(key) !== state) return false;
+    if (write()) {
+      pendingDiaryWriteRetries.delete(key);
+      return true;
+    }
+    if (retryIndex >= DIARY_WRITE_RETRY_DELAYS_MS.length) {
+      pendingDiaryWriteRetries.delete(key);
+      log(`[Contents Checker] 일지 DB 쓰기 재시도 소진 - ${key}`);
+      return false;
+    }
+
+    state.timer = setTimeout(() => run(retryIndex + 1), DIARY_WRITE_RETRY_DELAYS_MS[retryIndex]);
+    state.timer.unref?.();
+    log(`[Contents Checker] 일지 DB 쓰기 재시도 예약 (${retryIndex + 1}/${DIARY_WRITE_RETRY_DELAYS_MS.length}) - ${key}`);
+    return false;
+  };
+
+  return run(0);
+}
+
+/** 종료 중 재시도 타이머가 DB를 다시 열지 않도록 모두 취소한다. */
+export function cancelPendingDiaryWriteRetries(): void {
+  for (const state of pendingDiaryWriteRetries.values()) {
+    if (state.timer) clearTimeout(state.timer);
+  }
+  pendingDiaryWriteRetries.clear();
 }
 
 function isStateInCurrentCycle(
@@ -787,7 +831,7 @@ function shouldReset(rule: ResetRule, lastCompleted: Date, now: Date): boolean {
 }
 
 /** 일지(다이어리) 통계 동기화 */
-function syncDiaryStats(items: ContentsCheckerItem[]) {
+function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
   const cfg = config.load();
   const presets = cfg.characterPresets || [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
   
@@ -817,13 +861,14 @@ function syncDiaryStats(items: ContentsCheckerItem[]) {
     }).length;
   });
   
-  diaryDb.updateHomeworkStats(
-    getLocalDateKey(),
+  const date = getLocalDateKey();
+  return runDiaryWriteWithRetry(`homework-stats:${date}`, () => diaryDb.updateHomeworkStats(
+    date,
     dailyDone,
     dailyTotal,
     weeklyDone,
     weeklyTotal,
-  );
+  ));
 }
 
 /** 화면 갱신 알림 유틸리티 */
@@ -844,7 +889,7 @@ function syncHomeworkDiary(
   characterId: string,
   state: ContentsCheckerItem['completedState'][string],
   previousCompleted?: boolean,
-): void {
+): boolean {
   const date = getLocalDateKey();
   const characterName =
     cfg.characterPresets?.find(preset => preset.id === characterId)?.name
@@ -857,17 +902,21 @@ function syncHomeworkDiary(
     && (previousCompleted === undefined || previousCompleted);
 
   if (shouldAdd) {
-    diaryDb.addHomeworkLog(
+    return runDiaryWriteWithRetry(`homework-log:${date}:${contentId}`, () => diaryDb.addHomeworkLog(
       date,
       contentId,
       contentName,
       item.category,
       item.resetRule.type,
-      Date.now(),
-    );
+      state.lastCompletedAt || Date.now(),
+    ));
   } else if (shouldRemove) {
-    diaryDb.removeHomeworkLog(date, contentId);
+    return runDiaryWriteWithRetry(
+      `homework-log:${date}:${contentId}`,
+      () => diaryDb.removeHomeworkLog(date, contentId),
+    );
   }
+  return true;
 }
 
 function getItemStateContext(id: string, characterId?: string) {
@@ -939,7 +988,11 @@ export function toggleExcludeItem(id: string, characterId: string): void {
       
       // 일지에서도 제거
       const diaryContentId = `${item.id}_${characterId}`;
-      diaryDb.removeHomeworkLog(getLocalDateKey(), diaryContentId);
+      const diaryDate = getLocalDateKey();
+      runDiaryWriteWithRetry(
+        `homework-log:${diaryDate}:${diaryContentId}`,
+        () => diaryDb.removeHomeworkLog(diaryDate, diaryContentId),
+      );
     }
 
     config.saveImmediate({ contentsCheckerItems: items });

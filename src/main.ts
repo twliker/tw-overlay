@@ -249,6 +249,7 @@ app.on('before-quit', (event) => {
   if (isFlushingAndQuitting) return;
 
   appState.isQuitting = true;
+  contentsChecker.cancelPendingDiaryWriteRetries();
   if (config.hasPending()) config.saveImmediate();
   if (!diaryDb.flushPendingElso()) {
     log('[SHUTDOWN] 엘소 DB flush 실패 — 디스크 복구 기록을 다음 실행에 재생합니다.');

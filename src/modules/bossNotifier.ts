@@ -138,10 +138,13 @@ function recordMissedBossAlerts(timestamps: number[]): void {
   for (const timestamp of timestamps) {
     for (const due of getDueBossAlertsAt(cfg, new Date(timestamp))) {
       if (_notifiedBossKeys.has(due.notifyKey)) continue;
-      _notifiedBossKeys.add(due.notifyKey);
       const message = due.offset === 0 ? `[${due.name}] 출현` : `[${due.name}] ${due.offset}분 전`;
-      diaryDb.addAlarmLog('boss', '절전 중 놓친 알람', `[${due.firedKey}] ${message}`);
-      log(`[BOSS] 절전 중 놓친 알람 이력 기록: ${due.firedKey} ${message}`);
+      if (diaryDb.addAlarmLog('boss', '절전 중 놓친 알람', `[${due.firedKey}] ${message}`)) {
+        _notifiedBossKeys.add(due.notifyKey);
+        log(`[BOSS] 절전 중 놓친 알람 이력 기록: ${due.firedKey} ${message}`);
+      } else {
+        log(`[BOSS] 절전 중 놓친 알람 이력 기록 실패: ${due.firedKey} ${message}`);
+      }
     }
   }
 }

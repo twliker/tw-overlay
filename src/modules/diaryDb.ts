@@ -661,30 +661,34 @@ function consolidateMagicStoneLogs(throwOnError = false): void {
 /**
  * 마정석 일자별 누적 기록 (하루에 등급별 1개의 레코드로 수량 누적 관리)
  */
-export function addMagicStoneDaily(date: string, time: string, grade: string, count: number): void {
+export function addMagicStoneDaily(date: string, time: string, grade: string, count: number): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
   const standardContent = `[득템] [${grade} 마정석]`;
-  ensureDiaryExists(date);
 
   try {
-    const existing = db.prepare(`
-      SELECT id, amount FROM activity_logs 
-      WHERE date = ? AND type = 'loot' AND (content = ? OR content LIKE ?)
-      ORDER BY id ASC LIMIT 1
-    `).get(date, standardContent, `%${grade}%마정석%`) as { id: number; amount: number } | undefined;
+    db.transaction(() => {
+      ensureDiaryExists(date);
+      const existing = db!.prepare(`
+        SELECT id, amount FROM activity_logs
+        WHERE date = ? AND type = 'loot' AND (content = ? OR content LIKE ?)
+        ORDER BY id ASC LIMIT 1
+      `).get(date, standardContent, `%${grade}%마정석%`) as { id: number; amount: number } | undefined;
 
-    if (existing) {
-      const newAmount = (existing.amount || 0) + count;
-      db.prepare(`UPDATE activity_logs SET content = ?, time = ?, amount = ? WHERE id = ?`)
-        .run(standardContent, time, newAmount, existing.id);
-    } else {
-      db.prepare(`INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, 'loot', ?, ?, ?)`)
-        .run(date, standardContent, time, count);
-    }
+      if (existing) {
+        const newAmount = (existing.amount || 0) + count;
+        db!.prepare(`UPDATE activity_logs SET content = ?, time = ?, amount = ? WHERE id = ?`)
+          .run(standardContent, time, newAmount, existing.id);
+      } else {
+        db!.prepare(`INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, 'loot', ?, ?, ?)`)
+          .run(date, standardContent, time, count);
+      }
+    })();
+    return true;
   } catch (e) {
     log(`[DiaryDB] addMagicStoneDaily failed: ${e}`);
+    return false;
   }
 }
 
@@ -994,12 +998,12 @@ export function removeActivityLog(date: string, type: string, content: string): 
 }
 
 /** 숙제 완료 기록을 추가합니다. */
-export function addHomeworkLog(date: string, contentId: string, contentName: string, category: string, type: 'daily' | 'weekly', completedAt: number): void {
+export function addHomeworkLog(date: string, contentId: string, contentName: string, category: string, type: 'daily' | 'weekly', completedAt: number): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
   try {
-    let added = false;
+    let changed = false;
     const transaction = db.transaction(() => {
       ensureDiaryExists(date);
 
@@ -1012,6 +1016,7 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
           SET content_name = ?, category = ?, type = ?, completed_at = ?
           WHERE id = ?
         `).run(contentName, category, type, completedAt, existing.id);
+        changed = true;
         return;
       }
 
@@ -1021,19 +1026,21 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
       // 포인트 부여
       if (type === 'daily') addScore(date, POINTS.DAILY_HOMEWORK);
       if (type === 'weekly') addScore(date, POINTS.WEEKLY_HOMEWORK);
-      added = true;
+      changed = true;
     });
     transaction();
-    if (added) notifyUpdate();
+    if (changed) notifyUpdate();
+    return true;
   } catch (err) {
     log(`[DiaryDB] addHomeworkLog failed: ${err}`);
+    return false;
   }
 }
 
 /** 숙제 체크 해제 시 기록을 삭제합니다. */
-export function removeHomeworkLog(date: string, contentId: string): void {
+export function removeHomeworkLog(date: string, contentId: string): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
   try {
     let removed = false;
@@ -1051,35 +1058,51 @@ export function removeHomeworkLog(date: string, contentId: string): void {
     });
     transaction();
     if (removed) notifyUpdate();
+    return true;
   } catch (err) {
     log(`[DiaryDB] removeHomeworkLog failed: ${err}`);
+    return false;
   }
 }
 
 /** 그 날의 전체 숙제 통계(완료/전체)를 갱신합니다. */
-export function updateHomeworkStats(date: string, dailyDone: number, dailyTotal: number, weeklyDone: number, weeklyTotal: number): void {
+export function updateHomeworkStats(date: string, dailyDone: number, dailyTotal: number, weeklyDone: number, weeklyTotal: number): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
-  ensureDiaryExists(date);
-  const stmt = db.prepare(`
-    UPDATE diaries 
-    SET daily_done = ?, daily_total = ?, weekly_done = ?, weekly_total = ? 
-    WHERE date = ?
-  `);
-  stmt.run(dailyDone, dailyTotal, weeklyDone, weeklyTotal, date);
-  notifyUpdate();
+  try {
+    db.transaction(() => {
+      ensureDiaryExists(date);
+      db!.prepare(`
+        UPDATE diaries
+        SET daily_done = ?, daily_total = ?, weekly_done = ?, weekly_total = ?
+        WHERE date = ?
+      `).run(dailyDone, dailyTotal, weeklyDone, weeklyTotal, date);
+    })();
+    notifyUpdate();
+    return true;
+  } catch (err) {
+    log(`[DiaryDB] updateHomeworkStats failed: ${err}`);
+    return false;
+  }
 }
 
 /** 몬스터 스티커 설정을 업데이트합니다. */
-export function updateDiaryMonster(date: string, monsterId: string): void {
+export function updateDiaryMonster(date: string, monsterId: string): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
-  ensureDiaryExists(date);
-  const stmt = db.prepare('UPDATE diaries SET monster_id = ? WHERE date = ?');
-  stmt.run(monsterId, date);
-  notifyUpdate();
+  try {
+    db.transaction(() => {
+      ensureDiaryExists(date);
+      db!.prepare('UPDATE diaries SET monster_id = ? WHERE date = ?').run(monsterId, date);
+    })();
+    notifyUpdate();
+    return true;
+  } catch (err) {
+    log(`[DiaryDB] updateDiaryMonster failed: ${err}`);
+    return false;
+  }
 }
 
 /** 특정 월의 요약 정보 (득템 수, 누적 시드, 상세 목록)를 가져옵니다. */
@@ -1261,25 +1284,29 @@ export function getMonthlyRevenueData(yearMonth: string): { date: string, amount
  * 외치기 기록을 추가합니다. 
  * 추가 시 24시간이 지난 기록은 자동으로 삭제하며, 5초 이내 동일 발신자/메시지는 중복 삽입을 방지합니다.
  */
-export function addShoutLog(sender: string, message: string, customTimestamp?: number): void {
+export function addShoutLog(sender: string, message: string, customTimestamp?: number): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
   const now = customTimestamp || Math.floor(Date.now() / 1000); // Unix Timestamp (seconds)
   const oneDayAgo = now - (24 * 60 * 60);
 
-  const transaction = db.transaction(() => {
-    // 1. 오래된 기록 삭제 (24시간 경과)
-    db!.prepare('DELETE FROM shout_history WHERE timestamp < ?').run(oneDayAgo);
+  try {
+    db.transaction(() => {
+      // 1. 오래된 기록 삭제 (24시간 경과)
+      db!.prepare('DELETE FROM shout_history WHERE timestamp < ?').run(oneDayAgo);
 
-    // 2. 5초 이내 동일 발신자 및 메시지 중복 체크
-    const existing = db!.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5').get(sender, message, now);
-    if (!existing) {
-      const stmt = db!.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)');
-      stmt.run(now, sender, message);
-    }
-  });
-  transaction();
+      // 2. 5초 이내 동일 발신자 및 메시지 중복 체크
+      const existing = db!.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5').get(sender, message, now);
+      if (!existing) {
+        db!.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)').run(now, sender, message);
+      }
+    })();
+    return true;
+  } catch (err) {
+    log(`[DiaryDB] addShoutLog failed: ${err}`);
+    return false;
+  }
 }
 
 /** 외치기 존재 여부 확인 (동기화 중복 방지용: 5초 오차 허용) */
@@ -1533,30 +1560,34 @@ export function addWordAlarmHistory(
   const oneDayAgo = now - (24 * 60 * 60);
   let alarmId = -1;
 
-  const transaction = db.transaction(() => {
-    // 1. 24시간 지난 오래된 알림 삭제 (ON DELETE CASCADE에 의해 대화 맥락도 자동 삭제됨)
-    db!.prepare('DELETE FROM word_alarm_history WHERE alarm_timestamp < ?').run(oneDayAgo);
+  try {
+    db.transaction(() => {
+      // 1. 24시간 지난 오래된 알림 삭제 (ON DELETE CASCADE에 의해 대화 맥락도 자동 삭제됨)
+      db!.prepare('DELETE FROM word_alarm_history WHERE alarm_timestamp < ?').run(oneDayAgo);
 
-    // 2. 새 알림 이력 추가
-    const insertHistoryStmt = db!.prepare(
-      'INSERT INTO word_alarm_history (alarm_timestamp, keyword, sender, message) VALUES (?, ?, ?, ?)'
-    );
-    const result = insertHistoryStmt.run(now, keyword, sender, message);
-    alarmId = Number(result.lastInsertRowid);
+      // 2. 새 알림 이력 추가
+      const insertHistoryStmt = db!.prepare(
+        'INSERT INTO word_alarm_history (alarm_timestamp, keyword, sender, message) VALUES (?, ?, ?, ?)'
+      );
+      const result = insertHistoryStmt.run(now, keyword, sender, message);
+      alarmId = Number(result.lastInsertRowid);
 
-    // 3. 연관된 5분 대화 맥락 추가
-    const insertContextStmt = db!.prepare(
-      'INSERT INTO word_alarm_chat_context (alarm_id, timestamp, sender, message, color) VALUES (?, ?, ?, ?, ?)'
-    );
-    for (const ctx of contextList) {
-      const ctxTimestamp = Math.floor(ctx.timestamp / 1000);
-      insertContextStmt.run(alarmId, ctxTimestamp, ctx.sender, ctx.message, ctx.color);
-    }
-  });
+      // 3. 연관된 5분 대화 맥락 추가
+      const insertContextStmt = db!.prepare(
+        'INSERT INTO word_alarm_chat_context (alarm_id, timestamp, sender, message, color) VALUES (?, ?, ?, ?, ?)'
+      );
+      for (const ctx of contextList) {
+        const ctxTimestamp = Math.floor(ctx.timestamp / 1000);
+        insertContextStmt.run(alarmId, ctxTimestamp, ctx.sender, ctx.message, ctx.color);
+      }
+    })();
 
-  transaction();
-  notifyUpdate();
-  return alarmId;
+    notifyUpdate();
+    return alarmId;
+  } catch (err) {
+    log(`[DiaryDB] addWordAlarmHistory failed: ${err}`);
+    return -1;
+  }
 }
 
 /**
@@ -1568,16 +1599,16 @@ export function addWordAlarmContextLine(
   sender: string,
   message: string,
   color: string
-): void {
+): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
   try {
     // alarmId가 실제로 존재하지 않으면 insert를 스킵하여 FOREIGN KEY constraint crash 방지
     const exists = db.prepare('SELECT id FROM word_alarm_history WHERE id = ?').get(alarmId);
     if (!exists) {
       log(`[DiaryDB] word_alarm_history에서 alarmId ${alarmId}를 찾을 수 없습니다. context line 추가를 생략합니다.`);
-      return;
+      return false;
     }
 
     const stmt = db.prepare(
@@ -1585,8 +1616,10 @@ export function addWordAlarmContextLine(
     );
     stmt.run(alarmId, Math.floor(timestamp / 1000), sender, message, color);
     notifyUpdate();
+    return true;
   } catch (error) {
     log(`[DiaryDB] addWordAlarmContextLine 실패 (alarmId: ${alarmId}): ${error}`);
+    return false;
   }
 }
 
@@ -1616,23 +1649,35 @@ export function getWordAlarmContext(alarmId: number): any[] {
 /**
  * 특정 지정 단어 알림 히스토리 아이템을 개별 삭제합니다. (Cascades to context)
  */
-export function deleteWordAlarmHistoryItem(id: number): void {
+export function deleteWordAlarmHistoryItem(id: number): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
-  db.prepare('DELETE FROM word_alarm_history WHERE id = ?').run(id);
-  notifyUpdate();
+  try {
+    db.prepare('DELETE FROM word_alarm_history WHERE id = ?').run(id);
+    notifyUpdate();
+    return true;
+  } catch (err) {
+    log(`[DiaryDB] deleteWordAlarmHistoryItem failed: ${err}`);
+    return false;
+  }
 }
 
 /**
  * 모든 지정 단어 알림 히스토리와 관련된 맥락 데이터를 전체 삭제합니다.
  */
-export function clearWordAlarmHistory(): void {
+export function clearWordAlarmHistory(): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
 
-  db.prepare('DELETE FROM word_alarm_history').run();
-  notifyUpdate();
+  try {
+    db.prepare('DELETE FROM word_alarm_history').run();
+    notifyUpdate();
+    return true;
+  } catch (err) {
+    log(`[DiaryDB] clearWordAlarmHistory failed: ${err}`);
+    return false;
+  }
 }
 
 export function getHuntingGrounds(): any[] {
@@ -1733,26 +1778,30 @@ export function addAlarmLog(
   type: 'boss' | 'custom' | 'word' | 'wave' | 'buff' | 'etc',
   title: string,
   message: string
-): void {
+): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
   try {
     const timestamp = Date.now();
-    db.prepare('INSERT INTO alarm_logs (timestamp, type, title, message) VALUES (?, ?, ?, ?)').run(
-      timestamp,
-      type,
-      title,
-      message
-    );
+    db.transaction(() => {
+      db!.prepare('INSERT INTO alarm_logs (timestamp, type, title, message) VALUES (?, ?, ?, ?)').run(
+        timestamp,
+        type,
+        title,
+        message
+      );
+
+      // 용량 관리를 위해 24시간 이전의 로그 자동 삭제 (24시간 = 24 * 60 * 60 * 1000 ms)
+      const oneDayAgo = timestamp - 24 * 60 * 60 * 1000;
+      db!.prepare('DELETE FROM alarm_logs WHERE timestamp < ?').run(oneDayAgo);
+    })();
     log(`[DiaryDB] 알람 로그 추가: [${type}] ${title} - ${message}`);
 
-    // 용량 관리를 위해 24시간 이전의 로그 자동 삭제 (24시간 = 24 * 60 * 60 * 1000 ms)
-    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-    db.prepare('DELETE FROM alarm_logs WHERE timestamp < ?').run(oneDayAgo);
-
     notifyAlarmLogUpdate();
+    return true;
   } catch (e) {
     log(`[DiaryDB] addAlarmLog 실패: ${e}`);
+    return false;
   }
 }
 
@@ -1773,15 +1822,17 @@ export function getAlarmLogs(limit: number = 100): AlarmLog[] {
 /**
  * 알람 로그 전체 삭제
  */
-export function clearAlarmLogs(): void {
+export function clearAlarmLogs(): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
   try {
     db.prepare('DELETE FROM alarm_logs').run();
     log('[DiaryDB] 모든 알람 로그 삭제 완료');
     notifyAlarmLogUpdate();
+    return true;
   } catch (e) {
     log(`[DiaryDB] clearAlarmLogs 실패: ${e}`);
+    return false;
   }
 }
 
