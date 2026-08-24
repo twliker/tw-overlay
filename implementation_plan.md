@@ -1,7 +1,7 @@
 # TW-Overlay v3.0.0 정식 릴리즈 구현 계획
 
 작성일: 2026-08-24  
-상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 5 작업표시줄·포커스 우선 수정의 자동 검증 완료(실기 검증 대기)**
+상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 3 클라우드 분리 계약 기반 완료, Phase 5 작업표시줄·포커스 우선 수정의 자동 검증 완료(실기 검증 대기)**
 
 ## 0. 최우선 개발·릴리즈 원칙
 
@@ -43,6 +43,14 @@
 - 외부 프로그램이 전경이면 폴링·클릭 투과 지연 경로의 Z-order 재배치와 지연 포커스 복구를 차단
 - 창모드 전체화면에서 `placeGameBelowWindow()` 경로 차단, 실제 `IsIconic`일 때만 `SW_RESTORE` 호출, 자동 `BringWindowToTop`·가상 Alt 키 제거
 - 위 계약을 고정하는 회귀 검사와 전체 `npm test` 통과. 단, 실제 Windows 듀얼 모니터·장시간 플레이 증상이 완전히 사라졌다는 판정은 실기 검증 후에만 내린다.
+
+현재 Phase 3에서 완료하고 자동 검증을 통과한 클라우드 기반 단위(코드 수정 `57ddf5a`):
+
+- `tw_overlay_settings.json`, `tw_overlay_checklist.json`, `tw_overlay_sync_meta.json`의 고정 이름과 이름별 Drive 검색·범용 JSON 업/다운로드 경계 추가
+- 일반 설정과 숙제·캐릭터·pending 이력의 allowlist·payload builder 분리
+- Discord Webhook URL, 절대경로·커스텀 사운드 ID의 업로드 제외와 구버전/비정상 원격 payload가 로컬 비밀값·사운드를 덮지 못하는 병합 방어
+- 신규 숙제 파일의 `pendingHomeworks`는 전용 builder에 포함하되, 3방향 병합·outbox가 없는 기존 단일 파일에는 새로 섞지 않아 기존 동작 보존
+- 이 단계는 아직 `cloudSyncManager` 전송 큐를 분리 파일에 연결하지 않았으므로 실제 Drive 저장 구조는 기존 단일 파일 호환 경로를 유지한다. 다음 단위에서 파일별 dirty 큐·실제 업로드·레거시 마이그레이션을 연결한다.
 
 ## 1. 감사 기준과 현재 상태
 
@@ -264,6 +272,8 @@
 ### Phase 3 — 클라우드 큐·인증·종료 상태 머신
 
 대상: A-07~A-09, B-05, D-01~D-06, D-09~D-10
+
+진행 상태: 파일명·범용 Drive JSON 경계, 설정/숙제 allowlist·builder 분리, Webhook·로컬 사운드 제외는 완료했다. `cloudSyncManager`의 실제 파일별 dirty 큐·업로드·복원·pull 루프, meta 파일과 레거시 마이그레이션은 미연결이다.
 
 1. 기존 단일 `tw_overlay_sync.json`을 다음 세 파일로 분리한다.
    - `tw_overlay_settings.json`: 일반 설정의 클라우드 권위 스냅샷
