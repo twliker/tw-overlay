@@ -61,6 +61,7 @@ spec/fixtures/logo.png
 
 error/*
 src/env.json
+env.json
 *.exe
 
 test-pitta.js

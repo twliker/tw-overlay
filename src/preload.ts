@@ -173,6 +173,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Google Drive 동기화
   googleSyncLogin: (): Promise<{ success: boolean; status: GoogleSyncStatus; error?: string }> =>
     ipcRenderer.invoke('google-sync-login'),
+  googleSyncCancelLogin: (): Promise<boolean> =>
+    ipcRenderer.invoke('google-sync-cancel-login'),
+  googleSyncIsLoggingIn: (): Promise<boolean> =>
+    ipcRenderer.invoke('google-sync-is-logging-in'),
   googleSyncLogout: (): Promise<GoogleSyncStatus> =>
     ipcRenderer.invoke('google-sync-logout'),
   googleSyncGetStatus: (): Promise<GoogleSyncStatus> =>

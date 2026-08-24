@@ -664,6 +664,8 @@ export function register(): void {
 
   // --- Google Drive Sync ---
   ipcMain.handle('google-sync-login', async () => cloudSync.loginAndInit());
+  ipcMain.handle('google-sync-cancel-login', async () => cloudSync.cancelLogin());
+  ipcMain.handle('google-sync-is-logging-in', async () => cloudSync.isLoggingIn());
   ipcMain.handle('google-sync-logout', async () => cloudSync.logout());
   ipcMain.handle('google-sync-get-status', async () => cloudSync.getSyncStatus());
   ipcMain.handle('google-sync-backup', async () => cloudSync.syncToCloud(true));

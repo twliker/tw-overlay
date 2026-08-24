@@ -69,6 +69,12 @@ files.forEach(file => {
   }
 });
 
+// 프로젝트 루트에 env.json이 있으면 dist로 복사
+const rootEnv = path.join(projectRoot, 'env.json');
+if (fs.existsSync(rootEnv)) {
+  copyFile(rootEnv, path.join(distDir, 'env.json'));
+}
+
 // 3. 디렉토리 복사 (아이콘, 정적 자산, 브라우저 렌더러 모듈)
 const dirsToCopy = ['icons', 'assets', 'renderer'];
 dirsToCopy.forEach(dir => {

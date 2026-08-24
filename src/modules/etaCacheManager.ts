@@ -25,11 +25,19 @@ class EtaCacheManager {
   private _isFetching = false;
 
   constructor() {
-    try {
-      this._cacheFilePath = path.join(app.getPath('userData'), 'eta_ranking_cache.json');
-    } catch (e) {
-      log(`[ETA_CACHE] Path init error (dev-mode?): ${e}`);
+    // 경로 초기화는 app.getPath('userData')가 확정된 후 getCacheFilePath()에서 지연 수행
+  }
+
+  private getCacheFilePath(): string {
+    if (!this._cacheFilePath) {
+      try {
+        const userData = app ? app.getPath('userData') : '';
+        this._cacheFilePath = userData ? path.join(userData, 'eta_ranking_cache.json') : '';
+      } catch (e) {
+        log(`[ETA_CACHE] Path init error (dev-mode?): ${e}`);
+      }
     }
+    return this._cacheFilePath;
   }
 
   /**
@@ -53,9 +61,10 @@ class EtaCacheManager {
    * 로컬 캐시 파일이 오늘 날짜로 저장된 것인지 확인
    */
   private isCacheFreshToday(): boolean {
-    if (!this._cacheFilePath || !fs.existsSync(this._cacheFilePath)) return false;
+    const cachePath = this.getCacheFilePath();
+    if (!cachePath || !fs.existsSync(cachePath)) return false;
     try {
-      const raw = fs.readFileSync(this._cacheFilePath, 'utf-8');
+      const raw = fs.readFileSync(cachePath, 'utf-8');
       const payload: EtaPayload = JSON.parse(raw);
       if (!payload.CollectDate) return false;
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -117,13 +126,14 @@ class EtaCacheManager {
    * 로컬 파일 캐시에서 데이터 로드
    */
   private loadFromLocalCache(): void {
-    if (!this._cacheFilePath || !fs.existsSync(this._cacheFilePath)) {
+    const cachePath = this.getCacheFilePath();
+    if (!cachePath || !fs.existsSync(cachePath)) {
       log('[ETA_CACHE] 로컬 캐시 파일이 존재하지 않습니다.');
       return;
     }
 
     try {
-      const raw = fs.readFileSync(this._cacheFilePath, 'utf-8');
+      const raw = fs.readFileSync(cachePath, 'utf-8');
       const payload: EtaPayload = JSON.parse(raw);
       
       if (payload && Array.isArray(payload.Rankings)) {
@@ -168,9 +178,10 @@ class EtaCacheManager {
         log(`[ETA_CACHE] 원격 다운로드 및 맵핑 완료: ${this._cacheMap.size}명 (수집일: ${payload.CollectDate || '알 수 없음'})`);
 
         // 로컬에 파일 캐싱 (비동기 및 공백 제거로 I/O 지연 방지)
-        if (this._cacheFilePath) {
+        const cachePath = this.getCacheFilePath();
+        if (cachePath) {
           try {
-            await fs.promises.writeFile(this._cacheFilePath, JSON.stringify(payload), 'utf-8');
+            await fs.promises.writeFile(cachePath, JSON.stringify(payload), 'utf-8');
           } catch (writeErr) {
             log(`[ETA_CACHE] 로컬 캐시 파일 저장 실패: ${writeErr}`);
           }

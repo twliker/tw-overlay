@@ -71,6 +71,16 @@ export async function loginAndInit(): Promise<{ success: boolean; status: Google
   }
 }
 
+/** 진행 중인 구글 로그인 취소 */
+export function cancelLogin(): boolean {
+  return googleAuth.cancelLogin();
+}
+
+/** 현재 구글 로그인 진행 중 여부 */
+export function isLoggingIn(): boolean {
+  return googleAuth.isLoggingIn();
+}
+
 /** 로그아웃 */
 export function logout(): GoogleSyncStatus {
   if (_debounceTimer) {

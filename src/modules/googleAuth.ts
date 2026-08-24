@@ -21,24 +21,43 @@ const USER_PROFILE_FILE = 'google_user.json';
 let _cachedTokens: GoogleAuthTokens | null = null;
 let _cachedProfile: GoogleUserProfile | null = null;
 let _isLoggingIn = false;
+let _cancelCurrentLogin: (() => void) | null = null;
+
+/** 현재 로그인 진행 여부 */
+export function isLoggingIn(): boolean {
+  return _isLoggingIn;
+}
+
+/** 진행 중인 로그인 절차 취소 */
+export function cancelLogin(): boolean {
+  if (!_isLoggingIn || !_cancelCurrentLogin) {
+    return false;
+  }
+  log('[GoogleAuth] 사용자에 의해 로그인이 취소되었습니다.');
+  _cancelCurrentLogin();
+  return true;
+}
 
 /** env.json에서 구글 OAuth 클라이언트 키 로드 */
 function getGoogleCredentials(): { clientId: string; clientSecret: string } {
   try {
-    let envPath = path.join(__dirname, '..', 'env.json');
-    if (!fs.existsSync(envPath)) {
-      envPath = path.join(app.getAppPath(), 'dist', 'env.json');
-    }
-    if (!fs.existsSync(envPath)) {
-      envPath = path.join(app.getAppPath(), 'src', 'env.json');
-    }
+    const candidatePaths = [
+      path.join(app.getAppPath(), 'env.json'),
+      path.join(__dirname, '..', 'env.json'),
+      path.join(__dirname, '..', '..', 'env.json'),
+      path.join(app.getAppPath(), 'dist', 'env.json'),
+      path.join(app.getAppPath(), 'src', 'env.json'),
+    ];
 
-    if (fs.existsSync(envPath)) {
-      const data = JSON.parse(fs.readFileSync(envPath, 'utf-8'));
-      return {
-        clientId: (data.GOOGLE_CLIENT_ID || '').trim(),
-        clientSecret: (data.GOOGLE_CLIENT_SECRET || '').trim(),
-      };
+    for (const envPath of candidatePaths) {
+      if (fs.existsSync(envPath)) {
+        const data = JSON.parse(fs.readFileSync(envPath, 'utf-8'));
+        const clientId = (data.GOOGLE_CLIENT_ID || data.google_client_id || data.clientId || '').trim();
+        const clientSecret = (data.GOOGLE_CLIENT_SECRET || data.google_client_secret || data.clientSecret || '').trim();
+        if (clientId) {
+          return { clientId, clientSecret };
+        }
+      }
     }
   } catch (err) {
     log(`[GoogleAuth] env.json 로드 실패: ${err}`);
@@ -79,119 +98,125 @@ function saveTokens(tokens: GoogleAuthTokens): void {
       // safeStorage 사용 불가 환경 폴백
       fs.writeFileSync(filePath, Buffer.from(raw, 'utf-8').toString('base64'), 'utf-8');
     }
-    log('[GoogleAuth] 토큰이 안전하게 저장되었습니다.');
+    log('[GoogleAuth] 토큰 안전 저장 완료');
   } catch (err) {
     log(`[GoogleAuth] 토큰 저장 실패: ${err}`);
   }
 }
 
-/** 토큰 로드 */
-function loadStoredTokens(): GoogleAuthTokens | null {
+/** 저장된 암호화 토큰 로드 */
+export function loadStoredTokens(): GoogleAuthTokens | null {
   if (_cachedTokens) return _cachedTokens;
-  try {
-    const filePath = getTokenStoragePath();
-    if (!fs.existsSync(filePath)) return null;
 
+  const filePath = getTokenStoragePath();
+  if (!fs.existsSync(filePath)) return null;
+
+  try {
     const data = fs.readFileSync(filePath);
     let raw = '';
     if (safeStorage.isEncryptionAvailable()) {
-      try {
-        raw = safeStorage.decryptString(data);
-      } catch {
-        // 복호화 실패 시 평문/Base64 시도
-        raw = Buffer.from(data.toString('utf-8'), 'base64').toString('utf-8');
-      }
+      raw = safeStorage.decryptString(data);
     } else {
       raw = Buffer.from(data.toString('utf-8'), 'base64').toString('utf-8');
     }
-
-    if (raw) {
-      _cachedTokens = JSON.parse(raw) as GoogleAuthTokens;
-      return _cachedTokens;
-    }
+    _cachedTokens = JSON.parse(raw);
+    return _cachedTokens;
   } catch (err) {
-    log(`[GoogleAuth] 토큰 로드 실패: ${err}`);
+    log(`[GoogleAuth] 토큰 로드/복호화 실패: ${err}`);
+    return null;
   }
-  return null;
 }
 
-/** 프로필 저장 */
+/** 유저 프로필 저장 */
 function saveUserProfile(profile: GoogleUserProfile): void {
   _cachedProfile = { ...profile };
   try {
     fs.writeFileSync(getUserProfilePath(), JSON.stringify(profile, null, 2), 'utf-8');
   } catch (err) {
-    log(`[GoogleAuth] 프로필 저장 실패: ${err}`);
+    log(`[GoogleAuth] 프로필 캐시 저장 실패: ${err}`);
   }
 }
 
-/** 프로필 로드 */
+/** 유저 프로필 로드 */
 export function loadStoredProfile(): GoogleUserProfile | null {
   if (_cachedProfile) return _cachedProfile;
+
+  const filePath = getUserProfilePath();
+  if (!fs.existsSync(filePath)) return null;
+
   try {
-    const filePath = getUserProfilePath();
-    if (fs.existsSync(filePath)) {
-      _cachedProfile = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      return _cachedProfile;
-    }
+    const data = fs.readFileSync(filePath, 'utf-8');
+    _cachedProfile = JSON.parse(data);
+    return _cachedProfile;
   } catch (err) {
-    log(`[GoogleAuth] 프로필 로드 실패: ${err}`);
+    log(`[GoogleAuth] 프로필 캐시 로드 실패: ${err}`);
+    return null;
   }
-  return null;
 }
 
-/** 토큰 및 프로필 삭제 (로그아웃) */
+/** 로그아웃 (토큰 및 프로필 삭제) */
 export function logout(): void {
   _cachedTokens = null;
   _cachedProfile = null;
-  try {
-    const tokenPath = getTokenStoragePath();
-    if (fs.existsSync(tokenPath)) fs.unlinkSync(tokenPath);
-    const profilePath = getUserProfilePath();
-    if (fs.existsSync(profilePath)) fs.unlinkSync(profilePath);
-    log('[GoogleAuth] 구글 로그아웃 완료.');
-  } catch (err) {
-    log(`[GoogleAuth] 로그아웃 파일 삭제 오류: ${err}`);
+
+  const tokenPath = getTokenStoragePath();
+  if (fs.existsSync(tokenPath)) {
+    try {
+      fs.unlinkSync(tokenPath);
+    } catch (err) {
+      log(`[GoogleAuth] 토큰 파일 삭제 실패: ${err}`);
+    }
   }
+
+  const profilePath = getUserProfilePath();
+  if (fs.existsSync(profilePath)) {
+    try {
+      fs.unlinkSync(profilePath);
+    } catch (err) {
+      log(`[GoogleAuth] 프로필 파일 삭제 실패: ${err}`);
+    }
+  }
+
+  log('[GoogleAuth] 로그아웃 완료');
 }
 
-/** 로그인 상태 확인 */
+/** 로그인 여부 확인 */
 export function isLoggedIn(): boolean {
   const tokens = loadStoredTokens();
-  return !!(tokens && (tokens.refresh_token || tokens.access_token));
+  return !!(tokens && (tokens.access_token || tokens.refresh_token));
 }
 
-/** 구글 유저 정보 조회 API */
-async function fetchUserProfile(accessToken: string): Promise<GoogleUserProfile | null> {
+/** Access Token으로 사용자 프로필(이메일 등) 조회 */
+export async function fetchUserProfile(accessToken: string): Promise<GoogleUserProfile | null> {
   try {
     const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
-      throw new Error(`Userinfo HTTP error ${res.status}`);
+      log(`[GoogleAuth] 프로필 조회 실패 HTTP ${res.status}`);
+      return null;
     }
-    const data = (await res.json()) as { email: string; name?: string; picture?: string };
+    const data = (await res.json()) as { id: string; email: string; name?: string; picture?: string };
     const profile: GoogleUserProfile = {
-      email: data.email || '',
+      email: data.email,
       name: data.name,
       picture: data.picture,
     };
     saveUserProfile(profile);
     return profile;
   } catch (err) {
-    log(`[GoogleAuth] 유저 프로필 조회 실패: ${err}`);
+    log(`[GoogleAuth] 프로필 조회 에러: ${err}`);
     return null;
   }
 }
 
-/** 토큰 갱신 */
-export async function refreshAccessTokenIfNeeded(): Promise<string | null> {
+/** 유효한 Access Token 가져오기 (만료 시 자동 Refresh) */
+export async function getValidAccessToken(): Promise<string | null> {
   const tokens = loadStoredTokens();
   if (!tokens || !tokens.refresh_token) {
     return null;
   }
 
-  // 만료 시간 5분 이상 남았으면 기존 access_token 사용
   const now = Date.now();
   if (tokens.access_token && tokens.expiry_date && tokens.expiry_date - now > 5 * 60 * 1000) {
     return tokens.access_token;
@@ -223,7 +248,6 @@ export async function refreshAccessTokenIfNeeded(): Promise<string | null> {
     if (!res.ok) {
       const errText = await res.text();
       log(`[GoogleAuth] 토큰 갱신 실패 (HTTP ${res.status}): ${errText}`);
-      // Refresh token이 만료되었거나 무효화된 경우
       if (res.status === 400 || res.status === 401) {
         logout();
       }
@@ -237,7 +261,7 @@ export async function refreshAccessTokenIfNeeded(): Promise<string | null> {
       scope?: string;
     };
 
-    const newTokens: GoogleAuthTokens = {
+    const updatedTokens: GoogleAuthTokens = {
       ...tokens,
       access_token: data.access_token,
       expiry_date: Date.now() + (data.expires_in || 3600) * 1000,
@@ -245,18 +269,18 @@ export async function refreshAccessTokenIfNeeded(): Promise<string | null> {
       scope: data.scope || tokens.scope,
     };
 
-    saveTokens(newTokens);
-    log('[GoogleAuth] Access Token 갱신 성공!');
-    return newTokens.access_token;
+    saveTokens(updatedTokens);
+    log('[GoogleAuth] Access Token 갱신 성공');
+    return updatedTokens.access_token;
   } catch (err) {
-    log(`[GoogleAuth] 토큰 갱신 네트워크 에러: ${err}`);
+    log(`[GoogleAuth] 토큰 갱신 에러: ${err}`);
     return null;
   }
 }
 
-/** 유효한 Access Token 반환 */
-export async function getValidAccessToken(): Promise<string | null> {
-  const token = await refreshAccessTokenIfNeeded();
+/** 현재 Access Token이 유효한지 확인하고 반환 */
+export async function getAccessToken(): Promise<string | null> {
+  const token = await getValidAccessToken();
   if (token) return token;
 
   const tokens = loadStoredTokens();
@@ -282,17 +306,34 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
   return new Promise((resolve) => {
     let server: http.Server | null = null;
     let timeoutTimer: NodeJS.Timeout | null = null;
+    let isResolved = false;
 
     const cleanup = () => {
       _isLoggingIn = false;
+      _cancelCurrentLogin = null;
       if (timeoutTimer) {
         clearTimeout(timeoutTimer);
         timeoutTimer = null;
       }
       if (server) {
-        server.close();
+        try {
+          server.close();
+        } catch {
+          // ignore
+        }
         server = null;
       }
+    };
+
+    const safeResolve = (res: { success: boolean; profile?: GoogleUserProfile; error?: string }) => {
+      if (isResolved) return;
+      isResolved = true;
+      cleanup();
+      resolve(res);
+    };
+
+    _cancelCurrentLogin = () => {
+      safeResolve({ success: false, error: '사용자에 의해 인증이 취소되었습니다.' });
     };
 
     // 1. 임시 로컬 루프백 서버 생성
@@ -320,16 +361,14 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
               </body>
             </html>
           `);
-          cleanup();
-          resolve({ success: false, error: `인증 취소 또는 오류: ${error}` });
+          safeResolve({ success: false, error: `인증 취소 또는 오류: ${error}` });
           return;
         }
 
         if (!authCode) {
           res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
           res.end('Missing code parameter');
-          cleanup();
-          resolve({ success: false, error: '인증 코드가 누락되었습니다.' });
+          safeResolve({ success: false, error: '인증 코드가 누락되었습니다.' });
           return;
         }
 
@@ -364,6 +403,26 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
           token_type?: string;
           scope?: string;
         };
+
+        const grantedScope = tokenData.scope || '';
+        if (!grantedScope.includes('drive.appdata')) {
+          log('[GoogleAuth] 사용자가 Google Drive(drive.appdata) 권한 체크박스를 선택하지 않았습니다.');
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(`
+            <html>
+              <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #0f172a; color: #f87171;">
+                <h2>⚠️ Google Drive 권한이 선택되지 않았습니다.</h2>
+                <p>데이터 동기화를 위해 로그인 화면에서 <strong>Google Drive 권한 체크박스를 반드시 체크</strong>해 주셔야 합니다.</p>
+                <p>이 창을 닫고 TW-Overlay에서 다시 시도해 주세요.</p>
+              </body>
+            </html>
+          `);
+          safeResolve({
+            success: false,
+            error: 'Google Drive 권한 체크박스가 선택되지 않았습니다. 로그인 시 권한을 체크해주세요.',
+          });
+          return;
+        }
 
         const tokens: GoogleAuthTokens = {
           access_token: tokenData.access_token,
@@ -422,8 +481,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
           </html>
         `);
 
-        cleanup();
-        resolve({ success: true, profile: profile || undefined });
+        safeResolve({ success: true, profile: profile || undefined });
       } catch (err: any) {
         log(`[GoogleAuth] 인증 처리 실패: ${err.message || err}`);
         res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -435,17 +493,15 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
             </body>
           </html>
         `);
-        cleanup();
-        resolve({ success: false, error: err.message || String(err) });
+        safeResolve({ success: false, error: err.message || String(err) });
       }
     });
 
-    // 2분 타임아웃
+    // 60초 타임아웃
     timeoutTimer = setTimeout(() => {
-      log('[GoogleAuth] 로그인 타임아웃 발생 (2분 초과)');
-      cleanup();
-      resolve({ success: false, error: '로그인 시간이 초과되었습니다 (2분).' });
-    }, 120000);
+      log('[GoogleAuth] 로그인 타임아웃 발생 (60초 초과)');
+      safeResolve({ success: false, error: '로그인 시간이 초과되었습니다 (60초).' });
+    }, 60000);
 
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -455,8 +511,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
     server.listen(0, '127.0.0.1', () => {
       const address = server?.address();
       if (!address || typeof address === 'string') {
-        cleanup();
-        resolve({ success: false, error: '로컬 루프백 서버 포트 할당 실패' });
+        safeResolve({ success: false, error: '로컬 루프백 서버 포트 할당 실패' });
         return;
       }
 
@@ -479,8 +534,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
 
     server.on('error', (err) => {
       log(`[GoogleAuth] 서버 에러: ${err}`);
-      cleanup();
-      resolve({ success: false, error: `로컬 서버 에러: ${err.message}` });
+      safeResolve({ success: false, error: `로컬 서버 에러: ${err.message}` });
     });
   });
 }

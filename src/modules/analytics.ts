@@ -16,11 +16,22 @@ let MEASUREMENT_ID = '';
 let API_SECRET = '';
 
 try {
-  const envPath = path.join(__dirname, '..', 'env.json');
-  if (fs.existsSync(envPath)) {
-    const envData = JSON.parse(fs.readFileSync(envPath, 'utf-8'));
-    MEASUREMENT_ID = envData.MEASUREMENT_ID || '';
-    API_SECRET = envData.API_SECRET || '';
+  const candidatePaths = [
+    path.join(app.getAppPath(), 'env.json'),
+    path.join(__dirname, '..', 'env.json'),
+    path.join(__dirname, '..', '..', 'env.json'),
+    path.join(app.getAppPath(), 'dist', 'env.json'),
+    path.join(app.getAppPath(), 'src', 'env.json'),
+  ];
+  for (const envPath of candidatePaths) {
+    if (fs.existsSync(envPath)) {
+      const envData = JSON.parse(fs.readFileSync(envPath, 'utf-8'));
+      if (envData.MEASUREMENT_ID || envData.API_SECRET) {
+        MEASUREMENT_ID = envData.MEASUREMENT_ID || '';
+        API_SECRET = envData.API_SECRET || '';
+        break;
+      }
+    }
   }
 } catch (e) {
   console.warn('[Analytics] Failed to parse env.json');
@@ -34,10 +45,33 @@ interface AnalyticsStoreSchema {
   ga_last_active_time: number;
 }
 
-const store = new Store() as unknown as {
+const store = new Store({ name: 'analytics' }) as unknown as {
   get<K extends keyof AnalyticsStoreSchema>(key: K): AnalyticsStoreSchema[K] | undefined;
   set<K extends keyof AnalyticsStoreSchema>(key: K, value: AnalyticsStoreSchema[K]): void;
 };
+
+function getStoredClientId(): string | undefined {
+  let clientId = store.get('ga_client_id');
+  if (!clientId) {
+    try {
+      const appData = app ? app.getPath('appData') : (process.env.APPDATA || '');
+      const legacyPaths = [
+        path.join(appData, 'tw-overlay', 'config.json'),
+        path.join(appData, 'twOverlay', 'config.json'),
+      ];
+      for (const legacyPath of legacyPaths) {
+        if (fs.existsSync(legacyPath)) {
+          const content = JSON.parse(fs.readFileSync(legacyPath, 'utf-8'));
+          if (content && typeof content.ga_client_id === 'string' && content.ga_client_id) {
+            clientId = content.ga_client_id;
+            break;
+          }
+        }
+      }
+    } catch {}
+  }
+  return clientId;
+}
 
 export class Analytics {
   private clientId: string;
@@ -49,7 +83,7 @@ export class Analytics {
 
   constructor() {
     // 1. Client ID persistence
-    const savedClientId = store.get('ga_client_id');
+    const savedClientId = getStoredClientId();
     const normalizedClientId = normalizeGaClientId(savedClientId);
     if (normalizedClientId.clientId !== savedClientId) {
       store.set('ga_client_id', normalizedClientId.clientId);
