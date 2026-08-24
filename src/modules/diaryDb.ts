@@ -272,86 +272,59 @@ export function initDb(): void {
     const userVersion = (db.pragma('user_version', { simple: true }) as number) || 0;
 
     if (userVersion < 1) {
-      // char_main 및 char_sub 컬럼 하위 호환 마이그레이션
-      try {
-        db.prepare("ALTER TABLE timer_records ADD COLUMN char_main INTEGER NOT NULL DEFAULT 0").run();
-      } catch (e) {}
-      try {
-        db.prepare("ALTER TABLE timer_records ADD COLUMN char_sub INTEGER NOT NULL DEFAULT 0").run();
-      } catch (e) {}
+      const migrateV1 = db.transaction(() => {
+        const timerColumns = db!.prepare('PRAGMA table_info(timer_records)').all() as Array<{ name: string }>;
+        if (!timerColumns.some(column => column.name === 'char_main')) {
+          db!.exec('ALTER TABLE timer_records ADD COLUMN char_main INTEGER NOT NULL DEFAULT 0');
+        }
+        if (!timerColumns.some(column => column.name === 'char_sub')) {
+          db!.exec('ALTER TABLE timer_records ADD COLUMN char_sub INTEGER NOT NULL DEFAULT 0');
+        }
 
-      // 마이그레이션: amount 컬럼이 없는 경우 추가 (이미 테이블이 생성된 경우 대비)
-      try {
-        const columns = db.prepare("PRAGMA table_info(activity_logs)").all() as any[];
-        const hasAmount = columns.some(c => c.name === 'amount');
-        if (!hasAmount) {
-          db.exec("ALTER TABLE activity_logs ADD COLUMN amount INTEGER DEFAULT 0");
-          log('[DiaryDB] activity_logs table updated with amount column.');
+        const activityColumns = db!.prepare('PRAGMA table_info(activity_logs)').all() as Array<{ name: string }>;
+        if (!activityColumns.some(column => column.name === 'amount')) {
+          db!.exec('ALTER TABLE activity_logs ADD COLUMN amount INTEGER DEFAULT 0');
           migrateExistingData();
         }
-      } catch (e) {
-        log(`[DiaryDB] Migration check failed: ${e}`);
-      }
 
-      normalizeExistingLootContent();
-      consolidateMagicStoneLogs();
+        normalizeExistingLootContent(true);
+        consolidateMagicStoneLogs(true);
 
-      // 마이그레이션: 기존 대장간 이미지 경로를 최신 경로(대장간.png)로 업데이트 및 탭 이름 변경
-      try {
-        db.prepare(`
+        db!.prepare(`
           UPDATE hunting_grounds 
           SET image_path = 'assets/img/field-map/대장간.png',
               name = '시오칸하임 대장간'
           WHERE id = 'forge'
         `).run();
-        db.prepare(`
+        db!.prepare(`
           UPDATE hunting_grounds 
           SET name = '골고다의 협곡'
           WHERE id = 'golgotha'
         `).run();
-        db.prepare(`
+        db!.prepare(`
           UPDATE hunting_grounds 
           SET name = '공허의 영역'
           WHERE id = 'void'
         `).run();
-        log('[DiaryDB] Hunting grounds names and paths migrated successfully.');
-      } catch (e) {
-        log(`[DiaryDB] Hunting grounds migration failed: ${e}`);
-      }
 
-      // 마이그레이션: hunting_paths 테이블에 color 컬럼이 없는 경우 추가
-      try {
-        const columns = db.prepare("PRAGMA table_info(hunting_paths)").all() as any[];
-        const hasColor = columns.some(c => c.name === 'color');
-        if (!hasColor) {
-          db.exec("ALTER TABLE hunting_paths ADD COLUMN color TEXT");
-          log('[DiaryDB] hunting_paths table updated with color column.');
+        const huntingPathColumns = db!.prepare('PRAGMA table_info(hunting_paths)').all() as Array<{ name: string }>;
+        if (!huntingPathColumns.some(column => column.name === 'color')) {
+          db!.exec('ALTER TABLE hunting_paths ADD COLUMN color TEXT');
         }
-      } catch (e) {
-        log(`[DiaryDB] hunting_paths migration check failed: ${e}`);
-      }
 
-      // 마이그레이션: 이클립스 셀피나 -> 로카고스 데이터 인계
-      try {
-        db.prepare(`
+        db!.prepare(`
           UPDATE homework_logs 
           SET content_id = replace(content_id, 'weekly-eclipse-boss-selfina', 'weekly-eclipse-boss-lokagos'),
               content_name = replace(content_name, '이클립스 (셀피나)', '이클립스 (로카고스)')
           WHERE content_id LIKE 'weekly-eclipse-boss-selfina%'
         `).run();
-        db.prepare(`
+        db!.prepare(`
           UPDATE activity_logs 
           SET content = replace(content, '셀피나', '로카고스')
           WHERE content LIKE '%셀피나%'
         `).run();
-        log('[DiaryDB] SQLite data migrated successfully from selfina to lokagos.');
-      } catch (e) {
-        log(`[DiaryDB] SQLite selfina to lokagos migration failed: ${e}`);
-      }
 
-      // 마이그레이션: 고대 렐릭의 성소 (신조/키시니크) 데이터 합산/인계
-      try {
-        db.prepare(`
+        db!.prepare(`
           UPDATE homework_logs 
           SET content_id = replace(replace(content_id, 'weekly-ancient-relic-shinjo', 'weekly-ancient-relic'), 'weekly-ancient-relic-kishinik', 'weekly-ancient-relic'),
               content_name = '고대 렐릭의 성소 (신조/키시니크)'
@@ -359,7 +332,7 @@ export function initDb(): void {
         `).run();
         
         // 중복 일지 레코드 단일화 처리
-        db.prepare(`
+        db!.prepare(`
           DELETE FROM homework_logs
           WHERE id NOT IN (
             SELECT latest.id
@@ -374,18 +347,15 @@ export function initDb(): void {
           )
         `).run();
 
-        db.prepare(`
+        db!.prepare(`
           UPDATE activity_logs 
           SET content = replace(replace(content, '고대 렐릭의 성소 (신조)', '고대 렐릭의 성소 (신조/키시니크)'), '고대 렐릭의 성소 (키시니크)', '고대 렐릭의 성소 (신조/키시니크)')
           WHERE content LIKE '%고대 렐릭의 성소 (신조)%' OR content LIKE '%고대 렐릭의 성소 (키시니크)%'
         `).run();
-        log('[DiaryDB] SQLite data migrated successfully for ancient relic sanctuary.');
-      } catch (e) {
-        log(`[DiaryDB] SQLite ancient relic migration failed: ${e}`);
-      }
-
-      deduplicateShoutHistory();
-      db.pragma('user_version = 1');
+        deduplicateShoutHistoryOrThrow();
+        db!.pragma('user_version = 1');
+      });
+      migrateV1();
       log('[DiaryDB] Version 1 migrations completed and user_version updated.');
     }
 
@@ -471,7 +441,7 @@ export function initDb(): void {
 }
 
 /** 과거에 원문 전체나 수량까지 content에 저장된 득템 기록을 표준 형식으로 정리합니다. */
-function normalizeExistingLootContent(): void {
+function normalizeExistingLootContent(throwOnError = false): void {
   if (!db) return;
   try {
     const rows = db.prepare("SELECT id, content, amount FROM activity_logs WHERE type = 'loot'").all() as Array<{
@@ -505,11 +475,12 @@ function normalizeExistingLootContent(): void {
     if (changed > 0) log(`[DiaryDB] Normalized ${changed} loot activity records.`);
   } catch (error) {
     log(`[DiaryDB] Loot activity normalization failed: ${error}`);
+    if (throwOnError) throw error;
   }
 }
 
 /** 기존에 개별로 등록되어 있던 마정석 로그들을 일자별/등급별 단 1개의 레코드로 압축 통합합니다. */
-function consolidateMagicStoneLogs(): void {
+function consolidateMagicStoneLogs(throwOnError = false): void {
   if (!db) return;
   try {
     const rows = db.prepare(`
@@ -553,6 +524,7 @@ function consolidateMagicStoneLogs(): void {
     log(`[DiaryDB] Consolidated ${rows.length} magic stone records into daily totals.`);
   } catch (error) {
     log(`[DiaryDB] Magic stone consolidation failed: ${error}`);
+    if (throwOnError) throw error;
   }
 }
 
@@ -1201,17 +1173,22 @@ export function addShoutLogWithTimestampIfAbsent(timestamp: number, sender: stri
 }
 
 /** 기존 DB에 존재하는 5초 이내 동일 발신자/메시지 중복을 정리합니다. */
+function deduplicateShoutHistoryOrThrow(): void {
+  if (!db) throw new Error('DB가 초기화되지 않았습니다.');
+  db.exec(`
+    DELETE FROM shout_history
+    WHERE id NOT IN (
+      SELECT MIN(id)
+      FROM shout_history
+      GROUP BY sender, message, CAST(timestamp / 5 AS INT)
+    )
+  `);
+}
+
 export function deduplicateShoutHistory(): void {
   if (!db) return;
   try {
-    db.exec(`
-      DELETE FROM shout_history 
-      WHERE id NOT IN (
-        SELECT MIN(id) 
-        FROM shout_history 
-        GROUP BY sender, message, CAST(timestamp / 5 AS INT)
-      )
-    `);
+    deduplicateShoutHistoryOrThrow();
   } catch (err) {
     log(`[DiaryDB] Shout deduplication warning: ${err}`);
   }

@@ -2416,7 +2416,7 @@ function checkTodaySummary(): void {
     /isAlwaysTrackedItem[\s\S]*?formatLootDiaryContent\(data\.itemName\)[\s\S]*?: `\[득템\] \$\{data\.message\}`/,
     '경험의 정수 외 아이템까지 저장 형식이 변경될 수 있습니다.');
   assert.match(read('src/modules/diaryDb.ts'),
-    /normalizeExistingLootContent\(\)[\s\S]*?if \(!condensed\.includes\('경험의정수'\)\) continue/,
+    /normalizeExistingLootContent\((?:true)?\)[\s\S]*?if \(!condensed\.includes\('경험의정수'\)\) continue/,
     '기존 비정규 득템 기록을 정리하는 마이그레이션이 누락되었습니다.');
   assert.match(read('src/modules/diaryDb.ts'),
     /lootList\.push\(\{ date: log\.date, content: log\.content, amount: log\.amount \|\| 1 \}\)/,
@@ -2843,6 +2843,57 @@ function checkChatLogSyncManagerContracts() {
       'v2 DB의 조/억/만 단위 금액이 원문 기준으로 복구되지 않았습니다.');
     diaryDb.removeActivityLog(migrationDate, 'calc', '[자동] 복구 검증 (1조 2억 3만)');
     diaryDb.closeDb();
+
+    // v1 중간 단계에서 강제 실패시 앞선 지도 변경과 user_version 상승이 함께 롤백되어야 한다.
+    const atomicDate = '2099-12-28';
+    const atomicDb = new MigrationDatabase(migrationDbPath);
+    atomicDb.prepare('INSERT OR IGNORE INTO diaries (date) VALUES (?)').run(atomicDate);
+    atomicDb.prepare(`
+      INSERT OR REPLACE INTO hunting_grounds
+        (id, name, image_path, zoom, s, ox, oy, fx, fy, is_swap)
+      VALUES ('forge', '롤백 전 이름', 'old.png', 1, 1, 0, 0, 1, 1, 0)
+    `).run();
+    atomicDb.prepare(`
+      INSERT INTO homework_logs
+        (date, content_id, content_name, category, type, completed_at)
+      VALUES (?, 'weekly-eclipse-boss-selfina', '이클립스 (셀피나)', '주간', 'weekly', 1)
+    `).run(atomicDate);
+    atomicDb.exec(`
+      CREATE TRIGGER force_v1_migration_failure
+      BEFORE UPDATE OF content_id ON homework_logs
+      WHEN OLD.content_id LIKE 'weekly-eclipse-boss-selfina%'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced v1 migration failure');
+      END;
+    `);
+    atomicDb.pragma('user_version = 0');
+    atomicDb.close();
+
+    diaryDb.initDb();
+    const inspectAtomicDb = new MigrationDatabase(migrationDbPath);
+    assert.equal(inspectAtomicDb.pragma('user_version', { simple: true }), 0,
+      '실패한 v1 마이그레이션이 user_version을 올렸습니다.');
+    assert.equal(
+      inspectAtomicDb.prepare("SELECT name FROM hunting_grounds WHERE id = 'forge'").pluck().get(),
+      '롤백 전 이름',
+      'v1 후반 실패 전에 수행한 지도 변경이 롤백되지 않았습니다.',
+    );
+    assert.equal(
+      inspectAtomicDb.prepare('SELECT content_id FROM homework_logs WHERE date = ?').pluck().get(atomicDate),
+      'weekly-eclipse-boss-selfina',
+      '실패한 v1 숙제 ID 변환이 일부 반영되었습니다.',
+    );
+    inspectAtomicDb.exec('DROP TRIGGER force_v1_migration_failure');
+    inspectAtomicDb.prepare('DELETE FROM homework_logs WHERE date = ?').run(atomicDate);
+    inspectAtomicDb.prepare('DELETE FROM diaries WHERE date = ?').run(atomicDate);
+    inspectAtomicDb.prepare(`
+      UPDATE hunting_grounds
+      SET name = '시오칸하임 대장간', image_path = 'assets/img/field-map/대장간.png',
+          zoom = 2, s = 1, ox = -340, oy = 300, fx = -1, fy = 1, is_swap = 1
+      WHERE id = 'forge'
+    `).run();
+    inspectAtomicDb.pragma('user_version = 3');
+    inspectAtomicDb.close();
   } finally {
     const rootDbPath = path.join(projectRoot, 'diary.db');
     if (fs.existsSync(rootDbPath)) {
