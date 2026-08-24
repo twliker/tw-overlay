@@ -178,7 +178,7 @@ export function initDb(): void {
         content TEXT NOT NULL,
         time TEXT NOT NULL,
         amount INTEGER DEFAULT 0,
-        source TEXT NOT NULL DEFAULT 'legacy-unknown',
+        source TEXT NOT NULL DEFAULT 'automatic',
         FOREIGN KEY (date) REFERENCES diaries(date)
       );
 
@@ -740,7 +740,7 @@ export function addActivityLogIfAbsent(
       const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
       if (existing) return;
 
-      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
+      const stmt = getStmt("INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, ?, ?, ?, ?, 'automatic')");
       stmt.run(date, type, content, time, amount);
 
       if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
@@ -757,13 +757,22 @@ export function addActivityLogIfAbsent(
   }
 }
 
-/** 타임라인에 활동 기록을 추가합니다. (보스 처치, 계산기 등) */
-export function addActivityLog(date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0): boolean {
+type ActivityWriteType = 'boss' | 'calc' | 'memo' | 'loot' | 'homework';
+type ActivitySource = 'manual' | 'automatic';
+
+function addActivityLogInternal(
+  date: string,
+  time: string,
+  type: ActivityWriteType,
+  content: string,
+  amount: number,
+  source: ActivitySource,
+): number | null {
   if (!db) initDb();
-  if (!db) return false;
+  if (!db) return null;
 
   try {
-    let result = false;
+    let insertedId: number | null = null;
     const transaction = db.transaction(() => {
       ensureDiaryExists(date);
 
@@ -772,24 +781,58 @@ export function addActivityLog(date: string, time: string, type: 'boss' | 'calc'
         const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND content = ?').get(date, content);
         if (existing) {
           log(`[DIARY_DB] 이미 존재하는 보스 기록입니다. 스킵: ${content}`);
-          result = false;
           return;
         }
       }
 
-      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
-      stmt.run(date, type, content, time, amount);
+      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, ?, ?, ?, ?, ?)');
+      const result = stmt.run(date, type, content, time, amount, source);
+      insertedId = Number(result.lastInsertRowid);
 
       // 포인트 부여
       if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
       if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
-      result = true;
     });
     transaction();
-    if (result) throttleNotifyUpdate();
-    return result;
+    if (insertedId !== null) throttleNotifyUpdate();
+    return insertedId;
   } catch (err) {
     log(`[DiaryDB] addActivityLog failed: ${err}`);
+    return null;
+  }
+}
+
+/** 자동 감지/내부 로직에서 활동 기록을 추가합니다. */
+export function addActivityLog(date: string, time: string, type: ActivityWriteType, content: string, amount: number = 0): boolean {
+  return addActivityLogInternal(date, time, type, content, amount, 'automatic') !== null;
+}
+
+/** 사용자가 UI에서 직접 등록한 활동을 추가하고 개별 삭제용 row ID를 반환합니다. */
+export function addManualActivityLog(date: string, time: string, type: ActivityWriteType, content: string, amount: number = 0): number | null {
+  return addActivityLogInternal(date, time, type, content, amount, 'manual');
+}
+
+/** 수동 등록 행 한 건만 ID로 삭제합니다. */
+export function removeManualActivityLogById(id: number): boolean {
+  if (!db) initDb();
+  if (!db) return false;
+  try {
+    let removed = false;
+    const transaction = db.transaction(() => {
+      const existing = getStmt("SELECT date, type FROM activity_logs WHERE id = ? AND source = 'manual'")
+        .get(id) as { date: string; type: string } | undefined;
+      if (!existing) return;
+      const result = getStmt("DELETE FROM activity_logs WHERE id = ? AND source = 'manual'").run(id);
+      if (result.changes !== 1) return;
+      if (existing.type === 'boss') subtractScore(existing.date, POINTS.BOSS_KILL);
+      if (existing.type === 'calc') subtractScore(existing.date, POINTS.CALC_RECORD);
+      removed = true;
+    });
+    transaction();
+    if (removed) notifyUpdate();
+    return removed;
+  } catch (err) {
+    log(`[DiaryDB] removeManualActivityLogById failed: ${err}`);
     return false;
   }
 }

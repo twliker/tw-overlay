@@ -2731,6 +2731,25 @@ function checkChatLogSyncManagerContracts() {
     const exists = diaryDb.hasActivityLog(testDate, testTime, testContent);
     assert.equal(exists, true, 'hasActivityLog가 true를 반환해야 합니다.');
 
+    const manualContent = '수동 중복 아이템';
+    const firstManualId = diaryDb.addManualActivityLog(testDate, '23:58:00', 'loot', manualContent, 1);
+    const secondManualId = diaryDb.addManualActivityLog(testDate, '23:58:01', 'loot', manualContent, 2);
+    assert.ok(Number.isSafeInteger(firstManualId) && Number.isSafeInteger(secondManualId));
+    assert.equal(diaryDb.removeManualActivityLogById(firstManualId), true,
+      '수동 기록을 row ID로 삭제하지 못했습니다.');
+    const remainingManual = diaryDb.getDiaryByDate(testDate).activityLogs
+      .filter((log: { content: string }) => log.content === manualContent);
+    assert.equal(remainingManual.length, 1, '동일 내용의 다른 수동 기록까지 함께 삭제되었습니다.');
+    assert.equal(remainingManual[0].id, secondManualId);
+    assert.equal(remainingManual[0].source, 'manual');
+    assert.equal(diaryDb.removeManualActivityLogById(secondManualId), true);
+
+    const automaticLog = diaryDb.getDiaryByDate(testDate).activityLogs
+      .find((log: { content: string }) => log.content === testContent);
+    assert.equal(automaticLog?.source, 'automatic');
+    assert.equal(diaryDb.removeManualActivityLogById(automaticLog.id), false,
+      '자동 감지 기록이 수동 삭제 API로 삭제되었습니다.');
+
     const grounds = diaryDb.getHuntingGrounds() as Array<{ id: string; name: string; image_path: string }>;
     assert.deepEqual(
       grounds.filter(ground => ['forge', 'golgotha', 'void'].includes(ground.id))

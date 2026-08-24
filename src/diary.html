@@ -781,8 +781,10 @@
           let icon = log.type === 'boss' ? 'sword' : (log.type === 'calc' ? 'gem' : (log.type === 'homework' ? 'check-square' : 'sparkles'));
           let color = log.type === 'boss' ? 'red-400' : (log.type === 'calc' ? 'orange-400' : (log.type === 'homework' ? 'blue-400' : 'amber-400'));
           const isEssence = log.content.includes('경험의 정수');
-          const del = (!isWeekly && (log.type === 'calc' || log.type === 'loot') && !isEssence)
-            ? `<button type="button" data-delete-log-index="${gIdx}" class="w-5 h-5 flex items-center justify-center ml-2 text-slate-500 hover:text-red-400 bg-slate-800/50 rounded transition-colors shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button>`
+          const canDelete = !isWeekly && log.source === 'manual' && Number.isSafeInteger(log.id)
+            && (log.type === 'calc' || log.type === 'loot') && !isEssence;
+          const del = canDelete
+            ? `<button type="button" data-delete-row-id="${log.id}" class="w-5 h-5 flex items-center justify-center ml-2 text-slate-500 hover:text-red-400 bg-slate-800/50 rounded transition-colors shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button>`
             : '';
 
           let iconHtml = '';
@@ -812,15 +814,12 @@
       }
       currentChunkIndex++;
 
-      container.querySelectorAll('[data-delete-log-index]').forEach(button => {
+      container.querySelectorAll('[data-delete-row-id]').forEach(button => {
         if (button.dataset.deleteBound === 'true') return;
         button.dataset.deleteBound = 'true';
         button.addEventListener('click', () => {
-          const index = Number(button.dataset.deleteLogIndex);
-          const target = activeTimelineChunks[index];
-          if (target && (target.type === 'calc' || target.type === 'loot')) {
-            deleteTimelineItem(target.type, target.content);
-          }
+          const rowId = Number(button.dataset.deleteRowId);
+          if (Number.isSafeInteger(rowId) && rowId > 0) deleteTimelineItem(rowId);
         });
       });
 
@@ -1402,7 +1401,7 @@
         const parts = (a.time || '').split(':');
         const hh = (parts[0] || '00').padStart(2, '0');
         const mm = (parts[1] || '00').padStart(2, '0');
-        logs.push({ time: `${hh}:${mm}`, type: a.type, content: a.content, amount: a.amount });
+        logs.push({ id: a.id, source: a.source, time: `${hh}:${mm}`, type: a.type, content: a.content, amount: a.amount });
       });
       logs.sort((a, b) => a.time.localeCompare(b.time));
 
@@ -1436,31 +1435,33 @@
       initTimelineScroll(list, groupedLogs, false);
     }
 
-    function deleteTimelineItem(type, content) {
+    async function deleteTimelineItem(rowId) {
       if (!selectedDateStr) return;
-      window.electronAPI.diaryRemoveActivity(selectedDateStr, type, content);
-      setTimeout(() => selectDate(selectedDateStr), 50);
+      const removed = await window.electronAPI.diaryRemoveActivity(rowId);
+      if (removed) await selectDate(selectedDateStr);
     }
 
-    function saveLoot() {
+    async function saveLoot() {
       if (!selectedDateStr) return;
       const name = document.getElementById('loot-name').value.trim(), count = parseInt(document.getElementById('loot-count').value) || 1;
       if (!name) return;
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      window.electronAPI.diaryAddActivity(selectedDateStr, t, 'loot', count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`);
+      const rowId = await window.electronAPI.diaryAddActivity(selectedDateStr, t, 'loot', count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`);
+      if (!Number.isSafeInteger(rowId)) return;
       document.getElementById('loot-name').value = ''; document.getElementById('loot-count').value = '1';
-      selectDate(selectedDateStr);
+      await selectDate(selectedDateStr);
     }
 
-    function saveManualSeed(btn) {
+    async function saveManualSeed(btn) {
       if (!selectedDateStr) return;
       const dIn = document.getElementById('manual-seed-desc'), aIn = document.getElementById('manual-seed-amount');
       const desc = dIn.value.trim() || '수익', amount = parseInt(aIn.value) || 0;
       if (amount === 0) return;
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      window.electronAPI.diaryAddActivity(selectedDateStr, t, 'calc', `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`);
+      const rowId = await window.electronAPI.diaryAddActivity(selectedDateStr, t, 'calc', `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`);
+      if (!Number.isSafeInteger(rowId)) return;
       dIn.value = ''; aIn.value = ''; document.getElementById('manual-seed-preview').innerText = '';
-      const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black'); selectDate(selectedDateStr);
+      const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black'); await selectDate(selectedDateStr);
       setTimeout(() => { btn.innerHTML = old; btn.classList.remove('bg-orange-500', 'text-black'); }, 1000);
     }
 

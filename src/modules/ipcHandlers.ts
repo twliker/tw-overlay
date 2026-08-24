@@ -801,15 +801,15 @@ export function register(): void {
     if (!isLimitedString(file, 500, false) || !isFiniteInRange(volume, 0, 100)) return;
     wm.sendPlaySound({ label: '미리보기', soundFile: file, volume, isPreview: true });
   });
-  ipcMain.on('diary-add-activity', (_e, date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0) => {
+  ipcMain.handle('diary-add-activity', (_e, date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0) => {
     if (!isValidDateKey(date) || !isLimitedString(time, 16, false)
       || !validActivityTypes.includes(type) || !isLimitedString(content, 20_000)
-      || !isFiniteInRange(amount, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)) return;
-    diaryDb.addActivityLog(date, time, type, content, amount);
+      || !isFiniteInRange(amount, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)) return null;
+    return diaryDb.addManualActivityLog(date, time, type, content, amount);
   });
-  ipcMain.on('diary-remove-activity', (_e, date: string, type: string, content: string) => {
-    if (!isValidDateKey(date) || !isLimitedString(type, 50, false) || !isLimitedString(content, 20_000)) return;
-    diaryDb.removeActivityLog(date, type, content);
+  ipcMain.handle('diary-remove-activity', (_e, id: number) => {
+    if (!isPositiveInteger(id)) return false;
+    return diaryDb.removeManualActivityLogById(id);
   });
   ipcMain.on('diary-update-monster', (_e, date: string, monsterId: string) => {
     if (!isValidDateKey(date) || !isLimitedString(monsterId, 128, false)) return;

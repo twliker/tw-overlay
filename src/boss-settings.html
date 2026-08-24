@@ -217,7 +217,7 @@
     let config = null;
     let bossTimes = {};
     let soundFiles = [];
-    let killedActivities = new Set();
+    const killedActivities = new Map();
     const ALLOWED_BOSSES = ['골론', '파멸의 기원', '스페르첸드', '골모답', '아칸', '혼란한 대지'];
 
     // 레이스 컨디션 예방을 위해 최상단에서 리스너를 동기식으로 먼저 등록합니다.
@@ -274,7 +274,12 @@
           const todayData = await window.electronAPI.diaryGetByDate(getTodayDateStr());
           if (todayData && todayData.activityLogs) {
             todayData.activityLogs.forEach(log => {
-              if (log.type === 'boss') killedActivities.add(log.content);
+              if (log.type === 'boss') {
+                killedActivities.set(log.content, {
+                  id: Number.isSafeInteger(log.id) ? log.id : null,
+                  removable: log.source === 'manual' && Number.isSafeInteger(log.id),
+                });
+              }
             });
           }
         }
@@ -313,7 +318,8 @@
               <div class="flex flex-wrap gap-1.5">
                 ${times.map(t => {
           const content = `[${name}] ${t} 스폰 처치 완료`;
-          const isKilled = killedActivities.has(content);
+          const killedState = killedActivities.get(content);
+          const isKilled = Boolean(killedState);
           const isPast = t < currentHHmm;
 
           let icon = '';
@@ -322,7 +328,7 @@
 
           if (isKilled) {
             icon = '<i data-lucide="check" class="w-3 h-3 text-emerald-400"></i>';
-            tooltip = '기록 취소하기';
+            tooltip = killedState.removable ? '기록 취소하기' : '기존/자동 기록 (삭제 불가)';
             stateClass = 'killed';
           } else if (isPast) {
             icon = '<i data-lucide="swords" class="w-3 h-3 text-slate-400"></i>';
@@ -374,7 +380,7 @@
       window.electronAPI.applySettings({ fieldBossSettings: settings });
     }
 
-    function recordBossKillByTime(name, timeStr) {
+    async function recordBossKillByTime(name, timeStr) {
       const now = new Date();
       const currentHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
@@ -384,14 +390,18 @@
       const date = getTodayDateStr();
       const content = `[${name}] ${timeStr} 스폰 처치 완료`;
 
-      if (killedActivities.has(content)) {
+      const killedState = killedActivities.get(content);
+      if (killedState) {
+        if (!killedState.removable || !Number.isSafeInteger(killedState.id)) return;
         // 이미 기록된 상태면 토글 해제 (삭제)
-        window.electronAPI.diaryRemoveActivity(date, 'boss', content);
+        const removed = await window.electronAPI.diaryRemoveActivity(killedState.id);
+        if (!removed) return;
         killedActivities.delete(content);
       } else {
         // 새로 기록
-        window.electronAPI.diaryAddActivity(date, timeStr + ':00', 'boss', content);
-        killedActivities.add(content);
+        const rowId = await window.electronAPI.diaryAddActivity(date, timeStr + ':00', 'boss', content);
+        if (!Number.isSafeInteger(rowId)) return;
+        killedActivities.set(content, { id: rowId, removable: true });
 
         // 일지 기록 성공 사운드 재생
         const vol = (config && config.volumeCalculators !== undefined ? config.volumeCalculators : 50) / 100;

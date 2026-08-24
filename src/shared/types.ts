@@ -779,6 +779,7 @@ export interface ActivityLog {
     content: string;
     time: string;         // HH:mm:ss
     amount: number;
+    source?: 'manual' | 'automatic' | 'legacy-unknown';
 }
 
 export interface DiaryData {
