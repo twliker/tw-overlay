@@ -4,7 +4,7 @@
 import { BrowserWindow, WebContentsView, screen } from 'electron';
 import type { WebContents } from 'electron';
 import * as path from 'path';
-import { MIN_W, MIN_H, IS_DEV, WindowPosition, SIDEBAR_HEIGHT, SIDEBAR_WIDTH, OVERLAY_TOOLBAR_HEIGHT, GameRect, POSITION_THRESHOLD, AppConfig, appState, FOCUS_RESTORE_DELAY_MS } from './constants';
+import { MIN_W, MIN_H, IS_DEV, SHOULD_AUTO_OPEN_DEVTOOLS, WindowPosition, SIDEBAR_HEIGHT, SIDEBAR_WIDTH, OVERLAY_TOOLBAR_HEIGHT, GameRect, POSITION_THRESHOLD, AppConfig, appState, FOCUS_RESTORE_DELAY_MS } from './constants';
 import * as config from './config';
 import * as bossNotifier from './bossNotifier';
 import * as gallery from './galleryMonitor';
@@ -76,7 +76,7 @@ export function createGameOverlayWindow(): void {
   focusController.attach(gameOverlayWindow);
 
   // 개발 환경에서만 테스트 편의를 위해 개발자 도구 자동 활성화
-  if (IS_DEV) {
+  if (SHOULD_AUTO_OPEN_DEVTOOLS) {
     gameOverlayWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
@@ -493,8 +493,8 @@ export function createMainWindow(): BrowserWindow {
     });
   };
 
-  mainWindow.on('ready-to-show', () => {
-    if (IS_DEV) mainWindow?.webContents.openDevTools({ mode: 'detach' });
+  mainWindow.once('ready-to-show', () => {
+    if (SHOULD_AUTO_OPEN_DEVTOOLS) mainWindow?.webContents.openDevTools({ mode: 'detach' });
     mainWindow?.webContents.send('config-data', config.load());
     mainWindow?.webContents.send('click-through-status', isClickThrough);
     sendUpdateInfo();
@@ -584,7 +584,7 @@ function createOverlayWindow(targetUrl?: string): void {
       if (physicalGameRect) { isTracking = false; syncOverlay(physicalGameRect); }
     }
     overlayWindow?.webContents.send('config-data', config.load());
-    if (IS_DEV) { overlayWindow?.webContents.openDevTools({ mode: 'detach' }); view?.webContents.openDevTools({ mode: 'detach' }); }
+    if (SHOULD_AUTO_OPEN_DEVTOOLS) { overlayWindow?.webContents.openDevTools({ mode: 'detach' }); view?.webContents.openDevTools({ mode: 'detach' }); }
     if (onOverlayReady) onOverlayReady();
   });
   overlayWindow.on('closed', () => {
@@ -796,7 +796,7 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     }
     log(`[WINDOW_SHOW] ${key} reason=${showReason} method=${showReason === 'user-open' && !isPassiveOverlay ? 'show' : 'showInactive'}`);
     sendActiveWindowsStatus();
-    if (IS_DEV) win.webContents.openDevTools({ mode: 'detach' });
+    if (SHOULD_AUTO_OPEN_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
   });
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('config-data', config.load());
@@ -1014,7 +1014,7 @@ export function toggleUniformColorWindow(): void {
       win.setPosition(x, y);
     }
     isInitialPositionApplied = true;
-    if (IS_DEV) {
+    if (SHOULD_AUTO_OPEN_DEVTOOLS) {
       win.webContents.openDevTools({ mode: 'detach' });
       uniformColorTool?.openDevTools();
     }
@@ -1075,7 +1075,7 @@ export function toggleSwordEnhanceWindow(): void {
       win.setPosition(x, y);
     }
     isInitialPositionApplied = true;
-    if (IS_DEV) {
+    if (SHOULD_AUTO_OPEN_DEVTOOLS) {
       win.webContents.openDevTools({ mode: 'detach' });
       swordEnhanceTool?.openDevTools();
     }

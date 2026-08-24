@@ -1204,6 +1204,10 @@ function checkWindowedFullscreenFocusContracts(): void {
     '표시 중인 투명 독을 숨기지 않은 채 화면 반대편으로 이동합니다.');
   assert.match(manager, /win\.once\('ready-to-show'/,
     '관리 창 ready-to-show 재발생 시 show/showInactive가 반복될 수 있습니다.');
+  assert.match(manager, /SHOULD_AUTO_OPEN_DEVTOOLS/,
+    '개발 실행이 분리형 DevTools 창을 항상 열어 전체화면 실기 검증을 오염시킵니다.');
+  assert.doesNotMatch(manager, /if \(IS_DEV\)[^{\n]*\{?[^\n]*openDevTools/,
+    '명시적 --devtools 옵션 없이 분리형 DevTools 창을 자동으로 엽니다.');
   assert.match(tracker, /for \(let i = electronHwndBigInts\.length - 1; isAlreadySandwiched && i > 0; i--\)/,
     '게임 바로 위 한 창만 확인하고 TW-Overlay 내부 Z-order가 갈라진 상태를 정상으로 오판합니다.');
   assert.match(manager, /overlayWindow\?\.showInactive\(\)/,

@@ -31,6 +31,9 @@ export const IS_DEV = (() => {
   const electronApp = getElectronApp();
   return electronApp ? !electronApp.isPackaged : false;
 })();
+// 개발 실행 자체와 분리형 DevTools 자동 표시는 분리합니다. 분리형 DevTools 창은
+// Windows의 foreground/Z-order와 창모드 전체화면 판정에 개입하므로 명시적 옵션에서만 엽니다.
+export const SHOULD_AUTO_OPEN_DEVTOOLS = IS_DEV && process.argv.includes('--devtools');
 export const MIN_W = 400;
 export const MIN_H = 300;
 export const LOG_MAX_SIZE = 1 * 1024 * 1024; // 1MB
