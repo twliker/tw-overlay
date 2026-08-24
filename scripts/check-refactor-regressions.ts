@@ -2731,6 +2731,21 @@ function checkChatLogSyncManagerContracts() {
     const exists = diaryDb.hasActivityLog(testDate, testTime, testContent);
     assert.equal(exists, true, 'hasActivityLog가 true를 반환해야 합니다.');
 
+    const grounds = diaryDb.getHuntingGrounds() as Array<{ id: string; name: string; image_path: string }>;
+    assert.deepEqual(
+      grounds.filter(ground => ['forge', 'golgotha', 'void'].includes(ground.id))
+        .map(ground => ground.id).sort(),
+      ['forge', 'golgotha', 'void'],
+      '신규 DB에 사냥터 동선 기본 지도 3개가 생성되지 않았습니다.',
+    );
+    assert.equal(grounds.find(ground => ground.id === 'forge')?.name, '시오칸하임 대장간');
+    assert.equal(grounds.find(ground => ground.id === 'golgotha')?.image_path, 'assets/img/field-map/골고다의협곡.png');
+
+    const diaryDbSource = read('src/modules/diaryDb.ts');
+    assert.match(diaryDbSource, /INSERT OR IGNORE INTO hunting_grounds/,
+      '기본 지도가 기존 사용자 행을 덮어쓸 수 있습니다.');
+    assert.match(diaryDbSource, /Version 2 migration completed/);
+
     // 테스트 후 데이터 정리 및 DB 파일 닫기
     diaryDb.removeActivityLog(testDate, 'loot', testContent);
     if (typeof diaryDb.closeDb === 'function') {

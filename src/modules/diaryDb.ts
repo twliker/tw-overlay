@@ -178,6 +178,7 @@ export function initDb(): void {
         content TEXT NOT NULL,
         time TEXT NOT NULL,
         amount INTEGER DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'legacy-unknown',
         FOREIGN KEY (date) REFERENCES diaries(date)
       );
 
@@ -359,11 +360,17 @@ export function initDb(): void {
         
         // 중복 일지 레코드 단일화 처리
         db.prepare(`
-          DELETE FROM homework_logs 
+          DELETE FROM homework_logs
           WHERE id NOT IN (
-            SELECT MIN(id) 
-            FROM homework_logs 
-            GROUP BY date, content_id
+            SELECT latest.id
+            FROM homework_logs AS latest
+            WHERE latest.id = (
+              SELECT candidate.id
+              FROM homework_logs AS candidate
+              WHERE candidate.date = latest.date AND candidate.content_id = latest.content_id
+              ORDER BY candidate.completed_at DESC, candidate.id DESC
+              LIMIT 1
+            )
           )
         `).run();
 
@@ -381,10 +388,57 @@ export function initDb(): void {
       db.pragma('user_version = 1');
       log('[DiaryDB] Version 1 migrations completed and user_version updated.');
     }
+
+    if (userVersion < 2) {
+      const migrateV2 = db.transaction(() => {
+        const activityColumns = db!.prepare('PRAGMA table_info(activity_logs)').all() as Array<{ name: string }>;
+        if (!activityColumns.some(column => column.name === 'source')) {
+          db!.exec("ALTER TABLE activity_logs ADD COLUMN source TEXT NOT NULL DEFAULT 'legacy-unknown'");
+        }
+
+        // 날짜/숙제별 최신 완료 한 건과 그 메타데이터를 보존한다.
+        db!.exec(`
+          DELETE FROM homework_logs
+          WHERE id NOT IN (
+            SELECT latest.id
+            FROM homework_logs AS latest
+            WHERE latest.id = (
+              SELECT candidate.id
+              FROM homework_logs AS candidate
+              WHERE candidate.date = latest.date AND candidate.content_id = latest.content_id
+              ORDER BY candidate.completed_at DESC, candidate.id DESC
+              LIMIT 1
+            )
+          );
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_homework_logs_date_content_unique
+          ON homework_logs (date, content_id);
+        `);
+
+        const insertGround = db!.prepare(`
+          INSERT OR IGNORE INTO hunting_grounds
+            (id, name, image_path, zoom, s, ox, oy, fx, fy, is_swap)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const defaultGrounds = [
+          ['forge', '시오칸하임 대장간', 'assets/img/field-map/대장간.png', 2.0, 1.0, -340.0, 300.0, -1.0, 1.0, 1],
+          ['golgotha', '골고다의 협곡', 'assets/img/field-map/골고다의협곡.png', 2.0, 1.0, -340.0, 300.0, -1.0, 1.0, 1],
+          ['void', '공허의 영역', 'assets/img/field-map/공허의영역.png', 2.0, 1.0, -340.0, 300.0, -1.0, 1.0, 1],
+        ] as const;
+        defaultGrounds.forEach(ground => insertGround.run(...ground));
+        db!.pragma('user_version = 2');
+      });
+      migrateV2();
+      log('[DiaryDB] Version 2 migration completed: activity source, homework uniqueness, default hunting grounds.');
+    }
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
     log(`[DiaryDB] Failed to initialize database: ${error}`);
     console.error('[DiaryDB] Error:', error);
+    statementCache.clear();
+    if (db) {
+      try { db.close(); } catch {}
+      db = null;
+    }
   }
 }
 
