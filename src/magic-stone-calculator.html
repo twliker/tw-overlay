@@ -409,7 +409,12 @@
 
       const feeEl = document.getElementById('session-fee');
       const profitEl = document.getElementById('session-profit');
-      if (feeEl) feeEl.textContent = formatSeedShort(-state.totalFee);
+      if (feeEl) {
+        const unassignedFee = state.unassignedFee || 0;
+        feeEl.textContent = unassignedFee > 0
+          ? `${formatSeedShort(-state.totalFee)} (미귀속 ${formatSeedShort(-unassignedFee)})`
+          : formatSeedShort(-state.totalFee);
+      }
       if (profitEl) {
         profitEl.textContent = formatSeedShort(state.profit);
         profitEl.className = `font-black font-mono text-xs ${state.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;

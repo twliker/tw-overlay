@@ -78,6 +78,7 @@ export interface AbandonedRoadState {
     stoneGains: Record<string, number>;
     stoneLosses: Record<string, number>;
     totalFee: number;
+    unassignedFee?: number;
     currentRegion: string;
     regionDetails: Record<string, {
         count: number;
@@ -825,6 +826,7 @@ export interface AbandonedRoadState {
     stoneGains: Record<string, number>;
     stoneLosses: Record<string, number>;
     totalFee: number;
+    unassignedFee?: number;
     currentRegion: string;
     regionDetails: Record<string, {
         count: number;

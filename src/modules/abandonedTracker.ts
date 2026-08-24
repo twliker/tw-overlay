@@ -5,6 +5,13 @@ import type { AbandonedRoadState } from '../shared/types';
 import { broadcastToAllWindows } from './windowMessaging';
 import { showSupportedDesktopNotification } from './desktopNotification';
 
+export const ABANDONED_FEE_MATCH_WINDOW_MS = 15_000;
+
+export function isAbandonedFeeMatchWithinWindow(firstDetectedAt: number, secondDetectedAt: number): boolean {
+  const elapsed = secondDetectedAt - firstDetectedAt;
+  return elapsed >= 0 && elapsed < ABANDONED_FEE_MATCH_WINDOW_MS;
+}
+
 /**
  * 어벤던로드 추적 모듈 — 지역별 통계, 마정석 수익, 자동 숨기기 타이머
  */
@@ -18,12 +25,13 @@ class AbandonedTracker {
     stoneGains: {},
     stoneLosses: {},
     totalFee: 0,
+    unassignedFee: 0,
     currentRegion: '',
     regionDetails: {},
   };
 
   private _abandonedHideTimer: NodeJS.Timeout | null = null;
-  private _pendingAbandonedFee = 0;
+  private _pendingAbandonedFee: { amount: number; detectedAt: number } | null = null;
 
   private _lastEntryRegion: string | null = null;
   private _lastEntryTime = 0;
@@ -51,40 +59,56 @@ class AbandonedTracker {
 
       const now = Date.now();
       // 직전 15초 이내에 도전 횟수가 먼저 들어온 경우 해당 지역에 즉시 귀속
-      if (this._lastEntryRegion && (now - this._lastEntryTime < 15000)) {
+      if (this._lastEntryRegion && isAbandonedFeeMatchWithinWindow(this._lastEntryTime, now)) {
         const region = this._lastEntryRegion;
         this._lastEntryRegion = null;
-        this._abandonedState.profit -= data.amount;
-        this._abandonedState.totalFee += data.amount;
 
         const rd = this._abandonedState.regionDetails;
         if (!rd[region]) rd[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {} };
         rd[region].totalFee += data.amount;
 
+        // 입장료는 감지 즉시 전체 수익에 반영하고, 지역 귀속만 시간 범위로 결정한다.
+        this._abandonedState.profit -= data.amount;
+        this._abandonedState.totalFee += data.amount;
+        this._abandonedState.isActive = true;
         log(`[ABANDONED] 입장료(후도착 귀속): ${region} -${data.amount}, 총입장료: ${this._abandonedState.totalFee}, 현재 수익: ${this._abandonedState.profit}`);
         this.refreshAbandonedActivity();
         return;
       }
 
-      // 입장료가 먼저 도착한 경우 임시 저장
-      this._pendingAbandonedFee = data.amount;
+      // 매칭되지 않은 입장료도 전체 수익에서는 즉시 차감하고 미귀속으로 보존한다.
+      this._lastEntryRegion = null;
+      this._abandonedState.profit -= data.amount;
+      this._abandonedState.totalFee += data.amount;
+      this._abandonedState.unassignedFee = (this._abandonedState.unassignedFee || 0) + data.amount;
+      this._abandonedState.isActive = true;
+      this._pendingAbandonedFee = { amount: data.amount, detectedAt: now };
+      log(`[ABANDONED] 입장료(미귀속 대기): -${data.amount}, 미귀속: ${this._abandonedState.unassignedFee}`);
+      this.refreshAbandonedActivity();
     });
 
     // 도전 횟수 감지
     chatParser.on('ABANDONED_ENTRY', (data) => {
       if (!this._abandonedState.isEnabled) return;
 
-      const fee = this._pendingAbandonedFee;
-      this._pendingAbandonedFee = 0;
+      const now = Date.now();
+      const pendingFee = this._pendingAbandonedFee;
+      const fee = pendingFee && isAbandonedFeeMatchWithinWindow(pendingFee.detectedAt, now)
+        ? pendingFee.amount
+        : 0;
+      this._pendingAbandonedFee = null;
       if (fee > 0) {
-        this._abandonedState.profit -= fee;
-        this._abandonedState.totalFee += fee;
+        // 전체 수익/총 입장료에는 선도착 시 이미 반영했으므로 지역 귀속만 이동한다.
+        this._abandonedState.unassignedFee = Math.max(0, (this._abandonedState.unassignedFee || 0) - fee);
         this._lastEntryRegion = null;
         log(`[ABANDONED] 입장료(선도착 정산): ${data.region} ${data.count}회 -${fee}, 총입장료: ${this._abandonedState.totalFee}, 현재 수익: ${this._abandonedState.profit}`);
       } else {
+        if (pendingFee) {
+          log(`[ABANDONED] 시간 범위를 지난 입장료는 미귀속으로 유지: ${pendingFee.amount}`);
+        }
         // 입장료가 뒤따라올 수 있으므로 기록
         this._lastEntryRegion = data.region;
-        this._lastEntryTime = Date.now();
+        this._lastEntryTime = now;
       }
 
       this._abandonedState.regions[data.region] = data.count;
@@ -188,7 +212,9 @@ class AbandonedTracker {
     config.save({ abandonedEnabled: enabled });
     if (!enabled) {
       this.forceVisible(false);
-      this._pendingAbandonedFee = 0;
+      this._pendingAbandonedFee = null;
+      this._lastEntryRegion = null;
+      this._lastEntryTime = 0;
     } else {
       this.notifyAbandonedUpdate();
     }
@@ -198,10 +224,10 @@ class AbandonedTracker {
     this._abandonedState = {
       regions: {}, profit: 0, isActive: false,
       isEnabled: this._abandonedState.isEnabled,
-      stoneGains: {}, stoneLosses: {}, totalFee: 0,
+      stoneGains: {}, stoneLosses: {}, totalFee: 0, unassignedFee: 0,
       currentRegion: '', regionDetails: {},
     };
-    this._pendingAbandonedFee = 0;
+    this._pendingAbandonedFee = null;
     this._lastEntryRegion = null;
     this._lastEntryTime = 0;
     if (this._abandonedHideTimer) clearTimeout(this._abandonedHideTimer);

@@ -3199,6 +3199,63 @@ function checkXpExchangeContracts(): void {
     '모험일지 경로에 기존 90억 교환 판정이 남아 있습니다.');
 }
 
+function checkAbandonedFeeMatchingContracts(): void {
+  const {
+    ABANDONED_FEE_MATCH_WINDOW_MS,
+    isAbandonedFeeMatchWithinWindow,
+  } = require(path.join(projectRoot, 'dist', 'modules', 'abandonedTracker.js')) as {
+    ABANDONED_FEE_MATCH_WINDOW_MS: number;
+    isAbandonedFeeMatchWithinWindow(firstDetectedAt: number, secondDetectedAt: number): boolean;
+  };
+
+  assert.equal(ABANDONED_FEE_MATCH_WINDOW_MS, 15_000);
+  assert.equal(isAbandonedFeeMatchWithinWindow(1_000, 15_999), true);
+  assert.equal(isAbandonedFeeMatchWithinWindow(1_000, 16_000), false);
+  assert.equal(isAbandonedFeeMatchWithinWindow(2_000, 1_000), false);
+
+  const trackerSource = read('src/modules/abandonedTracker.ts');
+  assert.match(trackerSource,
+    /profit -= data\.amount;[\s\S]*?totalFee \+= data\.amount;[\s\S]*?unassignedFee/,
+    '선도착 입장료가 감지 즉시 전체 수익에서 차감되지 않습니다.');
+  assert.match(trackerSource, /시간 범위를 지난 입장료는 미귀속으로 유지/,
+    '만료된 입장료를 다음 지역에 넘기지 않는 계약이 없습니다.');
+
+  const { abandonedTracker } = require(path.join(projectRoot, 'dist', 'modules', 'abandonedTracker.js'));
+  const { chatParser } = require(path.join(projectRoot, 'dist', 'modules', 'chatParser.js'));
+  abandonedTracker.start();
+  abandonedTracker.reset();
+  chatParser.emit('ABANDONED_FEE', {
+    date: '2099-12-31', timestamp: '23시 59분 00초', amount: 100, message: '입장료',
+  });
+  let state = abandonedTracker.getState();
+  assert.equal(state.profit, -100, '선도착 입장료가 즉시 수익에서 차감되지 않았습니다.');
+  assert.equal(state.totalFee, 100);
+  assert.equal(state.unassignedFee, 100);
+
+  chatParser.emit('ABANDONED_ENTRY', {
+    date: '2099-12-31', timestamp: '23시 59분 01초', region: '테스트 지역', count: 1, message: '입장',
+  });
+  state = abandonedTracker.getState();
+  assert.equal(state.profit, -100, '지역 귀속 과정에서 입장료가 이중 차감되었습니다.');
+  assert.equal(state.unassignedFee, 0);
+  assert.equal(state.regionDetails['테스트 지역'].totalFee, 100);
+  abandonedTracker.reset();
+
+  chatParser.emit('ABANDONED_ENTRY', {
+    date: '2099-12-31', timestamp: '23시 59분 02초', region: '후도착 지역', count: 2, message: '입장',
+  });
+  chatParser.emit('ABANDONED_FEE', {
+    date: '2099-12-31', timestamp: '23시 59분 03초', amount: 200, message: '입장료',
+  });
+  state = abandonedTracker.getState();
+  assert.equal(state.profit, -200);
+  assert.equal(state.totalFee, 200);
+  assert.equal(state.unassignedFee, 0);
+  assert.equal(state.regionDetails['후도착 지역'].totalFee, 200,
+    '도전 횟수 뒤에 도착한 입장료가 가까운 지역에 귀속되지 않았습니다.');
+  abandonedTracker.reset();
+}
+
 function checkGoogleSyncDataContracts(): void {
   const syncDataHelper = require(path.join(projectRoot, 'dist', 'modules', 'syncDataHelper.js'));
 
@@ -3317,6 +3374,7 @@ checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
 checkPendingHomeworkOrdering();
 checkXpExchangeContracts();
+checkAbandonedFeeMatchingContracts();
 checkGoogleSyncDataContracts();
 
 console.log('Refactor regression checks passed.');
