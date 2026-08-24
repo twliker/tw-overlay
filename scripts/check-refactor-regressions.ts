@@ -1,11 +1,18 @@
 import assert = require('node:assert/strict');
 import crypto = require('node:crypto');
 import fs = require('node:fs');
+import os = require('node:os');
 import path = require('node:path');
 import vm = require('node:vm');
+import { app } from 'electron';
 
 const projectRoot = path.resolve(__dirname, '..');
 const sourceRoot = path.join(projectRoot, 'src');
+const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-regression-'));
+app.setPath('userData', isolatedUserData);
+process.once('exit', () => {
+  fs.rmSync(isolatedUserData, { recursive: true, force: true });
+});
 
 function read(relativePath: string): string {
   return fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
@@ -629,6 +636,77 @@ function checkContentsChecklistOrdering(): void {
   );
 }
 
+function checkPhaseOneSafetyContracts(): void {
+  const contents = JSON.parse(read('src/assets/data/contents.json')) as Array<{ id: string }>;
+  const contentsMeta = JSON.parse(read('src/assets/data/contents.meta.json')) as {
+    expectedItemCount: number;
+    sentinelIds: string[];
+  };
+  const ids = contents.map(item => item.id);
+  assert.equal(contents.length, contentsMeta.expectedItemCount,
+    'contents 리소스 개수와 companion metadata가 다릅니다.');
+  assert.equal(new Set(ids).size, ids.length, 'contents 리소스 ID가 중복되었습니다.');
+  assert.ok(contentsMeta.sentinelIds.length >= 3, 'contents sentinel이 충분하지 않습니다.');
+  contentsMeta.sentinelIds.forEach(id => assert.ok(ids.includes(id), `contents sentinel이 없습니다: ${id}`));
+
+  const contentsChecker = read('src/modules/contentsChecker.ts');
+  assert.match(contentsChecker, /validateResourceMeta/);
+  assert.match(contentsChecker, /if \(!defaultItems\) \{[\s\S]*?return;/,
+    'contents 검증 실패 후 파괴적 초기화를 중단하지 않습니다.');
+
+  const preload = read('src/preload.ts');
+  assert.match(preload, /defaultApp === true[\s\S]*?process\.argv\.includes\('--dev'\)/,
+    '프로덕션 preload 테스트 API 차단 조건이 없습니다.');
+  const ipcHandlers = read('src/modules/ipcHandlers.ts');
+  assert.match(ipcHandlers, /if \(IS_DEV\) \{[\s\S]*?inject-test-chat/,
+    '프로덕션 테스트 채팅 IPC 차단 조건이 없습니다.');
+
+  const audioControls = read('src/renderer/settings/audio-controls.ts');
+  assert.doesNotMatch(audioControls, /soundFiles\.map\([\s\S]*?<option/,
+    '커스텀 사운드가 option innerHTML로 삽입됩니다.');
+  assert.match(audioControls, /option\.textContent = String\(sound\.name\)/);
+  const gallery = read('src/gallery.html');
+  assert.doesNotMatch(gallery, /removeWatch\(\$\{no\}\)/,
+    '갤러리 감시 키가 inline onclick에 삽입됩니다.');
+  const diary = read('src/diary.html');
+  assert.doesNotMatch(diary, /deleteTimelineItem\('\$\{log\.type\}/,
+    '일지 문자열이 inline 삭제 핸들러에 삽입됩니다.');
+
+  const configSource = read('src/modules/config.ts');
+  assert.match(configSource, /fs\.fsyncSync\(fd\)[\s\S]*?fs\.renameSync\(tempPath, filePath\)/,
+    '설정 원자 저장의 flush/rename 계약이 없습니다.');
+  assert.match(configSource, /설정 원자 저장 실패, pending 유지/,
+    '설정 저장 실패 후 pending 보존 계약이 없습니다.');
+  assert.match(configSource, /deepFreeze\(deepClone\(/,
+    '설정 읽기 경계가 불변 스냅샷을 사용하지 않습니다.');
+  assert.match(configSource, /mergeConfigPatch/,
+    '부분 설정 저장의 중첩 필드 병합이 없습니다.');
+
+  const backupManager = read('src/modules/backupManager.ts');
+  assert.match(backupManager, /createUserDataSnapshot/);
+  assert.match(backupManager, /verifyUserDataSnapshot/);
+  assert.doesNotMatch(backupManager, /\.old['"]/,
+    '수동 복원이 검증 스냅샷 대신 취약한 .old 교체를 사용합니다.');
+
+  const snapshotModule = require(path.join(projectRoot, 'dist', 'modules', 'localSnapshot.js')) as {
+    createUserDataSnapshot: (source: string, destination: string, options: Record<string, unknown>) => unknown;
+    verifyUserDataSnapshot: (snapshot: string) => unknown;
+  };
+  const source = path.join(isolatedUserData, 'snapshot-source');
+  const destinationRoot = path.join(isolatedUserData, 'snapshot-output');
+  const destination = path.join(destinationRoot, 'verified');
+  fs.mkdirSync(path.join(source, 'custom_sounds'), { recursive: true });
+  fs.writeFileSync(path.join(source, 'config.json'), '{"width":400}', 'utf8');
+  fs.writeFileSync(path.join(source, 'diary.db'), 'sqlite-fixture', 'utf8');
+  fs.writeFileSync(path.join(source, 'custom_sounds', 'safe.mp3'), 'sound-fixture', 'utf8');
+  snapshotModule.createUserDataSnapshot(source, destination, {
+    reason: 'regression-test', appVersion: '3.0.0', allowedDestinationRoot: destinationRoot,
+  });
+  assert.doesNotThrow(() => snapshotModule.verifyUserDataSnapshot(destination));
+  fs.appendFileSync(path.join(destination, 'config.json'), 'tampered', 'utf8');
+  assert.throws(() => snapshotModule.verifyUserDataSnapshot(destination), /무결성 검증 실패/);
+}
+
 function checkWindowRestoreAndSettingsNavigationContracts(): void {
   const manager = read('src/modules/windowManager.ts');
   const placementSource = read('src/modules/windowPlacement.ts');
@@ -757,12 +835,12 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   );
   assert.match(
     configSource,
-    /storedPositionKeys: \[\.\.\._storedPositionKeys\]/,
+    /storedPositionKeys\s*=\s*\[\.\.\._storedPositionKeys\]/,
     '실제 저장 위치 키가 설정 파일에 보존되지 않습니다.',
   );
   assert.match(
     configSource,
-    /copyFileSync\(configPath, backupPath\)[\s\S]*?_loadWarning/,
+    /copyFileSync\((?:configPath|candidatePath), backupPath\)[\s\S]*?_loadWarning/,
     '손상된 설정 파일의 원본 보존 또는 사용자 경고가 없습니다.',
   );
   assert.match(
@@ -954,7 +1032,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     '구형 퀘스트 HUD 위치가 새 위치 설정보다 우선할 수 있습니다.');
   assert.match(
     configSource,
-    /if \(parsed\.questHudPos\)[\s\S]*?parsed\.forgeQuestHudPos = \{ \.\.\.parsed\.questHudPos \};[\s\S]*?delete parsed\.questHudPos;/,
+    /isPlainObject\(parsed\.questHudPos\)[\s\S]*?parsed\.forgeQuestHudPos = sanitizeJsonValue\(parsed\.questHudPos\);[\s\S]*?delete parsed\.questHudPos;/,
     '구형 퀘스트 HUD 위치를 새 필드로 이전하는 마이그레이션이 없습니다.',
   );
 }
@@ -2700,6 +2778,7 @@ checkBuffTimerChatTriggers();
 checkResponsiveDockFlyouts();
 checkUpdateNoticeFeature();
 checkChatLogSyncManagerContracts();
+checkPhaseOneSafetyContracts();
 
 function checkDiscordNotifierContracts(): void {
   const { discordNotifier } = require('../dist/modules/discordNotifier');
@@ -2776,6 +2855,8 @@ function checkCorruptedConfigResilience(): void {
   const loaded = configModule.load();
   assert.ok(loaded && typeof loaded === 'object', '기본 설정 로드 시 유효한 객체가 반환되지 않았습니다.');
   assert.ok(loaded.shortcuts && typeof loaded.shortcuts === 'object', '설정 내 shortcuts 객체가 누락되었습니다.');
+  assert.equal(Object.isFrozen(loaded), true, '설정 스냅샷 최상위가 불변이 아닙니다.');
+  assert.equal(Object.isFrozen(loaded.shortcuts), true, '설정 스냅샷 중첩 객체가 불변이 아닙니다.');
 }
 
 function checkShoutSuffixStripping(): void {

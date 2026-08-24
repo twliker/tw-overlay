@@ -437,28 +437,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }
 });
 
-contextBridge.exposeInMainWorld('testChat', (rawLine: string) => {
-  ipcRenderer.send('inject-test-chat', rawLine);
-});
+const isDevelopmentTestRuntime = typeof process !== 'undefined'
+  && (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp === true
+  && process.argv.includes('--dev');
 
-contextBridge.exposeInMainWorld('testEssence', (count: number = 1) => {
-  const today = new Date().toISOString().split('T')[0];
-  ipcRenderer.send('inject-test-chat', `Date : ${today}`);
-  const xpAmount = count * 10_000_000_000;
-  const formattedXp = xpAmount.toLocaleString();
-  // 파서의 시간 정규식 매칭을 위해 오전/오후 단어를 제거하고 24시간 형식의 [22시 50분 00초] 형태로 보냅니다.
-  ipcRenderer.send('inject-test-chat', `[22시 50분 00초] 경험치가 ${formattedXp} 감소하였습니다.`);
-});
+if (isDevelopmentTestRuntime) {
+  contextBridge.exposeInMainWorld('testChat', (rawLine: string) => {
+    ipcRenderer.send('inject-test-chat', rawLine);
+  });
 
-contextBridge.exposeInMainWorld('testQuestStart', (type: 'forge' | 'golgotha' | 'void' = 'forge') => {
-  const questName = type === 'forge' ? '대장간' : type === 'golgotha' ? '골고다' : '공허';
-  ipcRenderer.send('inject-test-chat', `[22시 50분 00초] [twOverlay] ${questName} 도전과제 시작`);
-});
+  contextBridge.exposeInMainWorld('testEssence', (count: number = 1) => {
+    const today = new Date().toISOString().split('T')[0];
+    ipcRenderer.send('inject-test-chat', `Date : ${today}`);
+    const safeCount = Number.isInteger(count) ? Math.max(1, Math.min(count, 100)) : 1;
+    const xpAmount = safeCount * 10_000_000_000;
+    const formattedXp = xpAmount.toLocaleString();
+    ipcRenderer.send('inject-test-chat', `[22시 50분 00초] 경험치가 ${formattedXp} 감소하였습니다.`);
+  });
 
-contextBridge.exposeInMainWorld('testQuestKill', (count: number = 100) => {
-  const today = new Date().toISOString().split('T')[0];
-  ipcRenderer.send('inject-test-chat', `Date : ${today}`);
-  for (let i = 0; i < count; i++) {
-    ipcRenderer.send('inject-test-chat', `[22시 50분 00초] 경험치가 1,000 올랐습니다.`);
-  }
-});
+  contextBridge.exposeInMainWorld('testQuestStart', (type: 'forge' | 'golgotha' | 'void' = 'forge') => {
+    const questName = type === 'forge' ? '대장간' : type === 'golgotha' ? '골고다' : '공허';
+    ipcRenderer.send('inject-test-chat', `[22시 50분 00초] [twOverlay] ${questName} 도전과제 시작`);
+  });
+
+  contextBridge.exposeInMainWorld('testQuestKill', (count: number = 100) => {
+    const today = new Date().toISOString().split('T')[0];
+    const safeCount = Number.isInteger(count) ? Math.max(1, Math.min(count, 1_000)) : 100;
+    ipcRenderer.send('inject-test-chat', `Date : ${today}`);
+    for (let i = 0; i < safeCount; i++) {
+      ipcRenderer.send('inject-test-chat', `[22시 50분 00초] 경험치가 1,000 올랐습니다.`);
+    }
+  });
+}

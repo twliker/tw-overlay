@@ -5,7 +5,7 @@ import { ipcMain, shell, app, BrowserWindow, dialog, screen } from 'electron';
 import * as path from 'path';
 import * as config from './config';
 import { log } from './logger';
-import { AppConfig, QuickSlotItem, DEFAULT_CONFIG } from './constants';
+import { AppConfig, QuickSlotItem, DEFAULT_CONFIG, IS_DEV } from './constants';
 import { DEFAULT_HUD_POSITIONS } from '../shared/windowPositions';
 import * as fs from 'fs';
 import { resolveSafeChildFile } from './safePath';
@@ -15,7 +15,7 @@ import * as gallery from './galleryMonitor';
 import * as trade from './tradeMonitor';
 import * as optimizer from './optimizer';
 import { fetchEtaRanking } from './etaRanking';
-import type { EtaRankingParams } from '../shared/types';
+import type { EtaRankingParams, TimerRecord } from '../shared/types';
 import { setupAutoStart } from './autoStart';
 import * as sm from './shortcutManager';
 import { analytics } from './analytics';
@@ -41,6 +41,116 @@ import {
 } from './chatLogSyncManager';
 
 let _registered = false;
+
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
+const isFiniteInRange = (value: unknown, min: number, max: number): value is number => (
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
+);
+const isLimitedString = (value: unknown, maxLength: number, allowEmpty = true): value is string => (
+  typeof value === 'string' && value.length <= maxLength && (allowEmpty || value.trim().length > 0)
+);
+const isSafeId = (value: unknown): value is string => (
+  isLimitedString(value, 128, false) && /^[A-Za-z0-9][A-Za-z0-9:_-]*$/.test(value)
+);
+const isStringArray = (value: unknown, maxItems = 1_000, maxLength = 500): value is string[] => (
+  Array.isArray(value)
+  && value.length <= maxItems
+  && value.every(item => isLimitedString(item, maxLength))
+);
+const isValidResetRule = (value: unknown): value is { type: 'daily' | 'weekly'; dayOfWeek?: number; hour?: number } => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const rule = value as Record<string, unknown>;
+  if (rule.type !== 'daily' && rule.type !== 'weekly') return false;
+  if (rule.hour !== undefined && (!Number.isInteger(rule.hour) || !isFiniteInRange(rule.hour, 0, 23))) return false;
+  if (rule.type === 'weekly' && (!Number.isInteger(rule.dayOfWeek) || !isFiniteInRange(rule.dayOfWeek, 0, 6))) return false;
+  return true;
+};
+const isValidDateKey = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+};
+const isValidYearMonthKey = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}$/.test(value)) return false;
+  const month = Number(value.slice(5, 7));
+  return month >= 1 && month <= 12;
+};
+const isHttpUrl = (value: unknown, maxLength = 4_096): value is string => {
+  if (!isLimitedString(value, maxLength, false)) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+function isValidQuickSlot(value: unknown): value is QuickSlotItem {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const slot = value as unknown as Record<string, unknown>;
+  return isLimitedString(slot.label, 100, false)
+    && isLimitedString(slot.icon, 200)
+    && isHttpUrl(slot.url, 4_096)
+    && (slot.external === undefined || isBoolean(slot.external))
+    && (slot.iconType === undefined || slot.iconType === 'icon' || slot.iconType === 'text')
+    && (slot.textChar === undefined || isLimitedString(slot.textChar, 10));
+}
+
+const isPositiveInteger = (value: unknown, max = Number.MAX_SAFE_INTEGER): value is number => (
+  Number.isInteger(value) && isFiniteInRange(value, 1, max)
+);
+
+function isValidEtaRankingParams(value: unknown): value is EtaRankingParams {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const params = value as Record<string, unknown>;
+  return (params.sc === undefined || isFiniteInRange(params.sc, 0, 100_000))
+    && (params.cc === undefined || isFiniteInRange(params.cc, 0, 100_000))
+    && (params.page === undefined || isPositiveInteger(params.page, 10_000))
+    && (params.search === undefined || isLimitedString(params.search, 200));
+}
+
+function isValidTimerRecord(value: unknown): value is Omit<TimerRecord, 'id'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const numericKeys = [
+    'duration', 'coefficient', 'char_main', 'char_sub', 'base_main',
+    'enchant_main', 'base_sub', 'enchant_sub', 'accuracy',
+  ];
+  return isLimitedString(record.date, 32, false)
+    && isLimitedString(record.title, 300)
+    && isLimitedString(record.series, 300)
+    && isLimitedString(record.core_master, 300)
+    && isLimitedString(record.raw_profile_data, 2_000_000)
+    && numericKeys.every(key => isFiniteInRange(record[key], -1_000_000_000_000, 1_000_000_000_000))
+    && isFiniteInRange(record.duration, 0, 365 * 24 * 60 * 60 * 1_000);
+}
+
+function isValidEquipmentItem(value: unknown): value is Record<string, unknown> & { name: string } {
+  if (!isPlainObjectForIpc(value) || !isLimitedString(value.name, 300, false) || !isSafeExternalJsonValueForIpc(value)) return false;
+  try {
+    return Buffer.byteLength(JSON.stringify(value), 'utf8') <= 1_000_000;
+  } catch {
+    return false;
+  }
+}
+
+function isPlainObjectForIpc(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+}
+
+function isSafeExternalJsonValueForIpc(value: unknown, depth = 0): boolean {
+  if (depth > 8) return false;
+  if (value === null || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'string') return value.length <= 20_000;
+  if (Array.isArray(value)) return value.length <= 2_000 && value.every(child => isSafeExternalJsonValueForIpc(child, depth + 1));
+  return isPlainObjectForIpc(value) && Object.keys(value).length <= 1_000
+    && Object.entries(value).every(([key, child]) => key.length <= 200
+      && !['__proto__', 'prototype', 'constructor'].includes(key)
+      && isSafeExternalJsonValueForIpc(child, depth + 1));
+}
 
 /** 전체 화면 효과를 표시할 게임 오버레이를 준비하고 렌더러 이벤트를 전달합니다. */
 function triggerGameOverlayEffect(
@@ -105,11 +215,13 @@ export function register(): void {
   });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean, options: { forward?: boolean }) => {
+    if (!isBoolean(ignore) || (options !== undefined && (typeof options !== 'object' || options === null || (options.forward !== undefined && !isBoolean(options.forward))))) return;
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) win.setIgnoreMouseEvents(ignore, options || {});
   });
 
   ipcMain.on('set-always-on-top', (event, flag: boolean) => {
+    if (!isBoolean(flag)) return;
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) {
       win.setAlwaysOnTop(flag, flag ? 'screen-saver' : 'normal');
@@ -123,7 +235,7 @@ export function register(): void {
 
   ipcMain.on('set-window-size', (event, width: number, height: number) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win && Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    if (win && isFiniteInRange(width, 100, 16_384) && isFiniteInRange(height, 100, 16_384)) {
       const isResizable = win.isResizable();
       win.setResizable(true);
       win.setSize(Math.round(width), Math.round(height));
@@ -133,7 +245,7 @@ export function register(): void {
 
   ipcMain.on('set-window-position', (event, x: number, y: number) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win && Number.isFinite(x) && Number.isFinite(y)) {
+    if (win && isFiniteInRange(x, -100_000, 100_000) && isFiniteInRange(y, -100_000, 100_000)) {
       win.setPosition(Math.round(x), Math.round(y));
     }
   });
@@ -187,23 +299,24 @@ export function register(): void {
   });
 
   ipcMain.on('complete-setup-wizard', (_e, wizardConfig?: { chatLogPath?: string; userServer?: number; chatLogAutoDeleteDays?: number; diaryKeepDays?: number; lootKeywords?: string[] }) => {
+    if (wizardConfig !== undefined && (!wizardConfig || typeof wizardConfig !== 'object' || Array.isArray(wizardConfig))) return;
     const updates: Record<string, unknown> = {
       setupCompleted: true,
       hasSeenWelcomeGuide: true
     };
-    if (wizardConfig?.chatLogPath) {
+    if (wizardConfig?.chatLogPath && isLimitedString(wizardConfig.chatLogPath, 32_767)) {
       updates.chatLogPath = wizardConfig.chatLogPath;
     }
-    if (wizardConfig?.userServer !== undefined) {
+    if (wizardConfig?.userServer !== undefined && Number.isInteger(wizardConfig.userServer) && isFiniteInRange(wizardConfig.userServer, 1, 10_000)) {
       updates.userServer = wizardConfig.userServer;
     }
-    if (wizardConfig?.chatLogAutoDeleteDays !== undefined) {
+    if (wizardConfig?.chatLogAutoDeleteDays !== undefined && Number.isInteger(wizardConfig.chatLogAutoDeleteDays) && isFiniteInRange(wizardConfig.chatLogAutoDeleteDays, 0, 3_650)) {
       updates.chatLogAutoDeleteDays = wizardConfig.chatLogAutoDeleteDays;
     }
-    if (wizardConfig?.diaryKeepDays !== undefined) {
+    if (wizardConfig?.diaryKeepDays !== undefined && Number.isInteger(wizardConfig.diaryKeepDays) && isFiniteInRange(wizardConfig.diaryKeepDays, 1, 3_650)) {
       updates.diaryKeepDays = wizardConfig.diaryKeepDays;
     }
-    if (wizardConfig?.lootKeywords !== undefined) {
+    if (wizardConfig?.lootKeywords !== undefined && isStringArray(wizardConfig.lootKeywords)) {
       updates.lootKeywords = wizardConfig.lootKeywords;
       updates.lootKeywordsMigratedV2 = true;
     }
@@ -235,6 +348,7 @@ export function register(): void {
   });
 
   ipcMain.handle('set-game-overlay-edit-mode', (_e, enabled: boolean, saveOnExit: boolean = true) => {
+    if (!isBoolean(enabled) || !isBoolean(saveOnExit)) return false;
     if (enabled) {
       const restored = tracker.restoreAndFocusGameWindow();
       if (!restored) {
@@ -292,20 +406,24 @@ export function register(): void {
   });
 
   ipcMain.on('set-opacity', (_e, opacity: number) => {
+    if (!isFiniteInRange(opacity, 0.2, 1)) return;
     const win = wm.getOverlayWindow();
     if (win) win.setOpacity(opacity);
     config.save({ opacity });
   });
 
   ipcMain.on('set-chat-overlay-size', (_e, mode: 'main' | 'sub1' | 'sub2', width: number, height: number) => {
+    if (!['main', 'sub1', 'sub2'].includes(mode) || !isFiniteInRange(width, 200, 8_192) || !isFiniteInRange(height, 120, 8_192)) return;
     wm.setChatOverlaySize(mode, width, height);
   });
 
   ipcMain.on('set-focused-chat-size', (_e, width: number, height: number) => {
+    if (!isFiniteInRange(width, 200, 8_192) || !isFiniteInRange(height, 120, 8_192)) return;
     wm.setFocusedChatSize(width, height);
   });
 
   ipcMain.on('navigate', (_e, url: string) => {
+    if (!isLimitedString(url, 4_096, false)) return;
     let t = url.trim();
     if (!t.startsWith('http://') && !t.startsWith('https://')) t = 'https://' + t;
     try {
@@ -323,12 +441,22 @@ export function register(): void {
     wm.setOverlayVisible(true, cfg.homeUrl);
   });
 
-  ipcMain.on('apply-settings', (_e, newSettings: Partial<AppConfig>) => {
-    wm.applySettings(newSettings);
-    if (newSettings.autoLaunch !== undefined) {
-      setupAutoStart(newSettings.autoLaunch!);
+  ipcMain.on('apply-settings', (_e, newSettings: Partial<AppConfig> & { isSidebarResize?: boolean }) => {
+    if (!newSettings || typeof newSettings !== 'object' || Array.isArray(newSettings)) return;
+    const isSidebarResize = newSettings.isSidebarResize;
+    if (isSidebarResize !== undefined && !isBoolean(isSidebarResize)) return;
+    const { isSidebarResize: _ignoredResizeFlag, ...configPatch } = newSettings;
+    const sanitizedPatch = config.sanitizeExternalConfigPatch(configPatch);
+    if (!sanitizedPatch) {
+      log('[IPC] 유효하지 않은 apply-settings payload 차단');
+      return;
     }
-    if (newSettings.shortcuts) {
+    const sanitizedSettings = { ...sanitizedPatch, ...(isSidebarResize !== undefined ? { isSidebarResize } : {}) };
+    wm.applySettings(sanitizedSettings);
+    if (sanitizedPatch.autoLaunch !== undefined) {
+      setupAutoStart(sanitizedPatch.autoLaunch);
+    }
+    if (sanitizedPatch.shortcuts) {
       sm.reloadShortcuts();
     }
     // 설정 변경 후 모니터러 상태 갱신 (윈도우 참조 없이 설정 재로드만)
@@ -339,8 +467,8 @@ export function register(): void {
     broadcastChatLogStatus();
 
     // 모험 일지 보관 설정 변경 시 즉시 오래된 데이터 정리 실행
-    if (newSettings.diaryKeepDays !== undefined) {
-      const keepDays = newSettings.diaryKeepDays;
+    if (sanitizedPatch.diaryKeepDays !== undefined) {
+      const keepDays = sanitizedPatch.diaryKeepDays;
       if (keepDays > 0) {
         analytics.trackEvent('diary_data_cleanup', { keepDays, trigger: 'settings_change' });
         diaryDb.cleanOldDiaryData(keepDays);
@@ -410,73 +538,95 @@ export function register(): void {
   });
 
   ipcMain.on('open-and-highlight', (_e, key: string) => {
+    if (!isLimitedString(key, 128, false)) return;
     wm.openAndHighlightWindow(key);
   });
 
   // 컨텐츠 체크 리스트 조작 핸들러
   ipcMain.on('contents-toggle-item', (_e, id: string, characterId?: string) => {
+    if (!isSafeId(id) || (characterId !== undefined && !isSafeId(characterId))) return;
     import('./contentsChecker').then(mod => mod.toggleItem(id, characterId));
   });
   ipcMain.on('contents-apply-pending', (_e, characterId: string) => {
+    if (!isSafeId(characterId)) return;
     import('./contentsChecker').then(mod => mod.applyPendingHomeworks(characterId));
   });
   ipcMain.on('contents-clear-pending', () => {
     import('./contentsChecker').then(mod => mod.clearPendingHomeworks());
   });
   ipcMain.on('contents-update-count', (_e, id: string, characterId: string, count: number) => {
+    if (!isSafeId(id) || !isSafeId(characterId) || !Number.isInteger(count) || !isFiniteInRange(count, 0, 10_000)) return;
     import('./contentsChecker').then(mod => mod.updateItemCount(id, characterId, count));
   });
   ipcMain.on('contents-toggle-exclude', (_e, id: string, characterId: string) => {
+    if (!isSafeId(id) || !isSafeId(characterId)) return;
     import('./contentsChecker').then(mod => mod.toggleExcludeItem(id, characterId));
   });
   ipcMain.on('contents-toggle-visibility', (_e, id: string) => {
+    if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.toggleVisibility(id));
   });
   ipcMain.on('contents-update-category', (_e, id: string, category: string) => {
+    if (!isSafeId(id) || !isLimitedString(category, 100, false)) return;
     import('./contentsChecker').then(mod => mod.updateCategory(id, category));
   });
   ipcMain.on('contents-update-name', (_e, id: string, name: string) => {
+    if (!isSafeId(id) || !isLimitedString(name, 200, false)) return;
     import('./contentsChecker').then(mod => mod.updateName(id, name));
   });
   ipcMain.on('contents-update-item', (_e, id: string, name: string, category: string, rule: any, maxCount?: number) => {
+    if (!isSafeId(id) || !isLimitedString(name, 200, false) || !isLimitedString(category, 100, false) || !isValidResetRule(rule)) return;
+    if (maxCount !== undefined && (!Number.isInteger(maxCount) || !isFiniteInRange(maxCount, 1, 10_000))) return;
     import('./contentsChecker').then(mod => mod.updateItem(id, name, category, rule, maxCount));
   });
   ipcMain.on('contents-add-custom', (_e, name: string, category: string, rule: any, maxCount?: number) => {
+    if (!isLimitedString(name, 200, false) || !isLimitedString(category, 100, false) || !isValidResetRule(rule)) return;
+    if (maxCount !== undefined && (!Number.isInteger(maxCount) || !isFiniteInRange(maxCount, 1, 10_000))) return;
     import('./contentsChecker').then(mod => mod.addCustomItem(name, category, rule, maxCount));
   });
   ipcMain.on('contents-remove-item', (_e, id: string) => {
+    if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.removeItem(id));
   });
   ipcMain.on('contents-move-item', (_e, id: string, direction: 'up' | 'down') => {
+    if (!isSafeId(id) || (direction !== 'up' && direction !== 'down')) return;
     import('./contentsChecker').then(mod => mod.moveItem(id, direction));
   });
   ipcMain.on('contents-move-category', (_e, resetType: 'daily' | 'weekly', category: string, direction: 'up' | 'down') => {
+    if ((resetType !== 'daily' && resetType !== 'weekly') || !isLimitedString(category, 100, false) || (direction !== 'up' && direction !== 'down')) return;
     import('./contentsChecker').then(mod => mod.moveCategory(resetType, category, direction));
   });
   ipcMain.on('contents-reorder-item', (_e, sourceId: string, targetId: string, position: 'before' | 'after') => {
+    if (!isSafeId(sourceId) || !isSafeId(targetId) || (position !== 'before' && position !== 'after')) return;
     import('./contentsChecker').then(mod => mod.reorderItem(sourceId, targetId, position));
   });
   ipcMain.on('contents-reorder-category', (_e, resetType: 'daily' | 'weekly', sourceCategory: string, targetCategory: string, position: 'before' | 'after') => {
+    if ((resetType !== 'daily' && resetType !== 'weekly') || !isLimitedString(sourceCategory, 100, false) || !isLimitedString(targetCategory, 100, false) || (position !== 'before' && position !== 'after')) return;
     import('./contentsChecker').then(mod => mod.reorderCategory(resetType, sourceCategory, targetCategory, position));
   });
   ipcMain.on('contents-manual-reset', () => {
     import('./contentsChecker').then(mod => mod.checkReset());
   });
   ipcMain.on('contents-add-character', (_e, name: string) => {
+    if (!isLimitedString(name, 100, false)) return;
     import('./contentsChecker').then(mod => mod.addCharacter(name));
   });
   ipcMain.on('contents-remove-character', (_e, id: string) => {
+    if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.removeCharacter(id));
   });
   ipcMain.on('contents-rename-character', (_e, id: string, name: string) => {
+    if (!isSafeId(id) || !isLimitedString(name, 100, false)) return;
     import('./contentsChecker').then(mod => mod.renameCharacter(id, name));
   });
   ipcMain.on('contents-select-character', (_e, id: string) => {
+    if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.selectCharacter(id));
   });
 
   // 특별 인수가 필요한 토글 핸들러 개별 등록
   ipcMain.on('toggle-settings', (_event, tabId?: string) => {
+    if (tabId !== undefined && !isLimitedString(tabId, 128, false)) return;
     const eventName = tabId ? `toggle_settings_${tabId}` : 'toggle_settings';
     analytics.trackEvent(eventName, { tabId });
     wm.toggleSettingsWindow(tabId);
@@ -487,14 +637,17 @@ export function register(): void {
   });
 
   ipcMain.on('send-to-coefficient', (_event, item) => {
+    if (!isValidEquipmentItem(item)) return;
     wm.sendEquipmentToCoefficient(item);
   });
 
   ipcMain.on('send-to-evolution', (_event, item) => {
+    if (!isValidEquipmentItem(item)) return;
     wm.sendEquipmentToEvolution(item);
   });
 
   ipcMain.on('renderer-ready', (_event, windowKey) => {
+    if (!isSafeId(windowKey)) return;
     wm.handleRendererReady(windowKey, _event.sender);
   });
 
@@ -503,6 +656,7 @@ export function register(): void {
     return await optimizer.getOptimizationStatus();
   });
   ipcMain.handle('set-optimization', async (_e, enable: boolean) => {
+    if (!isBoolean(enable)) return false;
     const eventName = `set_optimization_${enable ? 'on' : 'off'}`;
     analytics.trackEvent(eventName, { enable });
     return await optimizer.setOptimization(enable);
@@ -520,6 +674,7 @@ export function register(): void {
   ipcMain.handle('get-app-version', () => app.getVersion());
 
   ipcMain.on('open-external', (_e, url: string) => {
+    if (!isHttpUrl(url)) return;
     try {
       const parsedUrl = new URL(url);
       if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
@@ -536,39 +691,54 @@ export function register(): void {
   });
 
   ipcMain.on('preview-boss-sound', (_e, soundFile: string, volume: number | null, bossName: string = '미리보기') => {
+    if (!isLimitedString(soundFile, 500, false)
+      || (volume !== null && !isFiniteInRange(volume, 0, 100))
+      || !isLimitedString(bossName, 200)) return;
     wm.sendPlaySound({ label: bossName, soundFile, volume: volume !== null ? volume : undefined, isPreview: true });
   });
 
   ipcMain.on('save-quick-slots', (_e, slots: QuickSlotItem[]) => {
+    if (!Array.isArray(slots) || slots.length > 100 || !slots.every(isValidQuickSlot)) return;
     config.saveImmediate({ quickSlots: slots });
     const sidebar = wm.getMainWindow();
     if (sidebar) sidebar.webContents.send('config-data', config.load());
   });
 
   // 갤러리 모니터 핸들러
-  ipcMain.handle('gallery-add-watch', async (_e, postNo: number) => { return await gallery.addWatch(postNo); });
-  ipcMain.on('gallery-remove-watch', (_e, postNo: number) => { gallery.removeWatch(postNo); });
+  ipcMain.handle('gallery-add-watch', async (_e, postNo: number) => {
+    if (!isPositiveInteger(postNo, 1_000_000_000)) return false;
+    return await gallery.addWatch(postNo);
+  });
+  ipcMain.on('gallery-remove-watch', (_e, postNo: number) => {
+    if (isPositiveInteger(postNo, 1_000_000_000)) gallery.removeWatch(postNo);
+  });
   ipcMain.handle('gallery-get-watched', async () => { return gallery.getWatchedPosts(); });
   ipcMain.handle('gallery-force-check', async () => { await gallery.forceCheck(); return gallery.getWatchedPosts(); });
   ipcMain.handle('gallery-get-notify', () => { return gallery.getNotifyEnabled(); });
-  ipcMain.on('gallery-set-notify', (_e, enabled: boolean) => { gallery.setNotifyEnabled(enabled); });
+  ipcMain.on('gallery-set-notify', (_e, enabled: boolean) => {
+    if (isBoolean(enabled)) gallery.setNotifyEnabled(enabled);
+  });
   ipcMain.on('gallery-open-post', (_e, postNo: number | string) => {
     const safePostNo = String(postNo).replace(/[^0-9]/g, '');
-    if (safePostNo) {
+    if (safePostNo && safePostNo.length <= 10) {
       shell.openExternal(`https://gall.dcinside.com/mini/board/view/?id=talesweaver&no=${safePostNo}`);
     }
   });
 
   // 에타 랭킹 모듈 핸들러
   ipcMain.handle('get-eta-ranking', async (_e, params: EtaRankingParams) => {
+    if (!isValidEtaRankingParams(params)) return null;
     return await fetchEtaRanking(params);
   });
 
   // 거래 게시판 모니터 핸들러
   ipcMain.handle('trade-force-check', async () => { return await trade.forceCheck(); });
   ipcMain.handle('trade-get-notify', () => { return trade.getNotifyEnabled(); });
-  ipcMain.on('trade-set-notify', (_e, enabled: boolean) => { trade.setNotifyEnabled(enabled); });
+  ipcMain.on('trade-set-notify', (_e, enabled: boolean) => {
+    if (isBoolean(enabled)) trade.setNotifyEnabled(enabled);
+  });
   ipcMain.on('trade-open-post', (_e, url: string) => {
+    if (!isHttpUrl(url)) return;
     try {
       const parsedUrl = new URL(url);
       if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
@@ -578,63 +748,71 @@ export function register(): void {
       console.warn('[IPC] Invalid URL in trade-open-post:', url);
     }
   });
-  ipcMain.on('trade-set-server', (_e, serverId: string) => { trade.setServer(serverId); });
+  ipcMain.on('trade-set-server', (_e, serverId: string) => {
+    if (isLimitedString(serverId, 100, false)) trade.setServer(serverId);
+  });
   ipcMain.handle('trade-get-server', () => { return trade.getServer(); });
   ipcMain.handle('trade-get-servers', () => { return trade.getServers(); });
 
   // --- Diary (Adventure Log) System ---
-  const isValidDate = (d: string) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
-  const isValidYearMonth = (ym: string) => typeof ym === 'string' && /^\d{4}-\d{2}$/.test(ym);
-  const validActivityTypes = ['boss', 'calc', 'memo', 'loot', 'homework'];
+  const validActivityTypes = ['boss', 'calc', 'memo', 'loot', 'homework'] as const;
 
   ipcMain.handle('diary-get-by-date', (_e, date: string) => {
-    if (!isValidDate(date)) return { diary: null, homeworkLogs: [], activityLogs: [] };
+    if (!isValidDateKey(date)) return { diary: null, homeworkLogs: [], activityLogs: [] };
     return diaryDb.getDiaryByDate(date);
   });
   ipcMain.handle('diary-get-by-month', (_e, yearMonth: string) => {
-    if (!isValidYearMonth(yearMonth)) return [];
+    if (!isValidYearMonthKey(yearMonth)) return [];
     return diaryDb.getDiariesByMonth(yearMonth);
   });
   ipcMain.handle('diary-get-monthly-summary', (_e, yearMonth: string) => {
-    if (!isValidYearMonth(yearMonth)) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
+    if (!isValidYearMonthKey(yearMonth)) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
     return diaryDb.getMonthlySummary(yearMonth);
   });
   ipcMain.handle('diary-get-statistics', (_e, yearMonth: string) => {
-    if (!isValidYearMonth(yearMonth)) return null;
+    if (!isValidYearMonthKey(yearMonth)) return null;
     return diaryDb.getMonthlyStatistics(yearMonth);
   });
   ipcMain.handle('diary-get-monthly-revenue', (_e, yearMonth: string) => {
-    if (!isValidYearMonth(yearMonth)) return [];
+    if (!isValidYearMonthKey(yearMonth)) return [];
     return diaryDb.getMonthlyRevenueData(yearMonth);
   });
   ipcMain.handle('diary-get-shout-history', (_e, hours: number, searchQuery: string) => {
-    return diaryDb.getShoutHistory(hours || 24, searchQuery || '');
+    if (!isPositiveInteger(hours, 24 * 365) || !isLimitedString(searchQuery, 1_000)) return [];
+    return diaryDb.getShoutHistory(hours, searchQuery);
   });
   ipcMain.handle('word-alarm-get-history', (_e, hours: number) => {
-    return diaryDb.getWordAlarmHistory(hours || 24);
+    if (!isPositiveInteger(hours, 24 * 365)) return [];
+    return diaryDb.getWordAlarmHistory(hours);
   });
   ipcMain.handle('word-alarm-get-context', (_e, alarmId: number) => {
+    if (!isPositiveInteger(alarmId)) return [];
     return diaryDb.getWordAlarmContext(alarmId);
   });
   ipcMain.on('word-alarm-delete-item', (_e, id: number) => {
-    diaryDb.deleteWordAlarmHistoryItem(id);
+    if (isPositiveInteger(id)) diaryDb.deleteWordAlarmHistoryItem(id);
   });
   ipcMain.on('word-alarm-clear-history', () => {
     diaryDb.clearWordAlarmHistory();
   });
-  ipcMain.on('play-sound', (_e, { file, volume }) => {
+  ipcMain.on('play-sound', (_e, payload: unknown) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+    const { file, volume } = payload as Record<string, unknown>;
+    if (!isLimitedString(file, 500, false) || !isFiniteInRange(volume, 0, 100)) return;
     wm.sendPlaySound({ label: '미리보기', soundFile: file, volume, isPreview: true });
   });
   ipcMain.on('diary-add-activity', (_e, date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0) => {
-    if (!isValidDate(date) || typeof time !== 'string' || !validActivityTypes.includes(type) || typeof content !== 'string') return;
+    if (!isValidDateKey(date) || !isLimitedString(time, 16, false)
+      || !validActivityTypes.includes(type) || !isLimitedString(content, 20_000)
+      || !isFiniteInRange(amount, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)) return;
     diaryDb.addActivityLog(date, time, type, content, amount);
   });
   ipcMain.on('diary-remove-activity', (_e, date: string, type: string, content: string) => {
-    if (!isValidDate(date) || typeof type !== 'string' || typeof content !== 'string') return;
+    if (!isValidDateKey(date) || !isLimitedString(type, 50, false) || !isLimitedString(content, 20_000)) return;
     diaryDb.removeActivityLog(date, type, content);
   });
   ipcMain.on('diary-update-monster', (_e, date: string, monsterId: string) => {
-    if (!isValidDate(date) || typeof monsterId !== 'string') return;
+    if (!isValidDateKey(date) || !isLimitedString(monsterId, 128, false)) return;
     diaryDb.updateDiaryMonster(date, monsterId);
   });
 
@@ -643,11 +821,16 @@ export function register(): void {
     return diaryDb.getHuntingGrounds();
   });
   ipcMain.handle('get-hunting-path', (_e, groundId: string) => {
-    if (typeof groundId !== 'string') return [];
+    if (!isSafeId(groundId)) return [];
     return diaryDb.getHuntingPath(groundId);
   });
   ipcMain.on('save-hunting-path', (_e, groundId: string, points: Array<[number, number, string?]>) => {
-    if (typeof groundId !== 'string' || !Array.isArray(points)) return;
+    if (!isSafeId(groundId) || !Array.isArray(points) || points.length > 100_000
+      || !points.every(point => Array.isArray(point)
+        && (point.length === 2 || point.length === 3)
+        && isFiniteInRange(point[0], -1_000_000, 1_000_000)
+        && isFiniteInRange(point[1], -1_000_000, 1_000_000)
+        && (point[2] === undefined || isLimitedString(point[2], 200)))) return;
     diaryDb.saveHuntingPath(groundId, points);
   });
 
@@ -675,6 +858,7 @@ export function register(): void {
   ipcMain.handle('google-sync-restore', async () => cloudSync.syncFromCloud(true));
   ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
   ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
+    if (!isBoolean(enabled)) return cloudSync.getSyncStatus();
     config.save({ googleSyncAutoSync: enabled });
     const status = cloudSync.getSyncStatus();
     broadcastToAllWindows('google-sync-status-changed', status);
@@ -705,12 +889,14 @@ export function register(): void {
 
   // 어벤던로드 오버레이 강제 표시/숨김
   ipcMain.on('abandoned-force-visible', async (_e, visible: boolean) => {
+    if (!isBoolean(visible)) return;
     const { chatLogProcessor } = await import('./chatLogProcessor');
     chatLogProcessor.forceAbandonedVisible(visible);
   });
 
   // 어벤던로드 추적기능 활성/비활성
   ipcMain.on('abandoned-set-enabled', async (_e, enabled: boolean) => {
+    if (!isBoolean(enabled)) return;
     const { abandonedTracker } = await import('./abandonedTracker');
     abandonedTracker.setEnabled(enabled);
   });
@@ -722,6 +908,7 @@ export function register(): void {
 
   // 어벤던로드 자동 숨김 시간 설정
   ipcMain.on('set-abandoned-autohide', (_e, minutes: number) => {
+    if (!isFiniteInRange(minutes, 0, 24 * 60)) return;
     config.save({ abandonedAutoHideMinutes: minutes });
   });
 
@@ -729,6 +916,7 @@ export function register(): void {
 
   // --- 사기꾼 탐지 ---
   ipcMain.on('scam-set-enabled', (_e, enabled: boolean) => {
+    if (!isBoolean(enabled)) return;
     config.save({ scamDetectorEnabled: enabled });
     if (enabled) scam.start();
     else scam.stop();
@@ -749,11 +937,23 @@ export function register(): void {
   ipcMain.handle('scam-get-server-status', () => scam.getServerStatus());
   ipcMain.handle('scam-get-session-states', () => scam.getSessionStates());
   ipcMain.handle('scam-get-queue-length', () => scam.getQueueLength());
-  ipcMain.on('scam-close-session', (_e, filePath: string) => scam.closeSession(filePath));
-  ipcMain.on('scam-trigger-analyze', (_e, filePath: string) => scam.triggerAnalyze(filePath));
+  ipcMain.on('scam-close-session', (_e, filePath: string) => {
+    if (isLimitedString(filePath, 4_096, false)) scam.closeSession(filePath);
+  });
+  ipcMain.on('scam-trigger-analyze', (_e, filePath: string) => {
+    if (isLimitedString(filePath, 4_096, false)) scam.triggerAnalyze(filePath);
+  });
   ipcMain.on('scam-stop-server', () => scam.stopServer());
-  ipcMain.handle('scam-inject-test', (_e, scenario?: string) => scam.injectTestSession(scenario));
+  if (IS_DEV) {
+    ipcMain.handle('scam-inject-test', (_e, scenario?: string) => {
+      if (scenario !== undefined && !isLimitedString(scenario, 100)) return null;
+      return scam.injectTestSession(scenario);
+    });
+  }
   ipcMain.handle('scam-download-binary-variant', async (event, gpuChoice: string) => {
+    if (!['nvidia', 'amd', 'intel', 'none'].includes(gpuChoice)) {
+      return { success: false, error: '지원하지 않는 GPU 선택입니다.' };
+    }
     const win = BrowserWindow.fromWebContents(event.sender);
     try {
       scam.stopServer();
@@ -783,7 +983,8 @@ export function register(): void {
   });
 
   // 버프 타이머 테스트 — 모든 감지 대상 버프 강제 활성화
-  ipcMain.on('buff-timer-test', (event, seconds?: number) => {
+  if (IS_DEV) ipcMain.on('buff-timer-test', (event, seconds?: number) => {
+   if (seconds !== undefined && !isFiniteInRange(seconds, 1, 24 * 60 * 60)) return;
    const TEST_BUFFS = [
      'exp_heart', 'rare_heart', 'stat_exorcist', 'stat_sami_sunryeong',
      'rare_loto', 'util_ampoule', 'dmg_izabel', 'util_illumination',
@@ -794,7 +995,7 @@ export function register(): void {
    TEST_BUFFS.forEach(buffId => buffTimerManager.activateBuff(buffId, 'test', durationMs));
   });
   // 버프 타이머 테스트 종료 — 테스트 버프 제거
-  ipcMain.on('buff-timer-clear-test', () => {
+  if (IS_DEV) ipcMain.on('buff-timer-clear-test', () => {
     buffTimerManager.clearTestBuffs();
   });
   // 버프 타이머 모든 버프 삭제
@@ -803,6 +1004,7 @@ export function register(): void {
   });
   // 버프 타이머 강제 비활성화
   ipcMain.on('buff-timer-deactivate', (_e, buffId: string) => {
+    if (!isSafeId(buffId)) return;
     buffTimerManager.deactivateBuff(buffId);
   });
   // XP 세션 제어
@@ -852,6 +1054,9 @@ export function register(): void {
 
   // 챗로그 경로 정밀 유효성 및 파일 검사
   ipcMain.handle('validate-chat-log-path', (_e, customPath?: string) => {
+    if (customPath !== undefined && !isLimitedString(customPath, 4_096)) {
+      return { valid: false, exists: false, isDirectory: false, fileCount: 0, message: '경로가 너무 깁니다.' };
+    }
     const cfg = config.load();
     const targetPath = (customPath && typeof customPath === 'string') ? customPath.trim() : (cfg.chatLogPath || '');
     if (!targetPath) {
@@ -942,6 +1147,7 @@ export function register(): void {
   });
 
   ipcMain.handle('test-discord-webhook', async (_e, webhookUrl: string) => {
+    if (!isHttpUrl(webhookUrl, 2_048) || !webhookUrl.startsWith('https://discord.com/api/webhooks/')) return false;
     try {
       await discordNotifier.sendTest(webhookUrl);
       return true;
@@ -953,6 +1159,7 @@ export function register(): void {
 
   // --- Chat Overlay IPC ---
   ipcMain.handle('chat-get-history', async (_e, category: string) => {
+    if (!isLimitedString(category, 100, false)) return [];
     const { chatLogProcessor } = await import('./chatLogProcessor');
     const { chatLogManager } = await import('./chatLogManager');
     chatLogManager.resetLastReadIndex(category);
@@ -975,16 +1182,19 @@ export function register(): void {
   });
 
   ipcMain.on('focused-chat-set-self', async (_event, nickname: string) => {
+    if (!isLimitedString(nickname, 100)) return;
     const { chatLogProcessor } = await import('./chatLogProcessor');
     chatLogProcessor.setFocusedChatSelfNickname(nickname);
   });
 
   ipcMain.on('focused-chat-set-targets', async (_event, nicknames: string[]) => {
+    if (!isStringArray(nicknames, 100, 100)) return;
     const { chatLogProcessor } = await import('./chatLogProcessor');
     chatLogProcessor.setFocusedChatTargets(nicknames);
   });
 
   ipcMain.handle('chat-get-more-history', async (_e, category: string) => {
+    if (!isLimitedString(category, 100, false)) return [];
     const { chatLogManager } = await import('./chatLogManager');
     return await chatLogManager.getMoreHistory(category);
   });
@@ -992,6 +1202,10 @@ export function register(): void {
   ipcMain.handle(
     'chat-search-logs',
     async (_e, query: string, options?: { category?: string; limit?: number }) => {
+      if (!isLimitedString(query, 1_000, false)) return [];
+      if (options !== undefined && (!options || typeof options !== 'object'
+        || (options.category !== undefined && !isLimitedString(options.category, 100, false))
+        || (options.limit !== undefined && !isPositiveInteger(options.limit, 10_000)))) return [];
       const { chatLogManager } = await import('./chatLogManager');
       return await chatLogManager.searchChatLogs(query, options);
     }
@@ -1007,6 +1221,7 @@ export function register(): void {
   });
 
   ipcMain.on('toggle-chat-overlay-sub', (_e, subNum: number) => {
+    if (subNum !== 1 && subNum !== 2) return;
     wm.toggleSubWindow(subNum as 1 | 2);
   });
   ipcMain.handle('chat-fetch-eta-rankings', async () => {
@@ -1018,12 +1233,16 @@ export function register(): void {
     return etaCacheManager.getCacheStatus();
   });
 
-  ipcMain.on('inject-test-chat', (_e, rawLine: string) => {
-    chatParser.parseLine(rawLine);
-  });
+  if (IS_DEV) {
+    ipcMain.on('inject-test-chat', (_e, rawLine: string) => {
+      if (typeof rawLine !== 'string' || rawLine.length === 0 || rawLine.length > 20_000) return;
+      chatParser.parseLine(rawLine);
+    });
+  }
 
   // --- Alarm Logs IPC ---
   ipcMain.handle('alarm-get-logs', (_e, limit?: number) => {
+    if (limit !== undefined && !isPositiveInteger(limit, 10_000)) return [];
     return diaryDb.getAlarmLogs(limit);
   });
   ipcMain.on('alarm-clear-logs', () => {
@@ -1031,13 +1250,15 @@ export function register(): void {
   });
 
   // --- Timer IPC ---
-  ipcMain.on('timer-save-record', (_e, record: any) => {
+  ipcMain.on('timer-save-record', (_e, record: unknown) => {
+    if (!isValidTimerRecord(record)) return;
     diaryDb.addTimerRecord(record);
   });
   ipcMain.handle('timer-get-records', () => {
     return diaryDb.getTimerRecords();
   });
   ipcMain.on('timer-update-title', (_e, id: number, title: string) => {
+    if (!isPositiveInteger(id) || !isLimitedString(title, 300)) return;
     diaryDb.updateTimerRecordTitle(id, title);
   });
   ipcMain.on('timer-update-series-core', (
@@ -1054,6 +1275,11 @@ export function register(): void {
     enchant_sub: number,
     accuracy: number
   ) => {
+    if (!isPositiveInteger(id)
+      || !isLimitedString(series, 300)
+      || !isLimitedString(core_master, 300)
+      || ![coefficient, char_main, char_sub, base_main, enchant_main, base_sub, enchant_sub, accuracy]
+        .every(value => isFiniteInRange(value, -1_000_000_000_000, 1_000_000_000_000))) return;
     diaryDb.updateTimerRecordSeriesAndCore(
       id, 
       series, 
@@ -1069,9 +1295,11 @@ export function register(): void {
     );
   });
   ipcMain.on('timer-delete-record', (_e, id: number) => {
+    if (!isPositiveInteger(id)) return;
     diaryDb.deleteTimerRecord(id);
   });
   ipcMain.on('timer-toggle-session', (event, state: 'start' | 'stop') => {
+    if (state !== 'start' && state !== 'stop') return;
     broadcastToAllWindowsExcept(event.sender, 'timer-toggle', state);
   });
 
@@ -1097,12 +1325,16 @@ export function register(): void {
     }
 
     const srcPath = result.filePaths[0];
-    const originalExt = path.extname(srcPath);
+    const originalExt = path.extname(srcPath).toLowerCase();
+    const allowedExtensions = new Set(['.mp3', '.wav', '.ogg', '.webm', '.m4a']);
+    if (!allowedExtensions.has(originalExt)) return null;
+    const sourceStat = fs.statSync(srcPath);
+    if (!sourceStat.isFile() || sourceStat.size <= 0 || sourceStat.size > 50 * 1024 * 1024) return null;
     const originalName = path.basename(srcPath, originalExt);
     
     // 파일명 인코딩 안전화 (영어, 숫자, 한글, 언더바, 하이픈만 허용)
     const sanitizedName = originalName.replace(/[^a-zA-Z0-9ㄱ-ㅎㅏ-ㅣ가-힣-_]/g, '');
-    const filename = `custom_${Date.now()}_${sanitizedName}${originalExt}`;
+    const filename = `custom_${Date.now()}_${sanitizedName || 'sound'}${originalExt}`;
     
     const customSoundsDir = path.join(app.getPath('userData'), 'custom_sounds');
     if (!fs.existsSync(customSoundsDir)) {
@@ -1128,6 +1360,7 @@ export function register(): void {
   });
 
   ipcMain.handle('delete-custom-sound', (_e, filename: string) => {
+    if (!isLimitedString(filename, 500, false)) return false;
     try {
       const customSoundsDir = path.join(app.getPath('userData'), 'custom_sounds');
       const filePath = resolveSafeChildFile(customSoundsDir, filename);

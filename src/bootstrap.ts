@@ -1,80 +1,173 @@
 /**
  * 애플리케이션 초기 부트스트랩
  * 1. app.name을 'twOverlay'로 조기 통일
- * 2. 표준 userData 경로(%APPDATA%\twOverlay) 설정 및 레거시 데이터 마이그레이션
+ * 2. 표준 userData 경로 설정
+ * 3. 비파괴 레거시 마이그레이션 및 v3 진입 전 검증 스냅샷
  */
 import { app } from 'electron';
+import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
+import { createUserDataSnapshot, verifyUserDataSnapshot } from './modules/localSnapshot';
 
-function initUserData(): void {
-  if (!app) return;
+function isPathInside(rootPath: string, candidatePath: string): boolean {
+  const root = path.resolve(rootPath);
+  const candidate = path.resolve(candidatePath);
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+function atomicWriteText(filePath: string, text: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.tmp`;
+  const fd = fs.openSync(tempPath, 'w', 0o600);
   try {
-    app.name = 'twOverlay';
-    const appData = app.getPath('appData');
-    const standardUserDataPath = path.join(appData, 'twOverlay');
+    fs.writeFileSync(fd, text, 'utf-8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tempPath, filePath);
+}
 
-    if (!fs.existsSync(standardUserDataPath)) {
-      fs.mkdirSync(standardUserDataPath, { recursive: true });
-    }
+function hashFile(filePath: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
 
-    // userData 경로를 먼저 안전하게 설정
-    app.setPath('userData', standardUserDataPath);
-
-    // 레거시 데이터 마이그레이션은 독립적으로 수행
-    try {
-      migrateLegacyUserData(appData, standardUserDataPath);
-    } catch {
-      // 마이그레이션 실패 시 조용히 무시
-    }
-
-    // v3.0.0 메이저 업데이트 1회성 사전 안전 스냅샷 백업
-    try {
-      backupPreV3UserData(standardUserDataPath);
-    } catch {
-      // 백업 실패 시에도 메인 부트스트랩 진행
-    }
-  } catch (e) {
-    // 초기화 중 오류 시 조용히 무시
+function copyFileVerified(sourcePath: string, destinationPath: string): void {
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  fs.copyFileSync(sourcePath, destinationPath, fs.constants.COPYFILE_EXCL);
+  if (fs.statSync(sourcePath).size !== fs.statSync(destinationPath).size || hashFile(sourcePath) !== hashFile(destinationPath)) {
+    throw new Error(`복사 검증 실패: ${sourcePath}`);
   }
 }
 
-/** v3.0.0 메이저 업데이트 전 데이터 1회성 자동 스냅샷 */
-function backupPreV3UserData(standardUserDataPath: string): void {
-  const backupDir = path.join(standardUserDataPath, 'backups', 'pre-v3.0.0');
-  const flagFile = path.join(backupDir, 'backup.done');
-  if (fs.existsSync(flagFile)) return;
+function isV3OrLater(version: string): boolean {
+  const major = Number.parseInt(version.split('.')[0] || '', 10);
+  return Number.isFinite(major) && major >= 3;
+}
 
-  const targetFiles = ['config.json', 'diary.db', 'google_user.json'];
-  let backedUpAny = false;
+function markSnapshotComplete(backupDirectory: string, appVersion: string): void {
+  atomicWriteText(path.join(backupDirectory, 'backup.done'), JSON.stringify({
+    completedAt: new Date().toISOString(),
+    appVersion
+  }, null, 2));
+}
 
-  for (const file of targetFiles) {
-    const src = path.join(standardUserDataPath, file);
-    if (!fs.existsSync(src)) continue;
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
+/** 실제 v3 이상 실행에서만 1회 생성하며 manifest 검증이 끝난 뒤 완료 표식을 쓴다. */
+function backupPreV3UserData(standardUserDataPath: string, appVersion: string): void {
+  if (!isV3OrLater(appVersion)) return;
+
+  const backupsRoot = path.join(standardUserDataPath, 'backups');
+  const backupDirectory = path.join(backupsRoot, 'pre-v3.0.0');
+  const completionFile = path.join(backupDirectory, 'backup.done');
+
+  if (fs.existsSync(backupDirectory)) {
     try {
-      fs.copyFileSync(src, path.join(backupDir, file));
-      backedUpAny = true;
-    } catch {}
+      verifyUserDataSnapshot(backupDirectory);
+      if (!fs.existsSync(completionFile)) markSnapshotComplete(backupDirectory, appVersion);
+      return;
+    } catch {
+      const suffix = new Date().toISOString().replace(/[:.]/g, '-');
+      const incompleteDirectory = path.join(backupsRoot, `pre-v3.0.0.incomplete-${suffix}`);
+      if (!isPathInside(backupsRoot, backupDirectory) || !isPathInside(backupsRoot, incompleteDirectory)) {
+        throw new Error('v3 백업 경로 검증에 실패했습니다.');
+      }
+      fs.renameSync(backupDirectory, incompleteDirectory);
+    }
   }
 
-  if (backedUpAny && fs.existsSync(backupDir)) {
-    try {
-      fs.writeFileSync(flagFile, new Date().toISOString(), 'utf-8');
-    } catch {}
+  const stagingDirectory = path.join(backupsRoot, `pre-v3.0.0.staging-${process.pid}-${Date.now()}`);
+  createUserDataSnapshot(standardUserDataPath, stagingDirectory, {
+    reason: 'pre-v3.0.0',
+    appVersion,
+    includeCredentials: true
+  });
+  verifyUserDataSnapshot(stagingDirectory);
+  fs.renameSync(stagingDirectory, backupDirectory);
+  markSnapshotComplete(backupDirectory, appVersion);
+}
+
+interface LegacyMigrationResult {
+  completedAt: string;
+  sourcePath: string;
+  sourceSnapshot: string;
+  copied: string[];
+  identical: string[];
+  conflicts: string[];
+}
+
+function listFilesRecursive(rootPath: string): string[] {
+  const result: string[] = [];
+  const walk = (directory: string, relativeDirectory: string): void => {
+    for (const dirent of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absoluteChild = path.join(directory, dirent.name);
+      const relativeChild = path.join(relativeDirectory, dirent.name);
+      if (dirent.isDirectory()) walk(absoluteChild, relativeChild);
+      else if (dirent.isFile()) result.push(relativeChild);
+    }
+  };
+  walk(rootPath, '');
+  return result.sort();
+}
+
+function copyLegacyDirectoryWithoutOverwrite(
+  sourceDirectory: string,
+  destinationDirectory: string,
+  result: LegacyMigrationResult,
+  label: string
+): void {
+  fs.mkdirSync(destinationDirectory, { recursive: true });
+  for (const relativePath of listFilesRecursive(sourceDirectory)) {
+    const sourcePath = path.join(sourceDirectory, relativePath);
+    const destinationPath = path.join(destinationDirectory, relativePath);
+    const entryLabel = `${label}/${relativePath.split(path.sep).join('/')}`;
+    if (!fs.existsSync(destinationPath)) {
+      copyFileVerified(sourcePath, destinationPath);
+      result.copied.push(entryLabel);
+    } else if (fs.statSync(destinationPath).isFile() && hashFile(sourcePath) === hashFile(destinationPath)) {
+      result.identical.push(entryLabel);
+    } else {
+      result.conflicts.push(entryLabel);
+    }
   }
 }
 
-function migrateLegacyUserData(appData: string, standardUserDataPath: string): void {
+/**
+ * 레거시 원본을 먼저 검증 스냅샷으로 보존한 뒤 없는 파일만 복사한다.
+ * 충돌 원본은 스냅샷에 남기고 표준 경로를 덮지 않으며 레거시 원본도 삭제하지 않는다.
+ */
+function migrateLegacyUserData(appData: string, standardUserDataPath: string, appVersion: string): void {
   const legacyPath = path.join(appData, 'tw-overlay');
   if (!fs.existsSync(legacyPath)) return;
+
+  const markerPath = path.join(standardUserDataPath, 'backups', 'legacy-migration.done.json');
+  if (fs.existsSync(markerPath)) return;
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const snapshotDirectory = path.join(standardUserDataPath, 'backups', 'legacy-migration', timestamp);
+  createUserDataSnapshot(legacyPath, snapshotDirectory, {
+    reason: 'legacy-user-data-migration',
+    appVersion,
+    includeCredentials: true,
+    includeCaches: true,
+    allowedDestinationRoot: appData
+  });
+  verifyUserDataSnapshot(snapshotDirectory);
+
+  const result: LegacyMigrationResult = {
+    completedAt: new Date().toISOString(),
+    sourcePath: legacyPath,
+    sourceSnapshot: snapshotDirectory,
+    copied: [],
+    identical: [],
+    conflicts: []
+  };
 
   const migrateFiles = [
     'config.json',
     'diary.db',
-    'custom_sounds',
+    'diary.db-wal',
+    'diary.db-shm',
     'google_auth.enc',
     'google_user.json',
     'eta_ranking_cache.json',
@@ -82,50 +175,75 @@ function migrateLegacyUserData(appData: string, standardUserDataPath: string): v
   ];
 
   for (const item of migrateFiles) {
-    const srcItem = path.join(legacyPath, item);
-    const dstItem = path.join(standardUserDataPath, item);
-    if (!fs.existsSync(srcItem)) continue;
+    const sourcePath = path.join(legacyPath, item);
+    if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) continue;
 
-    // GA4 애널리틱스 config.json 분리 이관
+    let destinationName = item;
     if (item === 'config.json') {
       try {
-        const raw = fs.readFileSync(srcItem, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed && ('ga_client_id' in parsed || 'ga_session_id' in parsed) && !('volumeMaster' in parsed || 'positions' in parsed)) {
-          const analyticsDst = path.join(standardUserDataPath, 'analytics.json');
-          if (!fs.existsSync(analyticsDst)) {
-            fs.cpSync(srcItem, analyticsDst);
-          }
-          try { fs.rmSync(srcItem, { force: true }); } catch {}
-          continue;
+        const parsed = JSON.parse(fs.readFileSync(sourcePath, 'utf-8')) as Record<string, unknown>;
+        if (
+          parsed
+          && ('ga_client_id' in parsed || 'ga_session_id' in parsed)
+          && !('volumeMaster' in parsed || 'positions' in parsed)
+        ) {
+          destinationName = 'analytics.json';
         }
-      } catch {}
+      } catch {
+        // 손상된 config는 스냅샷에만 보존하고 표준 설정을 덮지 않는다.
+        result.conflicts.push(item);
+        continue;
+      }
     }
 
-    // 커스텀 사운드 폴더 병합 복사
-    if (item === 'custom_sounds') {
-      try {
-        fs.cpSync(srcItem, dstItem, { recursive: true });
-        fs.rmSync(srcItem, { recursive: true, force: true });
-      } catch {}
-      continue;
-    }
-
-    // 일반 파일 이관
-    if (!fs.existsSync(dstItem)) {
-      try {
-        fs.cpSync(srcItem, dstItem, { recursive: true });
-        fs.rmSync(srcItem, { recursive: true, force: true });
-      } catch {}
+    const destinationPath = path.join(standardUserDataPath, destinationName);
+    if (!fs.existsSync(destinationPath)) {
+      copyFileVerified(sourcePath, destinationPath);
+      result.copied.push(`${item} -> ${destinationName}`);
+    } else if (fs.statSync(destinationPath).isFile() && hashFile(sourcePath) === hashFile(destinationPath)) {
+      result.identical.push(`${item} -> ${destinationName}`);
     } else {
-      try { fs.rmSync(srcItem, { recursive: true, force: true }); } catch {}
+      result.conflicts.push(`${item} -> ${destinationName}`);
     }
   }
 
-  // 마이그레이션 완료 후 남은 임시 캐시(GPUCache 등) 및 tw-overlay 디렉터리 정리
+  const legacySounds = path.join(legacyPath, 'custom_sounds');
+  if (fs.existsSync(legacySounds) && fs.statSync(legacySounds).isDirectory()) {
+    copyLegacyDirectoryWithoutOverwrite(
+      legacySounds,
+      path.join(standardUserDataPath, 'custom_sounds'),
+      result,
+      'custom_sounds'
+    );
+  }
+
+  atomicWriteText(markerPath, JSON.stringify(result, null, 2));
+}
+
+function initUserData(): void {
+  if (!app) return;
   try {
-    fs.rmSync(legacyPath, { recursive: true, force: true });
-  } catch {}
+    app.name = 'twOverlay';
+    const appData = app.getPath('appData');
+    const standardUserDataPath = path.join(appData, 'twOverlay');
+    fs.mkdirSync(standardUserDataPath, { recursive: true });
+    app.setPath('userData', standardUserDataPath);
+
+    const appVersion = app.getVersion();
+    try {
+      migrateLegacyUserData(appData, standardUserDataPath, appVersion);
+    } catch (error) {
+      console.error(`[BOOTSTRAP] 레거시 데이터 마이그레이션 실패: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    try {
+      backupPreV3UserData(standardUserDataPath, appVersion);
+    } catch (error) {
+      console.error(`[BOOTSTRAP] v3 사전 스냅샷 실패: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } catch (error) {
+    console.error(`[BOOTSTRAP] userData 초기화 실패: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 initUserData();

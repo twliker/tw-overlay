@@ -14,34 +14,143 @@ type LegacyContentsCheckerItem = ContentsCheckerItem & {
   lastCompletedAt?: number;
 };
 
-/** 기본 컨텐츠 JSON 로드 */
-function loadDefaultItems(): ContentsCheckerItem[] {
-  try {
-    // dist/assets/data/contents.json 경로 계산
-    const jsonPath = path.join(app.getAppPath(), 'dist', 'assets', 'data', 'contents.json');
-    if (fs.existsSync(jsonPath)) {
-      const data = fs.readFileSync(jsonPath, 'utf-8');
-      return JSON.parse(data);
-    } else {
-      log(`[Contents] JSON 파일을 찾을 수 없음: ${jsonPath}`);
-    }
-  } catch (e) {
-    log(`[Contents] 기본 데이터 로드 실패: ${e}`);
-  }
-  return [];
+interface ContentsResourceMeta {
+  schemaVersion: number;
+  resourceVersion: string;
+  expectedItemCount: number;
+  sentinelIds: string[];
 }
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateDefaultItem(value: unknown, index: number): ContentsCheckerItem {
+  if (!isPlainObject(value)) throw new Error(`${index}번 항목이 객체가 아닙니다.`);
+  const id = value.id;
+  const name = value.name;
+  const category = value.category;
+  const resetRule = value.resetRule;
+  if (typeof id !== 'string' || !/^[a-z0-9][a-z0-9-]{1,127}$/.test(id)) {
+    throw new Error(`${index}번 항목 ID가 유효하지 않습니다.`);
+  }
+  if (typeof name !== 'string' || name.trim().length === 0 || name.length > 200) {
+    throw new Error(`${id}의 이름이 유효하지 않습니다.`);
+  }
+  if (typeof category !== 'string' || category.trim().length === 0 || category.length > 100) {
+    throw new Error(`${id}의 분류가 유효하지 않습니다.`);
+  }
+  if (typeof value.isVisible !== 'boolean') throw new Error(`${id}의 isVisible이 boolean이 아닙니다.`);
+  if (value.isCustom !== undefined && typeof value.isCustom !== 'boolean') {
+    throw new Error(`${id}의 isCustom이 boolean이 아닙니다.`);
+  }
+  if (value.auto !== undefined && typeof value.auto !== 'boolean') {
+    throw new Error(`${id}의 auto가 boolean이 아닙니다.`);
+  }
+  if (!isPlainObject(resetRule) || (resetRule.type !== 'daily' && resetRule.type !== 'weekly')) {
+    throw new Error(`${id}의 resetRule이 유효하지 않습니다.`);
+  }
+  if (!Number.isInteger(resetRule.hour) || (resetRule.hour as number) < 0 || (resetRule.hour as number) > 23) {
+    throw new Error(`${id}의 리셋 시각이 유효하지 않습니다.`);
+  }
+  if (
+    resetRule.type === 'weekly'
+    && (!Number.isInteger(resetRule.dayOfWeek)
+      || (resetRule.dayOfWeek as number) < 0
+      || (resetRule.dayOfWeek as number) > 6)
+  ) {
+    throw new Error(`${id}의 주간 리셋 요일이 유효하지 않습니다.`);
+  }
+  if (value.maxCount !== undefined && (!Number.isInteger(value.maxCount) || (value.maxCount as number) < 1 || (value.maxCount as number) > 10_000)) {
+    throw new Error(`${id}의 maxCount가 유효하지 않습니다.`);
+  }
+
+  return {
+    id,
+    name,
+    category,
+    isVisible: value.isVisible,
+    isCustom: value.isCustom as boolean | undefined,
+    resetRule: {
+      type: resetRule.type,
+      ...(resetRule.type === 'weekly' ? { dayOfWeek: resetRule.dayOfWeek as number } : {}),
+      hour: resetRule.hour as number
+    },
+    maxCount: value.maxCount as number | undefined,
+    auto: value.auto as boolean | undefined,
+    completedState: {}
+  };
+}
+
+function validateResourceMeta(value: unknown): ContentsResourceMeta {
+  if (!isPlainObject(value)) throw new Error('contents.meta.json 최상위 값이 객체가 아닙니다.');
+  if (value.schemaVersion !== 1) throw new Error(`지원하지 않는 contents schemaVersion: ${String(value.schemaVersion)}`);
+  if (typeof value.resourceVersion !== 'string' || value.resourceVersion.trim().length === 0) {
+    throw new Error('contents resourceVersion이 없습니다.');
+  }
+  if (!Number.isInteger(value.expectedItemCount) || (value.expectedItemCount as number) < 1) {
+    throw new Error('contents expectedItemCount가 유효하지 않습니다.');
+  }
+  if (!Array.isArray(value.sentinelIds) || value.sentinelIds.length < 3 || value.sentinelIds.some(id => typeof id !== 'string')) {
+    throw new Error('contents sentinelIds가 유효하지 않습니다.');
+  }
+  return {
+    schemaVersion: 1,
+    resourceVersion: value.resourceVersion,
+    expectedItemCount: value.expectedItemCount as number,
+    sentinelIds: [...value.sentinelIds] as string[]
+  };
+}
+
+/** 기본 컨텐츠와 동반 메타데이터를 모두 검증한 뒤에만 반환한다. */
+function loadDefaultItems(): ContentsCheckerItem[] | null {
+  try {
+    const dataDirectory = path.join(app.getAppPath(), 'dist', 'assets', 'data');
+    const jsonPath = path.join(dataDirectory, 'contents.json');
+    const metaPath = path.join(dataDirectory, 'contents.meta.json');
+    if (!fs.existsSync(jsonPath) || !fs.existsSync(metaPath)) {
+      throw new Error(`리소스 파일 누락: ${!fs.existsSync(jsonPath) ? jsonPath : metaPath}`);
+    }
+
+    const rawItems = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as unknown;
+    const meta = validateResourceMeta(JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as unknown);
+    if (!Array.isArray(rawItems)) throw new Error('contents.json 최상위 값이 배열이 아닙니다.');
+    if (rawItems.length !== meta.expectedItemCount) {
+      throw new Error(`contents 항목 수 불일치: expected=${meta.expectedItemCount}, actual=${rawItems.length}`);
+    }
+
+    const items = rawItems.map(validateDefaultItem);
+    const ids = new Set<string>();
+    for (const item of items) {
+      if (ids.has(item.id)) throw new Error(`contents 중복 ID: ${item.id}`);
+      ids.add(item.id);
+    }
+    for (const sentinelId of meta.sentinelIds) {
+      if (!ids.has(sentinelId)) throw new Error(`contents sentinel 누락: ${sentinelId}`);
+    }
+    log(`[Contents] 기본 리소스 검증 완료: ${meta.resourceVersion}, ${items.length}개`);
+    return items;
+  } catch (error) {
+    log(`[Contents] 기본 데이터 검증 실패: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return null;
+}
+
+const cloneItems = (items: ContentsCheckerItem[] | undefined): ContentsCheckerItem[] => structuredClone(items || []);
+const clonePresets = <T>(presets: T[] | undefined): T[] => structuredClone(presets || []);
+const clonePending = (pending: PendingHomework[] | undefined): PendingHomework[] => structuredClone(pending || []);
 
 /** 초기화 및 병합 (앱 시작 시 호출) */
 export function init(): void {
   const defaultItems = loadDefaultItems();
   // 치명적 데이터 삭제 방어 가드 (contents.json 로드 실패 시 기존 사용자 데이터 보존)
-  if (!defaultItems || defaultItems.length === 0) {
-    log('[Contents Checker] 기본 데이터 로드 실패로 인해 마이그레이션 및 필터링을 건너뜁니다.');
+  if (!defaultItems) {
+    log('[Contents Checker] 기본 데이터 검증 실패로 인해 모든 마이그레이션·필터링·저장을 중단합니다.');
     return;
   }
 
   const cfg = config.load();
-  let currentItems = (cfg.contentsCheckerItems || []) as LegacyContentsCheckerItem[];
+  let currentItems = cloneItems(cfg.contentsCheckerItems) as LegacyContentsCheckerItem[];
   let changed = false;
 
   // 구버전 클럽던전 데이터 삭제 처리 (신규 클럽 보스로 대체)
@@ -420,7 +529,7 @@ export function init(): void {
 /** 초기화 로직 (정기적으로 또는 수동 호출) */
 export function checkReset(): boolean {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const now = new Date();
   const nowTs = now.getTime();
   const lastCheck = cfg.lastContentsResetCheck || 0;
@@ -586,7 +695,7 @@ function syncHomeworkDiary(
 
 function getItemStateContext(id: string, characterId?: string) {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const targetCharId = characterId || cfg.selectedCharacterId || MAIN_CHAR_ID;
   const item = items.find(candidate => candidate.id === id);
   if (!item) return null;
@@ -634,7 +743,7 @@ export function toggleItem(id: string, characterId?: string): void {
 /** 캐릭터별 숙제 제외(N/A) 토글 */
 export function toggleExcludeItem(id: string, characterId: string): void {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
   
   if (item) {
@@ -668,7 +777,7 @@ export function toggleExcludeItem(id: string, characterId: string): void {
 /** 캐릭터 관리: 추가 */
 export function addCharacter(name: string): void {
   const cfg = config.load();
-  const presets = cfg.characterPresets || [];
+  const presets = clonePresets(cfg.characterPresets);
   // 더 안전한 고유 ID 생성 (시간 기반 36진수 + 랜덤 36진수)
   const newId = `char-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
   presets.push({ id: newId, name });
@@ -683,7 +792,7 @@ export function addCharacter(name: string): void {
 /** 캐릭터 관리: 삭제 */
 export function removeCharacter(id: string): void {
   const cfg = config.load();
-  let presets = cfg.characterPresets || [];
+  let presets = clonePresets(cfg.characterPresets);
   if (presets.length <= 1) return; // 최소 1개는 유지
 
   presets = presets.filter(p => p.id !== id);
@@ -693,7 +802,7 @@ export function removeCharacter(id: string): void {
   }
 
   // 모든 아이템에서 해당 캐릭터의 상태 삭제
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   items.forEach(item => {
     if (item.completedState) {
       delete item.completedState[id];
@@ -712,7 +821,7 @@ export function removeCharacter(id: string): void {
 /** 캐릭터 관리: 이름 변경 */
 export function renameCharacter(id: string, newName: string): void {
   const cfg = config.load();
-  const presets = cfg.characterPresets || [];
+  const presets = clonePresets(cfg.characterPresets);
   const char = presets.find(p => p.id === id);
   if (char) {
     char.name = newName;
@@ -730,7 +839,7 @@ export function selectCharacter(id: string): void {
 /** 가시성 토글 */
 export function toggleVisibility(id: string): void {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
   if (item) {
     item.isVisible = !item.isVisible;
@@ -742,7 +851,7 @@ export function toggleVisibility(id: string): void {
 /** 항목 수정 (이름, 카테고리, 초기화 규칙, 주간 최대 횟수) */
 export function updateItem(id: string, name: string, category: string, rule: ResetRule, maxCount?: number): void {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
   if (item) {
     item.name = name;
@@ -784,7 +893,7 @@ export function updateItem(id: string, name: string, category: string, rule: Res
 /** 카테고리 수정 */
 export function updateCategory(id: string, newCategory: string): void {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
   if (item) {
     item.category = newCategory;
@@ -796,7 +905,7 @@ export function updateCategory(id: string, newCategory: string): void {
 /** 이름 수정 */
 export function updateName(id: string, newName: string): void {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
   if (item) {
     item.name = newName;
@@ -808,7 +917,7 @@ export function updateName(id: string, newName: string): void {
 /** 커스텀 항목 추가 */
 export function addCustomItem(name: string, category: string, rule: ResetRule, maxCount?: number): void {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const newItem: ContentsCheckerItem = {
     id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
     name,
@@ -831,7 +940,7 @@ export function addCustomItem(name: string, category: string, rule: ResetRule, m
 /** 항목 삭제 (커스텀 전용) */
 export function removeItem(id: string): void {
   const cfg = config.load();
-  let items = cfg.contentsCheckerItems || [];
+  let items = cloneItems(cfg.contentsCheckerItems);
   items = items.filter(i => i.id !== id);
   config.saveImmediate({ contentsCheckerItems: items });
   refreshUI();
@@ -853,7 +962,7 @@ export function moveItem(id: string, direction: MoveDirection): void {
   if (direction !== 'up' && direction !== 'down') return;
 
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const itemIndex = items.findIndex(item => item.id === id);
   if (itemIndex === -1) return;
 
@@ -876,7 +985,7 @@ export function reorderItem(sourceId: string, targetId: string, position: DropPo
   if (sourceId === targetId || (position !== 'before' && position !== 'after')) return;
 
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const source = items.find(item => item.id === sourceId);
   const target = items.find(item => item.id === targetId);
   if (!source || !target) return;
@@ -939,7 +1048,7 @@ export function moveCategory(resetType: ResetRule['type'], category: string, dir
   if ((resetType !== 'daily' && resetType !== 'weekly') || (direction !== 'up' && direction !== 'down')) return;
 
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const typeIndices = items
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.resetRule.type === resetType)
@@ -970,7 +1079,7 @@ export function reorderCategory(
   if ((resetType !== 'daily' && resetType !== 'weekly') || sourceCategory === targetCategory || (position !== 'before' && position !== 'after')) return;
 
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const typeIndices = items
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.resetRule.type === resetType)
@@ -1020,7 +1129,7 @@ export function updateItemCount(id: string, characterId: string, count: number):
 /** 주간/과거 로그 동기화 시 완료 횟수를 안전하게 병합 (Math.max) */
 export function mergeHomeworkCountFromSync(id: string, detectedCount: number, characterId?: string): boolean {
   const cfg = config.load();
-  const presets = cfg.characterPresets || [];
+  const presets = clonePresets(cfg.characterPresets);
   const targetCharId = characterId || presets[0]?.id || cfg.selectedCharacterId || MAIN_CHAR_ID;
 
   const context = getItemStateContext(id, targetCharId);
@@ -1051,7 +1160,7 @@ export function mergeHomeworkCountFromSync(id: string, detectedCount: number, ch
 /** 특정 숙제의 완료 횟수 증감 (채팅 로그 등 외부 연동용) */
 export function incrementItemCount(id: string, characterId: string, amount: number = 1): void {
   const cfg = config.load();
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const targetCharId = characterId || cfg.selectedCharacterId || MAIN_CHAR_ID;
   
   const item = items.find(i => i.id === id);
@@ -1064,11 +1173,11 @@ export function incrementItemCount(id: string, characterId: string, amount: numb
 /** 채팅 로그 감지 시 캐릭터 개수에 따라 즉시 반영 또는 보류 대기열 추가 */
 export function queuePendingHomework(id: string, count: number, isIncrement: boolean): void {
   const cfg = config.load();
-  const presets = cfg.characterPresets || [];
+  const presets = clonePresets(cfg.characterPresets);
 
   log(`[Contents Checker] queuePendingHomework 호출 - ID: ${id}, Count: ${count}, isIncrement: ${isIncrement}`);
 
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const targetItem = items.find(i => i.id === id);
 
   // 1. 해당 숙제가 존재하지 않거나 숨김 처리(isVisible: false)된 경우 감지 및 보류 대기열 추가 무시
@@ -1133,10 +1242,10 @@ export function queuePendingHomework(id: string, count: number, isIncrement: boo
 /** 보류 대기열의 내역을 특정 캐릭터에 반영 */
 export function applyPendingHomeworks(characterId: string): void {
   const cfg = config.load();
-  const pendingList = cfg.pendingHomeworks || [];
+  const pendingList = clonePending(cfg.pendingHomeworks);
   if (pendingList.length === 0) return;
 
-  const items = cfg.contentsCheckerItems || [];
+  const items = cloneItems(cfg.contentsCheckerItems);
   const now = new Date();
   const appliedPendingIds = new Set<string>();
 

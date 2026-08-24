@@ -50,12 +50,11 @@ export async function loginAndInit(): Promise<{ success: boolean; status: Google
     }
 
     const cfg = config.load();
-    cfg.googleSyncEnabled = true;
-    cfg.googleSyncUserEmail = loginResult.profile.email;
-    if (cfg.googleSyncAutoSync === undefined) {
-      cfg.googleSyncAutoSync = true;
-    }
-    config.saveImmediate(cfg);
+    config.saveImmediate({
+      googleSyncEnabled: true,
+      googleSyncUserEmail: loginResult.profile.email,
+      ...(cfg.googleSyncAutoSync === undefined ? { googleSyncAutoSync: true } : {}),
+    });
 
     broadcastToAllWindows('google-sync-status-changed', getSyncStatus());
 
@@ -98,9 +97,7 @@ export function logout(): GoogleSyncStatus {
   }
   googleAuth.logout();
 
-  const cfg = config.load();
-  cfg.googleSyncEnabled = false;
-  config.saveImmediate(cfg);
+  config.saveImmediate({ googleSyncEnabled: false });
 
   const status = getSyncStatus();
   broadcastToAllWindows('google-sync-status-changed', status);

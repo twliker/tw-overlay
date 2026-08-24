@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "resourceVersion": "2026-08-24-v3-baseline",
+  "expectedItemCount": 61,
+  "sentinelIds": [
+    "weekly-eclipse-boss-ethos",
+    "weekly-ancient-relic",
+    "daily-architect-mine"
+  ]
+}

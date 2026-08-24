@@ -25,21 +25,31 @@
     calculators: 50,
   };
 
-  function buildAlertSoundOptionsHtml(soundFiles: SoundListItem[]): string {
-    return '<option value="none">사용 안 함 (소리 없음)</option>'
-      + soundFiles.map(sound => `<option value="${sound.file}">${sound.name}</option>`).join('');
+  function replaceAlertSoundOptions(select: HTMLSelectElement, soundFiles: SoundListItem[]): void {
+    const fragment = document.createDocumentFragment();
+    const noneOption = document.createElement('option');
+    noneOption.value = 'none';
+    noneOption.textContent = '사용 안 함 (소리 없음)';
+    fragment.appendChild(noneOption);
+
+    soundFiles.forEach(sound => {
+      const option = document.createElement('option');
+      option.value = String(sound.file).slice(0, 500);
+      option.textContent = String(sound.name).slice(0, 300);
+      fragment.appendChild(option);
+    });
+
+    select.replaceChildren(fragment);
   }
 
   async function populateAlertSoundSelects(preserveValues: boolean): Promise<void> {
     const soundFiles = await window.loadSoundList();
     if (!soundFiles) return;
-    const soundOptionsHtml = buildAlertSoundOptionsHtml(soundFiles);
-
     ALERT_SOUND_SELECTS.forEach(({ id }) => {
       const select = document.getElementById(id) as HTMLSelectElement | null;
       if (!select) return;
       const previousValue = select.value;
-      select.innerHTML = soundOptionsHtml;
+      replaceAlertSoundOptions(select, soundFiles);
       if (preserveValues) select.value = previousValue;
     });
   }

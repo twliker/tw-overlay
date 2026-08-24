@@ -605,6 +605,17 @@
   <script src="renderer/diary/log-utils.js"></script>
   <script>
     const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
+    const escapeHtml = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+    const safeAssetPath = (value) => {
+      const normalized = String(value ?? '').replace(/\\/g, '/');
+      return /^assets\/[A-Za-z0-9가-힣ㄱ-ㅎㅏ-ㅣ_./()ⓟ -]+$/u.test(normalized)
+        && !normalized.includes('../') ? normalized : '';
+    };
     lucide.createIcons();
     window.bindEscapeClose();
 
@@ -686,7 +697,7 @@
         });
 
         if (matched && matched.image) {
-          img = `assets/items/${matched.image}`;
+          img = safeAssetPath(`assets/items/${matched.image}`);
         } else if (name.includes('스페셜 스킬') || name.includes('연마') || cleanName.includes('연마')) {
           img = 'assets/items/스페셜스킬.png';
         } else {
@@ -749,36 +760,36 @@
             const t = isWeekly ? it.displayTime.split(' ')[1] : it.time;
             const msg = it.content.split('(')[0].replace('[자동] ', '').trim();
             const seed = (it.content.match(/\(([^)]+)\)/) || [])[1] || '';
-            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${t}</span><span class="text-slate-400 truncate flex-1 px-2">${msg}</span><span class="text-orange-300/50 font-mono">${seed}</span></div>`;
+            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${escapeHtml(t)}</span><span class="text-slate-400 truncate flex-1 px-2">${escapeHtml(msg)}</span><span class="text-orange-300/50 font-mono">${escapeHtml(seed)}</span></div>`;
           }).join('');
 
-          htmls.push(`<div class="timeline-item flex flex-col pr-2"><i data-lucide="gem" class="w-3 h-3 text-orange-400/50 absolute left-0.5 top-[5px]"></i><div onclick="toggleAutoGroup('${gid}')" class="flex items-baseline gap-2 pl-1 pt-[2px] cursor-pointer hover:bg-white/5 rounded px-1 transition-colors"><span class="text-xs font-bold text-slate-600 font-mono ${timeClass} shrink-0">${timeDisplay}</span><span class="text-[11px] font-bold text-slate-500 shrink-0">[Auto]</span><span class="text-[11px] font-medium text-slate-400 flex-1">자동 수익 합계 (${log.items.length}건)</span><span class="text-[11px] font-black text-orange-400/70">${window.formatSeedAmount(log.totalAmount).replace(' 시드', '')}</span><i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i></div><div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-orange-500/20">${itemsHtml}</div></div>`);
+          htmls.push(`<div class="timeline-item flex flex-col pr-2"><i data-lucide="gem" class="w-3 h-3 text-orange-400/50 absolute left-0.5 top-[5px]"></i><div onclick="toggleAutoGroup('${gid}')" class="flex items-baseline gap-2 pl-1 pt-[2px] cursor-pointer hover:bg-white/5 rounded px-1 transition-colors"><span class="text-xs font-bold text-slate-600 font-mono ${timeClass} shrink-0">${escapeHtml(timeDisplay)}</span><span class="text-[11px] font-bold text-slate-500 shrink-0">[Auto]</span><span class="text-[11px] font-medium text-slate-400 flex-1">자동 수익 합계 (${log.items.length}건)</span><span class="text-[11px] font-black text-orange-400/70">${escapeHtml(window.formatSeedAmount(log.totalAmount).replace(' 시드', ''))}</span><i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i></div><div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-orange-500/20">${itemsHtml}</div></div>`);
         } else if (log.isStoneGroup) {
           const gid = isWeekly ? `timeline-stone-week-${gIdx}` : `timeline-stone-${gIdx}`;
-          const stoneImg = `assets/items/magic_stone/${log.grade}마정석.png`;
+          const stoneImg = safeAssetPath(`assets/items/magic_stone/${log.grade}마정석.png`);
           const hasMultiple = log.items.length > 1;
           const timeDisplay = isWeekly ? `${log.startTime}${log.startTime !== log.endTime ? '~' + log.endTime : ''}` : log.startTime;
           const timeClass = isWeekly ? 'w-24 text-xs' : 'w-10 text-[13px]';
           const itemsHtml = hasMultiple ? log.items.map(it => {
             const t = isWeekly ? it.displayTime.split(' ')[1] : it.time;
             const cnt = it.amount || resolveLootCount(it.content, it.amount);
-            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${t}</span><span class="text-slate-400 truncate flex-1 px-2">${it.content.replace('[득템] ', '').trim()}</span><span class="text-amber-300/70 font-mono font-bold">${cnt}개</span></div>`;
+            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${escapeHtml(t)}</span><span class="text-slate-400 truncate flex-1 px-2">${escapeHtml(it.content.replace('[득템] ', '').trim())}</span><span class="text-amber-300/70 font-mono font-bold">${cnt}개</span></div>`;
           }).join('') : '';
 
-          htmls.push(`<div class="timeline-item flex flex-col pr-2"><img src="${stoneImg}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[4px] select-none" onerror="handleLootImageError(this, 'sparkles', 'amber-400')"><div ${hasMultiple ? `onclick="toggleAutoGroup('${gid}')"` : ''} class="flex items-baseline gap-2 pl-1 pt-[2px] ${hasMultiple ? 'cursor-pointer hover:bg-white/5' : ''} rounded px-1 transition-colors"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${timeDisplay}</span><span class="text-[11px] font-bold text-amber-400/80 shrink-0">[마정석]</span><span class="text-[11px] font-medium text-slate-300 flex-1">${log.grade} 마정석 ${hasMultiple ? `(${log.items.length}회 획득)` : ''}</span><span class="text-[12px] font-black text-amber-400 font-mono">${log.totalCount.toLocaleString()}개</span>${hasMultiple ? `<i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i>` : ''}</div>${hasMultiple ? `<div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-amber-500/20">${itemsHtml}</div>` : ''}</div>`);
+          htmls.push(`<div class="timeline-item flex flex-col pr-2"><img src="${stoneImg}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[4px] select-none" onerror="handleLootImageError(this, 'sparkles', 'amber-400')"><div ${hasMultiple ? `onclick="toggleAutoGroup('${gid}')"` : ''} class="flex items-baseline gap-2 pl-1 pt-[2px] ${hasMultiple ? 'cursor-pointer hover:bg-white/5' : ''} rounded px-1 transition-colors"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${escapeHtml(timeDisplay)}</span><span class="text-[11px] font-bold text-amber-400/80 shrink-0">[마정석]</span><span class="text-[11px] font-medium text-slate-300 flex-1">${escapeHtml(log.grade)} 마정석 ${hasMultiple ? `(${log.items.length}회 획득)` : ''}</span><span class="text-[12px] font-black text-amber-400 font-mono">${Number(log.totalCount).toLocaleString()}개</span>${hasMultiple ? `<i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i>` : ''}</div>${hasMultiple ? `<div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-amber-500/20">${itemsHtml}</div>` : ''}</div>`);
         } else {
           let icon = log.type === 'boss' ? 'sword' : (log.type === 'calc' ? 'gem' : (log.type === 'homework' ? 'check-square' : 'sparkles'));
           let color = log.type === 'boss' ? 'red-400' : (log.type === 'calc' ? 'orange-400' : (log.type === 'homework' ? 'blue-400' : 'amber-400'));
           const isEssence = log.content.includes('경험의 정수');
           const del = (!isWeekly && (log.type === 'calc' || log.type === 'loot') && !isEssence)
-            ? `<button onclick="deleteTimelineItem('${log.type}', '${log.content.replace(/'/g, "\\'")}')" class="w-5 h-5 flex items-center justify-center ml-2 text-slate-500 hover:text-red-400 bg-slate-800/50 rounded transition-colors shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button>`
+            ? `<button type="button" data-delete-log-index="${gIdx}" class="w-5 h-5 flex items-center justify-center ml-2 text-slate-500 hover:text-red-400 bg-slate-800/50 rounded transition-colors shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button>`
             : '';
 
           let iconHtml = '';
           if (log.type === 'loot') {
             const parsed = parseLootItem(log.content, log.amount);
             if (parsed.img) {
-              iconHtml = `<img src="${parsed.img}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[2px] select-none" onerror="handleLootImageError(this, '${icon}', '${color}')">`;
+              iconHtml = `<img src="${safeAssetPath(parsed.img)}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[2px] select-none" onerror="handleLootImageError(this, '${icon}', '${color}')">`;
             } else {
               iconHtml = `<i data-lucide="${icon}" class="w-3 h-3 text-${color} absolute left-0.5 top-[1px]"></i>`;
             }
@@ -790,7 +801,7 @@
 
           const timeVal = isWeekly ? log.displayTime : log.time;
           const timeClass = isWeekly ? 'w-24 text-xs' : 'w-10 text-[13px]';
-          htmls.push(`<div class="timeline-item flex items-start pr-2">${iconHtml}<div class="flex items-baseline gap-2 pl-1 flex-1 pt-[2px]"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${timeVal}</span><span class="text-xs font-medium text-slate-200 leading-snug">${formatTimelineLogContent(log)}</span></div>${del}</div>`);
+          htmls.push(`<div class="timeline-item flex items-start pr-2">${iconHtml}<div class="flex items-baseline gap-2 pl-1 flex-1 pt-[2px]"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${escapeHtml(timeVal)}</span><span class="text-xs font-medium text-slate-200 leading-snug">${formatTimelineLogContent(log)}</span></div>${del}</div>`);
         }
       });
 
@@ -800,6 +811,18 @@
         container.insertAdjacentHTML('beforeend', htmls.join(''));
       }
       currentChunkIndex++;
+
+      container.querySelectorAll('[data-delete-log-index]').forEach(button => {
+        if (button.dataset.deleteBound === 'true') return;
+        button.dataset.deleteBound = 'true';
+        button.addEventListener('click', () => {
+          const index = Number(button.dataset.deleteLogIndex);
+          const target = activeTimelineChunks[index];
+          if (target && (target.type === 'calc' || target.type === 'loot')) {
+            deleteTimelineItem(target.type, target.content);
+          }
+        });
+      });
 
       if (typeof lucide !== 'undefined') {
         lucide.createIcons({ root: container });
@@ -909,7 +932,7 @@
         stats.topBosses.forEach((b, idx) => {
           const percent = Math.round((b.count / maxCount) * 100);
           const color = idx === 0 ? 'bg-amber-500' : (idx === 1 ? 'bg-slate-400' : 'bg-orange-700/80');
-          bossEl.innerHTML += `<div class="flex flex-col gap-1.5"><div class="flex justify-between items-center text-xs font-bold"><span class="text-slate-200">${b.name}</span><span class="text-slate-400">${b.count}회</span></div><div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden"><div class="h-full ${color} rounded-full" style="width: ${percent}%"></div></div></div>`;
+          bossEl.innerHTML += `<div class="flex flex-col gap-1.5"><div class="flex justify-between items-center text-xs font-bold"><span class="text-slate-200">${escapeHtml(b.name)}</span><span class="text-slate-400">${Number(b.count)}회</span></div><div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden"><div class="h-full ${color} rounded-full" style="width: ${percent}%"></div></div></div>`;
         });
       }
 
@@ -1040,14 +1063,14 @@
         });
 
         lootListEl.innerHTML = Object.values(monthlyLootGroup).sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)).map(item => {
-          const imgHtml = item.img ? `<img src="${item.img}" class="w-3.5 h-3.5 object-contain select-none shrink-0" onerror="this.style.display='none'">` : '';
+          const imgHtml = item.img ? `<img src="${safeAssetPath(item.img)}" class="w-3.5 h-3.5 object-contain select-none shrink-0" onerror="this.style.display='none'">` : '';
           const displayCount = item.count > 1 ? ` <span class="text-slate-400 font-bold ml-1 font-mono">${item.count}개</span>` : '';
           return `
             <div class="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0 gap-2">
-              <span class="text-[11px] font-mono text-slate-500 shrink-0">${item.date.slice(5)}</span>
+              <span class="text-[11px] font-mono text-slate-500 shrink-0">${escapeHtml(item.date.slice(5))}</span>
               <div class="flex items-center gap-1.5 min-w-0 flex-1 justify-end">
                 ${imgHtml}
-                <span class="text-xs font-bold text-amber-200/90 truncate">${item.name}</span>
+                <span class="text-xs font-bold text-amber-200/90 truncate">${escapeHtml(item.name)}</span>
                 ${displayCount}
               </div>
             </div>`;
@@ -1076,12 +1099,12 @@
         manualSeeds.forEach(item => {
           let desc = item.content.replace(/\s*\([^)]+\)/, '').trim();
           if (desc.includes(':')) desc = desc.split(':').pop().trim();
-          seedListEl.innerHTML += `<div class="flex items-baseline justify-between py-2 border-b border-orange-500/5 last:border-0 gap-3"><div class="flex items-baseline gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${item.date.slice(5)}</span><span class="text-[13px] font-bold text-slate-400 truncate">${desc}</span></div><span class="text-[13px] font-black text-orange-300 shrink-0 text-right">${(item.content.match(/\(([^)]+)\)/) || [])[1] || ''}</span></div>`;
+          seedListEl.innerHTML += `<div class="flex items-baseline justify-between py-2 border-b border-orange-500/5 last:border-0 gap-3"><div class="flex items-baseline gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(item.date.slice(5))}</span><span class="text-[13px] font-bold text-slate-400 truncate">${escapeHtml(desc)}</span></div><span class="text-[13px] font-black text-orange-300 shrink-0 text-right">${escapeHtml((item.content.match(/\(([^)]+)\)/) || [])[1] || '')}</span></div>`;
         });
 
                 Object.values(autoGroups).sort((a, b) => b.date.localeCompare(a.date)).forEach((group, idx) => {
           const groupId = `auto-group-${idx}`;
-          seedListEl.innerHTML += `<div class="border-b border-orange-500/5 last:border-0"><div onclick="toggleAutoGroup('${groupId}')" class="auto-group-header flex items-baseline justify-between py-2 gap-3 hover:bg-white/5 transition-colors px-1 rounded-md"><div class="flex items-center gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${group.date.slice(5)}</span><span class="text-[11px] font-black text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded shrink-0">Auto</span><span class="text-[12px] font-bold text-slate-400">자동 수익 요약 (${group.items.length}건)</span></div><div class="flex items-center gap-1.5"><span class="text-[13px] font-black text-orange-300/60 shrink-0">${window.formatSeedAmount(group.total).replace(' 시드', '')}</span><i data-lucide="chevron-down" id="${groupId}-icon" class="w-3 h-3 text-slate-600 rotate-icon"></i></div></div><div id="${groupId}" class="auto-group-content bg-black/20 rounded-lg mx-1 mb-1">${group.items.map(it => `<div class="flex justify-between py-1.5 px-3 text-[11px] border-b border-white/5 last:border-0"><span class="text-slate-500">${it.content.split('(')[0].replace('[자동] ', '').trim()}</span><span class="text-slate-400 font-mono">${it.amountStr}</span></div>`).join('')}</div></div>`;
+          seedListEl.innerHTML += `<div class="border-b border-orange-500/5 last:border-0"><div onclick="toggleAutoGroup('${groupId}')" class="auto-group-header flex items-baseline justify-between py-2 gap-3 hover:bg-white/5 transition-colors px-1 rounded-md"><div class="flex items-center gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(group.date.slice(5))}</span><span class="text-[11px] font-black text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded shrink-0">Auto</span><span class="text-[12px] font-bold text-slate-400">자동 수익 요약 (${group.items.length}건)</span></div><div class="flex items-center gap-1.5"><span class="text-[13px] font-black text-orange-300/60 shrink-0">${escapeHtml(window.formatSeedAmount(group.total).replace(' 시드', ''))}</span><i data-lucide="chevron-down" id="${groupId}-icon" class="w-3 h-3 text-slate-600 rotate-icon"></i></div></div><div id="${groupId}" class="auto-group-content bg-black/20 rounded-lg mx-1 mb-1">${group.items.map(it => `<div class="flex justify-between py-1.5 px-3 text-[11px] border-b border-white/5 last:border-0"><span class="text-slate-500">${escapeHtml(it.content.split('(')[0].replace('[자동] ', '').trim())}</span><span class="text-slate-400 font-mono">${escapeHtml(it.amountStr)}</span></div>`).join('')}</div></div>`;
         });
 
         if (seedListEl.innerHTML === '') seedListEl.innerHTML = '<div class="text-[13px] text-slate-600 italic py-6 text-center">기록 없음</div>';
@@ -1141,7 +1164,7 @@
           });
 
           Object.entries(lootMap).forEach(([name, info]) => {
-            const imgHtml = info.img ? `<img src="${info.img}" class="w-3.5 h-3.5 object-contain shrink-0 select-none pointer-events-none" onerror="this.style.display='none'">` : '';
+            const imgHtml = info.img ? `<img src="${safeAssetPath(info.img)}" class="w-3.5 h-3.5 object-contain shrink-0 select-none pointer-events-none" onerror="this.style.display='none'">` : '';
             const countStr = info.count > 1 ? ` <span class="text-white/60 ml-0.5 pointer-events-none">${info.count}</span>` : '';
             
             let badgeBg = 'bg-amber-500/10 border border-amber-500/20 text-amber-300';
@@ -1156,9 +1179,9 @@
             }
             
             lootStackHtml += `
-              <div class="loot-badge ${badgeBg} truncate shadow-sm cursor-help" data-diary-tooltip="${name}${info.count > 1 ? ' ' + info.count + '개' : ''}">
+              <div class="loot-badge ${badgeBg} truncate shadow-sm cursor-help" data-diary-tooltip="${escapeHtml(name)}${info.count > 1 ? ' ' + Number(info.count) + '개' : ''}">
                 ${imgHtml}
-                <span class="truncate pointer-events-none">${name}${countStr}</span>
+                <span class="truncate pointer-events-none">${escapeHtml(name)}${countStr}</span>
               </div>
             `;
           });
