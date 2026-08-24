@@ -2336,9 +2336,15 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
 }
 
 function checkTodaySummary(): void {
-  const { resolveLootCount } = require(
+  const { parseAutoLogAmount, resolveLootCount } = require(
     path.join(projectRoot, 'dist/renderer/diary/log-utils.js'),
-  ) as { resolveLootCount(content: string, storedAmount: unknown): number };
+  ) as {
+    parseAutoLogAmount(content: string): number;
+    resolveLootCount(content: string, storedAmount: unknown): number;
+  };
+  assert.equal(parseAutoLogAmount('[자동] 보상 (1조)'), 1_000_000_000_000);
+  assert.equal(parseAutoLogAmount('[자동] 보상 (1조 2억 3만)'), 1_000_200_030_000);
+  assert.equal(parseAutoLogAmount('[자동] 보상 (1,234)'), 1_234);
   assert.equal(resolveLootCount('[득템] 경험의 정수', 2), 2);
   assert.equal(resolveLootCount('[득템] 경험의 정수 3개', 0), 3);
   assert.equal(resolveLootCount('[득템] 경험의 정수', 0), 1);
@@ -2782,6 +2788,10 @@ function checkChatLogSyncManagerContracts() {
       '기본 지도가 기존 사용자 행을 덮어쓸 수 있습니다.');
     assert.match(diaryDbSource, /Version 2 migration completed/);
 
+    assert.equal(diaryDb.parseMigrationNumber('1조'), 1_000_000_000_000);
+    assert.equal(diaryDb.parseMigrationNumber('1조 2억 3만'), 1_000_200_030_000);
+    assert.equal(diaryDb.parseMigrationNumber('1,234'), 1_234);
+
     // 배치 중 후반부 쓰기가 실패하면 앞서 증가한 성공 카운터와 DB 변경이 모두 롤백되어야 한다.
     const rollbackDate = '2099-12-30';
     const rollbackContent = '[득템] 롤백 검증 아이템';
@@ -2812,6 +2822,27 @@ function checkChatLogSyncManagerContracts() {
     if (typeof diaryDb.closeDb === 'function') {
       diaryDb.closeDb();
     }
+
+    // v2 DB에서 잘못 저장된 단위 금액만 v3 마이그레이션이 원문 기준으로 복구하는지 검증한다.
+    const migrationDate = '2099-12-29';
+    const migrationDbPath = path.join(isolatedUserData, 'diary.db');
+    const MigrationDatabase = require('better-sqlite3');
+    const migrationDb = new MigrationDatabase(migrationDbPath);
+    migrationDb.prepare('INSERT OR IGNORE INTO diaries (date) VALUES (?)').run(migrationDate);
+    migrationDb.prepare(`
+      INSERT INTO activity_logs (date, type, content, time, amount, source)
+      VALUES (?, 'calc', ?, '23:59:57', 1, 'legacy-unknown')
+    `).run(migrationDate, '[자동] 복구 검증 (1조 2억 3만)');
+    migrationDb.pragma('user_version = 2');
+    migrationDb.close();
+
+    diaryDb.initDb();
+    const repairedLog = diaryDb.getDiaryByDate(migrationDate).activityLogs
+      .find((log: { content: string }) => log.content.includes('복구 검증'));
+    assert.equal(repairedLog?.amount, 1_000_200_030_000,
+      'v2 DB의 조/억/만 단위 금액이 원문 기준으로 복구되지 않았습니다.');
+    diaryDb.removeActivityLog(migrationDate, 'calc', '[자동] 복구 검증 (1조 2억 3만)');
+    diaryDb.closeDb();
   } finally {
     const rootDbPath = path.join(projectRoot, 'diary.db');
     if (fs.existsSync(rootDbPath)) {

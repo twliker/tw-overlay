@@ -430,6 +430,34 @@ export function initDb(): void {
       migrateV2();
       log('[DiaryDB] Version 2 migration completed: activity source, homework uniqueness, default hunting grounds.');
     }
+
+    if (userVersion < 3) {
+      let repairedUnitAmounts = 0;
+      const migrateV3 = db.transaction(() => {
+        // 과거 파서가 `1조`를 단위 합산한 뒤 raw fallback의 `1`로 다시 덮어쓸 수 있었다.
+        // 숫자값(amount === 1)으로 추측하지 않고 원문의 괄호 안 금액에 단위가 있는 calc 행만 재계산한다.
+        const rows = db!.prepare(`
+          SELECT id, content, amount
+          FROM activity_logs
+          WHERE type = 'calc'
+            AND (instr(content, '조') > 0 OR instr(content, '억') > 0 OR instr(content, '만') > 0)
+        `).all() as Array<{ id: number; content: string; amount: number }>;
+        const updateAmount = db!.prepare('UPDATE activity_logs SET amount = ? WHERE id = ?');
+
+        for (const row of rows) {
+          const amountText = row.content.match(/\(([^)]+)\)/u)?.[1];
+          if (!amountText || !/[조억만]/u.test(amountText)) continue;
+          const parsedAmount = parseMigrationNumber(amountText);
+          if (parsedAmount <= 0 || parsedAmount === row.amount) continue;
+          updateAmount.run(parsedAmount, row.id);
+          repairedUnitAmounts++;
+        }
+
+        db!.pragma('user_version = 3');
+      });
+      migrateV3();
+      log(`[DiaryDB] Version 3 migration completed: repaired ${repairedUnitAmounts} unit-bearing amount rows.`);
+    }
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
     log(`[DiaryDB] Failed to initialize database: ${error}`);
@@ -587,17 +615,17 @@ function migrateExistingData(): void {
 }
 
 /** 마이그레이션용 숫자 파싱 (chatParser의 로직과 유사) */
-function parseMigrationNumber(s: string): number {
+export function parseMigrationNumber(s: string): number {
   let val = 0;
-  const joMatch = s.match(/(\d+)조/);
-  const eokMatch = s.match(/(\d+)억/);
-  const manMatch = s.match(/(\d+)만/);
+  const joMatch = s.match(/([\d,]+)\s*조/u);
+  const eokMatch = s.match(/([\d,]+)\s*억/u);
+  const manMatch = s.match(/([\d,]+)\s*만/u);
   const rawMatch = s.match(/([\d,]+)/);
 
-  if (joMatch) val += parseInt(joMatch[1], 10) * 1000000000000;
-  if (eokMatch) val += parseInt(eokMatch[1], 10) * 100000000;
-  if (manMatch) val += parseInt(manMatch[1], 10) * 10000;
-  if (!eokMatch && !manMatch && rawMatch) {
+  if (joMatch) val += parseInt(joMatch[1].replace(/,/g, ''), 10) * 1_000_000_000_000;
+  if (eokMatch) val += parseInt(eokMatch[1].replace(/,/g, ''), 10) * 100_000_000;
+  if (manMatch) val += parseInt(manMatch[1].replace(/,/g, ''), 10) * 10_000;
+  if (!joMatch && !eokMatch && !manMatch && rawMatch) {
     val = parseInt(rawMatch[1].replace(/,/g, ''), 10);
   }
   return val;

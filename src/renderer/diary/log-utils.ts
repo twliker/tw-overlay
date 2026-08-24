@@ -5,12 +5,24 @@
   function parseAutoLogAmount(content: string): number {
     const amountText = content.match(/\(([^)]+)\)/)?.[1];
     if (!amountText) return 0;
+
+    const unitValues: Array<[RegExp, number]> = [
+      [/([\d,]+)\s*조/u, 1_000_000_000_000],
+      [/([\d,]+)\s*억/u, 100_000_000],
+      [/([\d,]+)\s*만/u, 10_000],
+    ];
+    let amount = 0;
+    let matchedUnit = false;
+    for (const [pattern, multiplier] of unitValues) {
+      const matched = amountText.match(pattern)?.[1];
+      if (!matched) continue;
+      amount += parseInt(matched.replace(/,/g, ''), 10) * multiplier;
+      matchedUnit = true;
+    }
+    if (matchedUnit) return amount;
+
     const rawNumber = amountText.match(/([\d,]+)/)?.[1];
-    let amount = rawNumber ? parseInt(rawNumber.replace(/,/g, ''), 10) : 0;
-    if (amountText.includes('조')) amount *= 1000000000000;
-    if (amountText.includes('억')) amount *= 100000000;
-    else if (amountText.includes('만')) amount *= 10000;
-    return amount;
+    return rawNumber ? parseInt(rawNumber.replace(/,/g, ''), 10) : 0;
   }
 
   function escapeHtml(str: string): string {
