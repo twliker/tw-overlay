@@ -3144,6 +3144,24 @@ function checkPendingHomeworkOrdering(): void {
   assert.equal(isPendingHomeworkExpired(currentPending, { type: 'daily', hour: 6 }, afterReset), false);
 }
 
+function checkXpExchangeContracts(): void {
+  const { XP_PER_ESSENCE, getEssenceExchangeCount } = require(
+    path.join(projectRoot, 'dist', 'modules', 'xpTracker.js'),
+  ) as {
+    XP_PER_ESSENCE: number;
+    getEssenceExchangeCount(amount: number): number;
+  };
+
+  assert.equal(XP_PER_ESSENCE, 10_000_000_000);
+  assert.equal(getEssenceExchangeCount(-10_000_000_000), 1);
+  assert.equal(getEssenceExchangeCount(-20_000_000_000), 2);
+  assert.equal(getEssenceExchangeCount(-9_000_000_000), 0,
+    '100억 미만의 음수 XP를 경험의 정수 교환으로 오인했습니다.');
+  assert.equal(getEssenceExchangeCount(-10_000_000_001), 0,
+    '정확한 100억 배수가 아닌 음수 XP를 경험의 정수 교환으로 오인했습니다.');
+  assert.equal(getEssenceExchangeCount(10_000_000_000), 0);
+}
+
 function checkGoogleSyncDataContracts(): void {
   const syncDataHelper = require(path.join(projectRoot, 'dist', 'modules', 'syncDataHelper.js'));
 
@@ -3261,6 +3279,7 @@ checkShoutSuffixStripping();
 checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
 checkPendingHomeworkOrdering();
+checkXpExchangeContracts();
 checkGoogleSyncDataContracts();
 
 console.log('Refactor regression checks passed.');

@@ -14,6 +14,16 @@ export const QUEST_DEFINITIONS = {
   void: { name: '공허', target: 800, icon: 'orbit' }
 };
 
+export const XP_PER_ESSENCE = 10_000_000_000;
+
+/** 정확히 경험의 정수 교환 단위로 설명되는 음수 XP만 교환으로 인정한다. */
+export function getEssenceExchangeCount(amount: number): number {
+  if (!Number.isSafeInteger(amount) || amount >= 0) return 0;
+  const loss = Math.abs(amount);
+  if (loss < XP_PER_ESSENCE || loss % XP_PER_ESSENCE !== 0) return 0;
+  return loss / XP_PER_ESSENCE;
+}
+
 /**
  * XP 추적 모듈 — 경험치 세션 통계, 분당 히스토리, 경험의 정수 알림, 팔색조 언덕 추적
  */
@@ -30,7 +40,7 @@ class XpTracker {
   private _accumulatedTime = 0;
 
   // 경험의 정수 자동 교환 버프 미감지 알람
-  private static readonly ESSENCE_XP = 10_000_000_000;
+  private static readonly ESSENCE_XP = XP_PER_ESSENCE;
   private static readonly ESSENCE_BUFFER = 1_000_000_000;
   private static readonly DEBUG_XP_MULTIPLIER = 1;
   private _xpSinceLastExchange = 0;
@@ -109,10 +119,10 @@ class XpTracker {
     chatParser.on('XP_CHANGED', (data) => {
       if (!this._isActive) return;
 
-      // 정수 교환 감지 (정수 교환은 세션 총 획득 경험치 차감에서 무조건 제외)
-      if (data.amount <= -9_000_000_000) {
-        const exchangedCount = Math.round(Math.abs(data.amount) / XpTracker.ESSENCE_XP);
-        this._sessionEssenceCount += Math.max(1, exchangedCount);
+      // 정수 교환 감지 (정수 1개당 정확히 100억 XP, 세션 총 획득 경험치는 유지)
+      const exchangedCount = getEssenceExchangeCount(data.amount);
+      if (exchangedCount > 0) {
+        this._sessionEssenceCount += exchangedCount;
         // 잔여 경험치 보존: 110억 중 100억 교환 시 10억 보존
         this._xpSinceLastExchange = Math.max(0, this._xpSinceLastExchange + data.amount);
         this._lastAlertTier = Math.floor(Math.max(0, this._xpSinceLastExchange - XpTracker.ESSENCE_BUFFER) / XpTracker.ESSENCE_XP);
@@ -120,8 +130,11 @@ class XpTracker {
         return;
       }
 
-      const cfg = config.load();
-      if (cfg.ignoreNegativeXp && data.amount < 0) return;
+      // 테일즈위버의 정상적인 XP 감소는 정수 교환뿐이므로 설명되지 않는 음수는 합계에서 제외한다.
+      if (data.amount < 0) {
+        log(`[XP_TRACKER] 경험의 정수 교환 단위가 아닌 음수 XP 무시: ${data.amount}`);
+        return;
+      }
 
       const amount = data.amount > 0
         ? data.amount * XpTracker.DEBUG_XP_MULTIPLIER
