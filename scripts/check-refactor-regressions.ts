@@ -677,8 +677,8 @@ function checkPhaseOneSafetyContracts(): void {
     '설정 원자 저장의 flush/rename 계약이 없습니다.');
   assert.match(configSource, /설정 원자 저장 실패, pending 유지/,
     '설정 저장 실패 후 pending 보존 계약이 없습니다.');
-  assert.match(configSource, /deepFreeze\(deepClone\(/,
-    '설정 읽기 경계가 불변 스냅샷을 사용하지 않습니다.');
+  assert.match(configSource, /if \(_cachedConfig\) return deepClone\(_cachedConfig\)/,
+    '설정 읽기 경계가 독립 스냅샷을 반환하지 않습니다.');
   assert.match(configSource, /mergeConfigPatch/,
     '부분 설정 저장의 중첩 필드 병합이 없습니다.');
 
@@ -2855,8 +2855,9 @@ function checkCorruptedConfigResilience(): void {
   const loaded = configModule.load();
   assert.ok(loaded && typeof loaded === 'object', '기본 설정 로드 시 유효한 객체가 반환되지 않았습니다.');
   assert.ok(loaded.shortcuts && typeof loaded.shortcuts === 'object', '설정 내 shortcuts 객체가 누락되었습니다.');
-  assert.equal(Object.isFrozen(loaded), true, '설정 스냅샷 최상위가 불변이 아닙니다.');
-  assert.equal(Object.isFrozen(loaded.shortcuts), true, '설정 스냅샷 중첩 객체가 불변이 아닙니다.');
+  const secondLoad = configModule.load();
+  assert.notEqual(secondLoad, loaded, '설정 load 호출이 같은 최상위 객체를 노출합니다.');
+  assert.notEqual(secondLoad.shortcuts, loaded.shortcuts, '설정 load 호출이 같은 중첩 객체를 노출합니다.');
 }
 
 function checkShoutSuffixStripping(): void {

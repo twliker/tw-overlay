@@ -85,13 +85,6 @@ function deepClone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function deepFreeze<T>(value: T): T {
-  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
-  Object.freeze(value);
-  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
-  return value;
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -496,9 +489,9 @@ function applyVersionedMigrations(parsed: Record<string, unknown>): boolean {
   return migrated;
 }
 
-/** 설정 파일 로드. 반환값은 깊게 동결된 불변 스냅샷이며 변경 시에만 새 객체로 교체된다. */
+/** 설정 파일 로드. 기존 호출자의 수정 패턴과 호환되도록 캐시와 별칭을 공유하지 않는 독립 스냅샷을 반환한다. */
 export function load(): AppConfig {
-  if (_cachedConfig) return _cachedConfig;
+  if (_cachedConfig) return deepClone(_cachedConfig);
 
   const configPath = get_CONFIG_PATH();
   try {
@@ -522,7 +515,7 @@ export function load(): AppConfig {
           .map(([key]) => key as WindowPositionKey);
       storedPositionKeys.forEach(key => _storedPositionKeys.add(key));
       config.storedPositionKeys = [..._storedPositionKeys];
-      _cachedConfig = deepFreeze(deepClone(config));
+      _cachedConfig = deepClone(config);
 
       if (selected.sourcePath !== configPath || migrated || Object.keys(quarantined).length > 0) {
         try {
@@ -539,7 +532,7 @@ export function load(): AppConfig {
       if (Object.keys(quarantined).length > 0) {
         _loadWarning = `일부 미인식 또는 손상된 설정을 격리하고 안전한 값으로 복구했습니다.\n${path.join(path.dirname(configPath), CONFIG_QUARANTINE_FILENAME)}`;
       }
-      return _cachedConfig;
+      return deepClone(_cachedConfig);
     }
 
     if (fs.existsSync(configPath) || fs.existsSync(`${configPath}.tmp`)) {
@@ -558,8 +551,8 @@ export function load(): AppConfig {
     log(`[CONFIG] 설정 로드 실패: ${message}`);
   }
 
-  _cachedConfig = deepFreeze(deepClone(DEFAULT_CONFIG));
-  return _cachedConfig;
+  _cachedConfig = deepClone(DEFAULT_CONFIG);
+  return deepClone(_cachedConfig);
 }
 
 function schedulePendingRetry(): void {
@@ -576,7 +569,7 @@ export function flushPending(): boolean {
   if (!_pendingConfig) return true;
   try {
     writeJsonAtomicSync(get_CONFIG_PATH(), _pendingConfig);
-    _cachedConfig = deepFreeze(deepClone(_pendingConfig));
+    _cachedConfig = deepClone(_pendingConfig);
     _pendingConfig = null;
     _lastSaveError = null;
     _saveRetryIndex = 0;
@@ -596,7 +589,7 @@ export function save(newConfig: Partial<AppConfig>): void {
     if (!_pendingConfig) _pendingConfig = load();
     _pendingConfig = mergeConfigPatch(_pendingConfig, changed) as AppConfig;
     _pendingConfig.storedPositionKeys = [..._storedPositionKeys];
-    _cachedConfig = deepFreeze(deepClone(_pendingConfig));
+    _cachedConfig = deepClone(_pendingConfig);
     _saveRetryIndex = 0;
     notifyConfigChange(changed);
     if (_saveTimer) clearTimeout(_saveTimer);
@@ -620,7 +613,7 @@ export function saveImmediate(newConfig: Partial<AppConfig> = {}): boolean {
     const changed = deepClone(newConfig);
     _pendingConfig = mergeConfigPatch(current, changed) as AppConfig;
     _pendingConfig.storedPositionKeys = [..._storedPositionKeys];
-    _cachedConfig = deepFreeze(deepClone(_pendingConfig));
+    _cachedConfig = deepClone(_pendingConfig);
     notifyConfigChange(changed);
     return flushPending();
   } catch (error) {
