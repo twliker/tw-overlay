@@ -1196,10 +1196,14 @@ function checkWindowedFullscreenFocusContracts(): void {
     '샌드위치 정책 외부에서 게임 창 Z-order를 직접 이동하는 API가 남아 있습니다.');
   assert.match(tracker, /className === 'Shell_TrayWnd' \|\| className === 'Shell_SecondaryTrayWnd'/,
     '우리 설정창 종료 후 작업표시줄이 foreground를 가져간 경우를 구분하지 않습니다.');
-  assert.match(manager, /const deferDockLayout = isFullscreen && currentRect\.isForeground !== true/,
-    '전체화면에서 설정창이 전경인 동안 독 재배치를 연기하지 않습니다.');
-  assert.match(manager, /if \(isDockPositionChange && isGameFullscreen\)/,
-    '작업표시줄 복구 예외가 일반 창모드에까지 불필요하게 확대되었습니다.');
+  assert.match(manager, /const deferDockLayout = pendingDockLayoutChange && currentRect\.isForeground !== true/,
+    '게임이 전경으로 돌아오기 전에 표시 중인 독의 상·하단 재배치를 수행합니다.');
+  assert.match(manager, /if \(isDockPositionChange\)[\s\S]*?pendingDockLayoutChange = true/,
+    '일반 창모드와 전체화면에서 동일한 독 재배치 경계를 사용하지 않습니다.');
+  assert.match(manager, /dockCfg\.ref\.hide\(\);[\s\S]*?dockCfg\.ref\.setPosition\(x, y\);[\s\S]*?dockCfg\.ref\.showInactive\(\);/,
+    '표시 중인 투명 독을 숨기지 않은 채 화면 반대편으로 이동합니다.');
+  assert.match(tracker, /for \(let i = electronHwndBigInts\.length - 1; isAlreadySandwiched && i > 0; i--\)/,
+    '게임 바로 위 한 창만 확인하고 TW-Overlay 내부 Z-order가 갈라진 상태를 정상으로 오판합니다.');
   assert.match(manager, /overlayWindow\?\.showInactive\(\)/,
     '브라우저 오버레이 자동 생성이 포커스를 획득할 수 있습니다.');
   assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply'/,

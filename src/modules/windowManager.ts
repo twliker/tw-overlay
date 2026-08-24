@@ -217,6 +217,9 @@ let lastKnownGameRect: GameRect | null = null;
 let physicalGameRect: GameRect | null = null;
 let lastForegroundSize: { width: number; height: number } | null = null;
 let isGameFullscreen = false;
+// 독 상/하단 전환은 표시 중인 투명 창을 곧바로 이동하면 Windows Shell의
+// 전체화면 판정과 내부 Z-order가 흔들릴 수 있으므로 게임이 전경으로 돌아온 뒤 적용합니다.
+let pendingDockLayoutChange = false;
 let pendingFullscreenDockLayoutRestore = false;
 
 /** 게임이 실행 중이거나, 최소화/종료 직전 마지막으로 감지되었던 게임창 모니터(주/서브)의 작업 영역 중앙 좌표를 계산합니다. */
@@ -1469,9 +1472,9 @@ export function syncOverlay(currentRect: GameRect): void {
       const dockCfg = windowRegistry['dock'];
       if (isDockVisible) {
         const { x, y } = dockCfg.calcPosition!(scaledGameRect, dockCfg.pos);
-        const deferDockLayout = isFullscreen && currentRect.isForeground !== true;
-        if (deferDockLayout && pendingFullscreenDockLayoutRestore) {
-          log(`[WINDOW_FOCUS] 외부 창이 전경인 전체화면에서 독 재배치를 연기합니다. target=(${x},${y})`);
+        const deferDockLayout = pendingDockLayoutChange && currentRect.isForeground !== true;
+        if (deferDockLayout) {
+          log(`[WINDOW_FOCUS] 게임이 전경으로 돌아올 때까지 독 재배치를 연기합니다. target=(${x},${y})`);
         } else {
           if (!dockCfg.ref || dockCfg.ref.isDestroyed()) {
             createToggleableWindow('dock', undefined, 'game-resync');
@@ -1481,15 +1484,34 @@ export function syncOverlay(currentRect: GameRect): void {
             // 독바는 전체화면 모드일 때도 게임 창 가장자리에 항상 도킹되어 보여야 함
             if (hasPositionChanged(b, { x, y }, POSITION_THRESHOLD)) {
               if (isValidCoordinate(x) && isValidCoordinate(y)) {
+                const shouldRestoreVisibleDock = pendingDockLayoutChange
+                  && isDockVisible
+                  && dockCfg.ref.isVisible();
+                if (shouldRestoreVisibleDock) {
+                  // 표시 중인 투명 Electron 창의 화면 반대편 이동은 Windows Shell의
+                  // 작업표시줄 판정을 깨뜨릴 수 있으므로 숨긴 상태에서만 이동합니다.
+                  dockCfg.ref.hide();
+                  log(`[DOCK_LAYOUT] 표시 중인 독을 숨긴 뒤 재배치합니다. target=(${x},${y})`);
+                }
                 setProgrammaticMove('dock', x, y);
                 dockCfg.ref.setPosition(x, y);
+                if (shouldRestoreVisibleDock && !dockCfg.ref.isDestroyed()) {
+                  dockCfg.ref.showInactive();
+                }
               }
+            }
+            if (pendingDockLayoutChange) {
+              pendingDockLayoutChange = false;
+              log(`[DOCK_LAYOUT] 독 재배치 완료 target=(${x},${y})`);
             }
           }
           if (pendingFullscreenDockLayoutRestore && currentRect.isForeground === true) {
             pendingFullscreenDockLayoutRestore = false;
             tracker.restoreGameAfterOwnedWindowClose('fullscreen-dock-layout-applied');
           }
+          // hide/showInactive 또는 위치 변경으로 흔들릴 수 있는 TW-Overlay 내부 순서를
+          // 독이 입력 가능한 층에 놓이도록 즉시 다시 확정합니다.
+          if (currentRect.isForeground === true) bringGameAndOverlaysToTop();
         }
       }
     } else {
@@ -1596,9 +1618,10 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
     && sanitizedSettings.sidebarPosition !== current.sidebarPosition
     && (sanitizedSettings.sidebarPosition === 'dock' || sanitizedSettings.sidebarPosition === 'dock-top')
     && (current.sidebarPosition === 'dock' || current.sidebarPosition === 'dock-top');
-  if (isDockPositionChange && isGameFullscreen) {
-    pendingFullscreenDockLayoutRestore = true;
-    log(`[WINDOW_FOCUS] 전체화면 독 배치 변경 대기: ${current.sidebarPosition} -> ${sanitizedSettings.sidebarPosition}`);
+  if (isDockPositionChange) {
+    pendingDockLayoutChange = true;
+    pendingFullscreenDockLayoutRestore = isGameFullscreen;
+    log(`[WINDOW_FOCUS] 독 배치 변경 대기: ${current.sidebarPosition} -> ${sanitizedSettings.sidebarPosition}, fullscreen=${isGameFullscreen}`);
   }
   const { isSidebarResize, ...saveSettings } = sanitizedSettings;
   config.saveImmediate(saveSettings);

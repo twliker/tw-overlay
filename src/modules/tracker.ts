@@ -318,8 +318,14 @@ export function promoteWindows(gameHwndStr: string | undefined, electronHwnds: s
         const prevHwnd = parseHwnd(win32.GetWindow(gameHwnd, win32.GW_HWNDPREV));
         const lastElectronHwnd = electronHwndBigInts[electronHwndBigInts.length - 1];
 
-        // 스택의 가장 바닥 창(gameOverlay 등)이 이미 게임 창 바로 앞(prevHwnd)에 정렬되어 있는지 확인
-        const isAlreadySandwiched = (prevHwnd !== 0n && prevHwnd === lastElectronHwnd);
+        // 맨 아래 오버레이만 게임 바로 앞에 있다고 전체 순서가 정상인 것은 아닙니다.
+        // 전체화면 투명층이 독 위로 뒤집히면 독은 보이지만 마우스 입력이 게임으로
+        // 통과하므로, 앱 창 사이의 모든 인접 관계까지 확인합니다.
+        let isAlreadySandwiched = prevHwnd !== 0n && prevHwnd === lastElectronHwnd;
+        for (let i = electronHwndBigInts.length - 1; isAlreadySandwiched && i > 0; i--) {
+            const windowDirectlyAbove = parseHwnd(win32.GetWindow(electronHwndBigInts[i], win32.GW_HWNDPREV));
+            isAlreadySandwiched = windowDirectlyAbove === electronHwndBigInts[i - 1];
+        }
 
         if (force || !isAlreadySandwiched) {
             // 기준점 탐색: prevHwnd가 우리 창 중 하나라면 외부 앱 또는 HWND_TOP(0n)이 나올 때까지 상위로 거슬러 올라감
