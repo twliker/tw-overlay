@@ -25,6 +25,7 @@ import { WindowFocusController } from './windowFocusController';
 import { ProgrammaticMoveTracker } from './programmaticMoveTracker';
 import { EmbeddedWebTool } from './embeddedWebTool';
 import { OverlayToolbarController } from './overlayToolbarController';
+import { createDisplayTopologySignature, DisplayTopologyStabilizer } from './displayTopologyStabilizer';
 import {
   calculateAttachedWindowPosition,
   calculateBrowserOverlayPosition,
@@ -594,40 +595,100 @@ function createOverlayWindow(targetUrl?: string): void {
     sendActiveWindowsStatus();
   });
   focusController.attach(overlayWindow);
-  setupDisplayChangeListeners();
 }
 
 let _displayListenersRegistered = false;
+let displayChangeTimer: NodeJS.Timeout | null = null;
+let displayChangeGeneration = 0;
+const DISPLAY_CHANGE_DEBOUNCE_MS = 300;
+const DISPLAY_STABILITY_CHECK_MS = 250;
+const DISPLAY_STABILITY_MAX_WAIT_MS = 2000;
+const displayTopologyStabilizer = new DisplayTopologyStabilizer(
+  DISPLAY_STABILITY_CHECK_MS,
+  DISPLAY_STABILITY_MAX_WAIT_MS,
+);
+
+function recoverVisibleWindowsWithoutGame(): void {
+  const allDisplays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+
+  Object.keys(windowRegistry).forEach((k) => {
+    const key = k as WindowPositionKey;
+    // 독은 게임 내부 고정 배치이므로 독립 창 복구 대상으로 취급하지 않습니다.
+    if (key === 'dock' || programmaticMoves.isUserDragging(key)) return;
+    const win = windowRegistry[key].ref;
+    if (!win || win.isDestroyed() || !win.isVisible()) return;
+    const bounds = win.getBounds();
+    if (isWindowVisibleOnDisplays(bounds, allDisplays)) return;
+
+    const { x, y } = centerWindowInWorkArea(bounds.width, bounds.height, primary.workArea);
+    log(`[WINDOW] 화면 밖으로 이탈된 창(${key})을 주 모니터 중앙으로 임시 복구: (${x}, ${y})`);
+    // 게임 기준 좌표를 알 수 없는 동안에는 저장 오프셋을 변경하지 않습니다.
+    setProgrammaticMove(key, x, y);
+    win.setPosition(x, y);
+  });
+
+  if (!overlayWindow || overlayWindow.isDestroyed() || !overlayWindow.isVisible()
+    || programmaticMoves.isUserDragging('overlay')) return;
+  const bounds = overlayWindow.getBounds();
+  if (isWindowVisibleOnDisplays(bounds, allDisplays)) return;
+  const { x, y } = centerWindowInWorkArea(bounds.width, bounds.height, primary.workArea);
+  log(`[WINDOW] 화면 밖으로 이탈된 브라우저 오버레이를 주 모니터 중앙으로 임시 복구: (${x}, ${y})`);
+  setProgrammaticMove('overlay', x, y);
+  overlayWindow.setPosition(x, y);
+}
+
+async function recoverWindowsAfterStableDisplayChange(generation: number): Promise<void> {
+  if (appState.isQuitting || generation !== displayChangeGeneration) return;
+  const currentRect = await tracker.queryGameRect();
+  if (appState.isQuitting || generation !== displayChangeGeneration) return;
+
+  if (currentRect && 'x' in currentRect) {
+    // 최신 물리 게임 좌표를 다시 DIP로 변환하여 DPI 변경에 따른 모든 창 좌표를 한 번만 재계산합니다.
+    syncOverlay(currentRect);
+    return;
+  }
+
+  recoverVisibleWindowsWithoutGame();
+}
+
+function checkDisplayTopologyStability(generation: number): void {
+  if (appState.isQuitting || generation !== displayChangeGeneration) return;
+  const signature = createDisplayTopologySignature(screen.getAllDisplays());
+  if (!displayTopologyStabilizer.observe(signature, Date.now())) {
+    displayChangeTimer = setTimeout(
+      () => checkDisplayTopologyStability(generation),
+      DISPLAY_STABILITY_CHECK_MS,
+    );
+    return;
+  }
+  displayChangeTimer = null;
+  void recoverWindowsAfterStableDisplayChange(generation).catch(error => {
+    log(`[WINDOW] 디스플레이 변경 후 창 위치 복구 실패: ${error}`);
+  });
+}
+
+function scheduleDisplayChangeRecovery(): void {
+  displayChangeGeneration++;
+  const generation = displayChangeGeneration;
+  displayTopologyStabilizer.begin(Date.now());
+  if (displayChangeTimer) clearTimeout(displayChangeTimer);
+  displayChangeTimer = setTimeout(
+    () => checkDisplayTopologyStability(generation),
+    DISPLAY_CHANGE_DEBOUNCE_MS,
+  );
+}
+
 export function setupDisplayChangeListeners(): void {
   if (_displayListenersRegistered) return;
   _displayListenersRegistered = true;
 
   const handleDisplayChange = () => {
-    log('[WINDOW] 디스플레이 변경 감지, 화면 이탈 창 위치 복구 검사');
-    const primary = screen.getPrimaryDisplay();
-    const allDisplays = screen.getAllDisplays();
-
-    Object.keys(windowRegistry).forEach((k) => {
-      const key = k as WindowPositionKey;
-      const winCfg = windowRegistry[key];
-      if (winCfg.ref && !winCfg.ref.isDestroyed() && winCfg.ref.isVisible()) {
-        const bounds = winCfg.ref.getBounds();
-        if (!isWindowVisibleOnDisplays(bounds, allDisplays)) {
-          const { x, y } = centerWindowInWorkArea(bounds.width, bounds.height, primary.workArea);
-          log(`[WINDOW] 화면 밖으로 이탈된 창(${key})을 주 모니터 중앙으로 자동 복구: (${x}, ${y})`);
-          winCfg.ref.setPosition(x, y);
-          if (gameRect) {
-            winCfg.pos = {
-              offsetX: x - (gameRect.x + gameRect.width),
-              offsetY: y - gameRect.y,
-            };
-            savePosition(key, winCfg.pos);
-          }
-        }
-      }
-    });
+    log('[WINDOW] 디스플레이 변경 감지, 안정화 후 창 위치 복구 예약');
+    scheduleDisplayChangeRecovery();
   };
 
+  screen.on('display-added', handleDisplayChange);
   screen.on('display-removed', handleDisplayChange);
   screen.on('display-metrics-changed', handleDisplayChange);
 }

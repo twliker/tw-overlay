@@ -725,7 +725,9 @@ function checkPhaseOneSafetyContracts(): void {
 
 function checkWindowRestoreAndSettingsNavigationContracts(): void {
   const manager = read('src/modules/windowManager.ts');
+  const mainSource = read('src/main.ts');
   const placementSource = read('src/modules/windowPlacement.ts');
+  const displayStabilizerSource = read('src/modules/displayTopologyStabilizer.ts');
   const registrySource = read('src/modules/managedWindowRegistry.ts');
   const moveTrackerSource = read('src/modules/programmaticMoveTracker.ts');
   const layoutSource = read('src/modules/windowLayout.ts');
@@ -779,6 +781,25 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     /let isInitialPositionApplied = false;[\s\S]*?!isInitialPositionApplied/,
     '창 초기 위치가 적용되기 전 발생하는 move 이벤트의 저장 방어가 없습니다.',
   );
+  assert.ok(
+    mainSource.indexOf('wm.setupDisplayChangeListeners();') >= 0
+      && mainSource.indexOf('wm.setupDisplayChangeListeners();') < mainSource.indexOf('wm.createSplashWindow();'),
+    '디스플레이 리스너가 앱 초기화 시점에 한 번 등록되지 않습니다.',
+  );
+  assert.match(manager, /screen\.on\('display-added', handleDisplayChange\)/,
+    '모니터 연결 이벤트가 창 복구 흐름에 연결되지 않았습니다.');
+  assert.match(manager, /screen\.on\('display-removed', handleDisplayChange\)/,
+    '모니터 해제 이벤트가 창 복구 흐름에 연결되지 않았습니다.');
+  assert.match(manager, /screen\.on\('display-metrics-changed', handleDisplayChange\)/,
+    'DPI 또는 작업 영역 변경 이벤트가 창 복구 흐름에 연결되지 않았습니다.');
+  assert.match(manager, /tracker\.queryGameRect\(\)[\s\S]*?syncOverlay\(currentRect\)/,
+    '디스플레이 변경 뒤 최신 게임 좌표로 전체 창을 재동기화하지 않습니다.');
+  assert.match(manager, /recoverVisibleWindowsWithoutGame[\s\S]*?setProgrammaticMove\(key, x, y\);[\s\S]*?win\.setPosition\(x, y\)/,
+    '게임 좌표가 없을 때의 화면 이탈 복구가 사용자 이동으로 저장될 수 있습니다.');
+  assert.match(manager, /setProgrammaticMove\('overlay', x, y\);[\s\S]*?overlayWindow\.setPosition\(x, y\)/,
+    '브라우저 오버레이의 디스플레이 복구 이동이 사용자 이동으로 저장될 수 있습니다.');
+  assert.match(displayStabilizerSource, /candidateSignature[\s\S]*?stableDurationMs[\s\S]*?maxWaitMs/,
+    'RDP 전환 중 임시 화면 구성을 건너뛰는 안정화 판정이 없습니다.');
   assert.match(
     manager,
     /export function resetGameSessionState\(\)[\s\S]*?lastForegroundSize = null;/,
@@ -881,6 +902,51 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     x: 500,
     y: 300,
   });
+
+  const displayTopology = require(path.join(projectRoot, 'dist', 'modules', 'displayTopologyStabilizer.js')) as {
+    createDisplayTopologySignature: (displays: object[]) => string;
+    DisplayTopologyStabilizer: new (stableDurationMs: number, maxWaitMs: number) => {
+      begin: (now: number) => void;
+      observe: (signature: string, now: number) => boolean;
+    };
+  };
+  const primaryDisplay = {
+    id: 1,
+    bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+    workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+    scaleFactor: 1,
+    rotation: 0,
+  };
+  const secondaryDisplay = {
+    id: 2,
+    bounds: { x: 1920, y: 0, width: 2560, height: 1440 },
+    workArea: { x: 1920, y: 0, width: 2560, height: 1400 },
+    scaleFactor: 1.25,
+    rotation: 0,
+  };
+  assert.equal(
+    displayTopology.createDisplayTopologySignature([primaryDisplay, secondaryDisplay]),
+    displayTopology.createDisplayTopologySignature([secondaryDisplay, primaryDisplay]),
+    'Electron이 모니터 목록 순서를 바꾸기만 해도 화면 변경으로 오인합니다.',
+  );
+  assert.notEqual(
+    displayTopology.createDisplayTopologySignature([primaryDisplay]),
+    displayTopology.createDisplayTopologySignature([{ ...primaryDisplay, scaleFactor: 1.5 }]),
+    '100/125/150% DPI 변경을 화면 구성 변화로 감지하지 못합니다.',
+  );
+
+  const topologyStabilizer = new displayTopology.DisplayTopologyStabilizer(250, 2_000);
+  topologyStabilizer.begin(0);
+  assert.equal(topologyStabilizer.observe('transient', 300), false);
+  assert.equal(topologyStabilizer.observe('transient', 549), false);
+  assert.equal(topologyStabilizer.observe('transient', 550), true,
+    '동일한 화면 구성이 안정화 시간 동안 유지된 뒤 복구를 허용하지 않습니다.');
+  topologyStabilizer.begin(1_000);
+  assert.equal(topologyStabilizer.observe('rdp-transient', 1_300), false);
+  assert.equal(topologyStabilizer.observe('rdp-final', 1_550), false,
+    'RDP 중간 화면 구성 직후 위치 복구를 실행합니다.');
+  assert.equal(topologyStabilizer.observe('rdp-final', 1_800), true,
+    'RDP 최종 화면 구성이 안정화된 뒤에도 위치 복구를 실행하지 않습니다.');
 
   const registryModule = require(path.join(projectRoot, 'dist', 'modules', 'managedWindowRegistry.js')) as {
     createManagedWindowRegistry: () => Record<string, { key: string; html: string; width: number; height: number; ref: unknown }>;

@@ -108,6 +108,9 @@ app.whenReady().then(() => {
   }, 10_000);
   if (!gotTheLock) return;
 
+  // 모니터/DPI 변경은 특정 오버레이 사용 여부와 무관하게 앱 수명 동안 한 번만 감시합니다.
+  wm.setupDisplayChangeListeners();
+
   // preload가 시작 시 단일 기본 설정 원본을 동기 조회하므로 창 생성보다 먼저 등록해야 합니다.
   ipcHandlers.register();
 
