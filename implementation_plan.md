@@ -459,7 +459,7 @@
 
 대상: G-02~G-06, 남은 P3 정리, 버전·산출물
 
-진행 상태: 일간/주간 상세의 공유 generation, 월/통계/차트의 월별 generation, 렌더 시점 날짜·원본 row ID를 이용한 단건 삭제를 적용했다. 마정석 묶음은 등급별 합계를 유지하되 수동 원본 자식 행만 삭제 버튼을 제공한다. 채팅 history/search/검색 닫기/탭 전환도 하나의 view generation으로 통합하고 live 이벤트 generation과 분리했다. 채팅 데이터는 메모리에 유지하면서 실제 DOM을 viewport+overscan으로 제한하고, 실측 높이 캐시로 과거 prepend·live append·폭 변경의 앵커를 보존한다. G-02~G-06은 자동 검증을 완료했으며 클라우드 allowlist 문서 정합성과 최종 릴리즈 게이트는 남아 있다.
+진행 상태: 일간/주간 상세의 공유 generation, 월/통계/차트의 월별 generation, 렌더 시점 날짜·원본 row ID를 이용한 단건 삭제를 적용했다. 마정석 묶음은 등급별 합계를 유지하되 수동 원본 자식 행만 삭제 버튼을 제공한다. 채팅 history/search/검색 닫기/탭 전환도 하나의 view generation으로 통합하고 live 이벤트 generation과 분리했다. 채팅 데이터는 메모리에 유지하면서 실제 DOM을 viewport+overscan으로 제한하고, 실측 높이 캐시로 과거 prepend·live append·폭 변경의 앵커를 보존한다. G-02~G-06과 클라우드 allowlist·개인정보 문서 정합성은 자동 검증을 완료했으며 최종 릴리즈 게이트는 남아 있다.
 
 1. 일간/주간 상세 요청에 공유 generation token을 적용하고 삭제는 렌더된 row id를 사용한다.
 2. 월/통계/차트는 캡처한 월과 sequence를 모든 await 뒤 확인한다.
@@ -482,6 +482,8 @@
 **채팅 요청 자동 검증 완료(2026-08-26):** Club→System history를 역순 완료해 최신 System 결과만 남는지, 진행 중 history 뒤 search가 시작되면 history가 검색 상태를 덮지 않는지 확인했다. 연속 검색에서 이전 요청을 reject해도 최신 검색의 loading 문구와 결과가 유지되고, 검색을 닫은 뒤 늦은 reject가 숨긴 상태를 다시 노출하지 않는지 실행 검사로 고정했다. history 대기 중 live 이벤트를 주입한 뒤에도 정상 history 응답이 반영되며 live handler가 view generation을 변경하지 않는 것을 함께 확인했다.
 
 **채팅 가상화 자동 검증 완료(2026-08-26):** 가변 길이 history 20,000건을 로드한 뒤 실제 `.chat-message-row` DOM이 300개 미만인지 확인했다. 과거 150건 prepend, 최상단↔최신 구간 왕복, 최상단에서 live 1,000건 append를 순서대로 수행해 전체 스크롤 높이가 계속 증가하면서 최과거·최신 데이터가 모두 다시 렌더링되는지 검증했다. prepend·live append와 320px 폭 축소/복원 뒤 앵커 행 위치 오차는 2px 이내였고, 검색 종료 뒤 새 history DOM에는 이전 검색 강조 클래스가 남지 않았다.
+
+**클라우드 allowlist·개인정보 문서 자동 검증 완료(2026-08-26):** 설정·숙제 파일의 `data` 허용 키뿐 아니라 설정/숙제 payload 최상위, 숙제 operation·mutation, 메타 payload와 파일 참조의 전체 필드를 실제 빌더 결과와 문서 표가 정확히 일치하는지 검사한다. 메타는 두 데이터 파일의 `id`·`name`만 복사하는 최소 빌더를 사용하며 추가 필드는 제거한다. `updatedBy`는 Google 이메일이 아닌 installation device ID인지, OAuth·Webhook·로그 경로·절대 사운드 경로·창 좌표·로컬 이력이 두 data allowlist에서 제외됐는지, Markdown/HTML 개인정보처리방침이 같은 포함·제외 기준과 상세 가이드 링크를 제공하는지도 함께 고정했다.
 
 최종 릴리즈 게이트:
 
