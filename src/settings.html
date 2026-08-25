@@ -5129,16 +5129,24 @@
             break;
         }
 
-        const timeStr = formatTimestamp(logItem.timestamp);
+        const scheduledTimeStr = formatTimestamp(logItem.scheduledAt ?? logItem.timestamp);
+        const recordedTimeStr = formatTimestamp(logItem.recordedAt ?? logItem.timestamp);
+        const missedSleepBadge = logItem.deliveryStatus === 'missed-sleep'
+          ? '<span class="px-2 py-1 text-[10px] font-bold border rounded-lg shrink-0 bg-amber-400/5 text-amber-300 border-amber-500/20">절전 중 놓침</span>'
+          : '';
+        const timeDescription = logItem.deliveryStatus === 'missed-sleep'
+          ? `예정 ${scheduledTimeStr} · 복귀 기록 ${recordedTimeStr}`
+          : recordedTimeStr;
 
         itemDiv.innerHTML = `
           <div class="flex items-start gap-4 w-full">
             <span class="px-2.5 py-1 text-xs font-bold border rounded-lg shrink-0 ${badgeClass}">${badgeText}</span>
+            ${missedSleepBadge}
             <div class="space-y-1.5 flex-1 min-w-0">
               <p class="text-[13px] sm:text-sm font-semibold text-slate-100 leading-snug break-all">${window.escapeHtmlAttribute(logItem.message)}</p>
               <div class="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
                 <i data-lucide="clock" class="w-3.5 h-3.5 opacity-60"></i>
-                <span>${timeStr}</span>
+                <span>${timeDescription}</span>
               </div>
             </div>
           </div>

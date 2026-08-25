@@ -2,7 +2,7 @@ import assert = require('node:assert/strict');
 import fs = require('node:fs');
 import os = require('node:os');
 import path = require('node:path');
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, powerMonitor } from 'electron';
 
 const projectRoot = path.resolve(__dirname, '..');
 const testUserDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-renderer-test-'));
@@ -221,9 +221,22 @@ async function checkLifecycleStartIsIdempotent(): Promise<void> {
 }
 
 async function checkBuffRefreshPolicy(): Promise<void> {
-  const { buffTimerManager } = require(
+  const { buffTimerManager, getMissedBuffWarnings } = require(
     path.join(projectRoot, 'dist/modules/buffTimerManager.js'),
   ) as {
+    getMissedBuffWarnings(
+      buffs: Iterable<{
+        buffId: string;
+        name: string;
+        durationMs: number;
+        startTime: number;
+        usedBy: string;
+        warnedAt: Set<number>;
+      }>,
+      fromTimestamp: number,
+      toTimestamp: number,
+      warnSeconds: readonly number[],
+    ): Array<{ warnSec: number; scheduledAt: number; dedupeKey: string }>;
     buffTimerManager: {
       start(): void;
       stop(): void;
@@ -270,19 +283,90 @@ async function checkBuffRefreshPolicy(): Promise<void> {
 
   buffTimerManager.clearAllBuffs();
 
+  const missedWarnings = getMissedBuffWarnings([
+    {
+      buffId: 'fixture-buff',
+      name: '테스트 버프',
+      durationMs: 120_000,
+      startTime: 1_000,
+      usedBy: 'self',
+      warnedAt: new Set<number>(),
+    },
+  ], 20_000, 116_000, [60, 10]);
+  assert.deepEqual(
+    missedWarnings.map(warning => ({
+      warnSec: warning.warnSec,
+      scheduledAt: warning.scheduledAt,
+      dedupeKey: warning.dedupeKey,
+    })),
+    [
+      { warnSec: 60, scheduledAt: 61_000, dedupeKey: 'buff:fixture-buff:1000:60' },
+      { warnSec: 10, scheduledAt: 111_000, dedupeKey: 'buff:fixture-buff:1000:10' },
+      { warnSec: 5, scheduledAt: 116_000, dedupeKey: 'buff:fixture-buff:1000:5' },
+    ],
+    '절전 구간을 통과한 복수 버프 경고 임계값이 모두 복원되지 않았습니다.',
+  );
+
   const { chatParser } = require(path.join(projectRoot, 'dist/modules/chatParser.js')) as {
     chatParser: { listenerCount(event: string): number };
   };
   buffTimerManager.stop();
   const listenerBaseline = chatParser.listenerCount('BUFF_USED');
+  const suspendListenerBaseline = powerMonitor.listenerCount('suspend');
+  const resumeListenerBaseline = powerMonitor.listenerCount('resume');
+  const unlockListenerBaseline = powerMonitor.listenerCount('unlock-screen');
   buffTimerManager.start();
   assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline + 1);
+  assert.equal(powerMonitor.listenerCount('suspend'), suspendListenerBaseline + 1);
+  assert.equal(powerMonitor.listenerCount('resume'), resumeListenerBaseline + 1);
+  assert.equal(powerMonitor.listenerCount('unlock-screen'), unlockListenerBaseline + 1);
+
+  const diaryDb = require(path.join(projectRoot, 'dist/modules/diaryDb.js')) as {
+    getAlarmLogs(limit?: number): Array<{
+      dedupeKey?: string;
+      scheduledAt: number;
+      recordedAt: number;
+      deliveryStatus: string;
+    }>;
+    clearAlarmLogs(): boolean;
+  };
+  const originalDateNow = Date.now;
+  let fakeNow = 1_000_000;
+  Date.now = () => fakeNow;
+  try {
+    buffTimerManager.activateBuff('exp_potato_900', 'self', 7_000, fakeNow - 1_000);
+    powerMonitor.emit('suspend');
+    fakeNow += 2_000;
+    powerMonitor.emit('resume');
+    powerMonitor.emit('unlock-screen');
+  } finally {
+    Date.now = originalDateNow;
+  }
+  const recoveredBuffLogs = diaryDb.getAlarmLogs(50)
+    .filter(row => row.dedupeKey === 'buff:exp_potato_900:999000:5');
+  assert.equal(recoveredBuffLogs.length, 1,
+    'resume+unlock 연속 이벤트가 같은 놓친 버프 임계값을 중복 기록했습니다.');
+  assert.deepEqual(
+    {
+      scheduledAt: recoveredBuffLogs[0].scheduledAt,
+      recordedAt: recoveredBuffLogs[0].recordedAt,
+      deliveryStatus: recoveredBuffLogs[0].deliveryStatus,
+    },
+    { scheduledAt: 1_001_000, recordedAt: 1_002_000, deliveryStatus: 'missed-sleep' },
+  );
+  assert.ok(buffTimerManager.getActiveBuffs()
+    .find(buff => buff.buffId === 'exp_potato_900')?.warnedAt.has(5),
+  '놓친 버프 임계값이 live 경고 재생 방지 상태에 반영되지 않았습니다.');
+  diaryDb.clearAlarmLogs();
   buffTimerManager.start();
   assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline + 1,
     'buff timer 중복 start가 BUFF_USED 리스너를 추가 등록했습니다.');
   buffTimerManager.stop();
   assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline,
     'buff timer stop이 BUFF_USED 리스너를 제거하지 않았습니다.');
+  assert.equal(powerMonitor.listenerCount('suspend'), suspendListenerBaseline);
+  assert.equal(powerMonitor.listenerCount('resume'), resumeListenerBaseline);
+  assert.equal(powerMonitor.listenerCount('unlock-screen'), unlockListenerBaseline);
   buffTimerManager.start();
   assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline + 1,
     'buff timer stop 뒤 start가 리스너를 다시 등록하지 못했습니다.');

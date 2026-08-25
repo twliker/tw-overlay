@@ -918,6 +918,10 @@ export interface AbandonedRoadState {
 export interface AlarmLog {
     id?: number;
     timestamp: number;
+    scheduledAt: number;
+    recordedAt: number;
+    deliveryStatus: 'fired' | 'missed-sleep';
+    dedupeKey?: string | null;
     type: 'boss' | 'custom' | 'word' | 'wave' | 'buff' | 'etc';
     title: string;
     message: string;

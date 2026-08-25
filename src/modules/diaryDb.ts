@@ -23,6 +23,33 @@ const ELSO_FLUSH_DEBOUNCE_MS = 3000;
 let _elsoDebounceTimer: NodeJS.Timeout | null = null;
 const _pendingElsoByDate = new Map<string, { latestTime: string; totalAmount: number }>();
 
+export function migrateAlarmLogsV4(database: Database.Database): void {
+  const alarmColumns = database.prepare('PRAGMA table_info(alarm_logs)').all() as Array<{ name: string }>;
+  if (!alarmColumns.some(column => column.name === 'scheduled_at')) {
+    database.exec('ALTER TABLE alarm_logs ADD COLUMN scheduled_at INTEGER');
+  }
+  if (!alarmColumns.some(column => column.name === 'recorded_at')) {
+    database.exec('ALTER TABLE alarm_logs ADD COLUMN recorded_at INTEGER');
+  }
+  if (!alarmColumns.some(column => column.name === 'delivery_status')) {
+    database.exec("ALTER TABLE alarm_logs ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'fired'");
+  }
+  if (!alarmColumns.some(column => column.name === 'dedupe_key')) {
+    database.exec('ALTER TABLE alarm_logs ADD COLUMN dedupe_key TEXT');
+  }
+  database.exec(`
+    UPDATE alarm_logs
+    SET scheduled_at = COALESCE(scheduled_at, timestamp),
+        recorded_at = COALESCE(recorded_at, timestamp),
+        delivery_status = COALESCE(delivery_status, 'fired');
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_logs_dedupe_key_unique
+    ON alarm_logs (dedupe_key)
+    WHERE dedupe_key IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_alarm_logs_recorded_at
+    ON alarm_logs (recorded_at);
+  `);
+}
+
 interface ElsoRecoveryJournal {
   schemaVersion: 1;
   operationId: string;
@@ -358,6 +385,10 @@ export function initDb(): void {
       CREATE TABLE IF NOT EXISTS alarm_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp INTEGER NOT NULL,
+        scheduled_at INTEGER NOT NULL,
+        recorded_at INTEGER NOT NULL,
+        delivery_status TEXT NOT NULL DEFAULT 'fired',
+        dedupe_key TEXT,
         type TEXT NOT NULL,
         title TEXT NOT NULL,
         message TEXT NOT NULL
@@ -562,6 +593,15 @@ export function initDb(): void {
       });
       migrateV3();
       log(`[DiaryDB] Version 3 migration completed: repaired ${repairedUnitAmounts} unit-bearing amount rows.`);
+    }
+
+    if (userVersion < 4) {
+      const migrateV4 = db.transaction(() => {
+        migrateAlarmLogsV4(db!);
+        db!.pragma('user_version = 4');
+      });
+      migrateV4();
+      log('[DiaryDB] Version 4 migration completed: structured alarm delivery metadata.');
     }
     if (!replayElsoRecoveryJournal()) {
       throw new Error('엘소 복구 기록을 재생하지 못했습니다.');
@@ -1822,23 +1862,43 @@ export function addElsoPoints(date: string, time: string, points: number): void 
 export function addAlarmLog(
   type: 'boss' | 'custom' | 'word' | 'wave' | 'buff' | 'etc',
   title: string,
-  message: string
+  message: string,
+  metadata: {
+    scheduledAt?: number;
+    recordedAt?: number;
+    deliveryStatus?: 'fired' | 'missed-sleep';
+    dedupeKey?: string;
+  } = {}
 ): boolean {
   if (!db) initDb();
   if (!db) return false;
   try {
-    const timestamp = Date.now();
+    const recordedAt = metadata.recordedAt ?? Date.now();
+    const scheduledAt = metadata.scheduledAt ?? recordedAt;
+    const deliveryStatus = metadata.deliveryStatus ?? 'fired';
+    if (!Number.isFinite(recordedAt) || !Number.isFinite(scheduledAt)) return false;
+    if (deliveryStatus !== 'fired' && deliveryStatus !== 'missed-sleep') return false;
+    const dedupeKey = metadata.dedupeKey?.trim() || null;
     db.transaction(() => {
-      db!.prepare('INSERT INTO alarm_logs (timestamp, type, title, message) VALUES (?, ?, ?, ?)').run(
-        timestamp,
+      db!.prepare(`
+        INSERT INTO alarm_logs
+          (timestamp, scheduled_at, recorded_at, delivery_status, dedupe_key, type, title, message)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
+      `).run(
+        recordedAt,
+        scheduledAt,
+        recordedAt,
+        deliveryStatus,
+        dedupeKey,
         type,
         title,
         message
       );
 
       // 용량 관리를 위해 24시간 이전의 로그 자동 삭제 (24시간 = 24 * 60 * 60 * 1000 ms)
-      const oneDayAgo = timestamp - 24 * 60 * 60 * 1000;
-      db!.prepare('DELETE FROM alarm_logs WHERE timestamp < ?').run(oneDayAgo);
+      const oneDayAgo = recordedAt - 24 * 60 * 60 * 1000;
+      db!.prepare('DELETE FROM alarm_logs WHERE recorded_at < ?').run(oneDayAgo);
     })();
     log(`[DiaryDB] 알람 로그 추가: [${type}] ${title} - ${message}`);
 
@@ -1857,7 +1917,16 @@ export function getAlarmLogs(limit: number = 100): AlarmLog[] {
   if (!db) initDb();
   if (!db) return [];
   try {
-    return db.prepare('SELECT * FROM alarm_logs ORDER BY timestamp DESC LIMIT ?').all(limit) as AlarmLog[];
+    return db.prepare(`
+      SELECT id, timestamp, type, title, message,
+             scheduled_at AS scheduledAt,
+             recorded_at AS recordedAt,
+             delivery_status AS deliveryStatus,
+             dedupe_key AS dedupeKey
+      FROM alarm_logs
+      ORDER BY recorded_at DESC
+      LIMIT ?
+    `).all(limit) as AlarmLog[];
   } catch (e) {
     log(`[DiaryDB] getAlarmLogs 실패: ${e}`);
     return [];

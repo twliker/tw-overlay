@@ -3251,6 +3251,60 @@ function checkChatLogSyncManagerContracts() {
       DROP TRIGGER regression_fail_shout;
     `);
 
+    const missedScheduledAt = Date.now() - 60_000;
+    const missedRecordedAt = Date.now();
+    const missedDedupeKey = 'regression:missed-sleep:boss';
+    const missedMetadata = {
+      scheduledAt: missedScheduledAt,
+      recordedAt: missedRecordedAt,
+      deliveryStatus: 'missed-sleep' as const,
+      dedupeKey: missedDedupeKey,
+    };
+    assert.equal(diaryDb.addAlarmLog('boss', '절전 중 놓친 알람', '멱등 기록', missedMetadata), true);
+    assert.equal(diaryDb.addAlarmLog('boss', '절전 중 놓친 알람', '멱등 기록', missedMetadata), true,
+      '동일 missed-sleep 안정 키 재기록이 실패로 보고되었습니다.');
+    const missedRows = diaryDb.getAlarmLogs(200)
+      .filter((row: { dedupeKey?: string }) => row.dedupeKey === missedDedupeKey);
+    assert.equal(missedRows.length, 1, '동일 missed-sleep 안정 키가 중복 저장되었습니다.');
+    assert.deepEqual(
+      {
+        scheduledAt: missedRows[0].scheduledAt,
+        recordedAt: missedRows[0].recordedAt,
+        deliveryStatus: missedRows[0].deliveryStatus,
+      },
+      { scheduledAt: missedScheduledAt, recordedAt: missedRecordedAt, deliveryStatus: 'missed-sleep' },
+    );
+    boundaryDb.prepare('DELETE FROM alarm_logs WHERE dedupe_key = ?').run(missedDedupeKey);
+
+    const legacyAlarmDb = new BoundaryDatabase(':memory:');
+    legacyAlarmDb.exec(`
+      CREATE TABLE alarm_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL
+      );
+      INSERT INTO alarm_logs (timestamp, type, title, message)
+      VALUES (123456, 'etc', '레거시', '레거시 알람');
+    `);
+    diaryDb.migrateAlarmLogsV4(legacyAlarmDb);
+    diaryDb.migrateAlarmLogsV4(legacyAlarmDb);
+    const migratedAlarm = legacyAlarmDb.prepare(`
+      SELECT scheduled_at, recorded_at, delivery_status, dedupe_key
+      FROM alarm_logs
+    `).get();
+    assert.deepEqual(
+      { ...migratedAlarm },
+      { scheduled_at: 123456, recorded_at: 123456, delivery_status: 'fired', dedupe_key: null },
+      '레거시 알람 이력의 구조화 메타데이터 backfill이 정확하지 않습니다.',
+    );
+    const migratedColumns = legacyAlarmDb.prepare('PRAGMA table_info(alarm_logs)').all()
+      .map((column: { name: string }) => column.name);
+    assert.ok(['scheduled_at', 'recorded_at', 'delivery_status', 'dedupe_key']
+      .every(column => migratedColumns.includes(column)));
+    legacyAlarmDb.close();
+
     // 5초 버킷이 아니라 실시간 삽입과 같은 실제 시간 차로 레거시 외치기를 정리해야 한다.
     const shoutBaseTimestamp = 4_102_444_000;
     const insertLegacyShout = boundaryDb.prepare(

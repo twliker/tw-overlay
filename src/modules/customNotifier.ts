@@ -99,7 +99,13 @@ function recordMissedAlerts(timestamps: number[]): void {
       const recorded = diaryDb.addAlarmLog(
         'custom',
         '절전 중 놓친 알람',
-        `[${due.firedKey}] ${due.message}`
+        `[${due.firedKey}] ${due.message}`,
+        {
+          scheduledAt: timestamp,
+          recordedAt: Date.now(),
+          deliveryStatus: 'missed-sleep',
+          dedupeKey: `custom:${due.dedupeId}:${due.firedKey}`,
+        }
       );
       if (recorded) {
         _fired.set(due.dedupeId, due.firedKey);

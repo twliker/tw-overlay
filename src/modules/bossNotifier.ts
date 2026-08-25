@@ -164,7 +164,12 @@ function recordMissedBossAlerts(timestamps: number[]): void {
     for (const due of getDueBossAlertsAt(cfg, new Date(timestamp))) {
       if (_notifiedBossKeys.has(due.notifyKey)) continue;
       const message = due.offset === 0 ? `[${due.name}] 출현` : `[${due.name}] ${due.offset}분 전`;
-      if (diaryDb.addAlarmLog('boss', '절전 중 놓친 알람', `[${due.firedKey}] ${message}`)) {
+      if (diaryDb.addAlarmLog('boss', '절전 중 놓친 알람', `[${due.firedKey}] ${message}`, {
+        scheduledAt: timestamp,
+        recordedAt: Date.now(),
+        deliveryStatus: 'missed-sleep',
+        dedupeKey: `boss:${due.notifyKey}`,
+      })) {
         _notifiedBossKeys.add(due.notifyKey);
         log(`[BOSS] 절전 중 놓친 알람 이력 기록: ${due.firedKey} ${message}`);
       } else {

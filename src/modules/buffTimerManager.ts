@@ -3,6 +3,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { powerMonitor } from 'electron';
 import * as config from './config';
 import { log } from './logger';
 import { chatParser } from './chatParser';
@@ -22,6 +23,44 @@ export interface ActiveBuff {
   warnedAt: Set<number>;  // 이미 경고를 보낸 임계값(초) 집합
 }
 
+export interface MissedBuffWarning {
+  buffId: string;
+  name: string;
+  startTime: number;
+  warnSec: number;
+  scheduledAt: number;
+  dedupeKey: string;
+}
+
+export function getMissedBuffWarnings(
+  activeBuffs: Iterable<ActiveBuff>,
+  fromTimestamp: number,
+  toTimestamp: number,
+  warnSeconds: readonly number[]
+): MissedBuffWarning[] {
+  if (!Number.isFinite(fromTimestamp) || !Number.isFinite(toTimestamp) || toTimestamp <= fromTimestamp) return [];
+  const thresholds = Array.from(new Set([...warnSeconds, 5]))
+    .filter(value => Number.isFinite(value) && value > 0)
+    .sort((left, right) => right - left);
+  const missed: MissedBuffWarning[] = [];
+  for (const buff of activeBuffs) {
+    for (const warnSec of thresholds) {
+      if (buff.durationMs <= warnSec * 1000 || buff.warnedAt.has(warnSec)) continue;
+      const scheduledAt = buff.startTime + buff.durationMs - warnSec * 1000;
+      if (scheduledAt < fromTimestamp || scheduledAt > toTimestamp) continue;
+      missed.push({
+        buffId: buff.buffId,
+        name: buff.name,
+        startTime: buff.startTime,
+        warnSec,
+        scheduledAt,
+        dedupeKey: `buff:${buff.buffId}:${buff.startTime}:${warnSec}`,
+      });
+    }
+  }
+  return missed.sort((left, right) => left.scheduledAt - right.scheduledAt || right.warnSec - left.warnSec);
+}
+
 class BuffTimerManager {
   private _started = false;
   private _activeBuffs: Map<string, ActiveBuff> = new Map();
@@ -29,6 +68,9 @@ class BuffTimerManager {
   private _buffDefs: Map<string, BuffDefinition> = new Map();
   /** config.load() I/O 최소화를 위한 warnSeconds 캐시 */
   private _cachedWarnSeconds: number[] = [60, 10];
+  private _lastTickAt = Date.now();
+  private _suspendedAt: number | null = null;
+  private _suspendedBuffs: ActiveBuff[] | null = null;
   private readonly _buffUsedHandler = (data: {
     date: string;
     timestamp: string;
@@ -38,6 +80,13 @@ class BuffTimerManager {
     const startTime = this._parseLogTimestamp(data.date, data.timestamp);
     this.activateBuff(data.buffId, data.usedBy, undefined, startTime);
   };
+  private readonly _suspendHandler = (): void => {
+    this._suspendedAt = Date.now();
+    this._suspendedBuffs = this._snapshotActiveBuffs();
+  };
+  private readonly _resumeHandler = (): void => {
+    this._recordMissedSleepWarnings(Date.now());
+  };
 
   public start(): void {
     this.loadBuffDefs();
@@ -46,6 +95,9 @@ class BuffTimerManager {
     if (!this._started) {
       this._started = true;
       chatParser.on('BUFF_USED', this._buffUsedHandler);
+      powerMonitor.on('suspend', this._suspendHandler);
+      powerMonitor.on('resume', this._resumeHandler);
+      powerMonitor.on('unlock-screen', this._resumeHandler);
     }
 
     if (this._tickInterval) clearInterval(this._tickInterval);
@@ -87,9 +139,14 @@ class BuffTimerManager {
     }
     if (this._started) {
       chatParser.removeListener('BUFF_USED', this._buffUsedHandler);
+      powerMonitor.removeListener('suspend', this._suspendHandler);
+      powerMonitor.removeListener('resume', this._resumeHandler);
+      powerMonitor.removeListener('unlock-screen', this._resumeHandler);
       this._started = false;
     }
     this._activeBuffs.clear();
+    this._suspendedAt = null;
+    this._suspendedBuffs = null;
     log('[BUFF_TIMER] 매니저 중지됨');
   }
 
@@ -204,6 +261,7 @@ class BuffTimerManager {
   private _tick(): void {
     const warnSeconds = this._cachedWarnSeconds;
     const now = Date.now();
+    this._lastTickAt = now;
     let changed = false;
 
     for (const [buffId, buff] of this._activeBuffs) {
@@ -270,6 +328,56 @@ class BuffTimerManager {
       const label2 = phase === 'warn2' ? `[임박] ${buff.name} 5초 전!` : `[경고] ${buff.name} ${label} 남음`;
       diaryDb.addAlarmLog('buff', '버프 타이머 알림', label2);
       this._sendToMainWindow('play-sound', { label: label2, soundFile, volume, isCustom: true });
+    }
+  }
+
+  private _snapshotActiveBuffs(): ActiveBuff[] {
+    return Array.from(this._activeBuffs.values(), buff => ({
+      ...buff,
+      warnedAt: new Set(buff.warnedAt),
+    }));
+  }
+
+  private _recordMissedSleepWarnings(resumedAt: number): void {
+    const recoveryStart = Math.max(
+      this._suspendedAt ?? this._lastTickAt,
+      resumedAt - 24 * 60 * 60 * 1000
+    );
+    const sourceBuffs = this._suspendedBuffs ?? this._snapshotActiveBuffs();
+    const missed = getMissedBuffWarnings(
+      sourceBuffs,
+      recoveryStart,
+      resumedAt,
+      this._cachedWarnSeconds
+    );
+    let allRecorded = true;
+    for (const warning of missed) {
+      const label = warning.warnSec >= 60
+        ? `${Math.floor(warning.warnSec / 60)}분`
+        : `${warning.warnSec}초`;
+      const recorded = diaryDb.addAlarmLog(
+        'buff',
+        '절전 중 놓친 알람',
+        `[${warning.name}] ${label} 남음`,
+        {
+          scheduledAt: warning.scheduledAt,
+          recordedAt: resumedAt,
+          deliveryStatus: 'missed-sleep',
+          dedupeKey: warning.dedupeKey,
+        }
+      );
+      if (!recorded) {
+        allRecorded = false;
+        continue;
+      }
+      const active = this._activeBuffs.get(warning.buffId);
+      if (active?.startTime === warning.startTime) active.warnedAt.add(warning.warnSec);
+      log(`[BUFF_TIMER] 절전 중 놓친 알람 이력 기록: ${warning.name} ${label} 남음`);
+    }
+    if (allRecorded) {
+      this._suspendedAt = null;
+      this._suspendedBuffs = null;
+      this._lastTickAt = resumedAt;
     }
   }
 
