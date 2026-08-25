@@ -627,13 +627,36 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   await waitForSelector(window, '#google-restore-settings');
   const result = await window.webContents.executeJavaScript(`
     (async () => {
-      const calls = [];
+      const restoreCalls = [];
+      const confirms = [];
       const alerts = [];
-      window.confirm = () => true;
+      let previewCalls = 0;
+      let rollbackCalls = 0;
+      window.confirm = message => { confirms.push(message); return true; };
       window.alert = message => alerts.push(message);
       window.electronAPI = {
+        googleSyncPreview: async () => {
+          previewCalls++;
+          return {
+            success: true,
+            partial: false,
+            restoreResults: [
+              { kind: 'settings', selected: true, status: 'available' },
+              { kind: 'checklist', selected: true, status: 'available' }
+            ],
+            changeSummaries: [
+              {
+                kind: 'settings',
+                changedKeys: ['userServer'],
+                addedKeys: [],
+                preservedLocalKeys: ['showTodaySummaryHud'],
+                unchangedCount: 4
+              }
+            ]
+          };
+        },
         googleSyncRestore: async kinds => {
-          calls.push(kinds);
+          restoreCalls.push(kinds);
           return {
             success: true,
             partial: true,
@@ -644,31 +667,70 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
               { kind: 'checklist', selected: false, status: 'skipped' }
             ]
           };
-        }
+        },
+        googleSyncRollback: async () => {
+          rollbackCalls++;
+          return { success: true };
+        },
+        googleSyncGetStatus: async () => ({
+          isLinked: true,
+          localBackupAvailable: true,
+          localBackupCreatedAt: 1000
+        })
       };
       document.getElementById('google-restore-settings').checked = true;
       document.getElementById('google-restore-checklist').checked = false;
       await handleGoogleRestoreNow();
+      const statusText = document.getElementById('google-restore-status')?.textContent || '';
+      const statusVisible = !document.getElementById('google-restore-status')?.classList.contains('hidden');
+      const summaryText = document.getElementById('google-change-summary')?.textContent || '';
+      const summaryVisible = !document.getElementById('google-change-summary')?.classList.contains('hidden');
+      updateGoogleSyncUI({
+        isLinked: true,
+        localBackupAvailable: true,
+        localBackupCreatedAt: 1000
+      });
+      const rollbackVisible = !document.getElementById('btn-google-rollback')?.classList.contains('hidden');
+      await handleGoogleRollback();
       return {
-        calls,
+        restoreCalls,
+        previewCalls,
+        rollbackCalls,
+        confirms,
         alerts,
-        statusText: document.getElementById('google-restore-status')?.textContent || '',
-        statusVisible: !document.getElementById('google-restore-status')?.classList.contains('hidden'),
+        statusText,
+        statusVisible,
+        summaryText,
+        summaryVisible,
+        rollbackVisible,
       };
     })()
   `) as {
-    calls: string[][];
+    restoreCalls: string[][];
+    previewCalls: number;
+    rollbackCalls: number;
+    confirms: string[];
     alerts: string[];
     statusText: string;
     statusVisible: boolean;
+    summaryText: string;
+    summaryVisible: boolean;
+    rollbackVisible: boolean;
   };
 
-  assert.deepEqual(result.calls, [['settings']]);
+  assert.deepEqual(result.restoreCalls, [['settings']]);
+  assert.equal(result.previewCalls, 1);
+  assert.equal(result.rollbackCalls, 1);
   assert.equal(result.statusVisible, true);
   assert.match(result.statusText, /일부 파일만 복원되었습니다/);
   assert.match(result.statusText, /일반 설정복원 완료/);
   assert.match(result.statusText, /숙제 체크리스트선택하지 않음/);
-  assert.equal(result.alerts.length, 1);
+  assert.equal(result.summaryVisible, true);
+  assert.match(result.summaryText, /userServer/);
+  assert.match(result.summaryText, /showTodaySummaryHud/);
+  assert.match(result.confirms[0], /변경 1개, 현재 PC 유지 1개/);
+  assert.equal(result.rollbackVisible, true);
+  assert.equal(result.alerts.length, 2);
 }
 
 async function checkHuntingExpCalculator(window: BrowserWindow): Promise<void> {

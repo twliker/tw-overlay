@@ -2715,9 +2715,13 @@
                       <input type="checkbox" id="google-restore-checklist" checked class="custom-toggle rounded">
                       숙제 체크리스트
                     </label>
+                    <button id="btn-google-rollback" onclick="handleGoogleRollback()" class="hidden px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 transition flex items-center gap-1.5">
+                      <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> 최근 복원 되돌리기
+                    </button>
                   </div>
                 </div>
                 <div id="google-restore-status" class="hidden rounded-xl border border-white/10 bg-white/5 p-3 space-y-2" aria-live="polite"></div>
+                <div id="google-change-summary" class="hidden rounded-xl border border-blue-500/15 bg-blue-500/5 p-3 space-y-3" aria-live="polite"></div>
               </div>
             </div>
           </div>
@@ -2904,6 +2908,7 @@
 
       <!-- 본문 (JSON 코드 뷰어) -->
       <div class="p-4 flex-1 overflow-hidden flex flex-col min-h-[350px]">
+        <div id="google-sync-preview-summary" class="hidden rounded-xl border border-blue-500/15 bg-blue-500/5 p-3 mb-3 space-y-3 max-h-44 overflow-y-auto custom-scroll"></div>
         <div class="bg-black/60 border border-white/10 rounded-2xl p-4 flex-1 overflow-y-auto custom-scroll font-mono text-xs text-slate-300 leading-relaxed select-text whitespace-pre" id="google-sync-preview-code">
           데이터를 불러오는 중...
         </div>
@@ -3512,6 +3517,63 @@
       container.classList.remove('hidden');
     }
 
+    function renderGoogleChangeSummaries(summaries, containerId = 'google-change-summary') {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.replaceChildren();
+      if (!Array.isArray(summaries) || summaries.length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+
+      const title = document.createElement('div');
+      title.className = 'text-xs font-bold text-blue-200';
+      title.textContent = '복원 전 변경 요약';
+      container.appendChild(title);
+      const kindLabels = { settings: '일반 설정', checklist: '숙제 체크리스트' };
+      const groups = [
+        ['changedKeys', '변경', 'text-amber-200'],
+        ['addedKeys', '추가', 'text-emerald-200'],
+        ['preservedLocalKeys', '현재 PC 유지', 'text-slate-300'],
+      ];
+
+      for (const summary of summaries) {
+        const section = document.createElement('div');
+        section.className = 'space-y-1.5';
+        const heading = document.createElement('div');
+        heading.className = 'text-xs font-semibold text-slate-200';
+        heading.textContent = kindLabels[summary.kind] || summary.kind;
+        section.appendChild(heading);
+        for (const [key, label, colorClass] of groups) {
+          const keys = Array.isArray(summary[key]) ? summary[key] : [];
+          if (keys.length === 0) continue;
+          const row = document.createElement('div');
+          row.className = `text-[11px] leading-relaxed ${colorClass}`;
+          const visibleKeys = keys.slice(0, 12);
+          const extra = keys.length > visibleKeys.length ? ` 외 ${keys.length - visibleKeys.length}개` : '';
+          row.textContent = `${label} ${keys.length}개 · ${visibleKeys.join(', ')}${extra}`;
+          section.appendChild(row);
+        }
+        const unchanged = document.createElement('div');
+        unchanged.className = 'text-[11px] text-slate-500';
+        unchanged.textContent = `동일 ${Number(summary.unchangedCount) || 0}개`;
+        section.appendChild(unchanged);
+        container.appendChild(section);
+      }
+      container.classList.remove('hidden');
+    }
+
+    function formatGoogleSummaryForConfirm(summaries, selectedKinds) {
+      const labels = { settings: '일반 설정', checklist: '숙제 체크리스트' };
+      return (Array.isArray(summaries) ? summaries : [])
+        .filter(summary => selectedKinds.includes(summary.kind))
+        .map(summary => {
+          const changed = (summary.changedKeys?.length || 0) + (summary.addedKeys?.length || 0);
+          const preserved = summary.preservedLocalKeys?.length || 0;
+          return `• ${labels[summary.kind] || summary.kind}: 변경 ${changed}개, 현재 PC 유지 ${preserved}개`;
+        });
+    }
+
     function updateGoogleSyncUI(status) {
       if (!status) return;
       const unlinkedView = document.getElementById('google-sync-unlinked-view');
@@ -3523,6 +3585,7 @@
       const autoToggle = document.getElementById('google-auto-sync-toggle');
       const backupBtn = document.getElementById('btn-google-backup');
       const restoreBtn = document.getElementById('btn-google-restore');
+      const rollbackBtn = document.getElementById('btn-google-rollback');
 
       if (status.isLinked) {
         if (unlinkedView) unlinkedView.classList.add('hidden');
@@ -3556,6 +3619,13 @@
 
       if (backupBtn) backupBtn.disabled = !!status.isSyncing;
       if (restoreBtn) restoreBtn.disabled = !!status.isSyncing;
+      if (rollbackBtn) {
+        rollbackBtn.classList.toggle('hidden', status.localBackupAvailable !== true);
+        rollbackBtn.disabled = !!status.isSyncing;
+        rollbackBtn.title = status.localBackupCreatedAt
+          ? `복원 전 백업: ${formatSyncTime(status.localBackupCreatedAt)}`
+          : '마지막 클라우드 복원 전 로컬 설정으로 되돌립니다.';
+      }
       renderGoogleRestoreStatus(status.restoreResults, status.restorePartial, status.profileState);
       window.refreshIcons();
     }
@@ -3651,13 +3721,27 @@
         alert('불러올 데이터 종류를 하나 이상 선택해 주세요.');
         return;
       }
-      const selectedLabels = selectedKinds.map(kind => kind === 'settings' ? '일반 설정' : '숙제 체크리스트');
-      if (!confirm(`구글 드라이브에서 ${selectedLabels.join(', ')} 데이터를 불러오시겠습니까?\n(적용 전에 현재 로컬 설정을 백업합니다)`)) {
-        return;
-      }
       const btn = document.getElementById('btn-google-restore');
       if (btn) btn.disabled = true;
       try {
+        const preview = await window.electronAPI.googleSyncPreview();
+        renderGoogleRestoreStatus(preview.restoreResults, preview.partial, undefined);
+        renderGoogleChangeSummaries(preview.changeSummaries);
+        const selectedAvailable = (preview.restoreResults || [])
+          .some(result => selectedKinds.includes(result.kind) && result.status === 'available');
+        if (!preview.success || !selectedAvailable) {
+          alert(`선택한 클라우드 파일을 복원할 수 없습니다: ${preview.error || '유효한 파일이 없습니다.'}`);
+          return;
+        }
+        const selectedLabels = selectedKinds.map(kind => kind === 'settings' ? '일반 설정' : '숙제 체크리스트');
+        const summaryLines = formatGoogleSummaryForConfirm(preview.changeSummaries, selectedKinds);
+        const warning = (preview.restoreResults || []).some(result =>
+          selectedKinds.includes(result.kind) && result.status !== 'available')
+          ? '\n일부 선택 파일은 검증에 실패하여 정상 파일만 복원됩니다.'
+          : '';
+        if (!confirm(`구글 드라이브에서 ${selectedLabels.join(', ')} 데이터를 불러오시겠습니까?\n${summaryLines.join('\n')}${warning}\n\n적용 전에 현재 로컬 설정을 백업합니다.`)) {
+          return;
+        }
         const res = await window.electronAPI.googleSyncRestore(selectedKinds);
         renderGoogleRestoreStatus(res.restoreResults, res.partial, res.profileState);
         if (res.success) {
@@ -3673,6 +3757,26 @@
         }
       } catch (err) {
         alert(`불러오기 오류: ${err}`);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function handleGoogleRollback() {
+      if (!confirm('마지막 클라우드 복원 전 이 PC의 설정으로 되돌리시겠습니까?\n되돌린 설정은 이후 자동 동기화로 다른 PC에도 반영될 수 있습니다.')) return;
+      const btn = document.getElementById('btn-google-rollback');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await window.electronAPI.googleSyncRollback();
+        if (!res.success) {
+          alert(`되돌리기 실패: ${res.error || '알 수 없는 오류'}`);
+          return;
+        }
+        alert('마지막 클라우드 복원 전 이 PC의 설정으로 되돌렸습니다.');
+        const status = await window.electronAPI.googleSyncGetStatus();
+        updateGoogleSyncUI(status);
+      } catch (err) {
+        alert(`되돌리기 중 오류가 발생했습니다: ${err}`);
       } finally {
         if (btn) btn.disabled = false;
       }
@@ -3700,6 +3804,7 @@
       try {
         const res = await window.electronAPI.googleSyncPreview();
         renderGoogleRestoreStatus(res.restoreResults, res.partial, undefined);
+        renderGoogleChangeSummaries(res.changeSummaries, 'google-sync-preview-summary');
         if (res.success && res.payload) {
           const jsonStr = JSON.stringify(res.payload, null, 2);
           _lastCloudPreviewJson = jsonStr;
