@@ -6118,6 +6118,50 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   cloudSyncState.update((state: any) => { state.checklistOutbox = []; });
   assert.equal(cloudManager.reconcileShutdownRecovery(), true);
   assert.equal(cloudSyncState.load().shutdownRecovery, undefined);
+
+  // 실제 매니저 scheduler가 게임 실행/유휴 상태에 맞는 주기와 installation jitter를 예약한다.
+  cloudSyncState.update((state: any) => { state.profileState = 'established'; });
+  const pollingLoopModule = require(path.join(projectRoot, 'dist', 'modules', 'pollingLoop.js'));
+  const originalGetGameStatus = pollingLoopModule.getGameStatus;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const scheduledPullDelays: number[] = [];
+  (globalThis as any).setTimeout = (callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
+    if (typeof delay === 'number' && delay >= 25_000) {
+      scheduledPullDelays.push(delay);
+      return { cloudPullProbeTimer: true };
+    }
+    return (originalSetTimeout as any)(callback, delay, ...args);
+  };
+  (globalThis as any).clearTimeout = (timer: any) => {
+    if (timer?.cloudPullProbeTimer) return;
+    return (originalClearTimeout as any)(timer);
+  };
+  const capturePullDelay = async (gameStatus: 'running' | 'stopped'): Promise<number> => {
+    const before = scheduledPullDelays.length;
+    pollingLoopModule.getGameStatus = () => gameStatus;
+    cloudManager.startBackgroundSync();
+    for (let attempt = 0; attempt < 5 && scheduledPullDelays.length === before; attempt++) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    cloudManager.stopBackgroundSync();
+    assert.equal(scheduledPullDelays.length, before + 1,
+      `${gameStatus} 상태에서 다음 클라우드 pull 타이머를 하나 예약하지 않았습니다.`);
+    return scheduledPullDelays[before];
+  };
+  try {
+    const runningDelay = await capturePullDelay('running');
+    assert.ok(runningDelay >= 27_000 && runningDelay <= 33_000,
+      `게임 실행 중 pull 주기가 30초 installation jitter 범위를 벗어났습니다: ${runningDelay}`);
+    const idleDelay = await capturePullDelay('stopped');
+    assert.ok(idleDelay >= 270_000 && idleDelay <= 330_000,
+      `게임 미실행 pull 주기가 5분 installation jitter 범위를 벗어났습니다: ${idleDelay}`);
+  } finally {
+    cloudManager.stopBackgroundSync();
+    pollingLoopModule.getGameStatus = originalGetGameStatus;
+    (globalThis as any).setTimeout = originalSetTimeout;
+    (globalThis as any).clearTimeout = originalClearTimeout;
+  }
 }
 
 function checkLargeChatLogReadBoundary(): void {
