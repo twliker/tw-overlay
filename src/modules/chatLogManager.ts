@@ -279,7 +279,11 @@ class ChatLogManager {
     this._tailRetryTimer = setTimeout(() => {
       this._tailRetryTimer = null;
       const currentPath = this.getTodayFilePath();
-      if (currentPath !== filePath || !fs.existsSync(filePath)) return;
+      if (currentPath !== filePath) return;
+      if (!fs.existsSync(filePath)) {
+        this.scheduleTailReconnect(filePath);
+        return;
+      }
       this.initWatch(false);
     }, delayMs);
   }

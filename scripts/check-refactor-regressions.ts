@@ -5701,6 +5701,11 @@ function checkChatTailRecoveryBoundary(): void {
     /tail\.on\('error',[\s\S]*?this\._tail = releaseFailedTail\(tail\);[\s\S]*?this\.scheduleTailReconnect\(filePath\);/,
     'Tail 오류 뒤 watcher 해제/null 처리와 재연결 예약이 이어지지 않습니다.',
   );
+  assert.match(
+    managerSource,
+    /if \(currentPath !== filePath\) return;\s*if \(!fs\.existsSync\(filePath\)\) \{\s*this\.scheduleTailReconnect\(filePath\);\s*return;/,
+    '재연결 시점에 파일이 아직 없으면 다음 지수 백오프 예약이 이어지지 않습니다.',
+  );
 }
 
 function checkNotificationKeywordBoundaries(): void {
