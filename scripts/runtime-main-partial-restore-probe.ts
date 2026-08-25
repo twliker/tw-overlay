@@ -2,7 +2,7 @@ import fs = require('node:fs');
 import path = require('node:path');
 import { app } from 'electron';
 
-type ProbeMode = 'partial' | 'reverse-partial' | 'blocked' | 'confirmed';
+type ProbeMode = 'partial' | 'reverse-partial' | 'blocked' | 'confirmed' | 'rollback';
 
 interface RemoteFile {
   id: string;
@@ -20,7 +20,7 @@ interface RemoteStore {
 const projectRoot = path.resolve(__dirname, '..');
 const [modeValue, probeRoot, resultPath] = process.argv.slice(2);
 const mode = modeValue as ProbeMode;
-if (!['partial', 'reverse-partial', 'blocked', 'confirmed'].includes(mode)
+if (!['partial', 'reverse-partial', 'blocked', 'confirmed', 'rollback'].includes(mode)
   || !path.isAbsolute(probeRoot || '')
   || !path.isAbsolute(resultPath || '')) {
   throw new Error('runtime main partial restore probe arguments are invalid');
@@ -120,9 +120,11 @@ if (mode === 'partial' || mode === 'reverse-partial') {
     size: String(Buffer.byteLength(JSON.stringify(settingsPayload), 'utf8')),
     payload: settingsPayload,
   };
-  if (mode === 'confirmed') {
+  if (mode === 'confirmed' || mode === 'rollback') {
     const checklistPayload = syncDataHelper.buildChecklistSyncPayload({
-      characterPresets: [{ id: 'not-selected-character', name: '선택하지 않은 원격 캐릭터' }],
+      characterPresets: mode === 'rollback'
+        ? [{ id: 'rollback-remote-character', name: '되돌리기 대상 원격 캐릭터' }]
+        : [{ id: 'not-selected-character', name: '선택하지 않은 원격 캐릭터' }],
       contentsCheckerItems: [],
       pendingHomeworks: [],
     }, 'remote-device', generationId, []);
@@ -188,6 +190,67 @@ app.on('quit', () => {
 });
 
 void app.whenReady().then(() => {
+  if (mode === 'rollback') {
+    setTimeout(() => {
+      void (async () => {
+        const cloudSyncManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js')) as any;
+        const restoreResult = await cloudSyncManager.syncFromCloud(true, ['settings', 'checklist']);
+        if (!restoreResult.success) {
+          probeError = restoreResult.error || 'rollback probe manual restore failed';
+          app.quit();
+          return;
+        }
+        const restoredConfig = JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8'));
+        const restoredObservation = {
+          userServer: restoredConfig.userServer,
+          characterPresetIds: restoredConfig.characterPresets.map((character: any) => character.id),
+        };
+        const rollbackResult = await cloudSyncManager.rollbackLastRestore();
+        if (!rollbackResult.success) {
+          probeError = rollbackResult.error || 'rollback probe rollback failed';
+          app.quit();
+          return;
+        }
+        const deadline = Date.now() + 8_000;
+        const poll = setInterval(() => {
+          const store = loadStore();
+          const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
+          const config = JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8'));
+          const remoteServer = store.files['corrupt-settings']?.payload?.data?.userServer;
+          const remoteCharacterIds = store.files['valid-checklist']?.payload?.data?.characterPresets
+            ?.map((character: any) => character.id) || [];
+          if (remoteServer === 7
+            && remoteCharacterIds.length === 1
+            && remoteCharacterIds[0] === 'remote-character'
+            && state.settingsDirtyKeys.length === 0
+            && state.checklistOutbox.length === 0) {
+            clearInterval(poll);
+            observation = {
+              profileState: state.profileState,
+              restoredObservation,
+              rolledBackUserServer: config.userServer,
+              rolledBackCharacterPresetIds: config.characterPresets.map((character: any) => character.id),
+              remoteServer,
+              remoteCharacterIds,
+              settingsDirtyKeys: state.settingsDirtyKeys,
+              checklistOperationIds: state.checklistOutbox.map((operation: any) => operation.id),
+              uploadCounts: structuredClone(store.uploadCounts),
+            };
+            app.quit();
+          } else if (Date.now() >= deadline) {
+            clearInterval(poll);
+            probeError = 'rollback did not synchronize the restored local backup';
+            app.quit();
+          }
+        }, 50);
+      })().catch(error => {
+        probeError = error instanceof Error ? error.message : String(error);
+        app.quit();
+      });
+    }, 2_500);
+    return;
+  }
+
   if (mode === 'confirmed') {
     setTimeout(() => {
       void (async () => {

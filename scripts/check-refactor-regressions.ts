@@ -333,10 +333,12 @@ function checkMainPartialRestoreConfirmationGate(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-partial-restore-probe.js');
   const probeRoot = path.join(isolatedUserData, 'main-partial-restore');
   const reverseProbeRoot = path.join(isolatedUserData, 'main-reverse-partial-restore');
+  const rollbackProbeRoot = path.join(isolatedUserData, 'main-rollback-restore');
   fs.mkdirSync(probeRoot, { recursive: true });
   fs.mkdirSync(reverseProbeRoot, { recursive: true });
+  fs.mkdirSync(rollbackProbeRoot, { recursive: true });
 
-  const run = (mode: 'partial' | 'reverse-partial' | 'blocked' | 'confirmed', root = probeRoot) => {
+  const run = (mode: 'partial' | 'reverse-partial' | 'blocked' | 'confirmed' | 'rollback', root = probeRoot) => {
     const resultPath = path.join(root, `${mode}-result.json`);
     const result = spawnElectronProbe([
       probePath,
@@ -373,6 +375,23 @@ function checkMainPartialRestoreConfirmationGate(): void {
     '손상된 숙제 파일 때문에 기존 로컬 숙제/캐릭터 설정이 변경되었습니다.');
   assert.deepEqual(reversePartial.remoteStore.uploadCounts, {},
     '역방향 부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
+
+  run('partial', rollbackProbeRoot);
+  const rollback = run('rollback', rollbackProbeRoot);
+  assert.equal(rollback.observation.profileState, 'established');
+  assert.equal(rollback.observation.restoredObservation.userServer, 16);
+  assert.deepEqual(rollback.observation.restoredObservation.characterPresetIds,
+    ['rollback-remote-character']);
+  assert.equal(rollback.observation.rolledBackUserServer, 7);
+  assert.deepEqual(rollback.observation.rolledBackCharacterPresetIds, ['remote-character']);
+  assert.equal(rollback.observation.remoteServer, 7,
+    '되돌린 로컬 설정이 후속 자동 동기화로 원격에 반영되지 않았습니다.');
+  assert.deepEqual(rollback.observation.remoteCharacterIds, ['remote-character'],
+    '되돌린 로컬 숙제/캐릭터가 후속 자동 동기화로 원격에 반영되지 않았습니다.');
+  assert.deepEqual(rollback.observation.settingsDirtyKeys, []);
+  assert.deepEqual(rollback.observation.checklistOperationIds, []);
+  assert.equal(rollback.observation.uploadCounts['tw_overlay_settings.json'], 1);
+  assert.equal(rollback.observation.uploadCounts['tw_overlay_checklist.json'], 1);
 
   const blocked = run('blocked');
   assert.equal(blocked.observation.profileState, 'needs-confirmation');
