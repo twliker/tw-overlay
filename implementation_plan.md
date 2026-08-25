@@ -60,9 +60,11 @@
 - 메타 파일의 Drive file ID·공유 generation을 이름 검색보다 우선하고, 데이터 payload의 종류·schema·revision·checksum·크기·allowlist를 적용 전에 검증한다.
 - 로그아웃·인증 무효화는 진행 Drive 요청을 취소하며 Drive 401은 access token 강제 갱신 후 한 번만 재시도한다.
 - 숙제 업로드 직후 원격 revision·operation ID를 재조회해 확인된 operation만 outbox에서 제거하고, 이후 pull에서 확인 operation이 원격에서 사라졌으면 outbox에 다시 넣어 재게시한다.
+- 숙제 operation은 값 없는 ID가 아니라 안정 ID 경로의 `before/after` mutation을 함께 보존한다. 확인 직후 다른 PC가 payload를 덮어써도 누락 operation의 변경만 최신 원격 상태 위에 재실행해 비충돌 변경을 함께 살린다.
 - 메모리 Drive 통합 검사에서 설정/숙제/메타 분리 업로드와 `회사 숙제 변경 → 집 pull → 로컬 UI 상태 반영 → echo upload 없음` 흐름을 검증한다.
+- 메모리 Drive 교차 업로드 검사에서 서로 다른 숙제 상태 변경, 같은 숙제의 완료/해제/횟수 충돌, 업로드 확인 직후 overwrite, 응답 유실, 로컬 상태 파일 재로드 후 재수렴을 검증했다. 원격 적용 뒤 `contentsChecker.init()`에서 파생 echo outbox가 생기지 않도록 origin guard를 전체 적용 구간에 유지한다.
 - pull·업로드에는 installation별 jitter와 429·오프라인을 포함한 지수 백오프를 적용하고, 네트워크 오프라인→온라인 전환은 10초 이내 감지해 즉시 pull한다.
-- 남은 강화 작업은 교차 PATCH 동시성 스트레스, 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증이다.
+- 남은 강화 작업은 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증이다.
 
 ## 1. 감사 기준과 현재 상태
 
@@ -285,7 +287,7 @@
 
 대상: A-07~A-09, B-05, D-01~D-06, D-09~D-10
 
-진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation 재게시·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드와 회사→집 숙제 수신·echo 방지를 통과했다. 교차 PATCH 동시성 스트레스, 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
+진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation mutation 재실행·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드, 회사→집 숙제 수신, 파생 echo outbox 방지, 교차 PATCH overwrite, 동일 숙제 완료/해제/횟수 충돌, 응답 유실과 재시작 재수렴을 통과했다. 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
 
 1. 클라우드 정식 저장 계약을 처음부터 다음 세 파일로 구성한다. 개발 중 생성된 `tw_overlay_sync.json`은 조회하지 않는다.
    - `tw_overlay_settings.json`: 일반 설정의 클라우드 권위 스냅샷
@@ -304,7 +306,7 @@
 12. OAuth 세대 토큰으로 취소/만료된 로그인 세션의 늦은 토큰 저장을 차단한다. access token이 아직 유효하면 refresh token 없이도 사용하고, 만료 시에만 재로그인을 요구한다.
 13. 세 payload 모두 크기, 최상위 형태, schemaVersion, revision, checksum, 필드 타입과 종류별 allowlist를 로컬 저장 전에 검증한다.
 14. 숙제 상태는 마지막 정상 동기화본을 base로 둔 3방향 병합을 수행한다. 키는 `contentId + characterId + resetCycle`이며 `로컬만 변경=로컬`, `클라우드만 변경=클라우드`, `양쪽 동일 변경=그 값`, `양쪽 충돌 변경=실제 게임을 추적한 로컬`로 결정한다. 단순히 같은 키가 존재한다는 이유만으로 오래된 로컬 상태가 최신 클라우드 상태를 막지 않게 한다.
-15. 완료 해제·N/A 해제·횟수 감소·커스텀 항목 삭제도 명시적 tombstone/operation으로 보존한다. 체크리스트 업로드는 `원격 재조회 → base/local/remote 병합 → revision 증가 업로드 → 재조회 검증`으로 수행하고, 자신의 operation ID가 원격에서 확인될 때까지 outbox에서 제거하지 않는다. 다른 PC의 동시 PATCH로 사라지면 다시 병합·업로드해 최종 수렴시킨다.
+15. 완료 해제·N/A 해제·횟수 감소·커스텀 항목 삭제도 명시적 tombstone/operation으로 보존한다. operation에는 배열 인덱스가 아닌 숙제·캐릭터 안정 ID 경로의 `before/after` mutation을 포함한다. 체크리스트 업로드는 `원격 재조회 → base/local/remote 병합 → revision 증가 업로드 → 재조회 검증`으로 수행하고, 자신의 operation ID가 원격에서 확인될 때까지 outbox에서 제거하지 않는다. 다른 PC의 동시 PATCH로 사라지면 누락 mutation만 최신 원격 위에 재실행하고 다시 업로드해 비충돌 변경과 두 operation ID를 함께 보존한다.
 16. tombstone과 operation은 최소 현재·직전 리셋 주기를 보존한다. 오래된 주기 정리는 현재 주기 판정과 서버 revision 반영이 확인된 뒤 수행해 느리게 접속한 PC가 삭제/해제를 되살리지 못하게 한다.
 17. 캐릭터 프리셋·커스텀 숙제 정의는 안정 ID로 합집합 병합한다. 같은 ID의 이름·분류·리셋 시각 같은 정의 충돌은 클라우드 값을 사용하되 진행 상태는 3방향 병합 규칙을 따른다. 같은 ID인데 생성 origin/fingerprint가 다른 실제 충돌은 한쪽에 새 ID를 발급하고 참조를 함께 옮긴다.
 18. 일반 설정은 병합하지 않고 클라우드에 존재하는 필드를 권위 스냅샷으로 교체한다. 알림 on/off·볼륨·기본 사운드 ID·단축키·키워드·퀵슬롯·사용자 정의 알람/채팅 탭·UI 옵션 등이 대상이다. 적용 직전 원자적 로컬 백업을 만들고 변경 요약과 되돌리기 진입점을 제공한다.
@@ -342,6 +344,7 @@
 - 회사·집 PC를 각각 독립 설치 ID와 base snapshot으로 실행하는 테스트를 추가한다. 회사 PC에서 숙제 완료→500ms 내 업로드→집 PC 유휴 pull 또는 게임 시작 즉시 pull→집 PC UI 반영→echo upload 없음의 전 과정을 검증한다.
 - 집 PC가 절전 중이거나 네트워크가 끊긴 동안 회사 PC에서 여러 숙제를 완료한 뒤, 집 PC 복귀/게임 시작 시 중간 revision을 놓치지 않고 최종 상태로 수렴하는지 검증한다.
 - 회사 PC 업로드와 집 PC의 로컬 완료가 같은 시점에 교차하는 fixture에서 양쪽 operation ID가 최종 원격 payload와 두 로컬 상태에 모두 남고, 이후 아무 조작 없이 pull만으로 같은 결과가 되는지 검증한다.
+- **자동 검증 완료(2026-08-25):** 서로 다른 캐릭터 상태의 교차 변경과 같은 숙제의 완료/해제/횟수 충돌 fixture가 같은 로컬 결과로 수렴하고 두 operation ID를 최종 payload에 보존했다. 실제 매니저+메모리 Drive에서는 확인 직후 overwrite→누락 mutation 재게시, 응답 유실 뒤 중복 업로드 없는 확인, `cloud-sync-state.json` 재로드 뒤 재수렴을 통과했다. 실계정 2-PC 검증은 별도로 남긴다.
 - fresh/established/needs-confirmation 설치, 중복 파일명, 손상된 메타, 설정만 존재, 숙제만 존재 상태의 fixture를 추가한다. 개발 중 단일 파일은 발견되어도 무시되는지 검사한다.
 - 새 PC 부분 복원에서 정상 파일의 사용자 값은 보존되고 없는 신규 기본 키만 추가되는지 검사한다. 기존 PC 자동 동기화에서는 일반 설정만 클라우드로 교체되고 숙제 상태는 3방향 병합되며, PC 종속·민감 필드와 로컬 이력은 변하지 않는지 검증한다.
 - 오프라인 로컬 설정 변경과 다른 PC의 클라우드 설정 변경이 충돌하는 fixture에서 클라우드 설정이 적용되고 직전 로컬 설정 백업으로 되돌릴 수 있는지 검증한다.
