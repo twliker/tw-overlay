@@ -3995,11 +3995,15 @@ function checkAbandonedFeeMatchingContracts(): void {
   abandonedTracker.reset();
 }
 
-function checkMissedMinuteSchedulerContracts(): void {
-  const { getMissedMinuteTimestamps } = require(
+async function checkMissedMinuteSchedulerContracts(): Promise<void> {
+  const { getMissedMinuteTimestamps, MinuteAlignedScheduler } = require(
     path.join(projectRoot, 'dist', 'modules', 'minuteAlignedScheduler.js'),
   ) as {
     getMissedMinuteTimestamps(lastCheckedAt: number, resumedAt: number, maxLookbackMs?: number): number[];
+    MinuteAlignedScheduler: new (runtime: any) => {
+      start(callback: () => void | Promise<void>, onMissed?: (timestamps: number[]) => void): boolean;
+      stop(): void;
+    };
   };
 
   const at = (hour: number, minute: number, second = 0) =>
@@ -4013,9 +4017,120 @@ function checkMissedMinuteSchedulerContracts(): void {
     '복귀한 현재 분을 놓친 알림으로 소급했습니다.');
   assert.deepEqual(getMissedMinuteTimestamps(at(10, 5), at(10, 4)), []);
 
-  const schedulerSource = read('src/modules/minuteAlignedScheduler.ts');
-  assert.match(schedulerSource, /if \(this\.resumeDelayTimer\)[\s\S]*?clearTimeout\(this\.resumeDelayTimer\)/,
-    'resume/unlock 중복 지연 타이머를 취소하지 않습니다.');
+  function createFakeRuntime(initialNow: number) {
+    let now = initialNow;
+    let nextTimerId = 1;
+    const timers = new Map<number, { callback: () => void; dueAt: number }>();
+    const listeners = new Map<string, Set<() => void>>();
+    const runtime = {
+      now: () => now,
+      setTimeout(callback: () => void, delayMs: number) {
+        const timerId = nextTimerId++;
+        timers.set(timerId, { callback, dueAt: now + delayMs });
+        return timerId;
+      },
+      clearTimeout(timerId: number) {
+        timers.delete(timerId);
+      },
+      onPowerEvent(event: string, listener: () => void) {
+        const eventListeners = listeners.get(event) || new Set<() => void>();
+        eventListeners.add(listener);
+        listeners.set(event, eventListeners);
+      },
+      removePowerEventListener(event: string, listener: () => void) {
+        listeners.get(event)?.delete(listener);
+      },
+    };
+    return {
+      runtime,
+      timers,
+      setNow(value: number) { now = value; },
+      emit(event: string) {
+        for (const listener of [...(listeners.get(event) || [])]) listener();
+      },
+      listenerCount(event: string) { return listeners.get(event)?.size || 0; },
+      async runNextTimer() {
+        const next = [...timers.entries()].sort((left, right) => left[1].dueAt - right[1].dueAt)[0];
+        assert.ok(next, '실행할 가짜 분 타이머가 없습니다.');
+        timers.delete(next[0]);
+        now = next[1].dueAt;
+        next[1].callback();
+        await Promise.resolve();
+        await Promise.resolve();
+      },
+      async flushMicrotasks() {
+        await Promise.resolve();
+        await Promise.resolve();
+      },
+    };
+  }
+
+  const errorRuntime = createFakeRuntime(at(10, 0, 10));
+  const errorScheduler = new MinuteAlignedScheduler(errorRuntime.runtime);
+  let callbackRuns = 0;
+  const originalConsoleError = console.error;
+  let callbackErrors = 0;
+  console.error = (...args: unknown[]) => {
+    if (String(args[0]).includes('[MinuteAlignedScheduler] callback failed:')) callbackErrors += 1;
+    else originalConsoleError(...args);
+  };
+  try {
+    assert.equal(errorScheduler.start(() => {
+      callbackRuns += 1;
+      if (callbackRuns === 1) throw new Error('expected scheduler fixture failure');
+    }), true);
+    await errorRuntime.runNextTimer();
+    assert.equal(callbackRuns, 1);
+    assert.equal(callbackErrors, 1, '스케줄 콜백 예외가 격리되지 않았습니다.');
+    assert.equal(errorRuntime.timers.size, 1, '콜백 예외 뒤 다음 분 타이머가 재예약되지 않았습니다.');
+    await errorRuntime.runNextTimer();
+    assert.equal(callbackRuns, 2, '콜백 예외 뒤 다음 분 실행이 중단되었습니다.');
+  } finally {
+    console.error = originalConsoleError;
+    errorScheduler.stop();
+  }
+
+  const resumeRuntime = createFakeRuntime(at(10, 0, 10));
+  const resumeScheduler = new MinuteAlignedScheduler(resumeRuntime.runtime);
+  let resumeRuns = 0;
+  const missedBatches: number[][] = [];
+  resumeScheduler.start(() => { resumeRuns += 1; }, timestamps => missedBatches.push(timestamps));
+  resumeRuntime.setNow(at(10, 5, 30));
+  resumeRuntime.emit('resume');
+  resumeRuntime.emit('unlock-screen');
+  assert.equal(resumeRuntime.timers.size, 1,
+    'resume+unlock 연속 이벤트가 보정 타이머를 둘 이상 남겼습니다.');
+  assert.deepEqual(missedBatches.flat(), [at(10, 1), at(10, 2), at(10, 3), at(10, 4)],
+    'resume+unlock 연속 이벤트가 놓친 분을 중복 기록했습니다.');
+  await resumeRuntime.runNextTimer();
+  assert.equal(resumeRuns, 1, 'resume+unlock 연속 이벤트가 현재 분 콜백을 중복 실행했습니다.');
+  assert.equal(resumeRuntime.timers.size, 1, '복귀 콜백 뒤 분 정렬 타이머가 하나가 아닙니다.');
+  resumeScheduler.stop();
+  assert.equal(resumeRuntime.timers.size, 0, 'stop()이 보정/분 타이머를 남겼습니다.');
+  assert.equal(resumeRuntime.listenerCount('resume'), 0);
+  assert.equal(resumeRuntime.listenerCount('unlock-screen'), 0);
+
+  const slowRuntime = createFakeRuntime(at(11, 0, 10));
+  const slowScheduler = new MinuteAlignedScheduler(slowRuntime.runtime);
+  let resolveSlowCallback: (() => void) | undefined;
+  let slowRuns = 0;
+  slowScheduler.start(() => {
+    slowRuns += 1;
+    return new Promise<void>(resolve => { resolveSlowCallback = resolve; });
+  });
+  await slowRuntime.runNextTimer();
+  assert.equal(slowRuns, 1);
+  assert.equal(slowRuntime.timers.size, 0,
+    '실행 중인 장기 콜백과 병렬로 다음 callback 타이머가 예약되었습니다.');
+  slowRuntime.setNow(at(11, 3, 20));
+  assert.ok(resolveSlowCallback);
+  resolveSlowCallback();
+  await slowRuntime.flushMicrotasks();
+  assert.equal(slowRuntime.timers.size, 1,
+    '장기 콜백 완료 뒤 현재 시각 기준 다음 분 타이머가 예약되지 않았습니다.');
+  await slowRuntime.runNextTimer();
+  assert.equal(slowRuns, 2, '장기 콜백 완료 뒤 분 실행이 재개되지 않았습니다.');
+  slowScheduler.stop();
 }
 
 function checkMissedCustomAlertContracts(): void {
@@ -5518,10 +5633,10 @@ checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
-checkMissedMinuteSchedulerContracts();
 checkMissedCustomAlertContracts();
 checkMissedBossAlertContracts();
-void checkChatLogWorkerReadRecovery()
+void checkMissedMinuteSchedulerContracts()
+  .then(() => checkChatLogWorkerReadRecovery())
   .then(() => checkChatSearchSizeBoundaries())
   .then(() => checkChatLogWorkerBatchProtocol())
   .then(() => checkGoogleSyncDataContracts()).then(() => {
