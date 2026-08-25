@@ -1867,6 +1867,10 @@ function checkPreloadDefaultConfigCompatibility() {
     assert.equal(exposedApi.DEFAULT_CONFIG.shortcuts.toggleTimer, 'CommandOrControl+Shift+S');
     assert.equal(typeof exposedApi.onPlaySound, 'function');
     assert.equal(typeof exposedApi.onSpecialMonsterAlert, 'function');
+    assert.equal('googleSyncLogin' in exposedApi, false,
+      '2.7.1 preload에 비공개 Google 로그인 API가 노출되었습니다.');
+    assert.equal('onGoogleSyncStatusChanged' in exposedApi, false,
+      '2.7.1 preload에 비공개 Google 동기화 이벤트가 노출되었습니다.');
   }
 
   const directListenerCount = (preloadSource.match(/ipcRenderer\.on\(/g) || []).length;
@@ -1895,8 +1899,35 @@ function checkPreloadDefaultConfigCompatibility() {
     'chat-history-cleared', 'chat-overlay-mode', 'chat-log-status-changed',
     'alarm-logs-updated', 'timer-toggle', 'timer-updated',
     'game-overlay-edit-mode', 'game-overlay-reset-positions',
-    'google-sync-status-changed',
   ]);
+}
+
+function checkCloudSyncReleaseGateContracts(): void {
+  const constants = read('src/modules/constants.ts');
+  const main = read('src/main.ts');
+  const ipcHandlers = read('src/modules/ipcHandlers.ts');
+  const polling = read('src/modules/pollingLoop.ts');
+  const preload = read('src/preload.ts');
+  const settings = read('src/settings.html');
+
+  assert.match(constants, /export const GOOGLE_DRIVE_SYNC_ENABLED = false;/,
+    '2.7.1 Google Drive 동기화 공개 플래그가 비활성화되어 있지 않습니다.');
+  assert.doesNotMatch(main, /import \* as cloudSync from ['"]\.\/modules\/cloudSyncManager['"]/,
+    'main 시작 시 Google 동기화 모듈을 정적으로 로드하고 있습니다.');
+  assert.match(main, /if \(GOOGLE_DRIVE_SYNC_ENABLED\) \{[\s\S]*?initializeLocalProfileState\(\)/,
+    '앱 시작 Google 동기화 초기화가 공개 플래그로 보호되지 않았습니다.');
+  assert.match(main, /if \(GOOGLE_DRIVE_SYNC_ENABLED\) \{[\s\S]*?flushPendingSync\(\)/,
+    '앱 종료 Google 동기화 flush가 공개 플래그로 보호되지 않았습니다.');
+  assert.doesNotMatch(ipcHandlers, /import \* as cloudSync from ['"]\.\/cloudSyncManager['"]/,
+    'IPC 등록 과정에서 Google 동기화 모듈을 정적으로 로드하고 있습니다.');
+  assert.match(ipcHandlers, /if \(GOOGLE_DRIVE_SYNC_ENABLED\) \{[\s\S]*?google-sync-login/,
+    'Google 동기화 IPC가 공개 플래그로 보호되지 않았습니다.');
+  assert.match(polling, /gameJustStarted && GOOGLE_DRIVE_SYNC_ENABLED/,
+    '게임 시작 Google 동기화 진입점이 공개 플래그로 보호되지 않았습니다.');
+  assert.doesNotMatch(preload, /google-sync-/,
+    '2.7.1 preload에 비공개 Google 동기화 IPC 채널이 남아 있습니다.');
+  assert.match(settings, /id="google-sync-card" class="hidden /,
+    '2.7.1 설정 화면에서 Google 동기화 카드가 숨겨지지 않았습니다.');
 }
 
 function checkRequestedFeatureContracts() {
@@ -4458,6 +4489,7 @@ checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
 checkIpcChannelContracts();
+checkCloudSyncReleaseGateContracts();
 checkRendererBundleCleanliness();
 checkCorruptedConfigResilience();
 checkShoutSuffixStripping();

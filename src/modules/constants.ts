@@ -31,6 +31,9 @@ export const IS_DEV = (() => {
   const electronApp = getElectronApp();
   return electronApp ? !electronApp.isPackaged : false;
 })();
+// v2.7.1 안정화 릴리즈에서는 미완성 Google Drive 동기화를 제품 진입점에서 완전히 차단한다.
+// 구현과 직접 테스트는 보존하며 v3 정식 공개 준비가 끝난 뒤 이 플래그를 활성화한다.
+export const GOOGLE_DRIVE_SYNC_ENABLED = false;
 // 개발 실행 자체와 분리형 DevTools 자동 표시는 분리합니다. 분리형 DevTools 창은
 // Windows의 foreground/Z-order와 창모드 전체화면 판정에 개입하므로 명시적 옵션에서만 엽니다.
 export const SHOULD_AUTO_OPEN_DEVTOOLS = IS_DEV && process.argv.includes('--devtools');

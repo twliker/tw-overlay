@@ -10,6 +10,7 @@ import {
     STABLE_THRESHOLD_COUNT,
     WINDOW_MINIMIZED_THRESHOLD,
     EVENT_DEBOUNCE_MS,
+    GOOGLE_DRIVE_SYNC_ENABLED,
     IS_DEV,
     GameRect,
     GameQueryResult,
@@ -144,7 +145,7 @@ export function start(): void {
             _currentStatus = 'running';
             stableCount = 0;
             nextDelay = POLLING_FAST_MS;
-            if (gameJustStarted) {
+            if (gameJustStarted && GOOGLE_DRIVE_SYNC_ENABLED) {
                 void import('./cloudSyncManager').then(cloudSync => {
                     cloudSync.requestImmediatePull('game-started');
                 }).catch(error => log(`[POLL] 게임 시작 클라우드 확인 예약 실패: ${error}`));

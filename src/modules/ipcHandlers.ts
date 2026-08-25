@@ -5,7 +5,7 @@ import { ipcMain, shell, app, BrowserWindow, dialog, screen } from 'electron';
 import * as path from 'path';
 import * as config from './config';
 import { log } from './logger';
-import { AppConfig, QuickSlotItem, DEFAULT_CONFIG, IS_DEV } from './constants';
+import { AppConfig, QuickSlotItem, DEFAULT_CONFIG, GOOGLE_DRIVE_SYNC_ENABLED, IS_DEV } from './constants';
 import { DEFAULT_HUD_POSITIONS } from '../shared/windowPositions';
 import * as fs from 'fs';
 import { resolveSafeChildFile } from './safePath';
@@ -23,7 +23,6 @@ import * as tracker from './tracker';
 import { FOCUS_RESTORE_DELAY_MS } from './constants';
 import * as diaryDb from './diaryDb';
 import * as backup from './backupManager';
-import * as cloudSync from './cloudSyncManager';
 import { buffTimerManager } from './buffTimerManager';
 import * as scam from './scamMonitor';
 import * as noticeManager from './noticeManager';
@@ -850,23 +849,28 @@ export function register(): void {
   });
 
   // --- Google Drive Sync ---
-  ipcMain.handle('google-sync-login', async () => cloudSync.loginAndInit());
-  ipcMain.handle('google-sync-cancel-login', async () => cloudSync.cancelLogin());
-  ipcMain.handle('google-sync-is-logging-in', async () => cloudSync.isLoggingIn());
-  ipcMain.handle('google-sync-logout', async () => cloudSync.logout());
-  ipcMain.handle('google-sync-get-status', async () => cloudSync.getSyncStatus());
-  ipcMain.handle('google-sync-backup', async () => cloudSync.syncToCloud(true));
-  ipcMain.handle('google-sync-restore', async () => cloudSync.syncFromCloud(true));
-  ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
-  ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
-    if (!isBoolean(enabled)) return cloudSync.getSyncStatus();
-    config.saveImmediate({ googleSyncAutoSync: enabled });
-    cloudSync.refreshBackgroundSchedule();
-    if (enabled) cloudSync.requestImmediatePull('auto-sync-enabled');
-    const status = cloudSync.getSyncStatus();
-    broadcastToAllWindows('google-sync-status-changed', status);
-    return status;
-  });
+  // v2.7.1에서는 IPC 채널 자체를 등록하지 않아 숨겨진 UI나 DevTools에서도 기능을 호출할 수 없다.
+  if (GOOGLE_DRIVE_SYNC_ENABLED) {
+    const loadCloudSync = () => import('./cloudSyncManager');
+    ipcMain.handle('google-sync-login', async () => (await loadCloudSync()).loginAndInit());
+    ipcMain.handle('google-sync-cancel-login', async () => (await loadCloudSync()).cancelLogin());
+    ipcMain.handle('google-sync-is-logging-in', async () => (await loadCloudSync()).isLoggingIn());
+    ipcMain.handle('google-sync-logout', async () => (await loadCloudSync()).logout());
+    ipcMain.handle('google-sync-get-status', async () => (await loadCloudSync()).getSyncStatus());
+    ipcMain.handle('google-sync-backup', async () => (await loadCloudSync()).syncToCloud(true));
+    ipcMain.handle('google-sync-restore', async () => (await loadCloudSync()).syncFromCloud(true));
+    ipcMain.handle('google-sync-preview', async () => (await loadCloudSync()).getCloudDataPreview());
+    ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
+      const cloudSync = await loadCloudSync();
+      if (!isBoolean(enabled)) return cloudSync.getSyncStatus();
+      config.saveImmediate({ googleSyncAutoSync: enabled });
+      cloudSync.refreshBackgroundSchedule();
+      if (enabled) cloudSync.requestImmediatePull('auto-sync-enabled');
+      const status = cloudSync.getSyncStatus();
+      broadcastToAllWindows('google-sync-status-changed', status);
+      return status;
+    });
+  }
 
   // 채팅 로그 폴더 선택 다이얼로그
   ipcMain.handle('dialog:openChatLogFolder', async (event) => {

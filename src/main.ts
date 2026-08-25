@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { pathToFileURL } from 'url';
 import {
   FOCUS_DELAY_MS,
+  GOOGLE_DRIVE_SYNC_ENABLED,
   appState,
   get_RESOURCE_PATH
 } from './modules/constants';
@@ -36,7 +37,14 @@ import * as contentsChecker from './modules/contentsChecker';
 import { buffTimerManager } from './modules/buffTimerManager';
 import * as scamMonitor from './modules/scamMonitor';
 import { etaCacheManager } from './modules/etaCacheManager';
-import * as cloudSync from './modules/cloudSyncManager';
+
+type CloudSyncModule = typeof import('./modules/cloudSyncManager');
+let cloudSyncModulePromise: Promise<CloudSyncModule> | null = null;
+
+function loadCloudSyncModule(): Promise<CloudSyncModule> {
+  cloudSyncModulePromise ??= import('./modules/cloudSyncManager');
+  return cloudSyncModulePromise;
+}
 
 // ── 에러 트래킹 세팅 ──
 process.on('uncaughtException', (error) => {
@@ -76,16 +84,21 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
-  cloudSync.initializeLocalProfileState();
-  powerMonitor.on('resume', () => cloudSync.requestImmediatePull('system-resume'));
-  powerMonitor.on('unlock-screen', () => cloudSync.requestImmediatePull('screen-unlock'));
-  let wasNetworkOnline = net.isOnline();
-  setInterval(() => {
-    const isNetworkOnline = net.isOnline();
-    if (!wasNetworkOnline && isNetworkOnline) cloudSync.requestImmediatePull('network-reconnected');
-    wasNetworkOnline = isNetworkOnline;
-  }, 10_000);
   if (!gotTheLock) return;
+
+  if (GOOGLE_DRIVE_SYNC_ENABLED) {
+    void loadCloudSyncModule().then(cloudSync => {
+      cloudSync.initializeLocalProfileState();
+      powerMonitor.on('resume', () => cloudSync.requestImmediatePull('system-resume'));
+      powerMonitor.on('unlock-screen', () => cloudSync.requestImmediatePull('screen-unlock'));
+      let wasNetworkOnline = net.isOnline();
+      setInterval(() => {
+        const isNetworkOnline = net.isOnline();
+        if (!wasNetworkOnline && isNetworkOnline) cloudSync.requestImmediatePull('network-reconnected');
+        wasNetworkOnline = isNetworkOnline;
+      }, 10_000);
+    }).catch(error => log(`[BOOT] 구글 드라이브 런타임 초기화 실패: ${error}`));
+  }
 
   // preload가 시작 시 단일 기본 설정 원본을 동기 조회하므로 창 생성보다 먼저 등록해야 합니다.
   ipcHandlers.register();
@@ -237,13 +250,17 @@ app.whenReady().then(() => {
       trade.updateWindows(wm.getMainWindow(), wm.getTradeWindow());
     });
 
-    // 구글 드라이브 자동 동기화 (로그인 상태일 때 백그라운드 다운로드)
-    const syncStatus = cloudSync.getSyncStatus();
-    if (syncStatus.isLinked && syncStatus.autoSync !== false && config.load().googleSyncEnabled === true) {
-      cloudSync.startBackgroundSync();
-      cloudSync.syncFromCloud(false).catch((err) => {
-        log(`[BOOT] 구글 드라이브 시작 동기화 실패: ${err}`);
-      });
+    // 구글 드라이브 자동 동기화 (공개 플래그와 로그인 상태가 모두 활성화된 경우에만 시작)
+    if (GOOGLE_DRIVE_SYNC_ENABLED) {
+      void loadCloudSyncModule().then(cloudSync => {
+        const syncStatus = cloudSync.getSyncStatus();
+        if (syncStatus.isLinked && syncStatus.autoSync !== false && config.load().googleSyncEnabled === true) {
+          cloudSync.startBackgroundSync();
+          cloudSync.syncFromCloud(false).catch((err) => {
+            log(`[BOOT] 구글 드라이브 시작 동기화 실패: ${err}`);
+          });
+        }
+      }).catch(error => log(`[BOOT] 구글 드라이브 시작 동기화 준비 실패: ${error}`));
     }
 
     // 스플래시 창 닫기 (웰컴 가이드 / 공지 창 연동)
@@ -260,7 +277,6 @@ app.on('before-quit', (event) => {
   if (isFlushingAndQuitting) return;
 
   appState.isQuitting = true;
-  cloudSync.stopBackgroundSync();
   contentsChecker.cancelPendingDiaryWriteRetries();
   if (config.hasPending()) config.saveImmediate();
   if (!diaryDb.flushPendingElso()) {
@@ -280,14 +296,21 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   isFlushingAndQuitting = true;
 
-  const isUpdating = getIsUpdaterQuitting();
-  const flushTimeoutMs = isUpdating ? 500 : 3000;
+  let cloudFlush: Promise<unknown> = Promise.resolve();
+  if (GOOGLE_DRIVE_SYNC_ENABLED) {
+    const isUpdating = getIsUpdaterQuitting();
+    const flushTimeoutMs = isUpdating ? 500 : 3000;
+    cloudFlush = Promise.race([
+      loadCloudSyncModule().then(cloudSync => {
+        cloudSync.stopBackgroundSync();
+        return cloudSync.flushPendingSync();
+      }),
+      new Promise((resolve) => setTimeout(resolve, flushTimeoutMs)),
+    ]);
+  }
 
-  // 대기 중인 클라우드 동기화 완료 후 DB 종료 및 프로세스 종료 (업데이트 시 파일 락 방지를 위해 500ms로 단축)
-  Promise.race([
-    cloudSync.flushPendingSync(),
-    new Promise((resolve) => setTimeout(resolve, flushTimeoutMs)),
-  ]).finally(() => {
+  // 공개되지 않은 릴리즈에서는 클라우드 모듈을 로드하거나 종료를 지연하지 않는다.
+  cloudFlush.finally(() => {
     try {
       if (!diaryDb.closeDb()) {
         log('[SHUTDOWN] 엘소 flush 미완료 상태로 DB를 닫았습니다. 복구 기록은 유지됩니다.');
