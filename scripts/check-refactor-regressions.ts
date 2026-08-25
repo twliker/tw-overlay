@@ -4244,6 +4244,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '종료 flush 시간초과·실패 시 진행 중인 Drive 요청을 취소하지 않습니다.');
   assert.match(mainSource, /diaryDb\.checkpointWal\(\);\s*if \(!diaryDb\.closeDb\(\)\)/,
     '종료 시 WAL checkpoint 후 DB를 닫지 않습니다.');
+  assert.match(mainSource, /browser-window-created[\s\S]*?query-session-end[\s\S]*?prepareFastSessionEnd/,
+    'Windows 로그오프·시스템 종료 fast path가 창에 등록되지 않았습니다.');
+  assert.match(mainSource, /function prepareFastSessionEnd[\s\S]*?config\.hasPending\(\)[\s\S]*?prepareShutdownRecovery\(\)[\s\S]*?flushPendingElso\(\)[\s\S]*?checkpointWal\(\)/,
+    'Windows 세션 종료 전에 config·클라우드 marker·DB 상태를 동기 저장하지 않습니다.');
 
   const shutdownCoordinator = require(path.join(projectRoot, 'dist', 'modules', 'shutdownCoordinator.js'));
   const shutdownGate = shutdownCoordinator.createShutdownGate();

@@ -62,6 +62,26 @@ app.commandLine.appendSwitch('disable-gpu-sandbox');
 
 appState.isQuitting = false;
 
+let sessionEndPrepared = false;
+function prepareFastSessionEnd(): void {
+  if (sessionEndPrepared) return;
+  sessionEndPrepared = true;
+  appState.isQuitting = true;
+  cloudSync.stopBackgroundSync();
+  contentsChecker.cancelPendingDiaryWriteRetries();
+  if (config.hasPending()) config.saveImmediate();
+  cloudSync.prepareShutdownRecovery();
+  if (!diaryDb.flushPendingElso()) {
+    log('[SHUTDOWN] Windows 세션 종료 중 엘소 recovery 기록을 유지합니다.');
+  }
+  diaryDb.checkpointWal();
+}
+
+// Windows 로그오프·시스템 종료는 긴 비동기 대기를 막지 않고 내구 상태만 즉시 기록한다.
+app.on('browser-window-created', (_event, window) => {
+  window.on('query-session-end', () => prepareFastSessionEnd());
+});
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
