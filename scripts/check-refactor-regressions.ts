@@ -4912,6 +4912,33 @@ function checkChatTailRecoveryBoundary(): void {
   );
 }
 
+function checkNotificationKeywordBoundaries(): void {
+  const {
+    normalizeNotificationKeyword,
+    normalizeNotificationKeywords,
+  } = require(path.join(projectRoot, 'dist', 'shared', 'keywordSanitizer.js')) as {
+    normalizeNotificationKeyword(value: unknown): string | null;
+    normalizeNotificationKeywords(value: unknown): string[];
+  };
+  assert.deepEqual(
+    normalizeNotificationKeywords(['', '   ', ' 보스 ', '보스', 123, 'Boss']),
+    ['보스', 'Boss'],
+  );
+  assert.equal(normalizeNotificationKeyword('x'.repeat(101)), null);
+  assert.equal(normalizeNotificationKeywords([]).length, 0);
+  assert.equal(normalizeNotificationKeywords(Array.from({ length: 250 }, (_, index) => `키워드-${index}`)).length, 200);
+
+  for (const file of [
+    'src/modules/chatLogProcessor.ts',
+    'src/modules/chatLogSyncManager.ts',
+    'src/modules/tradeMonitor.ts',
+    'src/modules/galleryMonitor.ts',
+  ]) {
+    assert.match(read(file), /normalizeNotificationKeyword/,
+      `${file}이 소비 직전 키워드 정규화를 사용하지 않습니다.`);
+  }
+}
+
 async function checkChatLogWorkerReadRecovery(): Promise<void> {
   const {
     getChatLogReadRetryDelayMs,
@@ -4975,6 +5002,7 @@ checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
 checkLargeChatLogReadBoundary();
 checkChatTailRecoveryBoundary();
+checkNotificationKeywordBoundaries();
 checkPendingHomeworkOrdering();
 checkLegacyHomeworkMergeContracts();
 checkHomeworkSourceEventIdContracts();

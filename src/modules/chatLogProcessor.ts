@@ -17,6 +17,7 @@ import {
 import type { ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from '../shared/types';
 import { showSupportedDesktopNotification } from './desktopNotification';
 import { formatLootDiaryContent, parseElsoMessage } from './itemAcquisition';
+import { normalizeNotificationKeyword, normalizeNotificationKeywords } from '../shared/keywordSanitizer';
 export { parseElsoMessage };
 const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = require('../shared/chatChannels') as ChatChannelConstants;
 
@@ -438,7 +439,7 @@ class ChatLogProcessor {
         log(`[Processor] Elso parse/save error: ${err}`);
       }
 
-      const keywords = cfg.lootKeywords || [];
+      const keywords = normalizeNotificationKeywords(cfg.lootKeywords);
       // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
       const matchedKeyword = keywords.find(k => data.message.includes(k));
       // 경험의 정수는 기존 전용 기록 동작을 보존하되 공통 아이템 경로에서 한 번만 기록합니다.
@@ -519,7 +520,7 @@ class ChatLogProcessor {
       diaryDb.addShoutLog(data.sender, data.message, fullTimestamp);
       sendToFirstWindowByPage('shout-history.html', 'shout-history-updated');
       const cfg = config.load();
-      const keywords = cfg.shoutKeywords || [];
+      const keywords = normalizeNotificationKeywords(cfg.shoutKeywords);
       // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
       const matchedKeyword = keywords.find(k => data.message.includes(k));
       if (keywords.length > 0 && matchedKeyword) {
@@ -547,7 +548,8 @@ class ChatLogProcessor {
       if (cfg.discordAlertEnabled && cfg.discordWebhookUrl) {
         const rules = cfg.discordRules || [];
         for (const rule of rules) {
-          if (!data.message.includes(rule.keyword)) continue;
+          const keyword = normalizeNotificationKeyword(rule.keyword);
+          if (!keyword || !data.message.includes(keyword)) continue;
 
           // 1. 발송 대상(외치기) 필터링
           if (!rule.targetShout) continue;
@@ -558,7 +560,7 @@ class ChatLogProcessor {
           }
 
           // 모든 필터를 통과하면 디스코드에 알림 발송
-          void discordNotifier.sendWord(data.sender, data.message, rule.keyword);
+          void discordNotifier.sendWord(data.sender, data.message, keyword);
           break; // 단어 하나가 매칭되어 발송되었다면 한 메시지에 대해 중복 발송 차단
         }
       }
@@ -639,7 +641,7 @@ class ChatLogProcessor {
         // 기존 discordKeywords 필드만 있고 discordRules가 없는 구버전 설정을 위한 마이그레이션
         let rules = cfg.discordRules || [];
         if (rules.length === 0 && cfg.discordKeywords && cfg.discordKeywords.length > 0) {
-          rules = cfg.discordKeywords.map(kw => ({
+          rules = normalizeNotificationKeywords(cfg.discordKeywords).map(kw => ({
             keyword: kw,
             targetNormal: true,
             targetClub: true,
@@ -648,8 +650,10 @@ class ChatLogProcessor {
         }
 
         for (const rule of rules) {
+          const keyword = normalizeNotificationKeyword(rule.keyword);
+          if (!keyword) continue;
           // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
-          if (!data.message.includes(rule.keyword)) continue;
+          if (!data.message.includes(keyword)) continue;
 
           // 1. 발송 대상(대화 유형별) 필터링
           let isTarget = false;
@@ -663,7 +667,7 @@ class ChatLogProcessor {
           }
 
           // 모든 필터를 통과하면 디스코드에 알림 발송
-          void discordNotifier.sendWord(data.sender, data.message, rule.keyword);
+          void discordNotifier.sendWord(data.sender, data.message, keyword);
           break; // 단어 하나가 매칭되어 발송되었다면 한 메시지에 대해 중복 발송 차단
         }
       }
@@ -673,7 +677,7 @@ class ChatLogProcessor {
       if (isSystemLog) return;
       if (data.sender === '클럽 공지') return;
 
-      const keywords = cfg.wordAlarmKeywords || [];
+      const keywords = normalizeNotificationKeywords(cfg.wordAlarmKeywords);
       // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
       const matchedKeyword = keywords.find(k => data.message.includes(k));
       

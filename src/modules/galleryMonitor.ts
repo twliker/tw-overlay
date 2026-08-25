@@ -8,6 +8,7 @@ import * as https from 'https';
 import { BrowserWindow, shell } from 'electron';
 import { log } from './logger';
 import * as config from './config';
+import { normalizeNotificationKeywords } from '../shared/keywordSanitizer';
 import { WatchedPost } from './constants';
 import { showDesktopNotification } from './desktopNotification';
 import {
@@ -223,7 +224,7 @@ async function checkNewPosts(): Promise<boolean> {
       sendNewActivity('post', newPosts.length);
 
       let toNotify = newPosts;
-      const validKeywords = (galleryKeywords || []).map(k => k.trim()).filter(k => k.length > 0);
+      const validKeywords = normalizeNotificationKeywords(galleryKeywords);
       if (validKeywords.length > 0) {
         const pattern = validKeywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
         const regex = new RegExp(pattern, 'i');
@@ -344,7 +345,7 @@ export function start(_overlayWin: BrowserWindow | null, sidebarWin: BrowserWind
   lastSeenPostNo = cfg.galleryLastSeen || 0;
   watchedPosts = cfg.galleryWatched || {};
   notifyEnabled = cfg.galleryNotify === true;
-  galleryKeywords = (cfg.galleryKeywords || []).map(k => k.trim()).filter(k => k.length > 0);
+  galleryKeywords = normalizeNotificationKeywords(cfg.galleryKeywords);
 
   isRunning = true;
   doCheck();
@@ -360,7 +361,7 @@ export function updateWindows(_overlayWin: BrowserWindow | null, sidebarWin: Bro
   if (galleryWin) galleryWindowRef = galleryWin;
 
   const cfg = config.load();
-  galleryKeywords = (cfg.galleryKeywords || []).map(k => k.trim()).filter(k => k.length > 0);
+  galleryKeywords = normalizeNotificationKeywords(cfg.galleryKeywords);
 }
 
 /** 글 감시 추가 */

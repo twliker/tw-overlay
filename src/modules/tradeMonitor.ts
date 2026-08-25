@@ -7,6 +7,7 @@
 import { BrowserWindow, shell } from 'electron';
 import { log } from './logger';
 import * as config from './config';
+import { normalizeNotificationKeywords } from '../shared/keywordSanitizer';
 import { showDesktopNotification } from './desktopNotification';
 import {
     calculateBackoffMs,
@@ -382,7 +383,7 @@ export function start(sidebarWin: BrowserWindow): void {
 
     const cfg = config.load();
     currentServer = cfg.tradeServer || 'RyXp';
-    tradeKeywords = cfg.tradeKeywords || [];
+    tradeKeywords = normalizeNotificationKeywords(cfg.tradeKeywords);
     lastSeenPostNo = cfg.tradeLastSeen || 0;
     notifyEnabled = cfg.tradeNotify !== false;
 
@@ -402,7 +403,7 @@ export function updateWindows(sidebarWin: BrowserWindow | null, tradeWin: Browse
     tradeWindowRef = tradeWin;
 
     const cfg = config.load();
-    tradeKeywords = cfg.tradeKeywords || [];
+    tradeKeywords = normalizeNotificationKeywords(cfg.tradeKeywords);
     currentServer = cfg.tradeServer || 'RyXp';
 }
 

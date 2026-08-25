@@ -9,6 +9,7 @@ import * as contentsChecker from './contentsChecker';
 import type { SyncProgressInfo, SyncResultReport } from '../shared/types';
 import { broadcastToAllWindows, sendToFirstWindowByPage } from './windowMessaging';
 import type { WorkerDoneData } from './chatLogSyncWorker';
+import { normalizeNotificationKeywords } from '../shared/keywordSanitizer';
 
 /**
  * 테일즈위버 주간 초기화 기준인 최근 월요일(00:00:00) Date 객체를 반환합니다.
@@ -176,7 +177,7 @@ export async function syncWeeklyChatLogs(options?: {
     };
   }
 
-  const lootKeywords = cfg.lootKeywords || [];
+  const lootKeywords = normalizeNotificationKeywords(cfg.lootKeywords);
   const workerScriptPath = path.join(__dirname, 'chatLogSyncWorker.js');
 
   let doneData: WorkerDoneData;
