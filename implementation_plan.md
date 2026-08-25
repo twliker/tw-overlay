@@ -150,6 +150,7 @@
 - **D-08 [P1, 코드 수정·자동 검증 완료]** 프로덕션 preload가 제한 없는 테스트 주입 API를 노출한다 (`preload.ts:440-464`).
 - **D-09 [P1, 코드 수정·자동 검증 완료]** 설정 스냅샷과 숙제 병합 상태를 고정 파일 `tw_overlay_sync.json` 하나에 함께 저장해, 한 영역의 변경이 무관한 영역까지 다시 업로드하고 서로 다른 충돌 정책·재시도·복원 단위를 분리할 수 없다 (`googleDriveSync.ts:8`, `97-163`, `syncDataHelper.ts:12-120`).
 - **D-10 [P1, 코드 수정·자동 검증 완료]** 두 PC에서 앱을 계속 켜 두는 경우 로컬 변경 PC는 자동 업로드하지만 반대편 PC는 로그인 직후·수동 복원 외에 원격 변경을 다시 조회하지 않는다. 회사 PC에서 반영한 숙제가 집 PC에 자동 수렴하지 않고, 집 PC가 이후 오래된 상태를 기준으로 변경할 위험이 있다 (`cloudSyncManager.ts:41-64`, `108-164`, `164-279`, `344-366`).
+- **D-11 [P1, 코드 수정·자동 검증 완료]** 완전히 빈 `fresh` 프로필의 기본 숙제 61개 초기화가 사용자 operation으로 outbox에 기록되어, 최초 Google 복원에서 원격 숙제보다 먼저 재생될 수 있다. `fresh` 상태에서는 config 변경 리스너가 숙제 outbox를 만들지 않으며, 원격 파일이 없을 때만 최초 로그인 흐름이 현재 전체 숙제를 명시적으로 업로드한다. `established` 프로필의 로그인 전 변경은 계속 outbox에 보존한다.
 
 ### E. 채팅·파일 I/O·모니터
 
@@ -287,7 +288,7 @@
 
 ### Phase 3 — 클라우드 큐·인증·종료 상태 머신
 
-대상: A-07~A-09, B-05, D-01~D-06, D-09~D-10
+대상: A-07~A-09, B-05, D-01~D-06, D-09~D-11
 
 진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation mutation 재실행·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드, 회사→집 숙제 수신, 파생 echo outbox 방지, 교차 PATCH overwrite, 동일 숙제 완료/해제/횟수 충돌, 응답 유실과 재시작 재수렴을 통과했다. 새 PC 프로필 판정, 유효 중복 파일 선택, 파일별 선택·독립 복원·부분 결과, 값 비노출 변경 요약, 로컬 백업 되돌리기와 파일별 checksum/revision/dirty/retry UI도 자동 검증했다. 종료 시 창·트레이를 먼저 숨기는 단일 finalizer, 최대 3초 drain, 파일별 recovery marker, 응답 유실 후 다음 실행 재확인, 두 번째 quit 차단, WAL checkpoint와 Windows 세션 종료 fast path까지 자동 검증했다. 실계정 2-PC 및 실제 Windows 종료·로그오프 실기 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
 
@@ -348,6 +349,7 @@
 - 회사 PC 업로드와 집 PC의 로컬 완료가 같은 시점에 교차하는 fixture에서 양쪽 operation ID가 최종 원격 payload와 두 로컬 상태에 모두 남고, 이후 아무 조작 없이 pull만으로 같은 결과가 되는지 검증한다.
 - **자동 검증 완료(2026-08-25):** 서로 다른 캐릭터 상태의 교차 변경과 같은 숙제의 완료/해제/횟수 충돌 fixture가 같은 로컬 결과로 수렴하고 두 operation ID를 최종 payload에 보존했다. 실제 매니저+메모리 Drive에서는 확인 직후 overwrite→누락 mutation 재게시, 응답 유실 뒤 중복 업로드 없는 확인, `cloud-sync-state.json` 재로드 뒤 재수렴을 통과했다. 실계정 2-PC 검증은 별도로 남긴다.
 - **자동 검증 완료(2026-08-25):** 앱 데이터 fixture에서 `fresh`/`established`/`needs-confirmation`을 구분하고, `needs-confirmation` 자동 복원을 차단했다. 최신 메타가 손상된 중복 파일은 이전 유효 메타가 가리키는 checksum 통과 파일로 대체했으며, 설정만·숙제만 존재하거나 generation이 다른 경우에도 정상 파일을 독립 복원하고 나머지를 `missing`/`generation-mismatch`로 분리 보고했다. Electron 렌더러 검사에서 설정/숙제 선택값 전달과 부분 복원 결과 표시를 통과했다.
+- **자동 검증 완료(2026-08-26):** 실제 빈 userData 격리 실행에서 기본 숙제 초기화가 `fresh` outbox를 만드는 결함을 재현했다. 수정 후 로그인 전·로그인 직후 `fresh` 초기화는 outbox를 만들지 않고, `established` 프로필의 오프라인 변경은 operation으로 남는 회귀 검사를 통과했다.
 - **자동 검증 완료(2026-08-25):** 개발 중 단일 `tw_overlay_sync.json`을 함께 발견해도 읽거나 변경하지 않고 세 정식 파일만 사용하는 것을 통합 검사로 고정했다. 실제 설정 복원 경로에서 클라우드에 없는 `false` 사용자 값, Discord Webhook URL, 로그 경로, 창 위치와 커스텀 사운드가 유지되고 복원 전 config가 백업되는 것을 확인했다.
 - **자동 검증 완료(2026-08-25):** 값 없이 추가/변경/현재 PC 유지 키만 반환하는 파일별 미리보기, 선택 파일 검증 후 복원 확인, 손상·과대 백업 거부, 최근 백업 되돌리기와 파일별 checksum/revision/dirty/retry 표시를 통과했다. 설정과 숙제를 같은 pull에서 적용해도 최초 파일 직전에 백업을 한 번만 생성해 전체 적용 전 상태로 되돌릴 수 있다.
 - **자동 검증 완료(2026-08-25):** 서버가 숙제 업로드를 반영한 직후 응답이 유실된 fixture에서 outbox와 파일별 recovery marker가 유지되고, 로컬 상태 캐시를 재로드한 다음 실행에서 원격 operation을 확인해 중복 업로드 없이 둘을 제거했다. 설정 dirty key와 숙제 operation은 각각 확인된 파일만 marker에서 독립 제거된다.
@@ -489,7 +491,7 @@
 
 **잔여 P3·renderer injection 완료 감사(2026-08-26):** `isVisible` 없는 레거시 숙제의 보임 해석, DB 초기화 실패 뒤 `getStmt()` 오류 전달·마이그레이션 롤백, 채팅 로그 파일명 날짜 왕복 검사는 각각 실행 fixture가 현재 코드를 직접 통과하는지 재확인했다. 모험일지 로그, 갤러리 감시 키·제목, 커스텀 사운드 option에는 태그·속성 종료 악성 문자열을 실제 Electron DOM에 주입해 텍스트는 보존되면서 새 요소가 생성되지 않고 검증된 숫자 ID만 이벤트에 전달되는지 확인했다.
 
-**전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 자동 감사 커밋 `d202343`까지는 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 확정 결함 74개의 상태를 코드·테스트와 대조했으며 6개 Windows 실기 재검증 항목은 완료로 승격하지 않았다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
+**전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 자동 감사 커밋 `d202343`까지는 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 이후 격리 실행에서 D-11을 추가 확인·수정해 확정 결함은 75개가 되었으며 6개 Windows 실기 재검증 항목은 완료로 승격하지 않았다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
 
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 

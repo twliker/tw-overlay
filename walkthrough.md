@@ -25,6 +25,7 @@
 - 설정과 숙제의 dirty/debounce를 분리하고 모든 Drive 요청을 single-flight 큐로 직렬화했다.
 - 숙제는 base/local/remote 3방향 병합과 안정 operation/mutation을 사용한다. 업로드 뒤 revision·operation을 재확인하며 overwrite나 응답 유실 뒤에도 outbox를 유지해 재수렴한다.
 - fresh/established/needs-confirmation 판정, 중복 파일 선택, generation 불일치, 파일별 선택·독립 복원, 부분 성공 상태와 로컬 되돌리기를 구현했다.
+- fresh 프로필의 기본 숙제 초기화는 outbox로 기록하지 않는다. 원격이 없으면 최초 로그인에서 현재 전체 숙제를 업로드하고, established 프로필의 오프라인 변경은 계속 outbox에 보존한다.
 - 종료 시 창·트레이를 먼저 숨기고 최대 3초 안에서 config/outbox/Drive queue를 정리한다. 미확인 파일은 recovery marker를 보존하고 다음 실행에서 revision/checksum/operation을 재확인한다.
 - 미배포된 구 단일 파일 `tw_overlay_sync.json`은 읽거나 마이그레이션하지 않는다.
 - Discord Webhook URL, OAuth token, 로그 경로, 절대 커스텀 사운드 경로, 창 좌표·크기, 설치 정보, DB·채팅·알람 이력은 동기화하지 않는다. Google 이메일은 로컬 계정 표시에만 사용한다.
@@ -59,7 +60,7 @@ git diff --check
 - TypeScript 앱·스크립트 검사 통과
 - 전체 빌드 및 정적 회귀 검사 통과
 - Electron renderer behavior 검사 40개 통과
-- 확정 결함 74개 모두 코드·자동 검증 상태를 대조했으며, 그중 6개는 별도의 Windows 실기 재검증 상태를 유지한다.
+- 확정 결함 75개 모두 코드·자동 검증 상태를 대조했으며, 그중 6개는 별도의 Windows 실기 재검증 상태를 유지한다.
 - 채팅 20,000건 + 과거 150건 prepend + live 1,000건에서 실제 DOM 300개 미만, anchor 오차 2px 이내를 확인했다.
 - 교차 숙제 변경, 동일 필드 충돌, 응답 유실, overwrite, 재시작 재수렴, 부분 복원과 종료 recovery fixture를 통과했다.
 - 악성 문자열, DB 마이그레이션 실패·rollback, 대형/잠금/다중 바이트 채팅, scheduler·audio lifecycle fixture를 통과했다.
