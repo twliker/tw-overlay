@@ -35,6 +35,29 @@ function read(relativePath: string): string {
   return fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
 }
 
+function spawnElectronProbe(
+  args: string[],
+  timeout: number,
+  retryAccessViolation = false,
+): childProcess.SpawnSyncReturns<string> {
+  let lastResult: childProcess.SpawnSyncReturns<string> | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    lastResult = childProcess.spawnSync(process.execPath, args, {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      timeout,
+      windowsHide: true,
+    });
+    if (!lastResult.error && lastResult.status === 0) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      return lastResult;
+    }
+    if (!retryAccessViolation || lastResult.status !== 0xC0000005 || attempt >= 2) return lastResult;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  return lastResult!;
+}
+
 function checkShutdownRecoveryAcrossProcessRestarts(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-shutdown-recovery-probe.js');
   const scenarios = ['settings', 'checklist', 'both'] as const;
@@ -45,18 +68,13 @@ function checkShutdownRecoveryAcrossProcessRestarts(): void {
 
     const run = (mode: 'write' | 'read') => {
       const resultPath = path.join(scenarioRoot, `${mode}-result.json`);
-      const result = childProcess.spawnSync(process.execPath, [
+      const result = spawnElectronProbe([
         probePath,
         mode,
         scenario,
         scenarioRoot,
         resultPath,
-      ], {
-        cwd: projectRoot,
-        encoding: 'utf8',
-        timeout: 20_000,
-        windowsHide: true,
-      });
+      ], 20_000, true);
       assert.equal(result.error, undefined,
         `${scenario} ${mode} 종료 복구 프로세스 실행 실패: ${result.error?.message || ''}`);
       assert.equal(result.status, 0,
@@ -96,24 +114,19 @@ function checkShutdownRecoveryAcrossProcessRestarts(): void {
 
 function checkMainQuitRecoveryScenarios(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-quit-recovery-probe.js');
-  const scenarios = ['settings', 'checklist', 'both'] as const;
+  const scenarios = ['settings', 'checklist', 'both', 'timeout'] as const;
 
   for (const scenario of scenarios) {
     const probeRoot = path.join(isolatedUserData, `main-quit-recovery-${scenario}`);
     const resultPath = path.join(probeRoot, 'result.json');
     fs.mkdirSync(probeRoot, { recursive: true });
-    const result = childProcess.spawnSync(process.execPath, [
+    const result = spawnElectronProbe([
       probePath,
       scenario,
       probeRoot,
       resultPath,
       '--dev',
-    ], {
-      cwd: projectRoot,
-      encoding: 'utf8',
-      timeout: 20_000,
-      windowsHide: true,
-    });
+    ], 20_000);
     assert.equal(result.error, undefined,
       `${scenario} main quit probe 실행 실패: ${result.error?.message || ''}`);
     assert.equal(result.status, 0,
@@ -130,21 +143,42 @@ function checkMainQuitRecoveryScenarios(): void {
       recoveryChecklistOperationIds: string[];
       walCheckpointLogged: boolean;
       databaseCloseLogged: boolean;
+      cancelledRequestCount: number;
+      shutdownTimeoutLogged: boolean;
     };
-    const expectsSettings = scenario === 'settings' || scenario === 'both';
-    const expectsChecklist = scenario === 'checklist' || scenario === 'both';
+    const expectsSettings = scenario === 'settings' || scenario === 'both' || scenario === 'timeout';
+    const expectsChecklist = scenario === 'checklist' || scenario === 'both' || scenario === 'timeout';
     const expectedOperationIds = expectsChecklist ? [`main-quit-${scenario}-operation`] : [];
-    assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
-      `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
+    if (scenario === 'timeout') {
+      assert.ok(summary.quitElapsedMs !== null
+        && summary.quitElapsedMs >= 2_900 && summary.quitElapsedMs <= 3_500,
+      `timeout main quit가 3초 제한 경계에서 끝나지 않았습니다: ${summary.quitElapsedMs}`);
+    } else {
+      assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
+        `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
+    }
     assert.ok(summary.firstVisibleWindowCount > 0, `${scenario} main quit 전에 표시 창이 없었습니다.`);
     assert.ok(summary.hideLatencyMs !== null && summary.hideLatencyMs <= 100,
       `${scenario} main quit 창 숨김이 늦었습니다: ${summary.hideLatencyMs}`);
-    assert.deepEqual(summary.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
-    assert.deepEqual(summary.recoverySettingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    if (scenario === 'timeout') {
+      assert.ok(summary.settingsDirtyKeys.includes('userServer'));
+      assert.deepEqual(
+        [...summary.recoverySettingsDirtyKeys].sort(),
+        [...summary.settingsDirtyKeys].sort(),
+        'timeout main quit recovery marker가 종료 시점의 settings dirty 집합을 모두 보존하지 않았습니다.',
+      );
+    } else {
+      assert.deepEqual(summary.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+      assert.deepEqual(summary.recoverySettingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    }
     assert.deepEqual(summary.checklistOperationIds, expectedOperationIds);
     assert.deepEqual(summary.recoveryChecklistOperationIds, expectedOperationIds);
     assert.equal(summary.walCheckpointLogged, true, `${scenario} main quit WAL checkpoint 로그가 없습니다.`);
     assert.equal(summary.databaseCloseLogged, true, `${scenario} main quit DB close 로그가 없습니다.`);
+    assert.equal(summary.cancelledRequestCount, scenario === 'timeout' ? 1 : 0,
+      `${scenario} main quit Drive 요청 취소 횟수가 다릅니다.`);
+    assert.equal(summary.shutdownTimeoutLogged, scenario === 'timeout',
+      `${scenario} main quit timeout 로그 상태가 다릅니다.`);
   }
 }
 

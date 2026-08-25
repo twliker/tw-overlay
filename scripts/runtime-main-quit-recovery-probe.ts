@@ -2,12 +2,12 @@ import fs = require('node:fs');
 import path = require('node:path');
 import { app, BrowserWindow } from 'electron';
 
-type ProbeScenario = 'settings' | 'checklist' | 'both';
+type ProbeScenario = 'settings' | 'checklist' | 'both' | 'timeout';
 
 const projectRoot = path.resolve(__dirname, '..');
 const [scenarioValue, probeRoot, resultPath] = process.argv.slice(2);
 const scenario = scenarioValue as ProbeScenario;
-if (!['settings', 'checklist', 'both'].includes(scenario)
+if (!['settings', 'checklist', 'both', 'timeout'].includes(scenario)
   || !path.isAbsolute(probeRoot || '')
   || !path.isAbsolute(resultPath || '')) {
   throw new Error('runtime main quit recovery probe arguments are invalid');
@@ -23,8 +23,8 @@ fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify({
   userServer: 1,
   overlayVisible: false,
   autoUpdateEnabled: false,
-  googleSyncEnabled: false,
-  googleSyncAutoSync: false,
+  googleSyncEnabled: scenario === 'timeout',
+  googleSyncAutoSync: scenario === 'timeout',
   contentsCheckerItems: [],
   characterPresets: [],
   pendingHomeworks: [],
@@ -36,8 +36,8 @@ const contentsChecker = require(path.join(projectRoot, 'dist', 'modules', 'conte
 };
 if (!contentsChecker.init()) throw new Error('runtime main quit contents initialization failed');
 
-const expectsSettings = scenario === 'settings' || scenario === 'both';
-const expectsChecklist = scenario === 'checklist' || scenario === 'both';
+const expectsSettings = scenario === 'settings' || scenario === 'both' || scenario === 'timeout';
+const expectsChecklist = scenario === 'checklist' || scenario === 'both' || scenario === 'timeout';
 const operationId = `main-quit-${scenario}-operation`;
 const now = Date.now();
 fs.writeFileSync(path.join(userData, 'cloud-sync-state.json'), JSON.stringify({
@@ -64,9 +64,20 @@ let quitRequestedAt = 0;
 let firstVisibleWindowCount = 0;
 let hideLatencyMs: number | null = null;
 let hidePoll: NodeJS.Timeout | undefined;
+let cancelledRequestCount = 0;
+let firstQuitObserved = false;
+
+if (scenario === 'timeout') {
+  const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js')) as any;
+  const googleDriveSync = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js')) as any;
+  googleAuth.isLoggedIn = () => true;
+  googleDriveSync.listSyncFiles = () => new Promise<never>(() => undefined);
+  googleDriveSync.cancelPendingRequests = () => { cancelledRequestCount++; };
+}
 
 app.on('before-quit', () => {
-  if (quitRequestedAt === 0 || hidePoll) return;
+  if (quitRequestedAt === 0 || firstQuitObserved) return;
+  firstQuitObserved = true;
   firstVisibleWindowCount = BrowserWindow.getAllWindows().filter(window => window.isVisible()).length;
   hidePoll = setInterval(() => {
     const visible = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed() && window.isVisible());
@@ -93,6 +104,8 @@ app.on('quit', () => {
     recoveryChecklistOperationIds: state.shutdownRecovery?.checklist?.operationIds || [],
     walCheckpointLogged: logText.includes('[DiaryDB] WAL Checkpoint executed:'),
     databaseCloseLogged: logText.includes('[DiaryDB] Database connection closed.'),
+    cancelledRequestCount,
+    shutdownTimeoutLogged: logText.includes('[SHUTDOWN] 클라우드 flush timeout'),
   }), 'utf8');
 });
 
