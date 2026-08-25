@@ -177,8 +177,8 @@
 - **G-02 [P1, 코드 수정·자동 검증 완료]** 일간/주간 상세가 하나의 generation을 공유해 늦은 응답을 폐기하고, 추가·삭제를 시작할 때 캡처한 날짜와 원본 row ID로만 작업한다. 날짜가 바뀐 뒤 완료된 작업은 새 화면을 다시 그리지 않는다. grouped timeline은 원본 행의 `id/source`를 유지하며 `source=manual`인 개별 행만 단건 삭제할 수 있다.
 - **G-03 [P2, 코드 수정·자동 검증 완료]** 월 데이터/요약과 통계/차트 요청을 월별 generation으로 보호하고 모든 await 뒤 캡처한 월이 여전히 최신인지 확인한다. 월·탭 전환으로 무효화된 응답은 화면과 차트를 갱신하지 않는다.
 - **G-04 [P2, 코드 수정·자동 검증 완료]** history/search/검색 닫기/탭 전환을 하나의 view generation으로 통합하고 캡처한 탭·검색어를 사용한다. stale success/catch/finally는 화면·검색 상태를 바꾸지 않으며, live 이벤트는 view generation과 분리해 정상 요청을 무효화하지 않는다.
-- **G-05 [P1]** 2,500 DOM 노드 상한이 과거 기록 prepend 경로에는 적용되지 않는다 (`chatOverlayRenderer.ts:843-866`, `1125-1148`).
-- **G-06 [P2]** 노드 제거 높이 계산이 flex gap을 빠뜨려 스크롤 위치가 크게 튄다 (`chatOverlayRenderer.ts:851-860`).
+- **G-05 [P1, 코드 수정·자동 검증 완료]** history/search/live/과거 prepend 데이터를 메모리 배열에 보존하고 viewport 주변 overscan 범위만 실제 DOM으로 렌더링한다. 기존 1,000/2,500개 도달 시 상단 데이터를 삭제하던 경로를 제거하고 ID 중복만 합친다.
+- **G-06 [P2, 코드 수정·자동 검증 완료]** 가상 행의 실제 높이와 6px gap을 별도로 계산·캐시하고 prepend, live append, 폭·글꼴 크기 변경 뒤 같은 앵커 행의 화면 위치를 복원한다. 숨겨진 재사용 창에서도 갱신되도록 rAF와 40ms 폴백을 함께 사용한다.
 - **G-07 [P2]** 갤러리 감시 객체 키를 HTML과 inline onclick에 직접 넣는다 (`gallery.html:201-206`).
 - **G-08 [P2]** 커스텀 알림음 이름/파일을 option `innerHTML`에 넣는다 (`renderer/settings/audio-controls.ts:28-42`).
 
@@ -459,7 +459,7 @@
 
 대상: G-02~G-06, 남은 P3 정리, 버전·산출물
 
-진행 상태: 일간/주간 상세의 공유 generation, 월/통계/차트의 월별 generation, 렌더 시점 날짜·원본 row ID를 이용한 단건 삭제를 적용했다. 마정석 묶음은 등급별 합계를 유지하되 수동 원본 자식 행만 삭제 버튼을 제공한다. 채팅 history/search/검색 닫기/탭 전환도 하나의 view generation으로 통합하고 live 이벤트 generation과 분리했다. G-02~G-04는 자동 검증을 완료했으며 DOM 가상화와 스크롤 앵커(G-05/G-06), 클라우드 allowlist 문서 정합성과 최종 릴리즈 게이트는 남아 있다.
+진행 상태: 일간/주간 상세의 공유 generation, 월/통계/차트의 월별 generation, 렌더 시점 날짜·원본 row ID를 이용한 단건 삭제를 적용했다. 마정석 묶음은 등급별 합계를 유지하되 수동 원본 자식 행만 삭제 버튼을 제공한다. 채팅 history/search/검색 닫기/탭 전환도 하나의 view generation으로 통합하고 live 이벤트 generation과 분리했다. 채팅 데이터는 메모리에 유지하면서 실제 DOM을 viewport+overscan으로 제한하고, 실측 높이 캐시로 과거 prepend·live append·폭 변경의 앵커를 보존한다. G-02~G-06은 자동 검증을 완료했으며 클라우드 allowlist 문서 정합성과 최종 릴리즈 게이트는 남아 있다.
 
 1. 일간/주간 상세 요청에 공유 generation token을 적용하고 삭제는 렌더된 row id를 사용한다.
 2. 월/통계/차트는 캡처한 월과 sequence를 모든 await 뒤 확인한다.
@@ -480,6 +480,8 @@
 **자동 검증 완료(2026-08-26):** 요청 generation 자체의 이전 토큰 무효화와 명시적 invalidate를 실행 검사로 확인했다. 일간·주간 상세가 같은 generation을 공유하는지, 월 데이터/요약과 통계/수익 차트가 각 await 뒤 최신 요청만 반영하는지, 삭제 완료 뒤 선택 날짜가 달라졌을 때 이전 화면을 다시 그리지 않는지 정적 회귀 검사로 고정했다. 단일·복수 마정석 묶음에서 `manual` 원본 row ID에만 삭제 경계가 생기는지도 함께 검사했다.
 
 **채팅 요청 자동 검증 완료(2026-08-26):** Club→System history를 역순 완료해 최신 System 결과만 남는지, 진행 중 history 뒤 search가 시작되면 history가 검색 상태를 덮지 않는지 확인했다. 연속 검색에서 이전 요청을 reject해도 최신 검색의 loading 문구와 결과가 유지되고, 검색을 닫은 뒤 늦은 reject가 숨긴 상태를 다시 노출하지 않는지 실행 검사로 고정했다. history 대기 중 live 이벤트를 주입한 뒤에도 정상 history 응답이 반영되며 live handler가 view generation을 변경하지 않는 것을 함께 확인했다.
+
+**채팅 가상화 자동 검증 완료(2026-08-26):** 가변 길이 history 20,000건을 로드한 뒤 실제 `.chat-message-row` DOM이 300개 미만인지 확인했다. 과거 150건 prepend, 최상단↔최신 구간 왕복, 최상단에서 live 1,000건 append를 순서대로 수행해 전체 스크롤 높이가 계속 증가하면서 최과거·최신 데이터가 모두 다시 렌더링되는지 검증했다. prepend·live append와 320px 폭 축소/복원 뒤 앵커 행 위치 오차는 2px 이내였고, 검색 종료 뒤 새 history DOM에는 이전 검색 강조 클래스가 남지 않았다.
 
 최종 릴리즈 게이트:
 
