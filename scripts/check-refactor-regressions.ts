@@ -145,6 +145,7 @@ function checkMainQuitRecoveryScenarios(): void {
       databaseCloseLogged: boolean;
       cancelledRequestCount: number;
       shutdownTimeoutLogged: boolean;
+      beforeQuitCount: number;
     };
     const expectsSettings = scenario === 'settings' || scenario === 'both' || scenario === 'timeout';
     const expectsChecklist = scenario === 'checklist' || scenario === 'both' || scenario === 'timeout';
@@ -179,6 +180,8 @@ function checkMainQuitRecoveryScenarios(): void {
       `${scenario} main quit Drive 요청 취소 횟수가 다릅니다.`);
     assert.equal(summary.shutdownTimeoutLogged, scenario === 'timeout',
       `${scenario} main quit timeout 로그 상태가 다릅니다.`);
+    assert.equal(summary.beforeQuitCount, scenario === 'timeout' ? 3 : 2,
+      `${scenario} main quit의 외부 요청/finalizer 경계 횟수가 다릅니다.`);
   }
 }
 

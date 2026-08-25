@@ -66,6 +66,7 @@ let hideLatencyMs: number | null = null;
 let hidePoll: NodeJS.Timeout | undefined;
 let cancelledRequestCount = 0;
 let firstQuitObserved = false;
+let beforeQuitCount = 0;
 
 if (scenario === 'timeout') {
   const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js')) as any;
@@ -76,6 +77,7 @@ if (scenario === 'timeout') {
 }
 
 app.on('before-quit', () => {
+  beforeQuitCount++;
   if (quitRequestedAt === 0 || firstQuitObserved) return;
   firstQuitObserved = true;
   firstVisibleWindowCount = BrowserWindow.getAllWindows().filter(window => window.isVisible()).length;
@@ -106,6 +108,7 @@ app.on('quit', () => {
     databaseCloseLogged: logText.includes('[DiaryDB] Database connection closed.'),
     cancelledRequestCount,
     shutdownTimeoutLogged: logText.includes('[SHUTDOWN] 클라우드 flush timeout'),
+    beforeQuitCount,
   }), 'utf8');
 });
 
@@ -113,6 +116,7 @@ void app.whenReady().then(() => {
   setTimeout(() => {
     quitRequestedAt = Date.now();
     app.quit();
+    if (scenario === 'timeout') setTimeout(() => app.quit(), 100);
   }, 1_800);
 });
 
