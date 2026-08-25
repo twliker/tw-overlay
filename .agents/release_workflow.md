@@ -178,6 +178,8 @@ npm run dist:appx
 
 * **빌드 결과**: `dist_electron/twOverlay-X.Y.Z.appx`
 * **패키지 식별자**: `package.json`의 `appx` 설정(`applicationId: twOverlay`, `identityName: FilbertLab.TW-Overlay`, `publisher: CN=6BAF7511-7890-43A4-8630-498F620A5370`)을 참조합니다.
+* **Store 아이콘**: `build/appx/` 폴더의 `StoreLogo.png`, `Square44x44Logo.png`, `Square150x150Logo.png`, `Wide310x150Logo.png`를 사용합니다. 파일이 누락되면 Electron 기본 AppX 자산으로 대체되므로 빌드 후 패키지 내부 자산을 확인합니다.
+* **관리자 권한**: EXE의 `requireAdministrator`와 AppX의 `runFullTrust`, `allowElevation` capability를 함께 유지합니다. `allowElevation`은 Microsoft Store의 제한 capability이므로 제출 메모에 게임 창 추적·Win32 오버레이 및 네트워크 최적화 기능에 승격이 필요한 이유와 테스트 방법을 명시합니다.
 
 ### 2. Microsoft Partner Center 등록 및 제출
 
@@ -185,6 +187,7 @@ npm run dist:appx
 2. **TW-Overlay** 앱을 선택하고 **[새 제출 시작 (Start submission)]** 을 클릭합니다.
 3. **[패키지 (Packages)]** 단계에서:
    * 생성된 `dist_electron/twOverlay-X.Y.Z.appx` 파일을 업로드합니다.
+   * 제한 capability 사용 안내에 `allowElevation` 필요성과 UAC 확인 절차를 적습니다. Microsoft의 사전 승인이 필요한 경우 `reportapp@microsoft.com`으로 사용 목적을 제출합니다.
 4. **[스토어 등록정보 (Store listings)]** 단계에서:
    * **설명 / 기능 목록**: 릴리즈 노트 및 주요 기능 요약 입력
    * **개인정보처리방침 URL**: `https://twliker.github.io/tw-overlay/privacy/` 입력

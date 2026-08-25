@@ -50,6 +50,11 @@
       "publisherDisplayName": "FilbertLab",
       "displayName": "TW-Overlay",
       "backgroundColor": "#0b0f19",
+      "minVersion": "10.0.17763.0",
+      "capabilities": [
+        "runFullTrust",
+        "allowElevation"
+      ],
       "artifactName": "${productName}-${version}.${ext}"
     },
     "nsis": {

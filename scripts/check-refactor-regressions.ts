@@ -1050,6 +1050,27 @@ function checkDependencyOverrideContracts(): void {
     '취약한 js-yaml 버전이 다시 설치될 수 있습니다.');
   assert.equal(packageData.scripts?.postinstall, 'electron-builder install-app-deps',
     'npm ci 후 Electron용 네이티브 모듈 ABI 재빌드가 실행되지 않습니다.');
+  assert.equal(packageData.build?.win?.requestedExecutionLevel, 'requireAdministrator',
+    'Windows 실행 파일의 관리자 권한 요청이 제거되었습니다.');
+  assert.deepEqual(packageData.build?.appx?.capabilities, ['runFullTrust', 'allowElevation'],
+    'Microsoft Store 패키지의 전체 신뢰 및 승격 capability가 유지되지 않습니다.');
+  assert.equal(packageData.build?.appx?.minVersion, '10.0.17763.0',
+    'allowElevation을 지원하는 Windows 10 1809 이상으로 AppX 최소 버전을 제한해야 합니다.');
+
+  const appxAssets: Array<[string, number, number]> = [
+    ['StoreLogo.png', 50, 50],
+    ['Square44x44Logo.png', 44, 44],
+    ['Square150x150Logo.png', 150, 150],
+    ['Wide310x150Logo.png', 310, 150],
+  ];
+  for (const [fileName, width, height] of appxAssets) {
+    const assetPath = path.join(projectRoot, 'build', 'appx', fileName);
+    assert.ok(fs.existsSync(assetPath), `Microsoft Store 아이콘 누락: ${fileName}`);
+    const png = fs.readFileSync(assetPath);
+    assert.equal(png.subarray(1, 4).toString('ascii'), 'PNG', `${fileName}이 PNG 파일이 아닙니다.`);
+    assert.equal(png.readUInt32BE(16), width, `${fileName} 너비가 ${width}px이 아닙니다.`);
+    assert.equal(png.readUInt32BE(20), height, `${fileName} 높이가 ${height}px이 아닙니다.`);
+  }
 }
 
 function checkSidebarMenuRegistryContracts(): void {
