@@ -489,7 +489,9 @@
 
 **잔여 P3·renderer injection 완료 감사(2026-08-26):** `isVisible` 없는 레거시 숙제의 보임 해석, DB 초기화 실패 뒤 `getStmt()` 오류 전달·마이그레이션 롤백, 채팅 로그 파일명 날짜 왕복 검사는 각각 실행 fixture가 현재 코드를 직접 통과하는지 재확인했다. 모험일지 로그, 갤러리 감시 키·제목, 커스텀 사운드 option에는 태그·속성 종료 악성 문자열을 실제 Electron DOM에 주입해 텍스트는 보존되면서 새 요소가 생성되지 않고 검증된 숫자 ID만 이벤트에 전달되는지 확인했다.
 
-**전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 검증 기록을 포함한 현재 변경은 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 확정 결함 74개의 상태를 코드·테스트와 대조했으며 6개 Windows 실기 재검증 항목은 완료로 승격하지 않았다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
+**전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 자동 감사 커밋 `d202343`까지는 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 확정 결함 74개의 상태를 코드·테스트와 대조했으며 6개 Windows 실기 재검증 항목은 완료로 승격하지 않았다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
+
+**실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
 최종 릴리즈 게이트:
 

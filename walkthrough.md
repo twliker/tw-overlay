@@ -64,9 +64,11 @@ git diff --check
 - 교차 숙제 변경, 동일 필드 충돌, 응답 유실, overwrite, 재시작 재수렴, 부분 복원과 종료 recovery fixture를 통과했다.
 - 악성 문자열, DB 마이그레이션 실패·rollback, 대형/잠금/다중 바이트 채팅, scheduler·audio lifecycle fixture를 통과했다.
 
-비교 기준부터 이 검증 기록을 포함한 현재 변경까지의 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
+자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
 ## 4. 릴리즈 전 남은 실기 검증
+
+실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했으며 모든 결과 행은 현재 대기 상태다.
 
 - 실제 Google 계정과 서로 다른 두 PC에서 교차 업로드·pull·재시작 재수렴 확인
 - 실제 Windows 일반 종료, 로그오프, 시스템 종료에서 recovery marker·WAL 복구 확인
