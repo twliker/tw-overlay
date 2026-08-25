@@ -174,8 +174,8 @@
 ### G. 렌더러 DOM·비동기 상태
 
 - **G-01 [P1]** 모험일지의 사용자/DB 문자열이 raw `innerHTML`과 inline `onclick`에 들어가 저장형 DOM XSS가 가능하다 (`diary.html:752`, `765`, `774`, `912`, `1050`, `1079`, `1084`, `1159`, `1161`).
-- **G-02 [P1]** 날짜 상세 응답 역전 시 화면 날짜와 삭제 대상 날짜가 달라져 오삭제가 가능하다 (`diary.html:1320-1329`, `1416-1419`).
-- **G-03 [P2]** 월/통계/차트 요청에 최신성 토큰이 없어 이전 월 응답이 최신 화면을 덮는다 (`diary.html:869-1017`, `1093-1095`).
+- **G-02 [P1, 코드 수정·자동 검증 완료]** 일간/주간 상세가 하나의 generation을 공유해 늦은 응답을 폐기하고, 추가·삭제를 시작할 때 캡처한 날짜와 원본 row ID로만 작업한다. 날짜가 바뀐 뒤 완료된 작업은 새 화면을 다시 그리지 않는다. grouped timeline은 원본 행의 `id/source`를 유지하며 `source=manual`인 개별 행만 단건 삭제할 수 있다.
+- **G-03 [P2, 코드 수정·자동 검증 완료]** 월 데이터/요약과 통계/차트 요청을 월별 generation으로 보호하고 모든 await 뒤 캡처한 월이 여전히 최신인지 확인한다. 월·탭 전환으로 무효화된 응답은 화면과 차트를 갱신하지 않는다.
 - **G-04 [P2]** 채팅 history/search 토큰이 서로를 무효화하지 않고 stale catch/finally도 최신 상태를 덮는다 (`chatOverlayRenderer.ts:459-545`).
 - **G-05 [P1]** 2,500 DOM 노드 상한이 과거 기록 prepend 경로에는 적용되지 않는다 (`chatOverlayRenderer.ts:843-866`, `1125-1148`).
 - **G-06 [P2]** 노드 제거 높이 계산이 flex gap을 빠뜨려 스크롤 위치가 크게 튄다 (`chatOverlayRenderer.ts:851-860`).
@@ -459,6 +459,8 @@
 
 대상: G-02~G-06, 남은 P3 정리, 버전·산출물
 
+진행 상태: 일간/주간 상세의 공유 generation, 월/통계/차트의 월별 generation, 렌더 시점 날짜·원본 row ID를 이용한 단건 삭제를 적용했다. 마정석 묶음은 등급별 합계를 유지하되 수동 원본 자식 행만 삭제 버튼을 제공한다. G-02/G-03은 자동 검증을 완료했으며 채팅 요청 generation(G-04), DOM 가상화와 스크롤 앵커(G-05/G-06), 클라우드 allowlist 문서 정합성과 최종 릴리즈 게이트는 남아 있다.
+
 1. 일간/주간 상세 요청에 공유 generation token을 적용하고 삭제는 렌더된 row id를 사용한다.
 2. 월/통계/차트는 캡처한 월과 sequence를 모든 await 뒤 확인한다.
 3. 채팅 history/search/닫기/탭 전환은 단일 view generation으로 통합하고 success/catch/finally 모두 stale guard를 적용한다.
@@ -474,6 +476,8 @@
 13. 일지 grouped timeline은 원본 row ID 목록을 보존하되 ID를 집계 키로 사용하지 않는다. 중복 아이템 합계는 canonical item과 `SUM(amount)`로 유지하고, `source=manual`인 개별 자식 행만 ID 단건 삭제를 허용한다. 자동/legacy-unknown 행과 그룹 전체 삭제 버튼은 제공하지 않는다.
 14. stale 요청의 success/catch/finally 모두 같은 generation 검사를 통과할 때만 loading·버튼·결과 상태를 바꾼다.
 15. `docs/google-drive-sync.md`에 세 파일별 전체 allowlist, 숙제 병합 데이터, 제외 필드와 이유, 복원 우선순위, 민감정보 정책을 내부 설정 키 단위로 공개한다. 코드의 설정/숙제 allowlist와 문서의 목록이 어긋나면 실패하는 회귀 검사를 추가하고 `PRIVACY_POLICY.md`와 `docs/privacy/index.html`을 같은 기준으로 유지한다.
+
+**자동 검증 완료(2026-08-26):** 요청 generation 자체의 이전 토큰 무효화와 명시적 invalidate를 실행 검사로 확인했다. 일간·주간 상세가 같은 generation을 공유하는지, 월 데이터/요약과 통계/수익 차트가 각 await 뒤 최신 요청만 반영하는지, 삭제 완료 뒤 선택 날짜가 달라졌을 때 이전 화면을 다시 그리지 않는지 정적 회귀 검사로 고정했다. 단일·복수 마정석 묶음에서 `manual` 원본 row ID에만 삭제 경계가 생기는지도 함께 검사했다.
 
 최종 릴리즈 게이트:
 
