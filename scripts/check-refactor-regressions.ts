@@ -4823,6 +4823,58 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(cloudSyncState.load().shutdownRecovery, undefined);
 }
 
+function checkLargeChatLogReadBoundary(): void {
+  const {
+    readInitialChatLogSnapshot,
+    trimRecentChatLogLines,
+  } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogFileReader.js')) as {
+    readInitialChatLogSnapshot(
+      filePath: string,
+      options?: { maxFullReadBytes?: number; recentReadBytes?: number; headerReadBytes?: number },
+    ): { lines: string[]; limited: boolean; fileSize: number };
+    trimRecentChatLogLines(
+      lines: readonly string[],
+      maxChars?: number,
+      targetChars?: number,
+    ): { lines: string[]; removedCount: number; totalChars: number };
+  };
+
+  const fixtureDir = path.join(isolatedUserData, 'large-chat-log-fixture');
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  const smallPath = path.join(fixtureDir, 'small.html');
+  const dateHeader = 'Date : 2026년 8월 25일';
+  fs.writeFileSync(smallPath, `${dateHeader}\nsmall-marker`, 'utf8');
+  const small = readInitialChatLogSnapshot(smallPath, { maxFullReadBytes: 1024 });
+  assert.equal(small.limited, false);
+  assert.match(small.lines.join('\n'), /small-marker/);
+
+  const largePath = path.join(fixtureDir, 'large.html');
+  const middleLines = Array.from({ length: 80 }, (_, index) => (
+    `<font color="white"> [ ${index % 24}시 1분 1초] </font><font color="#ffffff">line-${index}-${'x'.repeat(24)}</font></br>`
+  ));
+  fs.writeFileSync(
+    largePath,
+    [dateHeader, ...middleLines.slice(0, 30), 'middle-marker-must-not-remain', ...middleLines.slice(30), 'latest-marker-must-remain'].join('\n'),
+    'utf8',
+  );
+  const large = readInitialChatLogSnapshot(largePath, {
+    maxFullReadBytes: 256,
+    recentReadBytes: 512,
+    headerReadBytes: 64,
+  });
+  const largeText = large.lines.join('\n');
+  assert.equal(large.limited, true);
+  assert.match(largeText, /Date : 2026년 8월 25일/);
+  assert.match(largeText, /latest-marker-must-remain/);
+  assert.doesNotMatch(largeText, /middle-marker-must-not-remain/);
+
+  const trimmed = trimRecentChatLogLines(['a'.repeat(60), 'b'.repeat(60), 'latest'], 100, 80);
+  assert.ok(trimmed.removedCount > 0);
+  assert.equal(trimmed.lines.includes('a'.repeat(60)), false);
+  assert.equal(trimmed.lines.at(-1), 'latest');
+  assert.ok(trimmed.totalChars <= 80);
+}
+
 checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
@@ -4832,6 +4884,7 @@ checkCorruptedConfigResilience();
 checkShoutSuffixStripping();
 checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
+checkLargeChatLogReadBoundary();
 checkPendingHomeworkOrdering();
 checkLegacyHomeworkMergeContracts();
 checkHomeworkSourceEventIdContracts();

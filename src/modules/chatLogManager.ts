@@ -10,13 +10,14 @@ import { chatLogProcessor } from './chatLogProcessor';
 import { findChatLogPath } from './chatLogPathFinder';
 import { DEFAULT_CONFIG } from './constants';
 import { etaCacheManager } from './etaCacheManager';
-import {
-  ChatLogLineNormalizer,
-  decodeChatLogBuffer,
-  normalizeChatLogLines,
-} from './chatLogNormalizer';
+import { ChatLogLineNormalizer } from './chatLogNormalizer';
 import type { ChatLogEncoding } from './chatLogNormalizer';
 import { parseItemAcquisition } from './itemAcquisition';
+import {
+  MAX_RECENT_HISTORY_CHARS,
+  readInitialChatLogSnapshot,
+  trimRecentChatLogLines,
+} from './chatLogFileReader';
 
 const { isLegacyNpcSender } = require('../shared/chatConstants') as ChatConstants;
 const { COLORS: CHAT_COLORS, stripShoutSuffix, getSystemColorGroup } = require('../shared/chatChannels') as ChatChannelConstants;
@@ -104,6 +105,8 @@ class ChatLogManager {
   private readonly _lineNormalizer = new ChatLogLineNormalizer();
   private _normalizerFlushTimer: NodeJS.Timeout | null = null;
   private _chatLogEncoding: ChatLogEncoding = 'euc-kr';
+  private _recentHistoryMode = false;
+  private _todayLineChars = 0;
 
   /**
    * 스트리밍 시작
@@ -138,7 +141,10 @@ class ChatLogManager {
     this._lineNormalizer.reset();
     this._currentFilePath = null;
     this._todayLines = [];
+    this._todayLineChars = 0;
+    this._recentHistoryMode = false;
     this._lastReadIndex = {};
+    this._initialReadIndex = {};
     log('[CHAT_LOG] 매니저 중지됨');
   }
 
@@ -176,23 +182,29 @@ class ChatLogManager {
 
     // [추가] 새 파일을 읽기 시작할 때, 상단 헤더를 읽어 날짜 정보를 파서에 전달
     try {
-      const buffer = fs.readFileSync(filePath);
-      const decoded = decodeChatLogBuffer(buffer);
-      this._chatLogEncoding = decoded.encoding;
-      if (decoded.damaged) {
+      const snapshot = readInitialChatLogSnapshot(filePath);
+      this._chatLogEncoding = snapshot.encoding;
+      this._recentHistoryMode = snapshot.limited;
+      const bounded = snapshot.limited
+        ? trimRecentChatLogLines(snapshot.lines)
+        : { lines: snapshot.lines, removedCount: 0, totalChars: snapshot.lines.reduce((sum, line) => sum + line.length + 1, 0) };
+      this._todayLines = bounded.lines;
+      this._todayLineChars = bounded.totalChars;
+      if (snapshot.damaged) {
         log(`[CHAT_LOG] 문자 손상이 감지되었습니다. 일부 로그를 해석하지 못할 수 있습니다: ${filePath}`);
       }
-      const lines = normalizeChatLogLines(decoded.content.split('\n'));
-      this._todayLines = lines; // 로그 전체 라인 캐시 보관
+      if (snapshot.limited) {
+        log(`[CHAT_LOG] 대형 로그 최근 구간 모드: ${(snapshot.fileSize / 1024 / 1024).toFixed(1)}MB, ${this._todayLines.length}줄 유지`);
+      }
       
-      for (let i = 0; i < Math.min(lines.length, 20); i++) {
-        if (lines[i].includes('Date :')) {
-          chatParser.parseLine(lines[i]);
+      for (let i = 0; i < Math.min(this._todayLines.length, 20); i++) {
+        if (this._todayLines[i].includes('Date :')) {
+          chatParser.parseLine(this._todayLines[i]);
           break;
         }
       }
       // 앱 시작 시 오늘 로그 전체를 히스토리에 채우기 (알림/DB 저장 없이)
-      this.replayTodayLog(lines);
+      this.replayTodayLog(this._todayLines);
     } catch (e) {
       log(`[CHAT_LOG] 초기 날짜 읽기 실패: ${e}`);
     }
@@ -247,7 +259,23 @@ class ChatLogManager {
     // 회복 로그 등 너무 빈번한 로그는 결합이 끝난 뒤 1차로 제외합니다.
     if (line.includes('회복되었습니다')) return;
     this._todayLines.push(line);
+    this._todayLineChars += line.length + 1;
+    this.trimRecentHistoryIfNeeded();
     chatParser.parseLine(line);
+  }
+
+  private trimRecentHistoryIfNeeded(): void {
+    if (!this._recentHistoryMode || this._todayLineChars <= MAX_RECENT_HISTORY_CHARS) return;
+    const trimmed = trimRecentChatLogLines(this._todayLines);
+    if (trimmed.removedCount === 0) return;
+    this._todayLines = trimmed.lines;
+    this._todayLineChars = trimmed.totalChars;
+    for (const indexes of [this._initialReadIndex, this._lastReadIndex]) {
+      for (const key of Object.keys(indexes)) {
+        indexes[key] = Math.max(0, indexes[key] - trimmed.removedCount);
+      }
+    }
+    log(`[CHAT_LOG] 대형 로그 메모리 창 정리: 오래된 ${trimmed.removedCount}줄 제거`);
   }
 
   /**
