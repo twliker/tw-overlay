@@ -61,11 +61,12 @@ git diff --check
 - TypeScript 앱·스크립트 검사 통과
 - 전체 빌드 및 정적 회귀 검사 통과
 - Electron renderer behavior 검사 40개 통과
-- 확정 결함 76개 모두 코드·자동 검증 상태를 대조했으며, 그중 6개는 별도의 Windows 실기 재검증 상태를 유지한다.
+- 확정 결함 77개 모두 코드·자동 검증 상태를 대조했으며, Windows 실기 항목은 실제 증거가 확보된 범위만 개별 완료 처리한다.
 - 채팅 20,000건 + 과거 150건 prepend + live 1,000건에서 실제 DOM 300개 미만, anchor 오차 2px 이내를 확인했다.
 - 교차 숙제 변경, 동일 필드 충돌, 응답 유실, overwrite, 재시작 재수렴, 부분 복원과 종료 recovery fixture를 통과했다.
 - 악성 문자열, DB 마이그레이션 실패·rollback, 대형/잠금/다중 바이트 채팅, scheduler·audio lifecycle fixture를 통과했다.
 - 실제 Electron 격리 검사에서 40MB 당일 로그에 4MB를 append한 뒤 최근 16MB 제한과 4,317줄 trim, 재시작 뒤 최근 marker 검색을 확인했다. Tail 오류 직후 파일을 일시 이동한 검사에서는 1초 실패 뒤 2초 재예약, 복원 후 기존 marker 1건 유지와 live marker 1건 처리를 확인했다.
+- 실제 Windows 독점 잠금 검사에서 2개 로그 중 1개를 `FileShare.None`으로 잠갔다. 수정 전 사전 검사는 1ms 만에 전체 throw했지만, 수정 후 약 773ms에 정상 파일 1개를 반영하고 잠긴 파일만 부분 실패로 보고했다. 잠금 해제 후 재실행은 두 파일·4줄, 실패 0개로 수렴했다.
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
