@@ -2034,6 +2034,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
   const html = fs.readFileSync(path.join(projectRoot, 'dist', 'chat-overlay.html'), 'utf8')
     .replace('<script src="assets/ui-utils.js"></script>', '')
     .replace('<script src="assets/request-generation.js"></script>', '')
+    .replace('<script src="assets/virtual-list.js"></script>', '')
     .replace('<script src="shared/chatChannels.js"></script>', '')
     .replace('<script src="shared/chatConstants.js"></script>', '')
     .replace('<script src="chatOverlayRenderer.js"></script>', '');
@@ -2045,6 +2046,10 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
   );
   const requestGenerationCode = fs.readFileSync(
     path.join(projectRoot, 'dist', 'assets', 'request-generation.js'),
+    'utf8',
+  );
+  const virtualListCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'assets', 'virtual-list.js'),
     'utf8',
   );
   const rendererCode = fs.readFileSync(
@@ -2115,7 +2120,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
           toggleSettings() {},
         };
 
-        eval(${JSON.stringify(`${uiUtilsCode}\n${requestGenerationCode}\n${chatChannelsCode}\n${chatConstantsCode}\n${rendererCode}`)});
+        eval(${JSON.stringify(`${uiUtilsCode}\n${requestGenerationCode}\n${virtualListCode}\n${chatChannelsCode}\n${chatConstantsCode}\n${rendererCode}`)});
 
         window.__modeCallback('main');
         window.__configCallback({
@@ -2286,11 +2291,14 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
         id, type, timestamp: '23시 40분 00초', sender: type === 'system' ? '시스템' : '테스터',
         message, color: '#ffffff', level: null,
       });
+      const requestedHistoryCategories = [];
 
       document.querySelector('[data-tab="Club"]')?.click();
+      const clubHistory = window.__pendingHistory.at(-1);
+      requestedHistoryCategories.push(clubHistory?.category);
       document.querySelector('[data-tab="System"]')?.click();
-      const clubHistory = window.__pendingHistory[0];
-      const systemHistory = window.__pendingHistory[1];
+      const systemHistory = window.__pendingHistory.at(-1);
+      requestedHistoryCategories.push(systemHistory?.category);
       systemHistory.resolve([historyItem('system-new', 'system', '최신 시스템 이력')]);
       await tick();
       clubHistory.resolve([historyItem('club-old', 'club', '늦은 클럽 이력')]);
@@ -2298,12 +2306,13 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
       const tabRaceMessages = rowMessages();
 
       document.querySelector('[data-tab="Club"]')?.click();
-      const staleHistory = window.__pendingHistory[2];
+      const staleHistory = window.__pendingHistory.at(-1);
+      requestedHistoryCategories.push(staleHistory?.category);
       document.getElementById('btnToggleSearch')?.click();
       const searchInput = document.getElementById('searchInput');
       searchInput.value = 'needle';
       document.getElementById('btnExecuteSearch')?.click();
-      const searchAfterHistory = window.__pendingSearch[0];
+      const searchAfterHistory = window.__pendingSearch.at(-1);
       staleHistory.resolve([historyItem('stale-history', 'club', '검색을 덮으면 안 되는 이력')]);
       await tick();
       const searchStatusAfterStaleHistory = document.getElementById('searchResultText')?.textContent;
@@ -2313,10 +2322,10 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
 
       searchInput.value = 'old-query';
       document.getElementById('btnExecuteSearch')?.click();
-      const oldSearch = window.__pendingSearch[1];
+      const oldSearch = window.__pendingSearch.at(-1);
       searchInput.value = 'new-query';
       document.getElementById('btnExecuteSearch')?.click();
-      const newSearch = window.__pendingSearch[2];
+      const newSearch = window.__pendingSearch.at(-1);
       oldSearch.reject(new Error('stale search rejection'));
       await tick();
       const statusAfterStaleReject = document.getElementById('searchResultText')?.textContent;
@@ -2326,18 +2335,21 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
 
       searchInput.value = 'closing';
       document.getElementById('btnExecuteSearch')?.click();
-      const closingSearch = window.__pendingSearch[3];
+      const closingSearch = window.__pendingSearch.at(-1);
       document.getElementById('btnExitSearchMode')?.click();
-      const historyAfterClose = window.__pendingHistory[3];
+      const historyAfterClose = window.__pendingHistory.at(-1);
+      requestedHistoryCategories.push(historyAfterClose?.category);
       closingSearch.reject(new Error('closed search rejection'));
       await tick();
       const statusHiddenAfterClose = document.getElementById('searchStatusBar')?.classList.contains('hidden');
       historyAfterClose.resolve([historyItem('close-history', 'club', '검색 닫은 뒤 이력')]);
       await tick();
       const closeRaceMessages = rowMessages();
+      const highlightCountAfterClose = document.querySelectorAll('.search-highlight').length;
 
       document.querySelector('[data-tab="System"]')?.click();
-      const historyWithLive = window.__pendingHistory[4];
+      const historyWithLive = window.__pendingHistory.at(-1);
+      requestedHistoryCategories.push(historyWithLive?.category);
       window.__chatUpdatedCallback(historyItem('live-during-history', 'system', '요청 중 실시간 이벤트'));
       await tick(50);
       historyWithLive.resolve([historyItem('history-after-live', 'system', '실시간 뒤 정상 이력 응답')]);
@@ -2345,7 +2357,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
       const liveDoesNotInvalidateMessages = rowMessages();
 
       return {
-        pendingHistoryCategories: window.__pendingHistory.map(item => item.category),
+        pendingHistoryCategories: requestedHistoryCategories,
         tabRaceMessages,
         searchStatusAfterStaleHistory,
         searchRaceMessages,
@@ -2353,6 +2365,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
         latestSearchMessages,
         statusHiddenAfterClose,
         closeRaceMessages,
+        highlightCountAfterClose,
         liveDoesNotInvalidateMessages,
       };
     })()
@@ -2365,6 +2378,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
     latestSearchMessages: string[];
     statusHiddenAfterClose: boolean;
     closeRaceMessages: string[];
+    highlightCountAfterClose: number;
     liveDoesNotInvalidateMessages: string[];
   };
 
@@ -2380,8 +2394,184 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(generationResult.statusHiddenAfterClose, true,
     '닫힌 검색의 늦은 reject가 검색 상태 표시를 다시 노출했습니다.');
   assert.deepEqual(generationResult.closeRaceMessages, ['검색 닫은 뒤 이력']);
+  assert.equal(generationResult.highlightCountAfterClose, 0,
+    '검색 종료 후 새 history DOM에 이전 검색 강조 클래스가 남았습니다.');
   assert.ok(generationResult.liveDoesNotInvalidateMessages.includes('실시간 뒤 정상 이력 응답'),
     '실시간 이벤트가 정상 history 요청을 무효화했습니다.');
+
+  const virtualizationResult = await window.webContents.executeJavaScript(`
+    (async () => {
+      const tick = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
+      const chatArea = document.getElementById('chatArea');
+      const makeItem = (prefix, index, type = 'general') => ({
+        id: prefix + '-' + index,
+        type,
+        timestamp: '23시 ' + String(index % 60).padStart(2, '0') + '분 00초',
+        sender: '가상화테스터' + (index % 7),
+        message: index % 9 === 0
+          ? '가변 높이 메시지 '.repeat(18) + index
+          : '일반 메시지 ' + index,
+        color: '#ffffff',
+        level: null,
+      });
+
+      window.__pendingMore = [];
+      window.electronAPI.getMoreChatHistory = category => new Promise((resolve, reject) => {
+        window.__pendingMore.push({ category, resolve, reject });
+      });
+
+      document.querySelector('[data-tab="Basic"]')?.click();
+      const largeHistoryRequest = window.__pendingHistory.at(-1);
+      const largeItems = Array.from({ length: 20000 }, (_, index) => makeItem('large', index));
+      largeHistoryRequest.resolve(largeItems);
+      await tick(180);
+
+      const initialDomCount = chatArea.querySelectorAll('.chat-message-row').length;
+      const initialHeight = Number.parseFloat(document.querySelector('.virtual-list-content')?.style.height || '0');
+      const latestVisibleInitially = document.querySelector('[data-chat-id="large-19999"]') !== null;
+
+      chatArea.scrollTop = 0;
+      chatArea.dispatchEvent(new Event('scroll'));
+      await tick(100);
+      const areaTop = chatArea.getBoundingClientRect().top;
+      const anchorElement = Array.from(chatArea.querySelectorAll('.chat-message-row'))
+        .map(row => ({ row, rect: row.getBoundingClientRect() }))
+        .filter(entry => entry.rect.bottom > areaTop)
+        .sort((a, b) => a.rect.top - b.rect.top)[0];
+      const anchorId = anchorElement?.row.dataset.chatId;
+      const anchorBefore = anchorElement?.rect.top;
+      const olderRequest = window.__pendingMore[0];
+      const olderItems = Array.from({ length: 150 }, (_, index) => makeItem('older', index));
+      olderRequest.resolve(olderItems);
+      await tick(180);
+
+      const anchorAfter = anchorId
+        ? document.querySelector('[data-chat-id="' + CSS.escape(anchorId) + '"]')?.getBoundingClientRect().top
+        : undefined;
+      const prependedDomCount = chatArea.querySelectorAll('.chat-message-row').length;
+      const heightAfterPrepend = Number.parseFloat(document.querySelector('.virtual-list-content')?.style.height || '0');
+
+      window.electronAPI.getMoreChatHistory = async () => [];
+      chatArea.scrollTop = chatArea.scrollHeight;
+      chatArea.dispatchEvent(new Event('scroll'));
+      await tick(100);
+      const latestVisibleAfterPrepend = document.querySelector('[data-chat-id="large-19999"]') !== null;
+      const bottomDomCount = chatArea.querySelectorAll('.chat-message-row').length;
+
+      chatArea.scrollTop = 0;
+      chatArea.dispatchEvent(new Event('scroll'));
+      await tick(100);
+      const oldestVisibleAfterReturn = document.querySelector('[data-chat-id="older-0"]') !== null;
+      const topDomCount = chatArea.querySelectorAll('.chat-message-row').length;
+      const oldestTopBeforeLive = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+      const resizeAnchorBefore = oldestTopBeforeLive;
+      chatArea.style.width = '320px';
+      await tick(180);
+      const resizeAnchorNarrow = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+      chatArea.style.width = '';
+      await tick(180);
+      const resizeAnchorRestored = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+
+      for (let index = 0; index < 1000; index += 1) {
+        window.__chatUpdatedCallback(makeItem('live-bulk', index));
+      }
+      await tick(140);
+      const oldestTopAfterLive = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+      const heightAfterLive = Number.parseFloat(document.querySelector('.virtual-list-content')?.style.height || '0');
+      const liveAtTopDomCount = chatArea.querySelectorAll('.chat-message-row').length;
+
+      chatArea.scrollTop = chatArea.scrollHeight;
+      chatArea.dispatchEvent(new Event('scroll'));
+      await tick(100);
+      const newestLiveVisible = document.querySelector('[data-chat-id="live-bulk-999"]') !== null;
+      const liveBottomDomCount = chatArea.querySelectorAll('.chat-message-row').length;
+
+      return {
+        initialDomCount,
+        initialHeight,
+        latestVisibleInitially,
+        anchorId,
+        anchorBefore,
+        anchorAfter,
+        prependedDomCount,
+        heightAfterPrepend,
+        latestVisibleAfterPrepend,
+        oldestVisibleAfterReturn,
+        bottomDomCount,
+        topDomCount,
+        oldestTopBeforeLive,
+        oldestTopAfterLive,
+        resizeAnchorBefore,
+        resizeAnchorNarrow,
+        resizeAnchorRestored,
+        heightAfterLive,
+        liveAtTopDomCount,
+        newestLiveVisible,
+        liveBottomDomCount,
+      };
+    })()
+  `) as {
+    initialDomCount: number;
+    initialHeight: number;
+    latestVisibleInitially: boolean;
+    anchorId?: string;
+    anchorBefore?: number;
+    anchorAfter?: number;
+    prependedDomCount: number;
+    heightAfterPrepend: number;
+    latestVisibleAfterPrepend: boolean;
+    oldestVisibleAfterReturn: boolean;
+    bottomDomCount: number;
+    topDomCount: number;
+    oldestTopBeforeLive?: number;
+    oldestTopAfterLive?: number;
+    resizeAnchorBefore?: number;
+    resizeAnchorNarrow?: number;
+    resizeAnchorRestored?: number;
+    heightAfterLive: number;
+    liveAtTopDomCount: number;
+    newestLiveVisible: boolean;
+    liveBottomDomCount: number;
+  };
+
+  assert.ok(virtualizationResult.initialDomCount > 0 && virtualizationResult.initialDomCount < 300,
+    `20,000개 데이터의 실제 DOM 행 수가 제한되지 않았습니다: ${virtualizationResult.initialDomCount}`);
+  assert.ok(virtualizationResult.initialHeight > 400_000,
+    '가상 목록 전체 스크롤 높이가 메모리 데이터 수를 반영하지 않았습니다.');
+  assert.equal(virtualizationResult.latestVisibleInitially, true,
+    '초기 history 로드 뒤 최신 행으로 이동하지 않았습니다.');
+  assert.equal(virtualizationResult.anchorId, 'large-0',
+    '최상단 이동 뒤 첫 메모리 행을 렌더링하지 않았습니다.');
+  assert.equal(typeof virtualizationResult.anchorBefore, 'number', 'prepend 전 앵커 위치를 측정하지 못했습니다.');
+  assert.equal(typeof virtualizationResult.anchorAfter, 'number', 'prepend 후 같은 앵커 행을 찾지 못했습니다.');
+  assert.ok(Math.abs(virtualizationResult.anchorAfter! - virtualizationResult.anchorBefore!) <= 2,
+    `과거 150개 prepend 뒤 앵커 행이 이동했습니다: ${virtualizationResult.anchorBefore} → ${virtualizationResult.anchorAfter}`);
+  assert.ok(virtualizationResult.heightAfterPrepend > virtualizationResult.initialHeight,
+    '과거 탐색 결과가 가상 목록의 전체 데이터 높이에 추가되지 않았습니다.');
+  assert.ok(virtualizationResult.prependedDomCount < 300
+    && virtualizationResult.bottomDomCount < 300
+    && virtualizationResult.topDomCount < 300,
+  '스크롤/과거 탐색 중 실제 DOM 행 수가 overscan 상한을 벗어났습니다.');
+  assert.equal(virtualizationResult.latestVisibleAfterPrepend, true,
+    '과거 탐색 후 최신 구간으로 돌아왔을 때 최신 메모리 데이터가 누락됐습니다.');
+  assert.equal(virtualizationResult.oldestVisibleAfterReturn, true,
+    '최신 구간 복귀 뒤 다시 위로 이동했을 때 prepend 데이터가 누락됐습니다.');
+  assert.equal(typeof virtualizationResult.oldestTopBeforeLive, 'number');
+  assert.equal(typeof virtualizationResult.oldestTopAfterLive, 'number');
+  assert.ok(Math.abs(virtualizationResult.oldestTopAfterLive! - virtualizationResult.oldestTopBeforeLive!) <= 2,
+    '과거 탐색 중 live append가 현재 스크롤 앵커를 이동시켰습니다.');
+  assert.equal(typeof virtualizationResult.resizeAnchorBefore, 'number');
+  assert.equal(typeof virtualizationResult.resizeAnchorNarrow, 'number');
+  assert.equal(typeof virtualizationResult.resizeAnchorRestored, 'number');
+  assert.ok(Math.abs(virtualizationResult.resizeAnchorNarrow! - virtualizationResult.resizeAnchorBefore!) <= 2
+    && Math.abs(virtualizationResult.resizeAnchorRestored! - virtualizationResult.resizeAnchorBefore!) <= 2,
+  '채팅 폭 변경과 높이 재측정 중 현재 앵커 행이 이동했습니다.');
+  assert.ok(virtualizationResult.heightAfterLive > virtualizationResult.heightAfterPrepend,
+    'live 1,000건이 메모리 가상 목록에 보존되지 않았습니다.');
+  assert.equal(virtualizationResult.newestLiveVisible, true,
+    '과거 탐색 후 최신 구간으로 돌아왔을 때 새 live 데이터가 누락됐습니다.');
+  assert.ok(virtualizationResult.liveAtTopDomCount < 300 && virtualizationResult.liveBottomDomCount < 300,
+    'live 1,000건 추가 후 실제 DOM 행 수가 overscan 상한을 벗어났습니다.');
 }
 
 function cleanHtmlForTest(filePath: string): string {

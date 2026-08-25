@@ -4338,11 +4338,11 @@ function checkViewRequestGenerationContracts(): void {
     /const chatViewRequests = window\.createViewRequestGeneration\(\)/,
     '채팅 history/search가 공유 view generation을 만들지 않습니다.');
   assert.match(chatSource,
-    /async function executeSearch[\s\S]*?chatViewRequests\.begin\(`search:[\s\S]*?await window\.electronAPI\.searchChatLogs[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?catch[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?finally[\s\S]*?chatViewRequests\.isCurrent\(request\)/,
+    /async function executeSearch[\s\S]*?beginChatViewRequest\(`search:[\s\S]*?await window\.electronAPI\.searchChatLogs[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?catch[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?finally[\s\S]*?chatViewRequests\.isCurrent\(request\)/,
     '채팅 검색 success/catch/finally의 공유 generation guard가 없습니다.');
   assert.match(chatSource,
-    /async function loadHistory[\s\S]*?chatViewRequests\.begin\(`history:[\s\S]*?await window\.electronAPI\.getChatHistory\(requestedTab\)[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?catch[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;/,
-    '채팅 history success/catch의 공유 generation guard가 없습니다.');
+    /async function loadHistory[\s\S]*?beginChatViewRequest\(`history:[\s\S]*?await window\.electronAPI\.getChatHistory\(requestedTab\)[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?catch[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?finally[\s\S]*?chatViewRequests\.isCurrent\(request\)/,
+    '채팅 history success/catch/finally의 공유 generation guard가 없습니다.');
   const liveHandler = chatSource.match(/window\.electronAPI\.onChatUpdated\(\(chatItem\) => \{([\s\S]*?)\n\}\);/)?.[1] || '';
   assert.doesNotMatch(liveHandler, /chatViewRequests/,
     '실시간 이벤트가 view generation을 무효화하고 있습니다.');
@@ -4351,6 +4351,24 @@ function checkViewRequestGenerationContracts(): void {
   assert.match(chatHtml,
     /assets\/request-generation\.js[\s\S]*?chatOverlayRenderer\.js/,
     '채팅 화면에서 request generation helper가 렌더러보다 먼저 로드되지 않습니다.');
+  assert.match(chatHtml,
+    /assets\/virtual-list\.js[\s\S]*?chatOverlayRenderer\.js/,
+    '채팅 화면에서 가상 목록 helper가 렌더러보다 먼저 로드되지 않습니다.');
+  assert.match(chatSource,
+    /createVirtualList<BrowserChatItem>[\s\S]*?appendChatViewItems[\s\S]*?chatVirtualList\.appendItems[\s\S]*?prependChatViewItems[\s\S]*?chatVirtualList\.prependItems/,
+    '채팅 history/live/과거 탐색 경로가 가상 목록 메모리 모델을 사용하지 않습니다.');
+  assert.doesNotMatch(chatSource, /MAX_HARD_NODES|childNodes\.length\s*>\s*2500|removeChild\(chatArea\.firstChild/,
+    '채팅 데이터가 고정 DOM 개수에서 삭제되는 이전 경로가 남았습니다.');
+
+  const virtualListSource = read('src/assets/virtual-list.ts');
+  assert.match(virtualListSource,
+    /getRenderRange[\s\S]*?overscanPx[\s\S]*?content\.replaceChildren\(fragment\)/,
+    '가상 목록이 viewport와 overscan 범위만 DOM으로 만들지 않습니다.');
+  assert.match(virtualListSource,
+    /getBoundingClientRect\(\)\.height[\s\S]*?heightCache\.set[\s\S]*?restoreAnchor\(anchor\)/,
+    '가변 높이 실측과 앵커 복원 경로가 없습니다.');
+  assert.match(virtualListSource, /ResizeObserver[\s\S]*?resetMeasurements\(true\)/,
+    '채팅 폭 변경 시 높이 캐시를 다시 측정하지 않습니다.');
 }
 
 function checkMissedCustomAlertContracts(): void {

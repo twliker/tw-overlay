@@ -29,6 +29,49 @@ interface ViewRequestGeneration {
   currentKey(): string | null;
 }
 
+interface VirtualListOptions<T> {
+  container: HTMLElement;
+  renderRow(item: T, index: number): HTMLElement;
+  getKey(item: T, index: number): string;
+  estimatedHeight?: number;
+  gap?: number;
+  overscanPx?: number;
+  paddingStart?: number;
+  paddingEnd?: number;
+  insetStart?: number;
+  insetEnd?: number;
+}
+
+interface VirtualListSetOptions {
+  scrollToEnd?: boolean;
+  preserveAnchor?: boolean;
+  resetMeasurements?: boolean;
+}
+
+interface VirtualListAppendOptions {
+  followEnd?: boolean;
+}
+
+interface VirtualListState {
+  totalCount: number;
+  renderedCount: number;
+  startIndex: number;
+  endIndex: number;
+  totalHeight: number;
+}
+
+interface VirtualListController<T> {
+  setItems(items: readonly T[], options?: VirtualListSetOptions): void;
+  appendItems(items: readonly T[], options?: VirtualListAppendOptions): void;
+  prependItems(items: readonly T[]): void;
+  resetMeasurements(preserveAnchor?: boolean): void;
+  scrollToEnd(): void;
+  isAtEnd(threshold?: number): boolean;
+  getItems(): readonly T[];
+  getState(): VirtualListState;
+  destroy(): void;
+}
+
 interface BossToastPresentation {
   isRealBoss: boolean;
   validSpawnTime: string | null;
@@ -251,6 +294,7 @@ interface Window {
     now?: () => number;
   }): SoundThrottle;
   createViewRequestGeneration(): ViewRequestGeneration;
+  createVirtualList<T>(options: VirtualListOptions<T>): VirtualListController<T>;
   showChatLogWarningBanner(options?: { variant?: 'overlay' }): void;
   bindChatLogStatusWarning(options?: { variant?: 'overlay' }): void;
   gameOverlayAlerts: GameOverlayAlerts;

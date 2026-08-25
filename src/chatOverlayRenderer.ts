@@ -38,6 +38,19 @@ const FIREWORK_NICKNAMES_SET = new Set<string>([
 ]);
 
 const chatViewRequests = window.createViewRequestGeneration();
+type ChatViewRequestToken = ReturnType<ViewRequestGeneration['begin']>;
+let activeChatViewRequest: ChatViewRequestToken | null = null;
+let paginationGeneration = 0;
+let isChatViewLoading = false;
+
+function beginChatViewRequest(key: string): ChatViewRequestToken {
+  paginationGeneration += 1;
+  isLoadingMore = false;
+  isChatViewLoading = true;
+  const request = chatViewRequests.begin(key);
+  activeChatViewRequest = request;
+  return request;
+}
 
 // NPC/몬스터 대사 여부 판별 함수
 function isNpcOrMonsterChat(chat: BrowserChatItem): boolean {
@@ -299,6 +312,7 @@ function appendHighlightedText(container: HTMLElement, text: string, query?: str
 function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivElement {
   const row = document.createElement('div');
   row.className = 'chat-message-row';
+  row.dataset.chatId = getChatItemKey(chat);
 
   // 1. Time
   const timeSpan = document.createElement('span');
@@ -438,6 +452,104 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
   return row;
 }
 
+function getChatItemKey(chat: BrowserChatItem): string {
+  if (chat.id !== undefined && chat.id !== null && String(chat.id).length > 0) {
+    return String(chat.id);
+  }
+  return [chat.type, chat.timestamp, chat.sender, chat.message, chat.color, chat.level ?? ''].join('\u001f');
+}
+
+let chatViewItems: BrowserChatItem[] = [];
+let chatViewItemKeys = new Set<string>();
+let chatViewHighlightQuery = '';
+
+const chatVirtualList = window.createVirtualList<BrowserChatItem>({
+  container: chatArea,
+  renderRow: chat => createChatRow(chat, chatViewHighlightQuery || undefined),
+  getKey: chat => getChatItemKey(chat),
+  estimatedHeight: 22,
+  gap: 6,
+  overscanPx: 600,
+  paddingStart: 10,
+  paddingEnd: 10,
+  insetStart: 10,
+  insetEnd: 10,
+});
+
+const chatEmptyState = document.createElement('div');
+chatEmptyState.className = 'chat-empty-state hidden';
+chatArea.appendChild(chatEmptyState);
+
+function uniqueChatItems(items: readonly BrowserChatItem[]): BrowserChatItem[] {
+  const seen = new Set<string>();
+  const unique: BrowserChatItem[] = [];
+  for (const item of items) {
+    const key = getChatItemKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(item);
+  }
+  return unique;
+}
+
+function setChatViewItems(
+  items: readonly BrowserChatItem[],
+  options: { scrollToEnd?: boolean; preserveAnchor?: boolean; highlightQuery?: string; emptyMessage?: string } = {},
+): void {
+  chatViewItems = uniqueChatItems(items);
+  chatViewItemKeys = new Set(chatViewItems.map(getChatItemKey));
+  chatViewHighlightQuery = options.highlightQuery || '';
+  chatEmptyState.textContent = options.emptyMessage || '';
+  chatEmptyState.classList.toggle('hidden', chatViewItems.length > 0 || !options.emptyMessage);
+  chatVirtualList.setItems(chatViewItems, {
+    scrollToEnd: options.scrollToEnd,
+    preserveAnchor: options.preserveAnchor,
+    resetMeasurements: true,
+  });
+}
+
+function applyChatResponse(
+  responseItems: readonly BrowserChatItem[],
+  options: { highlightQuery?: string; emptyMessage: string },
+): void {
+  const pendingLiveItems = chatViewItems;
+  setChatViewItems([...responseItems, ...pendingLiveItems], {
+    scrollToEnd: true,
+    highlightQuery: options.highlightQuery,
+    emptyMessage: options.emptyMessage,
+  });
+}
+
+function appendChatViewItems(items: readonly BrowserChatItem[], followEnd: boolean): void {
+  const uniqueNewItems: BrowserChatItem[] = [];
+  for (const item of items) {
+    const key = getChatItemKey(item);
+    if (chatViewItemKeys.has(key)) continue;
+    chatViewItemKeys.add(key);
+    chatViewItems.push(item);
+    uniqueNewItems.push(item);
+  }
+  if (uniqueNewItems.length === 0) return;
+  chatEmptyState.classList.add('hidden');
+  chatVirtualList.appendItems(uniqueNewItems, { followEnd });
+}
+
+function prependChatViewItems(items: readonly BrowserChatItem[]): void {
+  const uniqueOlderItems: BrowserChatItem[] = [];
+  const batchKeys = new Set<string>();
+  for (const item of items) {
+    const key = getChatItemKey(item);
+    if (chatViewItemKeys.has(key) || batchKeys.has(key)) continue;
+    batchKeys.add(key);
+    uniqueOlderItems.push(item);
+  }
+  if (uniqueOlderItems.length === 0) return;
+  for (const key of batchKeys) chatViewItemKeys.add(key);
+  chatViewItems = [...uniqueOlderItems, ...chatViewItems];
+  chatEmptyState.classList.add('hidden');
+  chatVirtualList.prependItems(uniqueOlderItems);
+}
+
 // Search State
 let isSearchMode = false;
 let currentSearchQuery = '';
@@ -487,7 +599,7 @@ async function executeSearch(query?: string) {
   isSearchMode = true;
   currentSearchQuery = q;
   const requestedTab = chatOverlayCurrentTab;
-  const request = chatViewRequests.begin(`search:${requestedTab}:${q}`);
+  const request = beginChatViewRequest(`search:${requestedTab}:${q}`);
 
   if (searchStatusBar) {
     searchStatusBar.classList.remove('hidden');
@@ -496,7 +608,7 @@ async function executeSearch(query?: string) {
     }
   }
 
-  chatArea.innerHTML = '';
+  setChatViewItems([], { highlightQuery: q });
 
   try {
     const results = await window.electronAPI.searchChatLogs(q, {
@@ -507,10 +619,10 @@ async function executeSearch(query?: string) {
 
     if (results && results.length > 0) {
       const filtered = results.filter((chat: BrowserChatItem) => shouldShowChat(chat));
-      filtered.forEach((chat: BrowserChatItem) => {
-        chatArea.appendChild(createChatRow(chat, q));
+      applyChatResponse(filtered, {
+        highlightQuery: q,
+        emptyMessage: '일치하는 채팅 내역이 없습니다.',
       });
-      scrollToBottom();
       if (searchResultText) {
         searchResultText.textContent = `검색 결과: ${filtered.length}건 ("${q}")`;
       }
@@ -518,10 +630,10 @@ async function executeSearch(query?: string) {
       if (searchResultText) {
         searchResultText.textContent = `검색 결과 없음 ("${q}")`;
       }
-      const emptyRow = document.createElement('div');
-      emptyRow.className = 'text-center py-6 text-xs text-slate-400';
-      emptyRow.textContent = '일치하는 채팅 내역이 없습니다.';
-      chatArea.appendChild(emptyRow);
+      applyChatResponse([], {
+        highlightQuery: q,
+        emptyMessage: '일치하는 채팅 내역이 없습니다.',
+      });
     }
   } catch (err) {
     if (!chatViewRequests.isCurrent(request)) return;
@@ -532,6 +644,7 @@ async function executeSearch(query?: string) {
   } finally {
     if (chatViewRequests.isCurrent(request)) {
       isSearching = false;
+      isChatViewLoading = false;
       initIcons();
     }
   }
@@ -544,8 +657,8 @@ async function loadHistory() {
   hasReachedEnd = false;
   isSearching = false;
   const requestedTab = chatOverlayCurrentTab;
-  const request = chatViewRequests.begin(`history:${requestedTab}`);
-  chatArea.innerHTML = '';
+  const request = beginChatViewRequest(`history:${requestedTab}`);
+  setChatViewItems([]);
   try {
     const history = await window.electronAPI.getChatHistory(requestedTab);
     if (!chatViewRequests.isCurrent(request)) return;
@@ -554,33 +667,24 @@ async function loadHistory() {
       const filtered = history.filter((chat: BrowserChatItem) => shouldShowChat(chat));
 
       if (filtered.length > 0) {
-        const fragment = document.createDocumentFragment();
-        filtered.forEach((chat: BrowserChatItem) => {
-          fragment.appendChild(createChatRow(chat));
-        });
-        chatArea.appendChild(fragment);
-        scrollToBottom();
+        applyChatResponse(filtered, { emptyMessage: '일치하는 채팅 내역이 없습니다.' });
       } else {
-        const emptyRow = document.createElement('div');
-        emptyRow.className = 'text-center py-6 text-xs text-slate-400';
-        emptyRow.textContent = '일치하는 채팅 내역이 없습니다.';
-        chatArea.appendChild(emptyRow);
+        applyChatResponse([], { emptyMessage: '일치하는 채팅 내역이 없습니다.' });
       }
     } else {
-      const emptyRow = document.createElement('div');
-      emptyRow.className = 'text-center py-6 text-xs text-slate-400';
-      emptyRow.textContent = '채팅 내역이 없습니다.';
-      chatArea.appendChild(emptyRow);
+      applyChatResponse([], { emptyMessage: '채팅 내역이 없습니다.' });
     }
   } catch (e) {
     if (!chatViewRequests.isCurrent(request)) return;
     console.error('Failed to load chat history:', e);
+  } finally {
+    if (chatViewRequests.isCurrent(request)) isChatViewLoading = false;
   }
 }
 
 // Scroll chat area to bottom
 function scrollToBottom() {
-  chatArea.scrollTop = chatArea.scrollHeight;
+  chatVirtualList.scrollToEnd();
 }
 
 // Switch Active Tab
@@ -657,11 +761,15 @@ function updateHeaderVisibility(config: BrowserAppConfig) {
 // Update Styles based on Config
 function applyConfigStyles(config: BrowserAppConfig) {
   if (!config) return;
+  const fontSizeChanged = chatOverlayAppConfig?.chatOverlayFontSize !== config.chatOverlayFontSize;
   chatOverlayAppConfig = config;
 
   // Font Size
   if (config.chatOverlayFontSize) {
     document.documentElement.style.setProperty('--font-size-base', `${config.chatOverlayFontSize}px`);
+  }
+  if (fontSizeChanged) {
+    requestAnimationFrame(() => chatVirtualList.resetMeasurements(true));
   }
 
   // Opacity
@@ -830,8 +938,8 @@ function flushIncomingChatItems(): void {
   const items = pendingIncomingChatItems;
   pendingIncomingChatItems = [];
 
-  const isAtBottom = (chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight) < 50;
-  const fragment = document.createDocumentFragment();
+  const isAtBottom = chatVirtualList.isAtEnd(50);
+  const visibleItems: BrowserChatItem[] = [];
 
   for (const chatItem of items) {
     if (isSearchMode && currentSearchQuery) {
@@ -840,42 +948,14 @@ function flushIncomingChatItems(): void {
       const messageMatch = chatItem.message ? chatItem.message.toLowerCase().includes(q) : false;
 
       if (senderMatch || messageMatch) {
-        fragment.appendChild(createChatRow(chatItem, currentSearchQuery));
+        visibleItems.push(chatItem);
       }
     } else {
-      fragment.appendChild(createChatRow(chatItem));
+      visibleItems.push(chatItem);
     }
   }
 
-  if (fragment.childNodes.length > 0) {
-    chatArea.appendChild(fragment);
-
-    // Keep max 1000 items in view (실시간 모니터링 중 바닥 근처일 때)
-    // 2500개 초과 시 OOM 방어를 위해 상단 강제 정리 및 스크롤 높이 보정
-    const MAX_HARD_NODES = 2500;
-    if (chatArea.childNodes.length > MAX_HARD_NODES) {
-      const excess = chatArea.childNodes.length - MAX_HARD_NODES;
-      let removedHeight = 0;
-      for (let i = 0; i < excess; i++) {
-        const first = chatArea.firstChild as HTMLElement | null;
-        if (first) {
-          removedHeight += (first.offsetHeight || 0);
-          chatArea.removeChild(first);
-        }
-      }
-      if (!isAtBottom && removedHeight > 0) {
-        chatArea.scrollTop = Math.max(0, chatArea.scrollTop - removedHeight);
-      }
-    } else {
-      while (chatArea.childNodes.length > 1000 && isAtBottom) {
-        chatArea.removeChild(chatArea.firstChild!);
-      }
-    }
-
-    if (isAtBottom) {
-      scrollToBottom();
-    }
-  }
+  appendChatViewItems(visibleItems, isAtBottom);
 }
 
 // Register Electron IPC Listeners
@@ -1130,29 +1210,23 @@ window.addEventListener('mouseup', (e) => {
 
 // Scroll Event for Infinite Scroll
 chatArea.addEventListener('scroll', async () => {
-  if (isSearchMode) return;
+  if (isSearchMode || isChatViewLoading) return;
   if (chatArea.scrollTop <= 5 && !isLoadingMore && !hasReachedEnd) {
     isLoadingMore = true;
     const requestedTab = chatOverlayCurrentTab;
+    const requestedView = activeChatViewRequest;
+    const requestGeneration = ++paginationGeneration;
     try {
-      const oldScrollHeight = chatArea.scrollHeight;
       const newItems = await window.electronAPI.getMoreChatHistory(requestedTab);
       
       // 비동기 로딩 도중 사용자가 탭을 바꿨으면 렌더링 스킵
-      if (requestedTab !== chatOverlayCurrentTab || isSearchMode) return;
+      if (requestGeneration !== paginationGeneration || !requestedView
+        || !chatViewRequests.isCurrent(requestedView)
+        || requestedTab !== chatOverlayCurrentTab || isSearchMode) return;
 
       if (newItems && newItems.length > 0) {
         const filtered = newItems.filter((chat: BrowserChatItem) => shouldShowChat(chat));
-
-        // insertBefore로 앞에 끼워 넣을 때, 가장 최신(뒤쪽) 데이터부터 먼저 삽입해야 
-        // 결과적으로 올바른 시간 순서(오래된 로그가 위, 최신 로그가 아래)로 정렬됩니다.
-        const reversedItems = [...filtered].reverse();
-        reversedItems.forEach((chat: BrowserChatItem) => {
-          chatArea.insertBefore(createChatRow(chat), chatArea.firstChild);
-        });
-
-        // 튕김 방지 스크롤 고정
-        chatArea.scrollTop = chatArea.scrollHeight - oldScrollHeight;
+        prependChatViewItems(filtered);
 
         if (newItems.length < 150) {
           hasReachedEnd = true;
@@ -1161,9 +1235,10 @@ chatArea.addEventListener('scroll', async () => {
         hasReachedEnd = true;
       }
     } catch (err) {
+      if (requestGeneration !== paginationGeneration) return;
       console.error('Failed to load more chat history:', err);
     } finally {
-      isLoadingMore = false;
+      if (requestGeneration === paginationGeneration) isLoadingMore = false;
     }
   }
 });
