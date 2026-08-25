@@ -761,13 +761,12 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   // 새 창이 열리므로 예약된 포커스 복구 취소 (레이스 컨디션 방지)
   focusController.cancelPendingRestore();
 
-  // 현재 게임 창이 있는 모니터(없으면 주 모니터)의 작업 영역 높이 확인
+  // 현재 게임 창이 있는 모니터(없으면 주 모니터)의 작업 영역 확인
   const display = gameRect
     ? screen.getDisplayNearestPoint({ x: gameRect.x, y: gameRect.y })
     : screen.getPrimaryDisplay();
-  const maxH = display.workAreaSize.height;
 
-  const sizing = resolveManagedWindowSizing(key, winCfg.width, winCfg.height, config.load(), maxH);
+  const sizing = resolveManagedWindowSizing(key, winCfg.width, winCfg.height, config.load(), display.workAreaSize);
   const finalW = sizing.width;
   const finalH = sizing.height;
   // Electron frameless + transparent 창은 Windows에서 네이티브 테두리 리사이즈 핸들이 작동하지 않음
@@ -1046,7 +1045,14 @@ export function toggleUniformColorWindow(): void {
   }
 
   // 1. 독립 창 생성 및 로드
-  const win = new BrowserWindow(getStandardOptions(winCfg.width, winCfg.height));
+  const display = gameRect
+    ? screen.getDisplayNearestPoint({ x: gameRect.x, y: gameRect.y })
+    : screen.getPrimaryDisplay();
+  const sizing = resolveManagedWindowSizing('uniformColor', winCfg.width, winCfg.height, config.load(), display.workAreaSize);
+  const win = new BrowserWindow(getStandardOptions(sizing.width, sizing.height, {
+    resizable: sizing.isResizable,
+    thickFrame: sizing.isResizable,
+  }));
   winCfg.ref = win;
   focusController.attach(win);
   win.loadFile(path.join(__dirname, '..', winCfg.html));
@@ -1069,11 +1075,11 @@ export function toggleUniformColorWindow(): void {
       let { x, y } = winCfg.calcPosition
         ? winCfg.calcPosition(gameRect, winCfg.pos)
         : calculateAttachedWindowPosition(gameRect, winCfg.pos);
-      ({ x, y } = recoverCompletelyOffscreenWindow('uniformColor', gameRect, x, y, winCfg.width, winCfg.height));
+      ({ x, y } = recoverCompletelyOffscreenWindow('uniformColor', gameRect, x, y, sizing.width, sizing.height));
       setProgrammaticMove('uniformColor', x, y);
       win.setPosition(x, y);
     } else {
-      const { x, y } = resolveFallbackWindowPosition(winCfg.width, winCfg.height);
+      const { x, y } = resolveFallbackWindowPosition(sizing.width, sizing.height);
       setProgrammaticMove('uniformColor', x, y);
       win.setPosition(x, y);
     }
@@ -1110,7 +1116,16 @@ export function toggleSwordEnhanceWindow(): void {
     return;
   }
 
-  const win = new BrowserWindow(getStandardOptions(winCfg.width, winCfg.height));
+  const display = gameRect
+    ? screen.getDisplayNearestPoint({ x: gameRect.x, y: gameRect.y })
+    : screen.getPrimaryDisplay();
+  const sizing = resolveManagedWindowSizing('swordEnhance', winCfg.width, winCfg.height, config.load(), display.workAreaSize);
+  const win = new BrowserWindow(getStandardOptions(sizing.width, sizing.height, {
+    resizable: sizing.isResizable,
+    thickFrame: sizing.isResizable,
+    minWidth: sizing.minWidth,
+    minHeight: sizing.minHeight,
+  }));
   winCfg.ref = win;
   focusController.attach(win);
   win.loadFile(path.join(__dirname, '..', winCfg.html));
@@ -1130,11 +1145,11 @@ export function toggleSwordEnhanceWindow(): void {
   win.once('ready-to-show', () => {
     if (gameRect) {
       let { x, y } = calculateAttachedWindowPosition(gameRect, winCfg.pos);
-      ({ x, y } = recoverCompletelyOffscreenWindow('swordEnhance', gameRect, x, y, winCfg.width, winCfg.height));
+      ({ x, y } = recoverCompletelyOffscreenWindow('swordEnhance', gameRect, x, y, sizing.width, sizing.height));
       setProgrammaticMove('swordEnhance', x, y);
       win.setPosition(x, y);
     } else {
-      const { x, y } = resolveFallbackWindowPosition(winCfg.width, winCfg.height);
+      const { x, y } = resolveFallbackWindowPosition(sizing.width, sizing.height);
       setProgrammaticMove('swordEnhance', x, y);
       win.setPosition(x, y);
     }

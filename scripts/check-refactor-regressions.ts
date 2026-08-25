@@ -993,21 +993,51 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   );
 
   const sizing = require(path.join(projectRoot, 'dist', 'modules', 'managedWindowSizing.js')) as {
-    resolveManagedWindowSizing: (key: string, width: number, height: number, config: Record<string, unknown>, workAreaHeight: number) => Record<string, unknown>;
+    resolveManagedWindowSizing: (key: string, width: number, height: number, config: Record<string, unknown>, workAreaSize: { width: number; height: number }) => Record<string, unknown>;
+    getManagedWindowSizePolicy: (key: string) => string;
     applyManagedWindowSize: (key: string, config: Record<string, unknown>, width: number, height: number) => boolean;
   };
   assert.deepEqual(
-    sizing.resolveManagedWindowSizing('focusedChat', 460, 720, { focusedChatWidth: 520, focusedChatHeight: 760 }, 700),
-    { width: 520, height: 660, isResizable: true, isTransparent: true, minWidth: 360, minHeight: 360 },
+    sizing.resolveManagedWindowSizing('focusedChat', 460, 720, { focusedChatWidth: 520, focusedChatHeight: 760 }, { width: 1280, height: 700 }),
+    { width: 520, height: 660, isResizable: true, isTransparent: true, minWidth: 360, minHeight: 360, policy: 'user-resizable' },
   );
   assert.deepEqual(
-    sizing.resolveManagedWindowSizing('contentsChecker', 400, 1200, {}, 1080),
-    { width: 400, height: 1040, isResizable: true, isTransparent: false, minWidth: 200, minHeight: 200 },
+    sizing.resolveManagedWindowSizing('contentsChecker', 400, 1200, {}, { width: 1920, height: 1080 }),
+    { width: 400, height: 1040, isResizable: true, isTransparent: false, minWidth: 200, minHeight: 200, policy: 'user-resizable' },
   );
   assert.deepEqual(
-    sizing.resolveManagedWindowSizing('chatOverlay', 450, 400, { chatOverlayWidth: 400, chatOverlayHeight: 120 }, 1080),
-    { width: 400, height: 120, isResizable: true, isTransparent: true, minWidth: 300, minHeight: 80 },
+    sizing.resolveManagedWindowSizing('chatOverlay', 450, 400, { chatOverlayWidth: 400, chatOverlayHeight: 120 }, { width: 1920, height: 1080 }),
+    { width: 400, height: 120, isResizable: true, isTransparent: true, minWidth: 300, minHeight: 80, policy: 'user-resizable' },
   );
+  assert.deepEqual(
+    sizing.resolveManagedWindowSizing('coefficientCalculator', 1420, 860, {}, { width: 1280, height: 720 }),
+    { width: 1240, height: 680, isResizable: false, isTransparent: true, minWidth: undefined, minHeight: undefined, policy: 'fit-work-area' },
+    '대형 고정 관리 창이 작은 작업 영역을 벗어납니다.',
+  );
+  assert.deepEqual(
+    sizing.resolveManagedWindowSizing('diary', 1400, 920, {}, { width: 800, height: 600 }),
+    { width: 760, height: 560, isResizable: true, isTransparent: false, minWidth: 760, minHeight: 560, policy: 'user-resizable' },
+    '축소된 작업 영역에서 초기 크기보다 큰 최소 크기를 설정합니다.',
+  );
+  assert.deepEqual(
+    sizing.resolveManagedWindowSizing('focusedChat', 460, 720, { focusedChatWidth: 100, focusedChatHeight: 100 }, { width: 1920, height: 1080 }),
+    { width: 360, height: 360, isResizable: true, isTransparent: true, minWidth: 360, minHeight: 360, policy: 'user-resizable' },
+    '손상되거나 오래된 과소 저장 크기를 창별 최소 크기로 복구하지 않습니다.',
+  );
+  assert.deepEqual(
+    sizing.resolveManagedWindowSizing('dock', 800, 380, {}, { width: 640, height: 480 }),
+    { width: 800, height: 380, isResizable: false, isTransparent: true, minWidth: undefined, minHeight: undefined, policy: 'game-fixed' },
+    '게임 내부 배치용 독 크기를 작업 영역 기준으로 임의 변경합니다.',
+  );
+  assert.equal(
+    Object.keys(registry).every(key => ['fit-work-area', 'user-resizable', 'game-fixed'].includes(sizing.getManagedWindowSizePolicy(key))),
+    true,
+    '관리 창 레지스트리에 크기 정책이 없는 창이 있습니다.',
+  );
+  assert.match(manager, /resolveManagedWindowSizing\('uniformColor'[\s\S]*?display\.workAreaSize/,
+    '의상 염색 도구의 초기 크기가 현재 작업 영역 정책을 사용하지 않습니다.');
+  assert.match(manager, /resolveManagedWindowSizing\('swordEnhance'[\s\S]*?display\.workAreaSize/,
+    '검 강화 도구의 초기 크기가 현재 작업 영역 정책을 사용하지 않습니다.');
   const sizeConfig: Record<string, unknown> = {};
   assert.equal(sizing.applyManagedWindowSize('chatOverlaySub2', sizeConfig, 510, 430), true);
   assert.deepEqual(sizeConfig, { chatOverlaySub2Width: 510, chatOverlaySub2Height: 430 });
