@@ -3,7 +3,16 @@
  * 설정과 숙제는 서로 다른 dirty/debounce 정책을 사용하고 모든 Drive 전송은 single-flight로 실행한다.
  */
 import * as crypto from 'crypto';
-import { AppConfig, GoogleSyncMetaPayload, GoogleSyncPayload, GoogleSyncResult, GoogleSyncStatus } from '../shared/types';
+import {
+  AppConfig,
+  GoogleSyncDataKind,
+  GoogleSyncFileRestoreResult,
+  GoogleSyncMetaPayload,
+  GoogleSyncPayload,
+  GoogleSyncProfileState,
+  GoogleSyncResult,
+  GoogleSyncStatus,
+} from '../shared/types';
 import * as cloudState from './cloudSyncState';
 import * as config from './config';
 import * as googleAuth from './googleAuth';
@@ -36,6 +45,7 @@ interface SyncFiles {
   checklist?: googleDriveSync.DriveFileMeta;
   meta?: googleDriveSync.DriveFileMeta;
   generationId?: string;
+  candidates: Record<SyncKind | 'meta', googleDriveSync.DriveFileMeta[]>;
   all: googleDriveSync.DriveFileMeta[];
 }
 
@@ -69,6 +79,7 @@ export function getSyncStatus(): GoogleSyncStatus {
   const isLinked = googleAuth.isLoggedIn();
   const profile = googleAuth.loadStoredProfile();
   const cfg = config.load();
+  const state = cloudState.load();
   return {
     isLinked,
     email: profile?.email || cfg.googleSyncUserEmail,
@@ -76,6 +87,9 @@ export function getSyncStatus(): GoogleSyncStatus {
     fileName: getStatusFileName(),
     isSyncing: activeTransfers > 0,
     autoSync: cfg.googleSyncAutoSync !== false,
+    profileState: state.profileState,
+    restoreResults: state.restoreResults,
+    restorePartial: state.restorePartial,
   };
 }
 
@@ -111,42 +125,71 @@ function clearTimer(timer: NodeJS.Timeout | null): null {
   return null;
 }
 
-function selectNewest(files: googleDriveSync.DriveFileMeta[], name: string): googleDriveSync.DriveFileMeta | undefined {
+function selectNewestCandidates(files: googleDriveSync.DriveFileMeta[], name: string): googleDriveSync.DriveFileMeta[] {
   return files
     .filter(file => file.name === name)
-    .sort((left, right) => String(right.modifiedTime || '').localeCompare(String(left.modifiedTime || '')))[0];
+    .sort((left, right) => String(right.modifiedTime || '').localeCompare(String(left.modifiedTime || '')));
+}
+
+function isValidMetaFileRef(value: unknown, expectedName: string): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const ref = value as { id?: unknown; name?: unknown };
+  return typeof ref.id === 'string' && ref.id.length > 0 && ref.id.length <= 200
+    && ref.name === expectedName;
+}
+
+function isValidMetaPayload(value: unknown): value is GoogleSyncMetaPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const meta = value as Partial<GoogleSyncMetaPayload>;
+  return meta.schemaVersion === 1
+    && typeof meta.generationId === 'string'
+    && meta.generationId.length > 0
+    && typeof meta.updatedAt === 'number'
+    && Number.isFinite(meta.updatedAt)
+    && !!meta.files
+    && typeof meta.files === 'object'
+    && !Array.isArray(meta.files)
+    && isValidMetaFileRef(meta.files.settings, googleDriveSync.SETTINGS_SYNC_FILE_NAME)
+    && isValidMetaFileRef(meta.files.checklist, googleDriveSync.CHECKLIST_SYNC_FILE_NAME);
 }
 
 async function discoverFiles(): Promise<SyncFiles> {
   const all = await googleDriveSync.listSyncFiles();
+  const candidates = {
+    settings: selectNewestCandidates(all, googleDriveSync.SETTINGS_SYNC_FILE_NAME),
+    checklist: selectNewestCandidates(all, googleDriveSync.CHECKLIST_SYNC_FILE_NAME),
+    meta: selectNewestCandidates(all, googleDriveSync.META_SYNC_FILE_NAME),
+  };
   const files: SyncFiles = {
-    settings: selectNewest(all, googleDriveSync.SETTINGS_SYNC_FILE_NAME),
-    checklist: selectNewest(all, googleDriveSync.CHECKLIST_SYNC_FILE_NAME),
-    meta: selectNewest(all, googleDriveSync.META_SYNC_FILE_NAME),
+    settings: candidates.settings[0],
+    checklist: candidates.checklist[0],
+    meta: candidates.meta[0],
+    candidates,
     all,
   };
-  if (files.meta) {
-    let validMeta = false;
-    try {
-      const rawMeta = await googleDriveSync.downloadJsonPayload<unknown>(files.meta.id);
-      if (rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)) {
-        const meta = rawMeta as Partial<GoogleSyncMetaPayload>;
-        if (meta.schemaVersion === 1 && typeof meta.generationId === 'string' && meta.files) {
-          validMeta = true;
+  if (candidates.meta.length > 0) {
+    files.meta = undefined;
+    for (const metaFile of candidates.meta) {
+      try {
+        const rawMeta = await googleDriveSync.downloadJsonPayload<unknown>(metaFile.id);
+        if (isValidMetaPayload(rawMeta)) {
+          const meta = rawMeta;
+          files.meta = metaFile;
           files.generationId = meta.generationId;
-          cloudState.update(state => { state.generationId = meta.generationId!; });
+          cloudState.update(state => { state.generationId = meta.generationId; });
           const settingsId = meta.files.settings?.id;
           const checklistId = meta.files.checklist?.id;
           const settingsById = settingsId ? all.find(file => file.id === settingsId) : undefined;
           const checklistById = checklistId ? all.find(file => file.id === checklistId) : undefined;
           if (settingsById?.name === googleDriveSync.SETTINGS_SYNC_FILE_NAME) files.settings = settingsById;
           if (checklistById?.name === googleDriveSync.CHECKLIST_SYNC_FILE_NAME) files.checklist = checklistById;
+          break;
         }
+      } catch (error) {
+        log(`[CloudSyncManager] 메타 후보를 읽지 못해 다음 후보를 확인합니다: ${error}`);
       }
-    } catch (error) {
-      log(`[CloudSyncManager] 메타 파일을 읽지 못해 이름 기준 탐색을 사용합니다: ${error}`);
     }
-    if (!validMeta) files.meta = undefined;
   }
   cloudState.update(state => {
     state.fileIds.settings = files.settings?.id;
@@ -176,8 +219,89 @@ async function downloadValidated(
   return value;
 }
 
-async function applyConfigFromCloud(nextConfig: AppConfig): Promise<void> {
-  syncDataHelper.createLocalBackupBeforeSync(config.load());
+interface ValidatedRestoreCandidate {
+  file: googleDriveSync.DriveFileMeta;
+  payload: GoogleSyncPayload;
+}
+
+interface RestoreCandidateInspection {
+  kind: SyncKind;
+  candidates: googleDriveSync.DriveFileMeta[];
+  valid: ValidatedRestoreCandidate[];
+  errors: string[];
+}
+
+async function inspectRestoreCandidates(kind: SyncKind, files: SyncFiles): Promise<RestoreCandidateInspection> {
+  const preferred = fileForKind(files, kind);
+  const candidates = [
+    ...(preferred ? [preferred] : []),
+    ...files.candidates[kind],
+  ].filter((file, index, values) => values.findIndex(candidate => candidate.id === file.id) === index);
+  const valid: ValidatedRestoreCandidate[] = [];
+  const errors: string[] = [];
+
+  for (const file of candidates) {
+    try {
+      const payload = await downloadValidated(kind, file);
+      if (payload) valid.push({ file, payload });
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return { kind, candidates, valid, errors };
+}
+
+function candidateTimestamp(candidate: ValidatedRestoreCandidate): number {
+  const modifiedAt = Date.parse(candidate.file.modifiedTime || '');
+  return Number.isFinite(modifiedAt) ? modifiedAt : candidate.payload.lastSyncedAt;
+}
+
+function selectRestoreGeneration(
+  files: SyncFiles,
+  inspections: RestoreCandidateInspection[],
+): string | undefined {
+  if (files.generationId) return files.generationId;
+  return inspections
+    .flatMap(inspection => inspection.valid)
+    .sort((left, right) => candidateTimestamp(right) - candidateTimestamp(left))[0]
+    ?.payload.generationId;
+}
+
+function selectRestoreCandidate(
+  inspection: RestoreCandidateInspection,
+  generationId: string | undefined,
+): ValidatedRestoreCandidate | undefined {
+  return inspection.valid.find(candidate => !generationId || candidate.payload.generationId === generationId);
+}
+
+function buildRestoreFailure(
+  inspection: RestoreCandidateInspection,
+  selected: boolean,
+  generationId: string | undefined,
+): GoogleSyncFileRestoreResult {
+  if (!selected) return { kind: inspection.kind, selected: false, status: 'skipped' };
+  if (inspection.candidates.length === 0) {
+    return { kind: inspection.kind, selected: true, status: 'missing' };
+  }
+  if (inspection.valid.length > 0 && generationId) {
+    return {
+      kind: inspection.kind,
+      selected: true,
+      status: 'generation-mismatch',
+      error: '선택된 클라우드 생성 세대와 일치하는 유효 파일이 없습니다.',
+    };
+  }
+  return {
+    kind: inspection.kind,
+    selected: true,
+    status: 'invalid',
+    error: inspection.errors[0] || '파일 형식 또는 체크섬이 올바르지 않습니다.',
+  };
+}
+
+async function applyConfigFromCloud(nextConfig: AppConfig, createBackup = true): Promise<void> {
+  if (createBackup) syncDataHelper.createLocalBackupBeforeSync(config.load());
   applyingCloud = true;
   try {
     if (!config.saveImmediate(nextConfig)) {
@@ -205,6 +329,7 @@ function combineRemoteIntoLocal(
   payload: GoogleSyncPayload,
   manualRestore: boolean,
   settingsKeysChangedDuringRequest: string[] = [],
+  freshBootstrap = false,
 ): AppConfig {
   const current = config.load();
   const state = cloudState.load();
@@ -215,7 +340,9 @@ function combineRemoteIntoLocal(
       manualRestore ? [] : settingsKeysChangedDuringRequest,
     );
   }
-  const checklist = syncDataHelper.mergeChecklistThreeWay(state.baseChecklist, current, payload.data);
+  const checklist = freshBootstrap && !state.baseChecklist
+    ? syncDataHelper.extractChecklistSyncData(payload.data as AppConfig)
+    : syncDataHelper.mergeChecklistThreeWay(state.baseChecklist, current, payload.data);
   const merged = { ...current, ...checklist };
   if (merged.characterPresets && merged.characterPresets.length > 0
     && !merged.characterPresets.some(character => character.id === merged.selectedCharacterId)) {
@@ -229,6 +356,7 @@ async function receiveKind(
   payload: GoogleSyncPayload,
   manualRestore: boolean,
   requestStartedAt = Date.now(),
+  options: { createBackup?: boolean; freshBootstrap?: boolean } = {},
 ): Promise<boolean> {
   const state = cloudState.load();
   const remoteRevision = revisionOf(payload);
@@ -253,8 +381,14 @@ async function receiveKind(
       };
     }
   }
-  const nextConfig = combineRemoteIntoLocal(kind, effectivePayload, manualRestore, settingsKeysChangedDuringRequest);
-  await applyConfigFromCloud(nextConfig);
+  const nextConfig = combineRemoteIntoLocal(
+    kind,
+    effectivePayload,
+    manualRestore,
+    settingsKeysChangedDuringRequest,
+    options.freshBootstrap === true,
+  );
+  await applyConfigFromCloud(nextConfig, options.createBackup !== false);
   cloudState.update(next => {
     next.remoteRevisions[kind] = remoteRevision;
     if (kind === 'settings') {
@@ -480,6 +614,135 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
   };
 }
 
+function persistRestoreResults(
+  results: GoogleSyncFileRestoreResult[],
+  partial: boolean,
+  profileState?: GoogleSyncProfileState,
+): void {
+  cloudState.update(state => {
+    state.restoreResults = structuredClone(results);
+    state.restorePartial = partial;
+    if (profileState) state.profileState = profileState;
+  });
+}
+
+async function pullRestoreFromCloud(
+  selectedKinds: SyncKind[],
+  freshBootstrap: boolean,
+): Promise<GoogleSyncResult> {
+  if (!googleAuth.isLoggedIn()) return { success: false, error: 'Google 로그인이 필요합니다.' };
+  const selected = new Set<SyncKind>(selectedKinds);
+  const files = await discoverFiles();
+
+  if (!files.settings && !files.checklist && files.candidates.settings.length === 0
+    && files.candidates.checklist.length === 0) {
+    if (freshBootstrap) {
+      markSettingsDirty(syncDataHelper.SETTINGS_SYNCABLE_KEYS.map(String));
+      markChecklistDirty(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.map(String));
+      const uploaded = await uploadKinds(['settings', 'checklist']);
+      if (uploaded.success) cloudState.update(state => { state.profileState = 'established'; });
+      return uploaded;
+    }
+    const emptyResults: GoogleSyncFileRestoreResult[] = (['settings', 'checklist'] as const).map(kind => ({
+      kind,
+      selected: selected.has(kind),
+      status: selected.has(kind) ? 'missing' : 'skipped',
+    }));
+    persistRestoreResults(emptyResults, false);
+    return {
+      success: false,
+      error: '구글 드라이브에 저장된 동기화 데이터가 없습니다.',
+      restoreResults: emptyResults,
+      profileState: cloudState.load().profileState,
+      files: files.all,
+      fileCount: files.all.length,
+    };
+  }
+
+  const inspections = await Promise.all((['settings', 'checklist'] as const)
+    .filter(kind => selected.has(kind))
+    .map(kind => inspectRestoreCandidates(kind, files)));
+  const generationId = selectRestoreGeneration(files, inspections);
+  const inspectionByKind = new Map(inspections.map(inspection => [inspection.kind, inspection]));
+  const results: GoogleSyncFileRestoreResult[] = [];
+  const candidatesToApply: Array<{ kind: SyncKind; candidate: ValidatedRestoreCandidate }> = [];
+
+  for (const kind of ['settings', 'checklist'] as const) {
+    if (!selected.has(kind)) {
+      results.push({ kind, selected: false, status: 'skipped' });
+      continue;
+    }
+    const inspection = inspectionByKind.get(kind)!;
+    const candidate = selectRestoreCandidate(inspection, generationId);
+    if (!candidate) {
+      results.push(buildRestoreFailure(inspection, true, generationId));
+      continue;
+    }
+    candidatesToApply.push({ kind, candidate });
+  }
+
+  if (candidatesToApply.length > 0) syncDataHelper.createLocalBackupBeforeSync(config.load());
+  let latestAt = 0;
+  for (const { kind, candidate } of candidatesToApply) {
+    try {
+      const changed = await receiveKind(kind, candidate.payload, true, Date.now(), {
+        createBackup: false,
+        freshBootstrap,
+      });
+      latestAt = Math.max(latestAt, candidate.payload.lastSyncedAt);
+      results.push({
+        kind,
+        selected: true,
+        status: changed ? 'restored' : 'unchanged',
+        fileName: candidate.file.name,
+        revision: candidate.payload.revision,
+        lastSyncedAt: candidate.payload.lastSyncedAt,
+      });
+    } catch (error) {
+      results.push({
+        kind,
+        selected: true,
+        status: 'invalid',
+        fileName: candidate.file.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const resultOrder: Record<SyncKind, number> = { settings: 0, checklist: 1 };
+  results.sort((left, right) => resultOrder[left.kind] - resultOrder[right.kind]);
+
+  const selectedResults = results.filter(result => result.selected);
+  const succeeded = selectedResults.filter(result => result.status === 'restored' || result.status === 'unchanged');
+  const failed = selectedResults.filter(result => result.status !== 'restored' && result.status !== 'unchanged');
+  const partial = succeeded.length > 0 && failed.length > 0;
+  const nextProfileState = freshBootstrap && failed.length > 0 ? 'needs-confirmation' : 'established';
+  persistRestoreResults(results, partial, succeeded.length > 0 ? nextProfileState : undefined);
+
+  if (latestAt > 0) {
+    applyingCloud = true;
+    try {
+      config.saveImmediate({ googleSyncLastTime: latestAt });
+    } finally {
+      applyingCloud = false;
+    }
+  }
+
+  return {
+    success: succeeded.length > 0,
+    message: partial
+      ? '정상 파일만 복원했으며 일부 파일은 적용하지 못했습니다.'
+      : succeeded.length > 0 ? '선택한 클라우드 데이터를 복원했습니다.' : undefined,
+    error: succeeded.length === 0 ? (failed[0]?.error || '선택한 파일을 복원하지 못했습니다.') : undefined,
+    lastSyncedAt: latestAt || config.load().googleSyncLastTime,
+    fileName: getStatusFileName(),
+    fileCount: files.all.length,
+    files: files.all,
+    profileState: cloudState.load().profileState,
+    restoreResults: results,
+    partial,
+  };
+}
+
 async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> {
   if (!googleAuth.isLoggedIn()) return { success: false, error: 'Google 로그인이 필요합니다.' };
   const files = await discoverFiles();
@@ -600,9 +863,30 @@ export async function syncToCloud(_manual = false): Promise<GoogleSyncResult> {
 }
 
 /** 자동 pull은 로컬 dirty를 보존하며, 명시적 복원은 일반 설정에 클라우드 스냅샷을 적용한다. */
-export async function syncFromCloud(manual = false): Promise<GoogleSyncResult> {
+export async function syncFromCloud(
+  manual = false,
+  selectedKinds: GoogleSyncDataKind[] = ['settings', 'checklist'],
+): Promise<GoogleSyncResult> {
   try {
-    const result = await enqueueTransfer(manual ? '수동 복원' : '원격 변경 확인', () => pullFromCloud(manual));
+    const state = cloudState.load();
+    if (!manual && state.profileState === 'needs-confirmation') {
+      return {
+        success: true,
+        message: '기존 데이터 확인이 필요하여 자동 복원을 건너뛰었습니다.',
+        profileState: state.profileState,
+        restoreResults: state.restoreResults,
+        partial: state.restorePartial,
+      };
+    }
+    const normalizedKinds = (['settings', 'checklist'] as const)
+      .filter(kind => selectedKinds.includes(kind));
+    if (manual && normalizedKinds.length === 0) {
+      return { success: false, error: '복원할 파일 종류를 하나 이상 선택해야 합니다.' };
+    }
+    const useRestoreFlow = manual || state.profileState === 'fresh';
+    const result = await enqueueTransfer(manual ? '수동 복원' : '원격 변경 확인', () => useRestoreFlow
+      ? pullRestoreFromCloud(normalizedKinds, state.profileState === 'fresh')
+      : pullFromCloud(false));
     if (!result.success && !manual) pullFailureCount++;
     else if (result.success) pullFailureCount = 0;
     return result;
@@ -621,30 +905,60 @@ export async function getCloudDataPreview(): Promise<{
   fileMeta?: googleDriveSync.DriveFileMeta;
   fileCount?: number;
   files?: googleDriveSync.DriveFileMeta[];
+  restoreResults?: GoogleSyncFileRestoreResult[];
+  partial?: boolean;
   error?: string;
 }> {
   if (!googleAuth.isLoggedIn()) return { success: false, error: 'Google 로그인이 필요합니다.' };
   try {
     return await enqueueTransfer('미리보기', async () => {
       const files = await discoverFiles();
-      const settings = await downloadValidated('settings', files.settings, files.generationId);
-      const checklist = await downloadValidated('checklist', files.checklist, files.generationId);
+      const inspections = await Promise.all((['settings', 'checklist'] as const)
+        .map(kind => inspectRestoreCandidates(kind, files)));
+      const generationId = selectRestoreGeneration(files, inspections);
+      const selectedCandidates = new Map<SyncKind, ValidatedRestoreCandidate>();
+      const restoreResults = inspections.map(inspection => {
+        const candidate = selectRestoreCandidate(inspection, generationId);
+        if (!candidate) return buildRestoreFailure(inspection, true, generationId);
+        selectedCandidates.set(inspection.kind, candidate);
+        return {
+          kind: inspection.kind,
+          selected: true,
+          status: 'available' as const,
+          fileName: candidate.file.name,
+          revision: candidate.payload.revision,
+          lastSyncedAt: candidate.payload.lastSyncedAt,
+        };
+      });
+      const settings = selectedCandidates.get('settings');
+      const checklist = selectedCandidates.get('checklist');
+      const failedCount = restoreResults.filter(result => result.status !== 'available').length;
+      const partial = selectedCandidates.size > 0 && failedCount > 0;
       if (!settings && !checklist) {
-        return { success: false, error: '구글 드라이브에 저장된 동기화 파일이 없습니다.', files: files.all };
+        return {
+          success: false,
+          error: restoreResults[0]?.error || '구글 드라이브에 유효한 동기화 파일이 없습니다.',
+          files: files.all,
+          fileCount: files.all.length,
+          restoreResults,
+          partial: false,
+        };
       }
-      const latest = Math.max(settings?.lastSyncedAt || 0, checklist?.lastSyncedAt || 0);
+      const latest = Math.max(settings?.payload.lastSyncedAt || 0, checklist?.payload.lastSyncedAt || 0);
       return {
         success: true,
         payload: {
           schemaVersion: 1,
-          appVersion: settings?.appVersion || checklist?.appVersion || '',
+          appVersion: settings?.payload.appVersion || checklist?.payload.appVersion || '',
           lastSyncedAt: latest,
           updatedBy: '',
-          data: { ...(settings?.data || {}), ...(checklist?.data || {}) },
+          data: { ...(settings?.payload.data || {}), ...(checklist?.payload.data || {}) },
         },
-        fileMeta: files.settings || files.checklist,
+        fileMeta: settings?.file || checklist?.file,
         fileCount: files.all.length,
         files: files.all,
+        restoreResults,
+        partial,
       };
     });
   } catch (error: any) {

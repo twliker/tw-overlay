@@ -856,7 +856,12 @@ export function register(): void {
   ipcMain.handle('google-sync-logout', async () => cloudSync.logout());
   ipcMain.handle('google-sync-get-status', async () => cloudSync.getSyncStatus());
   ipcMain.handle('google-sync-backup', async () => cloudSync.syncToCloud(true));
-  ipcMain.handle('google-sync-restore', async () => cloudSync.syncFromCloud(true));
+  ipcMain.handle('google-sync-restore', async (_event, selectedKinds: unknown) => {
+    const normalizedKinds = Array.isArray(selectedKinds)
+      ? (['settings', 'checklist'] as const).filter(kind => selectedKinds.includes(kind))
+      : ['settings', 'checklist'] as const;
+    return cloudSync.syncFromCloud(true, [...normalizedKinds]);
+  });
   ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
   ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
     if (!isBoolean(enabled)) return cloudSync.getSyncStatus();

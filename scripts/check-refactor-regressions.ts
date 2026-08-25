@@ -4256,6 +4256,22 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   }
 
   const cloudSyncState = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncState.js'));
+  const profileFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-profile-state-'));
+  try {
+    assert.equal(cloudSyncState.detectProfileStateAtPath(profileFixture), 'fresh');
+    fs.writeFileSync(path.join(profileFixture, 'config.json.tmp'), '{}', 'utf8');
+    assert.equal(cloudSyncState.detectProfileStateAtPath(profileFixture), 'needs-confirmation');
+    fs.rmSync(path.join(profileFixture, 'config.json.tmp'));
+    fs.writeFileSync(path.join(profileFixture, 'config.json'), '{}', 'utf8');
+    assert.equal(cloudSyncState.detectProfileStateAtPath(profileFixture), 'established');
+    fs.rmSync(path.join(profileFixture, 'config.json'));
+    fs.writeFileSync(path.join(profileFixture, 'diary.db'), '', 'utf8');
+    assert.equal(cloudSyncState.detectProfileStateAtPath(profileFixture), 'needs-confirmation');
+    fs.writeFileSync(path.join(profileFixture, 'diary.db'), Buffer.from('SQLite format 3\0', 'utf8'));
+    assert.equal(cloudSyncState.detectProfileStateAtPath(profileFixture), 'established');
+  } finally {
+    fs.rmSync(profileFixture, { recursive: true, force: true });
+  }
   cloudSyncState.resetCacheForTests();
   const initialState = cloudSyncState.load();
   assert.equal(typeof initialState.deviceId, 'string');
@@ -4464,6 +4480,169 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   convergedLocalState = cloudSyncState.load();
   assert.equal(convergedLocalState.checklistOutbox.length, 0,
     '재시작 reconciliation 뒤 원격에서 확인된 outbox가 제거되지 않았습니다.');
+
+  // fresh 프로필의 파일별 독립 복원: 손상된 설정 때문에 정상 숙제 복원이 막히지 않아야 한다.
+  memoryFiles.clear();
+  const partialGeneration = 'generation-partial-restore';
+  const remoteFreshChecklist = syncDataHelper.buildChecklistSyncPayload({
+    ...configModule.load(),
+    characterPresets: [{ id: 'remote-character', name: '원격 캐릭터' }],
+    contentsCheckerItems: sampleLocalConfig.contentsCheckerItems,
+    pendingHomeworks: sampleLocalConfig.pendingHomeworks,
+  }, 'remote-pc', partialGeneration, []);
+  memoryFiles.set('corrupt-settings', {
+    id: 'corrupt-settings',
+    name: 'tw_overlay_settings.json',
+    modifiedTime: '2026-08-25T10:00:00.000Z',
+    payload: { schemaVersion: 1, kind: 'settings', data: { userServer: 16 } },
+  });
+  memoryFiles.set('valid-checklist', {
+    id: 'valid-checklist',
+    name: 'tw_overlay_checklist.json',
+    modifiedTime: '2026-08-25T10:00:01.000Z',
+    payload: remoteFreshChecklist,
+  });
+  memoryFiles.set('corrupt-meta', {
+    id: 'corrupt-meta',
+    name: 'tw_overlay_sync_meta.json',
+    modifiedTime: '2026-08-25T10:00:02.000Z',
+    payload: { schemaVersion: 999 },
+  });
+  configModule.saveImmediate({
+    characterPresets: [{ id: 'local-default', name: '로컬 기본 캐릭터' }],
+    contentsCheckerItems: [],
+    pendingHomeworks: [],
+  });
+  cloudSyncState.update((state: any) => {
+    state.profileState = 'fresh';
+    state.baseChecklist = undefined;
+    state.remoteRevisions = {};
+    state.checklistOutbox = [];
+    state.confirmedChecklistOperations = [];
+    state.settingsDirtyKeys = [];
+    state.settingsDirtyAt = {};
+    state.restoreResults = undefined;
+    state.restorePartial = undefined;
+  });
+  const partialRestore = await cloudManager.syncFromCloud(false);
+  assert.equal(partialRestore.success, true);
+  assert.equal(partialRestore.partial, true);
+  assert.equal(partialRestore.restoreResults.find((result: any) => result.kind === 'settings').status, 'invalid');
+  assert.equal(partialRestore.restoreResults.find((result: any) => result.kind === 'checklist').status, 'restored');
+  assert.deepEqual(configModule.load().characterPresets, [{ id: 'remote-character', name: '원격 캐릭터' }],
+    'fresh 복원이 로컬 기본 캐릭터를 원격 체크리스트에 합쳐 남겼습니다.');
+  assert.equal(cloudSyncState.load().profileState, 'needs-confirmation');
+  configModule.saveImmediate({ userServer: 7 });
+  memoryFiles.get('corrupt-settings')!.payload = syncDataHelper.buildSettingsSyncPayload({
+    ...configModule.load(), userServer: 16,
+  }, 'remote-pc', partialGeneration);
+  const blockedAutomaticRestore = await cloudManager.syncFromCloud(false);
+  assert.equal(blockedAutomaticRestore.profileState, 'needs-confirmation');
+  assert.equal(configModule.load().userServer, 7,
+    'needs-confirmation 프로필에 클라우드 설정이 자동 적용되었습니다.');
+
+  // 최신 메타가 손상되어도 이전의 유효 메타가 가리키는 중복 파일을 선택한다.
+  memoryFiles.clear();
+  const duplicateGeneration = 'generation-duplicate-fallback';
+  const validSettings = syncDataHelper.buildSettingsSyncPayload({
+    ...configModule.load(), userServer: 13,
+  }, 'remote-pc', duplicateGeneration);
+  const validChecklist = syncDataHelper.buildChecklistSyncPayload(configModule.load(), 'remote-pc', duplicateGeneration, []);
+  memoryFiles.set('valid-settings-older', {
+    id: 'valid-settings-older', name: 'tw_overlay_settings.json',
+    modifiedTime: '2026-08-25T11:00:00.000Z', payload: validSettings,
+  });
+  memoryFiles.set('corrupt-settings-newer', {
+    id: 'corrupt-settings-newer', name: 'tw_overlay_settings.json',
+    modifiedTime: '2026-08-25T11:00:03.000Z', payload: { invalid: true },
+  });
+  memoryFiles.set('valid-checklist-duplicate', {
+    id: 'valid-checklist-duplicate', name: 'tw_overlay_checklist.json',
+    modifiedTime: '2026-08-25T11:00:01.000Z', payload: validChecklist,
+  });
+  memoryFiles.set('valid-meta-older', {
+    id: 'valid-meta-older', name: 'tw_overlay_sync_meta.json',
+    modifiedTime: '2026-08-25T11:00:02.000Z',
+    payload: {
+      schemaVersion: 1,
+      generationId: duplicateGeneration,
+      updatedAt: Date.now(),
+      files: {
+        settings: { id: 'valid-settings-older', name: 'tw_overlay_settings.json' },
+        checklist: { id: 'valid-checklist-duplicate', name: 'tw_overlay_checklist.json' },
+      },
+    },
+  });
+  memoryFiles.set('corrupt-meta-newer', {
+    id: 'corrupt-meta-newer', name: 'tw_overlay_sync_meta.json',
+    modifiedTime: '2026-08-25T11:00:04.000Z', payload: { schemaVersion: 1, generationId: 123 },
+  });
+  const duplicateRestore = await cloudManager.syncFromCloud(true, ['settings', 'checklist']);
+  assert.equal(duplicateRestore.success, true);
+  assert.equal(duplicateRestore.partial, false);
+  assert.equal(configModule.load().userServer, 13,
+    '손상된 최신 중복 파일 대신 메타가 가리키는 유효 설정 파일을 복원하지 않았습니다.');
+
+  // 메타가 없을 때 최신 세대와 다른 유효 파일은 독립적으로 제외한다.
+  memoryFiles.clear();
+  const mismatchedSettings = syncDataHelper.buildSettingsSyncPayload({
+    ...configModule.load(), userServer: 5,
+  }, 'remote-pc', 'generation-old');
+  const newestChecklist = syncDataHelper.buildChecklistSyncPayload(configModule.load(), 'remote-pc', 'generation-new', []);
+  memoryFiles.set('mismatch-settings', {
+    id: 'mismatch-settings', name: 'tw_overlay_settings.json',
+    modifiedTime: '2026-08-25T12:00:00.000Z', payload: mismatchedSettings,
+  });
+  memoryFiles.set('newest-checklist', {
+    id: 'newest-checklist', name: 'tw_overlay_checklist.json',
+    modifiedTime: '2026-08-25T12:00:01.000Z', payload: newestChecklist,
+  });
+  const mismatchPreview = await cloudManager.getCloudDataPreview();
+  assert.equal(mismatchPreview.success, true);
+  assert.equal(mismatchPreview.partial, true);
+  assert.equal(mismatchPreview.payload.data.characterPresets !== undefined, true,
+    'generation 불일치 설정 때문에 정상 숙제 미리보기가 누락되었습니다.');
+  assert.equal(mismatchPreview.restoreResults.find((result: any) => result.kind === 'settings').status,
+    'generation-mismatch');
+  const mismatchRestore = await cloudManager.syncFromCloud(true, ['settings', 'checklist']);
+  assert.equal(mismatchRestore.success, true);
+  assert.equal(mismatchRestore.partial, true);
+  assert.equal(mismatchRestore.restoreResults.find((result: any) => result.kind === 'settings').status,
+    'generation-mismatch');
+  assert.equal(mismatchRestore.restoreResults.find((result: any) => result.kind === 'checklist').status,
+    'restored');
+
+  // 설정 파일만 존재해도 설정은 복원하고 숙제는 missing으로 분리 보고한다.
+  memoryFiles.clear();
+  const settingsOnlyPayload = syncDataHelper.buildSettingsSyncPayload({
+    ...configModule.load(), userServer: 21,
+  }, 'remote-pc', 'generation-settings-only');
+  memoryFiles.set('settings-only', {
+    id: 'settings-only', name: 'tw_overlay_settings.json',
+    modifiedTime: '2026-08-25T13:00:00.000Z', payload: settingsOnlyPayload,
+  });
+  const settingsOnlyRestore = await cloudManager.syncFromCloud(true, ['settings', 'checklist']);
+  assert.equal(settingsOnlyRestore.success, true);
+  assert.equal(settingsOnlyRestore.partial, true);
+  assert.equal(settingsOnlyRestore.restoreResults.find((result: any) => result.kind === 'checklist').status, 'missing');
+  assert.equal(configModule.load().userServer, 21);
+
+  // 숙제 파일만 존재해도 숙제는 복원하고 설정은 missing으로 분리 보고한다.
+  memoryFiles.clear();
+  const checklistOnlyPayload = syncDataHelper.buildChecklistSyncPayload({
+    ...configModule.load(),
+    characterPresets: [{ id: 'checklist-only-character', name: '숙제 전용 캐릭터' }],
+  }, 'remote-pc', 'generation-checklist-only', []);
+  memoryFiles.set('checklist-only', {
+    id: 'checklist-only', name: 'tw_overlay_checklist.json',
+    modifiedTime: '2026-08-25T13:10:00.000Z', payload: checklistOnlyPayload,
+  });
+  const checklistOnlyRestore = await cloudManager.syncFromCloud(true, ['settings', 'checklist']);
+  assert.equal(checklistOnlyRestore.success, true);
+  assert.equal(checklistOnlyRestore.partial, true);
+  assert.equal(checklistOnlyRestore.restoreResults.find((result: any) => result.kind === 'settings').status, 'missing');
+  assert.equal(configModule.load().characterPresets.some((character: any) =>
+    character.id === 'checklist-only-character'), true);
 }
 
 checkDiscordNotifierContracts();

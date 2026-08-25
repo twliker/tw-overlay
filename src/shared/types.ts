@@ -570,6 +570,19 @@ export interface GoogleDriveFileMeta {
     size?: string;
 }
 
+export type GoogleSyncProfileState = 'fresh' | 'established' | 'needs-confirmation';
+export type GoogleSyncDataKind = 'settings' | 'checklist';
+
+export interface GoogleSyncFileRestoreResult {
+    kind: GoogleSyncDataKind;
+    selected: boolean;
+    status: 'available' | 'restored' | 'unchanged' | 'missing' | 'invalid' | 'generation-mismatch' | 'skipped';
+    fileName?: string;
+    revision?: string;
+    lastSyncedAt?: number;
+    error?: string;
+}
+
 export interface GoogleSyncStatus {
     isLinked: boolean;
     email?: string;
@@ -580,6 +593,9 @@ export interface GoogleSyncStatus {
     cloudModifiedTime?: string;
     fileCount?: number;
     files?: GoogleDriveFileMeta[];
+    profileState?: GoogleSyncProfileState;
+    restoreResults?: GoogleSyncFileRestoreResult[];
+    restorePartial?: boolean;
     error?: string;
 }
 
@@ -631,6 +647,9 @@ export interface GoogleSyncResult {
     cloudModifiedTime?: string;
     fileCount?: number;
     files?: GoogleDriveFileMeta[];
+    profileState?: GoogleSyncProfileState;
+    restoreResults?: GoogleSyncFileRestoreResult[];
+    partial?: boolean;
     error?: string;
 }
 

@@ -621,6 +621,56 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
   assert.equal(guideDeepLinkTest.essenceHasPulse, false, '이전 경험의 정수 카드의 펄스 하이라이트가 제거되지 않았습니다.');
 }
 
+async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void> {
+  window.setContentSize(1100, 720);
+  await window.loadFile(path.join(projectRoot, 'dist', 'settings.html'));
+  await waitForSelector(window, '#google-restore-settings');
+  const result = await window.webContents.executeJavaScript(`
+    (async () => {
+      const calls = [];
+      const alerts = [];
+      window.confirm = () => true;
+      window.alert = message => alerts.push(message);
+      window.electronAPI = {
+        googleSyncRestore: async kinds => {
+          calls.push(kinds);
+          return {
+            success: true,
+            partial: true,
+            profileState: 'needs-confirmation',
+            fileName: 'tw_overlay_settings.json, tw_overlay_checklist.json',
+            restoreResults: [
+              { kind: 'settings', selected: true, status: 'restored' },
+              { kind: 'checklist', selected: false, status: 'skipped' }
+            ]
+          };
+        }
+      };
+      document.getElementById('google-restore-settings').checked = true;
+      document.getElementById('google-restore-checklist').checked = false;
+      await handleGoogleRestoreNow();
+      return {
+        calls,
+        alerts,
+        statusText: document.getElementById('google-restore-status')?.textContent || '',
+        statusVisible: !document.getElementById('google-restore-status')?.classList.contains('hidden'),
+      };
+    })()
+  `) as {
+    calls: string[][];
+    alerts: string[];
+    statusText: string;
+    statusVisible: boolean;
+  };
+
+  assert.deepEqual(result.calls, [['settings']]);
+  assert.equal(result.statusVisible, true);
+  assert.match(result.statusText, /일부 파일만 복원되었습니다/);
+  assert.match(result.statusText, /일반 설정복원 완료/);
+  assert.match(result.statusText, /숙제 체크리스트선택하지 않음/);
+  assert.equal(result.alerts.length, 1);
+}
+
 async function checkHuntingExpCalculator(window: BrowserWindow): Promise<void> {
   const defaultConfig = (require(path.join(projectRoot, 'dist', 'modules', 'constants.js')) as {
     DEFAULT_CONFIG: Record<string, unknown>;
@@ -2439,6 +2489,8 @@ async function main(): Promise<void> {
     await checkTodaySummarySettingsLayout(window);
     console.log('[TEST] checkSettingsDeepLinkRouting');
     await checkSettingsDeepLinkRouting(window);
+    console.log('[TEST] checkGoogleRestoreSelection');
+    await checkGoogleRestoreSelection(window);
     console.log('[TEST] checkHuntingExpCalculator');
     await checkHuntingExpCalculator(window);
     console.log('[TEST] checkRelicCalculator');

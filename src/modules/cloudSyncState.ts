@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
-import { AppConfig, GoogleChecklistSyncOperation } from '../shared/types';
+import { AppConfig, GoogleChecklistSyncOperation, GoogleSyncFileRestoreResult, GoogleSyncProfileState } from '../shared/types';
 import { log } from './logger';
 
 const STATE_FILE_NAME = 'cloud-sync-state.json';
@@ -19,7 +19,7 @@ export interface CloudSyncLocalState {
   deviceId: string;
   generationId: string;
   createdAt: number;
-  profileState: 'fresh' | 'established' | 'needs-confirmation';
+  profileState: GoogleSyncProfileState;
   fileIds: {
     settings?: string;
     checklist?: string;
@@ -35,18 +35,53 @@ export interface CloudSyncLocalState {
   settingsDirtyAt: Record<string, number>;
   checklistOutbox: ChecklistOutboxEntry[];
   confirmedChecklistOperations: GoogleChecklistSyncOperation[];
+  restoreResults?: GoogleSyncFileRestoreResult[];
+  restorePartial?: boolean;
   lastPullAt?: number;
 }
 
 let cachedState: CloudSyncLocalState | null = null;
 
-function detectProfileState(): CloudSyncLocalState['profileState'] {
-  const userData = app.getPath('userData');
+export function detectProfileStateAtPath(userData: string): GoogleSyncProfileState {
   const configPath = path.join(userData, 'config.json');
   const diaryPath = path.join(userData, 'diary.db');
-  if (fs.existsSync(configPath) || fs.existsSync(diaryPath)) return 'established';
-  const ambiguousFiles = ['config.json.tmp', 'config.quarantine.json', 'diary.db-wal', 'diary.db-shm'];
+  if (fs.existsSync(configPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return 'established';
+      return 'needs-confirmation';
+    } catch {
+      return 'needs-confirmation';
+    }
+  }
+  if (fs.existsSync(diaryPath)) {
+    try {
+      const fd = fs.openSync(diaryPath, 'r');
+      const header = Buffer.alloc(16);
+      try {
+        if (fs.readSync(fd, header, 0, header.length, 0) === header.length
+          && header.toString('utf8') === 'SQLite format 3\0') return 'established';
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      // 손상되었거나 읽지 못한 DB는 자동 복원 대상으로 판정하지 않는다.
+    }
+    return 'needs-confirmation';
+  }
+  const ambiguousFiles = [
+    STATE_FILE_NAME,
+    `${STATE_FILE_NAME}.tmp`,
+    'config.json.tmp',
+    'config.quarantine.json',
+    'diary.db-wal',
+    'diary.db-shm',
+  ];
   return ambiguousFiles.some(name => fs.existsSync(path.join(userData, name))) ? 'needs-confirmation' : 'fresh';
+}
+
+function detectProfileState(): GoogleSyncProfileState {
+  return detectProfileStateAtPath(app.getPath('userData'));
 }
 
 function createState(): CloudSyncLocalState {
@@ -71,6 +106,17 @@ function getStatePath(): string {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
+function normalizeRestoreResults(value: unknown): GoogleSyncFileRestoreResult[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const allowedStatuses = new Set(['available', 'restored', 'unchanged', 'missing', 'invalid', 'generation-mismatch', 'skipped']);
+  return value.filter((entry): entry is GoogleSyncFileRestoreResult => !!entry
+    && typeof entry === 'object'
+    && !Array.isArray(entry)
+    && (entry.kind === 'settings' || entry.kind === 'checklist')
+    && typeof entry.selected === 'boolean'
+    && allowedStatuses.has(entry.status));
 }
 
 function normalizeState(value: unknown): CloudSyncLocalState | null {
@@ -116,6 +162,8 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
         && isStringArray(entry.keys)
         && Array.isArray(entry.mutations)).slice(-1_000)
       : [],
+    restoreResults: normalizeRestoreResults(parsed.restoreResults),
+    restorePartial: typeof parsed.restorePartial === 'boolean' ? parsed.restorePartial : undefined,
     lastPullAt: typeof parsed.lastPullAt === 'number' ? parsed.lastPullAt : undefined,
   };
 }
