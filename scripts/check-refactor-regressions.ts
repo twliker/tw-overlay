@@ -418,71 +418,95 @@ function checkMainPartialRestoreConfirmationGate(): void {
 
 async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-cross-upload-probe.js');
-  const probeRoot = path.join(isolatedUserData, 'main-cross-upload');
-  fs.mkdirSync(probeRoot, { recursive: true });
+  for (const scenario of ['nonconflict', 'same-field'] as const) {
+    const probeRoot = path.join(isolatedUserData, `main-cross-upload-${scenario}`);
+    fs.mkdirSync(probeRoot, { recursive: true });
 
-  for (const device of ['company', 'home'] as const) {
-    const resultPath = path.join(probeRoot, `${device}-prepare-result.json`);
-    const result = spawnElectronProbe([
-      probePath, 'prepare', device, probeRoot, resultPath, '--dev',
-    ], 20_000);
-    assert.equal(result.error, undefined,
-      `${device} cross upload prepare 실행 실패: ${result.error?.message || ''}`);
-    assert.equal(result.status, 0,
-      `${device} cross upload prepare 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-  }
+    for (const device of ['company', 'home'] as const) {
+      const resultPath = path.join(probeRoot, `${device}-prepare-result.json`);
+      const result = spawnElectronProbe([
+        probePath, 'prepare', device, probeRoot, resultPath, scenario, '--dev',
+      ], 20_000);
+      assert.equal(result.error, undefined,
+        `${scenario} ${device} cross upload prepare 실행 실패: ${result.error?.message || ''}`);
+      assert.equal(result.status, 0,
+        `${scenario} ${device} cross upload prepare 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+    }
 
-  const runDevice = async (device: 'company' | 'home') => {
-    const resultPath = path.join(probeRoot, `${device}-run-result.json`);
-    const result = await spawnElectronProbeAsync([
-      probePath, 'run', device, probeRoot, resultPath, '--dev',
-    ], 25_000);
-    assert.equal(result.error, undefined,
-      `${device} concurrent main probe 실행 실패: ${result.error?.message || ''}`);
-    assert.equal(result.status, 0,
-      `${device} concurrent main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-    assert.equal(fs.existsSync(resultPath), true, `${device} concurrent main 결과 파일이 없습니다.`);
-    const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
-    assert.equal(summary.probeError, null, summary.probeError || `${device} concurrent main probe 실패`);
-    return summary;
-  };
+    const runDevice = async (device: 'company' | 'home') => {
+      const resultPath = path.join(probeRoot, `${device}-run-result.json`);
+      const result = await spawnElectronProbeAsync([
+        probePath, 'run', device, probeRoot, resultPath, scenario, '--dev',
+      ], 35_000);
+      assert.equal(result.error, undefined,
+        `${scenario} ${device} concurrent main probe 실행 실패: ${result.error?.message || ''}`);
+      assert.equal(result.status, 0,
+        `${scenario} ${device} concurrent main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+      assert.equal(fs.existsSync(resultPath), true,
+        `${scenario} ${device} concurrent main 결과 파일이 없습니다.`);
+      const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
+      assert.equal(summary.probeError, null,
+        summary.probeError || `${scenario} ${device} concurrent main probe 실패`);
+      return summary;
+    };
 
-  const [company, home] = await Promise.all([runDevice('company'), runDevice('home')]);
-  const expectedOperationIds = ['cross-upload-company-operation', 'cross-upload-home-operation'];
-  assert.equal(company.observation.firstChecklistRevision, home.observation.firstChecklistRevision,
-    '두 main 프로세스의 첫 숙제 다운로드가 같은 원격 revision에서 교차하지 않았습니다.');
-  for (const [device, summary] of [['company', company], ['home', home]] as const) {
-    assert.deepEqual(summary.observation.remoteOperationIds, expectedOperationIds,
-      `${device}가 확인한 최종 원격 payload에 두 operation ID가 남지 않았습니다.`);
-    assert.deepEqual(summary.observation.confirmedOperationIds, expectedOperationIds,
-      `${device} 로컬 확인 이력에 두 operation ID가 남지 않았습니다.`);
-    assert.deepEqual(summary.observation.checklistOutboxIds, []);
-    assert.equal(summary.observation.companyState.currentCount, 1);
-    assert.equal(summary.observation.homeState.currentCount, 2);
-  }
-  assert.ok(company.remoteStore.uploadCounts.company >= 1);
-  assert.ok(company.remoteStore.uploadCounts.home >= 1);
-  assert.ok(company.remoteStore.uploadOrder.length >= 3,
-    '교차 overwrite 뒤 누락 operation 재게시가 발생하지 않았습니다.');
-  assert.deepEqual(new Set(company.remoteStore.uploadOrder.slice(0, 2)), new Set(['company', 'home']),
-    '최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.');
-  assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
-  assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-download.ready')), true);
+    const [company, home] = await Promise.all([runDevice('company'), runDevice('home')]);
+    const expectedOperationIds = [
+      `cross-upload-${scenario}-company-operation`,
+      `cross-upload-${scenario}-home-operation`,
+    ];
+    assert.equal(company.observation.firstChecklistRevision, home.observation.firstChecklistRevision,
+      `${scenario} 두 main 프로세스의 첫 숙제 다운로드가 같은 원격 revision에서 교차하지 않았습니다.`);
+    for (const [device, summary] of [['company', company], ['home', home]] as const) {
+      assert.deepEqual(summary.observation.remoteOperationIds, expectedOperationIds,
+        `${scenario} ${device}가 확인한 최종 원격 payload에 두 operation ID가 남지 않았습니다.`);
+      assert.deepEqual(summary.observation.confirmedOperationIds, expectedOperationIds,
+        `${scenario} ${device} 로컬 확인 이력에 두 operation ID가 남지 않았습니다.`);
+      assert.deepEqual(summary.observation.checklistOutboxIds, []);
+    }
+    if (scenario === 'nonconflict') {
+      assert.equal(company.observation.companyState.currentCount, 1);
+      assert.equal(company.observation.homeState.currentCount, 2);
+      assert.equal(home.observation.companyState.currentCount, 1);
+      assert.equal(home.observation.homeState.currentCount, 2);
+    } else {
+      assert.deepEqual(company.observation.companyState, home.observation.companyState,
+        '동일 숙제·캐릭터 충돌에서 회사/집 로컬 상태가 수렴하지 않았습니다.');
+      assert.deepEqual(company.observation.companyState, company.observation.remoteCompanyState,
+        '동일 숙제·캐릭터 충돌에서 최종 원격과 회사 로컬 상태가 다릅니다.');
+      assert.equal(company.observation.companyState.isCompleted, true,
+        '동일 필드 충돌에서 양쪽이 동일하게 완료로 바꾼 값이 보존되지 않았습니다.');
+      assert.equal(company.observation.companyState.currentCount, 2,
+        '동일 횟수 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
+      assert.equal(company.observation.companyState.lastCompletedAt, 20_000,
+        '동일 완료 시각 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
+    }
+    assert.ok(company.remoteStore.uploadCounts.company >= 1);
+    assert.ok(company.remoteStore.uploadCounts.home >= 1);
+    assert.ok(company.remoteStore.uploadOrder.length >= 3,
+      `${scenario} 교차 overwrite 뒤 누락 operation 재게시가 발생하지 않았습니다.`);
+    assert.deepEqual(new Set(company.remoteStore.uploadOrder.slice(0, 2)), new Set(['company', 'home']),
+      `${scenario} 최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.`);
+    assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
+    assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-download.ready')), true);
 
-  const storePath = path.join(probeRoot, 'remote-store.json');
-  const uploadsBeforeRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
-  for (const device of ['company', 'home'] as const) {
-    const restarted = await runDevice(device);
-    assert.deepEqual(restarted.observation.remoteOperationIds, expectedOperationIds,
-      `${device} 재시작 후 원격 operation 확인 결과가 달라졌습니다.`);
-    assert.deepEqual(restarted.observation.confirmedOperationIds, expectedOperationIds,
-      `${device} 재시작 후 로컬 확인 operation 이력이 사라졌습니다.`);
-    assert.deepEqual(restarted.observation.checklistOutboxIds, []);
-    assert.equal(restarted.observation.companyState.currentCount, 1);
-    assert.equal(restarted.observation.homeState.currentCount, 2);
-    const uploadsAfterRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
-    assert.deepEqual(uploadsAfterRestart, uploadsBeforeRestart,
-      `${device} 재시작이 변경 없는 숙제 echo upload를 만들었습니다.`);
+    const storePath = path.join(probeRoot, 'remote-store.json');
+    const uploadsBeforeRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
+    for (const device of ['company', 'home'] as const) {
+      const restarted = await runDevice(device);
+      assert.deepEqual(restarted.observation.remoteOperationIds, expectedOperationIds,
+        `${scenario} ${device} 재시작 후 원격 operation 확인 결과가 달라졌습니다.`);
+      assert.deepEqual(restarted.observation.confirmedOperationIds, expectedOperationIds,
+        `${scenario} ${device} 재시작 후 로컬 확인 operation 이력이 사라졌습니다.`);
+      assert.deepEqual(restarted.observation.checklistOutboxIds, []);
+      if (scenario === 'same-field') {
+        assert.deepEqual(restarted.observation.companyState, company.observation.companyState,
+          `${device} 재시작 후 동일 필드 충돌 결과가 달라졌습니다.`);
+      }
+      const uploadsAfterRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
+      assert.deepEqual(uploadsAfterRestart, uploadsBeforeRestart,
+        `${scenario} ${device} 재시작이 변경 없는 숙제 echo upload를 만들었습니다.`);
+    }
   }
 }
 

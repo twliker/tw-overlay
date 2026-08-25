@@ -4,6 +4,7 @@ import { app } from 'electron';
 
 type ProbeMode = 'prepare' | 'run';
 type DeviceName = 'company' | 'home';
+type ProbeScenario = 'nonconflict' | 'same-field';
 
 interface RemoteFile {
   id: string;
@@ -20,11 +21,13 @@ interface RemoteStore {
 }
 
 const projectRoot = path.resolve(__dirname, '..');
-const [modeValue, deviceValue, probeRoot, resultPath] = process.argv.slice(2);
+const [modeValue, deviceValue, probeRoot, resultPath, scenarioValue] = process.argv.slice(2);
 const mode = modeValue as ProbeMode;
 const device = deviceValue as DeviceName;
+const scenario = scenarioValue as ProbeScenario;
 if (!['prepare', 'run'].includes(mode)
   || !['company', 'home'].includes(device)
+  || !['nonconflict', 'same-field'].includes(scenario)
   || !path.isAbsolute(probeRoot || '')
   || !path.isAbsolute(resultPath || '')) {
   throw new Error('runtime main cross upload probe arguments are invalid');
@@ -34,12 +37,12 @@ const appDataRoot = path.join(probeRoot, device, 'appData');
 const userData = path.join(appDataRoot, 'twOverlay');
 const storePath = path.join(probeRoot, 'remote-store.json');
 const storeLockPath = path.join(probeRoot, 'remote-store.lock');
-const generationId = 'cross-upload-generation';
+const generationId = `cross-upload-${scenario}-generation`;
 const checklistFileName = 'tw_overlay_checklist.json';
 const checklistFileId = 'cross-upload-checklist-id';
 const targetItemId = 'weekly-eclipse-boss-ethos';
-const companyOperationId = 'cross-upload-company-operation';
-const homeOperationId = 'cross-upload-home-operation';
+const companyOperationId = `cross-upload-${scenario}-company-operation`;
+const homeOperationId = `cross-upload-${scenario}-home-operation`;
 const ownOperationId = device === 'company' ? companyOperationId : homeOperationId;
 const otherDevice = device === 'company' ? 'home' : 'company';
 
@@ -135,9 +138,11 @@ void app.whenReady().then(() => {
     const localChecklist = structuredClone(baseChecklist);
     const localItem = localChecklist.contentsCheckerItems
       .find((item: any) => item.id === targetItemId);
-    const changedCharacterId = device === 'company' ? 'company-character' : 'home-character';
+    const changedCharacterId = scenario === 'same-field'
+      ? 'company-character'
+      : device === 'company' ? 'company-character' : 'home-character';
     localItem.completedState[changedCharacterId] = {
-      isCompleted: true,
+      isCompleted: device === 'company' || scenario === 'nonconflict',
       currentCount: device === 'company' ? 1 : 2,
       lastCompletedAt: device === 'company' ? 10_000 : 20_000,
     };
@@ -231,7 +236,7 @@ void app.whenReady().then(() => {
     return id;
   };
 
-  const deadline = Date.now() + 12_000;
+  const deadline = Date.now() + 20_000;
   const poll = async (): Promise<void> => {
     try {
       const cloudSyncManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js')) as any;
@@ -247,20 +252,34 @@ void app.whenReady().then(() => {
       const localItem = config.contentsCheckerItems.find((item: any) => item.id === targetItemId);
       const companyState = localItem?.completedState?.['company-character'];
       const homeState = localItem?.completedState?.['home-character'];
+      const remoteItem = remotePayload?.data?.contentsCheckerItems
+        ?.find((item: any) => item.id === targetItemId);
+      const remoteCompanyState = remoteItem?.completedState?.['company-character'];
       const hasBothOperations = [companyOperationId, homeOperationId]
         .every(id => remoteIds.includes(id) && confirmedIds.includes(id));
+      const expectedStatesConverged = scenario === 'nonconflict'
+        ? companyState?.isCompleted === true
+          && companyState?.currentCount === 1
+          && homeState?.isCompleted === true
+          && homeState?.currentCount === 2
+        : companyState?.isCompleted === true
+          && companyState?.currentCount === 2
+          && companyState?.lastCompletedAt === 20_000
+          && remoteCompanyState?.isCompleted === true
+          && remoteCompanyState?.currentCount === 2
+          && remoteCompanyState?.lastCompletedAt === 20_000
+          && homeState?.isCompleted === false
+          && homeState?.currentCount === 0;
       if (hasBothOperations
         && state.checklistOutbox.length === 0
-        && companyState?.isCompleted === true
-        && companyState?.currentCount === 1
-        && homeState?.isCompleted === true
-        && homeState?.currentCount === 2) {
+        && expectedStatesConverged) {
         observation = {
           remoteOperationIds: remoteIds,
           confirmedOperationIds: confirmedIds,
           checklistOutboxIds: [],
           companyState,
           homeState,
+          remoteCompanyState,
           uploadCounts: structuredClone(store.uploadCounts),
           uploadOrder: [...store.uploadOrder],
           firstChecklistRevision,
@@ -269,7 +288,15 @@ void app.whenReady().then(() => {
         return;
       }
       if (Date.now() >= deadline) {
-        probeError = `${device} process did not converge after crossed uploads`;
+        probeError = `${scenario} ${device} process did not converge after crossed uploads: ${JSON.stringify({
+          remoteIds,
+          confirmedIds,
+          outboxIds: state.checklistOutbox.map((operation: any) => operation.id),
+          companyState,
+          homeState,
+          remoteCompanyState,
+          uploadOrder: store.uploadOrder,
+        })}`;
         app.quit();
         return;
       }
