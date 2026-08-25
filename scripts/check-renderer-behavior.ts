@@ -1383,6 +1383,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       window.loadSoundList = async () => {
         soundListLoadCount++;
         return [
+          { file: 'bad"><img id="injected-sound-option-file">.mp3', name: '<img id="injected-sound-option-name">악성 알림음' },
           { file: 'orb.mp3', name: '기본 구슬음' },
           { file: 'echo.mp3', name: '에코스' },
           { file: 'start.mp3', name: '시작' },
@@ -1402,6 +1403,15 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         Object.entries(alertSoundSelects).map(([key, select]) => [key, select.value])
       );
       const waveOptionLabels = Array.from(alertSoundSelects.wave.options).map(option => option.textContent);
+      const maliciousSoundOption = Array.from(alertSoundSelects.wave.options)
+        .find(option => option.textContent.includes('악성 알림음'));
+      const soundOptionSafety = {
+        value: maliciousSoundOption?.value,
+        label: maliciousSoundOption?.textContent,
+        injectedCount: document.querySelectorAll(
+          '#injected-sound-option-file, #injected-sound-option-name'
+        ).length
+      };
       await window.settingsAudioControls.refreshAlertSoundSelects();
       const waveSoundAfterRefresh = alertSoundSelects.wave.value;
 
@@ -1631,6 +1641,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         audioControls: {
           configuredAlertSounds,
           waveOptionLabels,
+          soundOptionSafety,
           waveSoundAfterRefresh,
           soundListLoadCount,
           initialVolume,
@@ -1743,7 +1754,20 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       abyssEnd: 'end.mp3',
       lokagos: 'lokagos.mp3',
     },
-    waveOptionLabels: ['사용 안 함 (소리 없음)', '기본 구슬음', '에코스', '시작', '종료', '로카고스'],
+    waveOptionLabels: [
+      '사용 안 함 (소리 없음)',
+      '<img id="injected-sound-option-name">악성 알림음',
+      '기본 구슬음',
+      '에코스',
+      '시작',
+      '종료',
+      '로카고스',
+    ],
+    soundOptionSafety: {
+      value: 'bad"><img id="injected-sound-option-file">.mp3',
+      label: '<img id="injected-sound-option-name">악성 알림음',
+      injectedCount: 0,
+    },
     waveSoundAfterRefresh: 'orb.mp3',
     soundListLoadCount: 2,
     initialVolume: { value: '35', label: '35%' },
@@ -2593,6 +2617,26 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
   const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'diary.html'));
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
+  const diaryLogUtilsCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'renderer', 'diary', 'log-utils.js'),
+    'utf8',
+  );
+  const safetyResult = await window.webContents.executeJavaScript(`
+    (() => {
+      eval(${JSON.stringify(diaryLogUtilsCode)});
+      const payload = '<img id="injected-diary-xss">[</span><svg id="injected-diary-tag">]';
+      const container = document.createElement('div');
+      container.innerHTML = window.diaryLogUtils.formatLogContent(payload);
+      return {
+        text: container.textContent,
+        injectedCount: container.querySelectorAll(
+          '#injected-diary-xss, #injected-diary-tag'
+        ).length,
+        badgeCount: container.querySelectorAll('.char-badge').length,
+      };
+    })()
+  `) as { text: string; injectedCount: number; badgeCount: number };
+
   const result = await evaluate(window, () => {
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
     const hasCalendarGrid = document.querySelector('.calendar-grid') !== null;
@@ -2614,6 +2658,11 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.hasMonthlyTotalSeed, true, '월간 총 SEED 배지가 없습니다.');
   assert.equal(result.hasMonthlyTotalLoot, true, '월간 총 득템 배지가 없습니다.');
   assert.equal(result.hasStatsAttendance, true, '통계 출석 일수 요소가 없습니다.');
+  assert.deepEqual(safetyResult, {
+    text: '<img id="injected-diary-xss"></span><svg id="injected-diary-tag">',
+    injectedCount: 0,
+    badgeCount: 1,
+  }, '모험일지 로그 문자열이 HTML 요소나 inline handler로 해석됐습니다.');
 }
 
 async function checkShoutHistoryRenderer(window: BrowserWindow): Promise<void> {
@@ -2921,8 +2970,80 @@ async function checkTradeRenderer(window: BrowserWindow): Promise<void> {
 }
 
 async function checkGalleryRenderer(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'gallery.html'));
+  const galleryPath = path.join(projectRoot, 'dist', 'gallery.html');
+  const gallerySource = fs.readFileSync(galleryPath, 'utf8');
+  const inlineScripts = Array.from(
+    gallerySource.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi),
+    match => match[1],
+  );
+  const galleryScript = inlineScripts.at(-1);
+  assert.ok(galleryScript, '갤러리 렌더러 inline script를 찾지 못했습니다.');
+  const html = cleanHtmlForTest(galleryPath);
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const safetyResult = await window.webContents.executeJavaScript(`
+    (async () => {
+      const calls = { opened: [], removed: [] };
+      window.refreshIcons = () => {};
+      window.bindEscapeClose = () => {};
+      window.electronAPI = {
+        galleryForceCheck: async () => ({}),
+        galleryGetWatched: async () => ({}),
+        galleryRemoveWatch: no => calls.removed.push(no),
+        galleryOpenPost: no => calls.opened.push(no),
+        galleryGetNotify: async () => false,
+        gallerySetNotify: () => {},
+        toggleSettings: () => {},
+        onGalleryPosts: callback => { window.__galleryPostsCallback = callback; },
+        onGalleryWatchedUpdate: callback => { window.__galleryWatchedCallback = callback; },
+        onConfigData: callback => { window.__galleryConfigCallback = callback; },
+        onGalleryConnectionStatus: callback => { window.__galleryConnectionCallback = callback; },
+      };
+      eval(${JSON.stringify(galleryScript)});
+
+      renderWatchList({
+        '123': {
+          title: '<img id="injected-gallery-watch-title">감시 제목',
+          commentCount: 7,
+        },
+        '12"><img id="injected-gallery-watch-key">': {
+          title: '잘못된 키',
+          commentCount: 1,
+        },
+      });
+      const watchList = document.getElementById('watch-list');
+      const initialWatchRows = watchList.children.length;
+      const watchTitle = watchList.querySelector('.watched-card span.truncate')?.textContent;
+      watchList.querySelector('.watched-card')?.click();
+      watchList.querySelector('button')?.click();
+
+      window.__galleryPostsCallback([
+        { no: 456, title: '<svg id="injected-gallery-post-title">게시글', replyCount: 2 },
+        { no: '12"><img id="injected-gallery-post-key">', title: '잘못된 게시글', replyCount: 1 },
+      ]);
+      const postList = document.getElementById('post-list');
+      return {
+        initialWatchRows,
+        watchTitle,
+        postRows: postList.children.length,
+        postTitle: postList.querySelector('.flex-1')?.textContent,
+        injectedCount: document.querySelectorAll(
+          '#injected-gallery-watch-title, #injected-gallery-watch-key, '
+          + '#injected-gallery-post-title, #injected-gallery-post-key'
+        ).length,
+        opened: calls.opened,
+        removed: calls.removed,
+      };
+    })()
+  `) as {
+    initialWatchRows: number;
+    watchTitle: string;
+    postRows: number;
+    postTitle: string;
+    injectedCount: number;
+    opened: string[];
+    removed: number[];
+  };
 
   const result = await evaluate(window, () => {
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
@@ -2930,6 +3051,15 @@ async function checkGalleryRenderer(window: BrowserWindow): Promise<void> {
   });
 
   assert.ok(result.title.includes('갤러리'), '갤러리 모니터 창 타이틀이 일치하지 않습니다.');
+  assert.deepEqual(safetyResult, {
+    initialWatchRows: 1,
+    watchTitle: '<img id="injected-gallery-watch-title">감시 제목',
+    postRows: 1,
+    postTitle: '<svg id="injected-gallery-post-title">게시글',
+    injectedCount: 0,
+    opened: ['123'],
+    removed: [123],
+  }, '갤러리 감시 키·제목이 HTML로 해석되거나 안전한 숫자 ID 경계를 벗어났습니다.');
 }
 
 async function checkBuffsPopupRenderer(window: BrowserWindow): Promise<void> {
