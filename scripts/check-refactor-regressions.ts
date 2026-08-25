@@ -4304,6 +4304,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
 
   const googleDrive = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js'));
   const memoryFiles = new Map<string, { id: string; name: string; modifiedTime: string; payload: any }>();
+  const downloadedFileIds: string[] = [];
   let nextFileId = 1;
   let uploadCount = 0;
   let loseNextChecklistResponse = false;
@@ -4314,6 +4315,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     size: String(Buffer.byteLength(JSON.stringify(file.payload), 'utf-8')),
   }));
   googleDrive.downloadJsonPayload = async (fileId: string) => {
+    downloadedFileIds.push(fileId);
     const file = memoryFiles.get(fileId);
     return file ? structuredClone(file.payload) : null;
   };
@@ -4336,14 +4338,26 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
 
   cloudSyncState.resetCacheForTests();
   const cloudManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js'));
+  const legacyPayload = { schemaVersion: 1, data: { userServer: 99 }, marker: 'legacy-single-file' };
+  memoryFiles.set('legacy-single-file', {
+    id: 'legacy-single-file',
+    name: 'tw_overlay_sync.json',
+    modifiedTime: '2026-08-25T09:00:00.000Z',
+    payload: structuredClone(legacyPayload),
+  });
   const backupResult = await cloudManager.syncToCloud(true);
   assert.equal(backupResult.success, true);
   const names = Array.from(memoryFiles.values()).map(file => file.name).sort();
   assert.deepEqual(names, [
     'tw_overlay_checklist.json',
     'tw_overlay_settings.json',
+    'tw_overlay_sync.json',
     'tw_overlay_sync_meta.json',
   ]);
+  assert.equal(downloadedFileIds.includes('legacy-single-file'), false,
+    '개발 중 단일 동기화 파일을 정식 입력으로 읽었습니다.');
+  assert.deepEqual(memoryFiles.get('legacy-single-file')?.payload, legacyPayload,
+    '개발 중 단일 동기화 파일을 분할하거나 다시 업로드했습니다.');
   const uploadedSettings = Array.from(memoryFiles.values()).find(file => file.name === 'tw_overlay_settings.json')!;
   const uploadedChecklist = Array.from(memoryFiles.values()).find(file => file.name === 'tw_overlay_checklist.json')!;
   const currentChecklistFile = () => Array.from(memoryFiles.values())
@@ -4643,6 +4657,51 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(checklistOnlyRestore.restoreResults.find((result: any) => result.kind === 'settings').status, 'missing');
   assert.equal(configModule.load().characterPresets.some((character: any) =>
     character.id === 'checklist-only-character'), true);
+
+  // 실제 설정 복원 경로에서도 누락된 신규 기본값과 PC 종속·민감 값은 현재 PC 값을 보존한다.
+  memoryFiles.clear();
+  configModule.saveImmediate({
+    userServer: 3,
+    showTodaySummaryHud: false,
+    discordWebhookUrl: 'https://discord.com/api/webhooks/local-secret',
+    chatLogPath: 'C:\\local\\TalesWeaver\\ChatLog',
+    positions: { overlay: { x: 321, y: 654, width: 400, height: 300 } },
+    customSounds: [{ name: '로컬 알림음', file: 'custom_local_only.mp3' }],
+    wordAlarmSound: 'custom_local_only.mp3',
+  });
+  const settingsPreservationPayload = syncDataHelper.buildSettingsSyncPayload({
+    ...configModule.load(),
+    userServer: 22,
+  }, 'remote-pc', 'generation-settings-preservation');
+  delete settingsPreservationPayload.data.showTodaySummaryHud;
+  settingsPreservationPayload.checksum = syncDataHelper.calculateSyncChecksum(settingsPreservationPayload.data);
+  memoryFiles.set('settings-preservation', {
+    id: 'settings-preservation',
+    name: 'tw_overlay_settings.json',
+    modifiedTime: '2026-08-25T13:20:00.000Z',
+    payload: settingsPreservationPayload,
+  });
+  const preservationRestore = await cloudManager.syncFromCloud(true, ['settings']);
+  assert.equal(preservationRestore.success, true);
+  const preservedConfig = configModule.load();
+  assert.equal(preservedConfig.userServer, 22);
+  assert.equal(preservedConfig.showTodaySummaryHud, false,
+    '클라우드에 없는 설정 키의 기존 false 값이 기본값으로 덮였습니다.');
+  assert.equal(preservedConfig.discordWebhookUrl, 'https://discord.com/api/webhooks/local-secret');
+  assert.equal(preservedConfig.chatLogPath, 'C:\\local\\TalesWeaver\\ChatLog');
+  assert.equal(preservedConfig.positions?.overlay?.x, 321);
+  assert.equal(preservedConfig.positions?.overlay?.y, 654);
+  assert.equal(preservedConfig.positions?.overlay?.width, 400);
+  assert.equal(preservedConfig.positions?.overlay?.height, 300);
+  assert.deepEqual(preservedConfig.customSounds, [{ name: '로컬 알림음', file: 'custom_local_only.mp3' }]);
+  assert.equal(preservedConfig.wordAlarmSound, 'custom_local_only.mp3');
+  const preRestoreBackup = JSON.parse(fs.readFileSync(
+    path.join(isolatedUserData, 'config.backup-sync.json'),
+    'utf8',
+  ));
+  assert.equal(preRestoreBackup.userServer, 3,
+    '설정 복원 전 로컬 상태가 백업 파일에 보존되지 않았습니다.');
+  assert.equal(preRestoreBackup.discordWebhookUrl, 'https://discord.com/api/webhooks/local-secret');
 }
 
 checkDiscordNotifierContracts();
