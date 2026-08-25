@@ -36,6 +36,24 @@ export interface SyncTargetFile {
   dateStr: string;
 }
 
+export function parseChatLogFileDate(fileName: string): { fileDate: Date; dateStr: string } | null {
+  const match = fileName.match(/^TWChatLog_(\d{4})_(\d{2})_(\d{2})\.html$/);
+  if (!match) return null;
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10) - 1;
+  const day = parseInt(match[3], 10);
+  const fileDate = new Date(year, month, day);
+  if (
+    fileDate.getFullYear() !== year
+    || fileDate.getMonth() !== month
+    || fileDate.getDate() !== day
+  ) return null;
+  return {
+    fileDate,
+    dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  };
+}
+
 /**
  * 동기화 대상 로그 파일 목록을 조회합니다.
  */
@@ -49,24 +67,18 @@ export async function getSyncTargetLogFiles(
   }
 
   const files = await fsp.readdir(chatLogPath);
-  const regex = /^TWChatLog_(\d{4})_(\d{2})_(\d{2})\.html$/;
-
   const startMs = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate(), 0, 0, 0).getTime();
   const endMs = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59).getTime();
 
   const matched: SyncTargetFile[] = [];
 
   for (const fileName of files) {
-    const match = fileName.match(regex);
-    if (match) {
-      const year = parseInt(match[1], 10);
-      const month = parseInt(match[2], 10) - 1;
-      const day = parseInt(match[3], 10);
-      const fileDate = new Date(year, month, day);
+    const parsedDate = parseChatLogFileDate(fileName);
+    if (parsedDate) {
+      const { fileDate, dateStr } = parsedDate;
       const fileMs = fileDate.getTime();
 
       if (fileMs >= startMs && fileMs <= endMs) {
-        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         matched.push({
           filePath: path.join(chatLogPath, fileName),
           fileName,

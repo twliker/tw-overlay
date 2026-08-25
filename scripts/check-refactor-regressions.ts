@@ -2926,7 +2926,7 @@ checkInlineScriptSyntax();
 checkPageScriptNamespaceCollisions();
 checkHtmlScriptResourcesAndHandlers();
 function checkChatLogSyncManagerContracts() {
-  const { getRecentMonday } = require('../dist/modules/chatLogSyncManager');
+  const { getRecentMonday, parseChatLogFileDate } = require('../dist/modules/chatLogSyncManager');
   const diaryDb = require('../dist/modules/diaryDb');
 
   // 1. 월요일 날짜 계산 검증
@@ -2947,6 +2947,12 @@ function checkChatLogSyncManagerContracts() {
   const wednesday = new Date(2026, 7, 19, 23, 59, 0);
   const monFromWed = getRecentMonday(wednesday);
   assert.equal(monFromWed.getDate(), 17);
+
+  assert.equal(parseChatLogFileDate('TWChatLog_2026_08_25.html')?.dateStr, '2026-08-25');
+  assert.equal(parseChatLogFileDate('TWChatLog_2024_02_29.html')?.dateStr, '2024-02-29');
+  assert.equal(parseChatLogFileDate('TWChatLog_2026_02_29.html'), null);
+  assert.equal(parseChatLogFileDate('TWChatLog_2026_08_32.html'), null);
+  assert.equal(parseChatLogFileDate('TWChatLog_2026_13_01.html'), null);
 
   // 2. diaryDb 중복 방지 멱등성 검증
   try {
