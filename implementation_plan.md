@@ -1,7 +1,7 @@
 # TW-Overlay v3.0.0 정식 릴리즈 구현 계획
 
 작성일: 2026-08-24  
-상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 3 분리 파일·다중 PC 자동 수렴 핵심 경로 구현 및 강화 검증 진행 중, Phase 5 동적 Z-order·독 재사용 실기 검증 완료**
+상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 3 분리 파일·다중 PC 자동 수렴·부분 복원·종료 복구 핵심 경로 구현 및 강화 검증 진행 중, Phase 5 동적 Z-order·독 재사용 실기 검증 완료**
 
 ## 0. 최우선 개발·릴리즈 원칙
 
@@ -64,7 +64,7 @@
 - 메모리 Drive 통합 검사에서 설정/숙제/메타 분리 업로드와 `회사 숙제 변경 → 집 pull → 로컬 UI 상태 반영 → echo upload 없음` 흐름을 검증한다.
 - 메모리 Drive 교차 업로드 검사에서 서로 다른 숙제 상태 변경, 같은 숙제의 완료/해제/횟수 충돌, 업로드 확인 직후 overwrite, 응답 유실, 로컬 상태 파일 재로드 후 재수렴을 검증했다. 원격 적용 뒤 `contentsChecker.init()`에서 파생 echo outbox가 생기지 않도록 origin guard를 전체 적용 구간에 유지한다.
 - pull·업로드에는 installation별 jitter와 429·오프라인을 포함한 지수 백오프를 적용하고, 네트워크 오프라인→온라인 전환은 10초 이내 감지해 즉시 pull한다.
-- 남은 강화 작업은 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증이다.
+- 새 PC 부분 복원 UI와 종료 recovery marker까지 자동 검증했다. 남은 강화 작업은 실계정 2-PC 및 실제 Windows 종료·로그오프 실기 검증이다.
 
 ## 1. 감사 기준과 현재 상태
 
@@ -287,7 +287,7 @@
 
 대상: A-07~A-09, B-05, D-01~D-06, D-09~D-10
 
-진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation mutation 재실행·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드, 회사→집 숙제 수신, 파생 echo outbox 방지, 교차 PATCH overwrite, 동일 숙제 완료/해제/횟수 충돌, 응답 유실과 재시작 재수렴을 통과했다. 새 PC 프로필 판정, 유효 중복 파일 선택, 파일별 선택·독립 복원·부분 결과, 값 비노출 변경 요약, 로컬 백업 되돌리기와 파일별 checksum/revision/dirty/retry UI도 자동 검증했다. 종료 recovery marker와 실계정 2-PC 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
+진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation mutation 재실행·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드, 회사→집 숙제 수신, 파생 echo outbox 방지, 교차 PATCH overwrite, 동일 숙제 완료/해제/횟수 충돌, 응답 유실과 재시작 재수렴을 통과했다. 새 PC 프로필 판정, 유효 중복 파일 선택, 파일별 선택·독립 복원·부분 결과, 값 비노출 변경 요약, 로컬 백업 되돌리기와 파일별 checksum/revision/dirty/retry UI도 자동 검증했다. 종료 시 창·트레이를 먼저 숨기는 단일 finalizer, 최대 3초 drain, 파일별 recovery marker, 응답 유실 후 다음 실행 재확인, 두 번째 quit 차단, WAL checkpoint와 Windows 세션 종료 fast path까지 자동 검증했다. 실계정 2-PC 및 실제 Windows 종료·로그오프 실기 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
 
 1. 클라우드 정식 저장 계약을 처음부터 다음 세 파일로 구성한다. 개발 중 생성된 `tw_overlay_sync.json`은 조회하지 않는다.
    - `tw_overlay_settings.json`: 일반 설정의 클라우드 권위 스냅샷
@@ -348,8 +348,9 @@
 - **자동 검증 완료(2026-08-25):** 앱 데이터 fixture에서 `fresh`/`established`/`needs-confirmation`을 구분하고, `needs-confirmation` 자동 복원을 차단했다. 최신 메타가 손상된 중복 파일은 이전 유효 메타가 가리키는 checksum 통과 파일로 대체했으며, 설정만·숙제만 존재하거나 generation이 다른 경우에도 정상 파일을 독립 복원하고 나머지를 `missing`/`generation-mismatch`로 분리 보고했다. Electron 렌더러 검사에서 설정/숙제 선택값 전달과 부분 복원 결과 표시를 통과했다.
 - **자동 검증 완료(2026-08-25):** 개발 중 단일 `tw_overlay_sync.json`을 함께 발견해도 읽거나 변경하지 않고 세 정식 파일만 사용하는 것을 통합 검사로 고정했다. 실제 설정 복원 경로에서 클라우드에 없는 `false` 사용자 값, Discord Webhook URL, 로그 경로, 창 위치와 커스텀 사운드가 유지되고 복원 전 config가 백업되는 것을 확인했다.
 - **자동 검증 완료(2026-08-25):** 값 없이 추가/변경/현재 PC 유지 키만 반환하는 파일별 미리보기, 선택 파일 검증 후 복원 확인, 손상·과대 백업 거부, 최근 백업 되돌리기와 파일별 checksum/revision/dirty/retry 표시를 통과했다. 설정과 숙제를 같은 pull에서 적용해도 최초 파일 직전에 백업을 한 번만 생성해 전체 적용 전 상태로 되돌릴 수 있다.
-- fetch abort 직전 서버 반영, 응답 유실, 다른 PC의 직후 overwrite, 재시작 reconciliation을 파일별로 테스트한다.
-- 신규 쓰기 생산자를 먼저 정지한 뒤 config와 checklist outbox를 flush해 종료 중 큐가 다시 더러워지지 않게 한다.
+- **자동 검증 완료(2026-08-25):** 서버가 숙제 업로드를 반영한 직후 응답이 유실된 fixture에서 outbox와 파일별 recovery marker가 유지되고, 로컬 상태 캐시를 재로드한 다음 실행에서 원격 operation을 확인해 중복 업로드 없이 둘을 제거했다. 설정 dirty key와 숙제 operation은 각각 확인된 파일만 marker에서 독립 제거된다.
+- **자동 검증 완료(2026-08-25):** 첫 quit만 finalizer를 시작하고 정리 중 두 번째 quit는 대기시키며 finalizer가 허용한 마지막 quit만 통과하는 상태 전이와, drain의 성공·실패·시간 초과 경계를 실행 테스트로 고정했다. 표준 종료는 신규 생산자 정지, 창·트레이 즉시 숨김, config/outbox 저장, 최대 3초 클라우드 drain·취소, WAL checkpoint, DB close 순서를 정적 회귀 검사로 확인했다.
+- **자동 검증 완료(2026-08-25):** Windows `query-session-end`에서는 OS 종료를 막지 않고 클라우드 recovery marker, config, 엘소 recovery journal과 WAL checkpoint를 동기식 fast path로 먼저 보존하는 등록·호출 순서를 정적 회귀 검사로 고정했다. 실제 Windows 로그오프·시스템 종료 실기는 별도로 남긴다.
 - Phase 종료 게이트: `npm run typecheck`.
 
 ### Phase 4 — 대용량 채팅·파일 I/O·모니터 안정화
