@@ -3058,7 +3058,11 @@
           const res = await window.electronAPI.startChatLogSync();
           if (res && res.success) {
             if (txt) {
-              txt.textContent = `✅ 동기화 완료! (파일 ${res.totalFiles}개 | 신규 반영: 득템 ${res.lootsAdded}건, 숙제 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
+              const failedNames = (res.failedFiles || []).map(file => file.fileName).join(', ');
+              const prefix = res.partial
+                ? `⚠️ 일부 동기화 완료 (실패: ${failedNames})`
+                : '✅ 동기화 완료!';
+              txt.textContent = `${prefix} (파일 ${res.totalFiles - (res.failedFiles?.length || 0)}/${res.totalFiles}개 | 신규 반영: 득템 ${res.lootsAdded}건, 숙제 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
             }
           } else {
             if (txt) txt.textContent = `동기화 완료: ${res?.error || '로그 파일 없음'}`;

@@ -709,6 +709,8 @@ export interface SyncResultReport {
     seedsDetected: number;
     elsoPointsDetected: number;
     essencesDetected: number;
+    partial?: boolean;
+    failedFiles?: Array<{ fileName: string; date: string; error: string }>;
     error?: string;
 }
 

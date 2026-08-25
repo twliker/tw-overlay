@@ -1,9 +1,9 @@
 import { parentPort, workerData } from 'worker_threads';
-import fs from 'fs';
 import { ChatParser } from './chatParser';
 import { parseElsoMessage, formatLootDiaryContent } from './itemAcquisition';
 import { decodeChatLogBuffer, normalizeChatLogLines } from './chatLogNormalizer';
 import type { SyncTargetFile } from './chatLogSyncManager';
+import { readChatLogFileWithRetry } from './chatLogFileRetry';
 
 function parseTimeToSeconds(timeStr: string): number {
   const match = timeStr.match(/(\d+)시\s*(\d+)분\s*(\d+)초/);
@@ -65,6 +65,7 @@ export interface WorkerDoneData {
   seeds: ParsedSeed[];
   elsoPoints: ParsedElso[];
   accumulatedHomework: Record<string, number>;
+  failedFiles: Array<{ fileName: string; date: string; error: string }>;
 }
 
 async function runWorker() {
@@ -79,6 +80,7 @@ async function runWorker() {
   const seeds: ParsedSeed[] = [];
   const elsoPoints: ParsedElso[] = [];
   const accumulatedHomework: Record<string, number> = {};
+  const failedFiles: Array<{ fileName: string; date: string; error: string }> = [];
 
   let totalLines = 0;
 
@@ -381,7 +383,7 @@ async function runWorker() {
     const file = targetFiles[fileIdx];
     try {
       syncParser.setCurrentDate(file.dateStr);
-      const buffer = fs.readFileSync(file.filePath);
+      const buffer = await readChatLogFileWithRetry(file.filePath);
       const decoded = decodeChatLogBuffer(buffer);
       const lines = normalizeChatLogLines(decoded.content.split('\n'));
       const fileTotalLines = lines.length;
@@ -440,8 +442,12 @@ async function runWorker() {
           elsoPointsAdded: elsoPoints.length
         }
       });
-    } catch {
-      // ignore
+    } catch (error) {
+      failedFiles.push({
+        fileName: file.fileName,
+        date: file.dateStr,
+        error: String(error),
+      });
     }
   }
 
@@ -455,7 +461,8 @@ async function runWorker() {
       shouts,
       seeds,
       elsoPoints,
-      accumulatedHomework
+      accumulatedHomework,
+      failedFiles,
     }
   });
 }

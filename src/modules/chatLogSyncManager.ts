@@ -229,6 +229,30 @@ export async function syncWeeklyChatLogs(options?: {
   const shoutsDetected = doneData.shouts.length;
   const homeworkDetected = Object.keys(doneData.accumulatedHomework).length;
   const elsoPointsDetected = doneData.elsoPoints.reduce((sum, item) => sum + item.amount, 0);
+  const failedFiles = doneData.failedFiles || [];
+  if (failedFiles.length === targetFiles.length) {
+    return {
+      success: false,
+      startDate: startDateStr,
+      endDate: endDateStr,
+      totalFiles: targetFiles.length,
+      totalLines: doneData.totalLines,
+      lootsAdded: 0,
+      shoutsAdded: 0,
+      homeworkUpdated: 0,
+      seedsAdded: 0,
+      elsoPointsAdded: 0,
+      essencesAdded: 0,
+      lootsDetected,
+      homeworkDetected,
+      shoutsDetected,
+      seedsDetected,
+      elsoPointsDetected,
+      essencesDetected,
+      failedFiles,
+      error: `모든 채팅 로그 파일을 읽지 못했습니다: ${failedFiles.map(file => file.fileName).join(', ')}`,
+    };
+  }
 
   // 메인 프로세스에서 단 1회의 트랜잭션으로 초고속 일괄 반영 (0.01초 미만 완료, UI 프리징 제로)
   const batchResult = diaryDb.batchInsertSyncResults(doneData);
@@ -272,7 +296,8 @@ export async function syncWeeklyChatLogs(options?: {
   broadcastToAllWindows('diary-updated');
   sendToFirstWindowByPage('shout-history.html', 'shout-history-updated');
 
-  log(`[SYNC] 주간 채팅 로그 워커 동기화 완료: 파일 ${targetFiles.length}개, 득템 ${lootsDetected}건(신규 ${lootsAdded}건), 외치기 ${shoutsDetected}건(신규 ${shoutsAdded}건), 숙제 ${homeworkDetected}종(신규 ${homeworkUpdated}종), SEED ${seedsDetected}건(신규 ${seedsAdded}건), 엘소 ${elsoPointsDetected}P(신규 ${elsoPointsAdded}P), 경험의 정수 ${essencesDetected}개(신규 ${essencesAdded}개)`);
+  const partial = failedFiles.length > 0;
+  log(`[SYNC] 주간 채팅 로그 워커 동기화 완료: 파일 ${targetFiles.length - failedFiles.length}/${targetFiles.length}개, 득템 ${lootsDetected}건(신규 ${lootsAdded}건), 외치기 ${shoutsDetected}건(신규 ${shoutsAdded}건), 숙제 ${homeworkDetected}종(신규 ${homeworkUpdated}종), SEED ${seedsDetected}건(신규 ${seedsAdded}건), 엘소 ${elsoPointsDetected}P(신규 ${elsoPointsAdded}P), 경험의 정수 ${essencesDetected}개(신규 ${essencesAdded}개)`);
 
   return {
     success: true,
@@ -293,6 +318,8 @@ export async function syncWeeklyChatLogs(options?: {
     shoutsDetected,
     seedsDetected,
     elsoPointsDetected,
-    essencesDetected
+    essencesDetected,
+    partial,
+    failedFiles,
   };
 }

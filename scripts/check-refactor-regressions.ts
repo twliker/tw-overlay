@@ -4901,6 +4901,58 @@ function checkChatTailRecoveryBoundary(): void {
   );
 }
 
+async function checkChatLogWorkerReadRecovery(): Promise<void> {
+  const {
+    getChatLogReadRetryDelayMs,
+    readChatLogFileWithRetry,
+  } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogFileRetry.js')) as {
+    getChatLogReadRetryDelayMs(attempt: number): number;
+    readChatLogFileWithRetry(
+      filePath: string,
+      readFile?: (target: string) => Promise<Buffer>,
+      wait?: (delayMs: number) => Promise<void>,
+    ): Promise<Buffer>;
+  };
+  assert.deepEqual([1, 2, 3, 4].map(getChatLogReadRetryDelayMs), [100, 200, 400, 800]);
+
+  let attempts = 0;
+  const delays: number[] = [];
+  const recovered = await readChatLogFileWithRetry(
+    'retry-fixture.html',
+    async () => {
+      attempts++;
+      if (attempts < 3) {
+        const error = new Error('locked') as NodeJS.ErrnoException;
+        error.code = 'EBUSY';
+        throw error;
+      }
+      return Buffer.from('recovered');
+    },
+    async delayMs => { delays.push(delayMs); },
+  );
+  assert.equal(recovered.toString(), 'recovered');
+  assert.equal(attempts, 3);
+  assert.deepEqual(delays, [100, 200]);
+
+  let fatalAttempts = 0;
+  await assert.rejects(() => readChatLogFileWithRetry(
+    'fatal-fixture.html',
+    async () => {
+      fatalAttempts++;
+      const error = new Error('missing') as NodeJS.ErrnoException;
+      error.code = 'ENOENT';
+      throw error;
+    },
+    async () => undefined,
+  ));
+  assert.equal(fatalAttempts, 1);
+
+  const workerSource = read('src/modules/chatLogSyncWorker.ts');
+  assert.match(workerSource, /failedFiles\.push\([\s\S]*?fileName: file\.fileName[\s\S]*?error: String\(error\)/);
+  assert.match(read('src/modules/chatLogSyncManager.ts'), /partial = failedFiles\.length > 0/);
+  assert.match(read('src/settings.html'), /일부 동기화 완료/);
+}
+
 checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
@@ -4922,7 +4974,7 @@ checkAbandonedFeeMatchingContracts();
 checkMissedMinuteSchedulerContracts();
 checkMissedCustomAlertContracts();
 checkMissedBossAlertContracts();
-void checkGoogleSyncDataContracts().then(() => {
+void checkChatLogWorkerReadRecovery().then(() => checkGoogleSyncDataContracts()).then(() => {
   console.log('Refactor regression checks passed.');
   process.exit(0);
 }).catch(error => {
