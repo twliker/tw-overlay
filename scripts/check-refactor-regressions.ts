@@ -4537,12 +4537,12 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.deepEqual(checklistData.pendingHomeworks, sampleLocalConfig.pendingHomeworks);
 
   // 2. buildSyncPayload: 메타데이터 및 스키마 검증
-  const payload = syncDataHelper.buildSyncPayload(sampleLocalConfig, 'tester@gmail.com');
+  const payload = syncDataHelper.buildSyncPayload(sampleLocalConfig, 'device-preview-fixture');
   assert.equal(payload.schemaVersion, 1);
-  assert.equal(payload.updatedBy, 'tester@gmail.com');
+  assert.equal(payload.updatedBy, 'device-preview-fixture');
   assert.ok(payload.lastSyncedAt > 0);
   assert.equal(payload.data.userServer, 16);
-  assert.equal(syncDataHelper.buildSettingsSyncPayload(sampleLocalConfig, 'tester@gmail.com').data.contentsCheckerItems, undefined);
+  assert.equal(syncDataHelper.buildSettingsSyncPayload(sampleLocalConfig, 'device-preview-fixture').data.contentsCheckerItems, undefined);
   assert.equal(syncDataHelper.buildChecklistSyncPayload(sampleLocalConfig, 'tester@gmail.com').data.userServer, undefined);
   const settingsPayload = syncDataHelper.buildSettingsSyncPayload(sampleLocalConfig, 'device-1', 'generation-1');
   assert.equal(settingsPayload.kind, 'settings');
@@ -4851,17 +4851,144 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Drive 401의 1회 refresh/retry 경계가 없습니다.');
 
   const cloudSyncDocs = read('docs/google-drive-sync.md');
-  for (const key of syncDataHelper.SETTINGS_SYNCABLE_KEYS) {
-    assert.ok(cloudSyncDocs.includes(`\`${String(key)}\``),
-      `Google Drive 문서에 설정 동기화 키가 누락되었습니다: ${String(key)}`);
-  }
-  for (const key of syncDataHelper.CHECKLIST_SYNCABLE_KEYS) {
-    assert.ok(cloudSyncDocs.includes(`\`${String(key)}\``) || cloudSyncDocs.includes(String(key)),
-      `Google Drive 문서에 숙제 동기화 키가 누락되었습니다: ${String(key)}`);
-  }
-  for (const excluded of ['discordWebhookUrl', 'chatLogPath', 'msgerLogPath', 'customSounds', 'positions']) {
+  const markedBlock = (marker: string): string => {
+    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const match = cloudSyncDocs.match(new RegExp(
+      `<!-- ${escaped}:start -->([\\s\\S]*?)<!-- ${escaped}:end -->`,
+    ));
+    assert.ok(match, `Google Drive 문서의 ${marker} 검증 블록이 없습니다.`);
+    return match![1];
+  };
+  const backtickKeys = (value: string): string[] =>
+    Array.from(value.matchAll(/`([^`]+)`/g), match => match[1]);
+  const tableRows = (marker: string): Map<string, string[]> => {
+    const rows = new Map<string, string[]>();
+    for (const line of markedBlock(marker).split(/\r?\n/)) {
+      if (!line.trim().startsWith('|')) continue;
+      const cells = line.split('|').slice(1, -1).map(cell => cell.trim());
+      if (cells.length < 2 || cells[0] === '---' || cells[0] === '범위') continue;
+      rows.set(cells[0].replace(/`/g, ''), backtickKeys(cells[1]));
+    }
+    return rows;
+  };
+  const settingsDataKeys = Array.from(markedBlock('settings-data-allowlist')
+    .split(/\r?\n/)
+    .flatMap(line => {
+      if (!line.trim().startsWith('|')) return [];
+      const cells = line.split('|').slice(1, -1);
+      return cells.length >= 3 ? backtickKeys(cells[2]) : [];
+    }));
+  assert.deepEqual(
+    [...new Set(settingsDataKeys)].sort(),
+    [...syncDataHelper.SETTINGS_SYNCABLE_KEYS].map(String).sort(),
+    'Google Drive 문서의 설정 data allowlist가 코드와 정확히 일치하지 않습니다.',
+  );
+  assert.deepEqual(
+    [...new Set(backtickKeys(markedBlock('checklist-data-allowlist')))].sort(),
+    [...syncDataHelper.CHECKLIST_SYNCABLE_KEYS].map(String).sort(),
+    'Google Drive 문서의 숙제 data allowlist가 코드와 정확히 일치하지 않습니다.',
+  );
+
+  const settingsEnvelope = syncDataHelper.buildSettingsSyncPayload(
+    sampleLocalConfig,
+    'device-doc-fixture',
+    'generation-doc-fixture',
+  );
+  assert.equal(settingsEnvelope.updatedBy, 'device-doc-fixture');
+  assert.doesNotMatch(settingsEnvelope.updatedBy, /@/,
+    '설정 payload updatedBy에 Google 이메일이 사용되고 있습니다.');
+  assert.match(managerSource, /buildSettingsSyncPayload\(current, state\.deviceId, state\.generationId\)/,
+    '실제 설정 업로드가 이메일 대신 installation device ID를 사용하지 않습니다.');
+  const operationFixture = {
+    id: 'operation-doc-fixture',
+    deviceId: 'device-doc-fixture',
+    createdAt: 1,
+    keys: ['pendingHomeworks'],
+    mutations: [{
+      path: ['pendingHomeworks', 'fixture'],
+      beforeExists: false,
+      afterExists: true,
+      before: null,
+      after: { id: 'fixture' },
+    }],
+  };
+  const checklistEnvelope = syncDataHelper.buildChecklistSyncPayload(
+    sampleLocalConfig,
+    'device-doc-fixture',
+    'generation-doc-fixture',
+    [operationFixture],
+  );
+  const settingsPayloadRows = tableRows('settings-payload-allowlist');
+  assert.deepEqual(
+    settingsPayloadRows.get('설정 payload 최상위')?.sort(),
+    Object.keys(settingsEnvelope).sort(),
+    '설정 파일 최상위 allowlist가 실제 payload와 일치하지 않습니다.',
+  );
+  const checklistPayloadRows = tableRows('checklist-payload-allowlist');
+  assert.deepEqual(
+    checklistPayloadRows.get('숙제 payload 최상위')?.sort(),
+    Object.keys(checklistEnvelope).sort(),
+    '숙제 파일 최상위 allowlist가 실제 payload와 일치하지 않습니다.',
+  );
+  assert.deepEqual(
+    checklistPayloadRows.get('operation')?.sort(),
+    Object.keys(checklistEnvelope.operations![0]).sort(),
+    '숙제 operation allowlist가 실제 payload와 일치하지 않습니다.',
+  );
+  assert.deepEqual(
+    checklistPayloadRows.get('mutation')?.sort(),
+    Object.keys(checklistEnvelope.operations![0].mutations[0]).sort(),
+    '숙제 mutation allowlist가 실제 payload와 일치하지 않습니다.',
+  );
+  const metaEnvelope = syncDataHelper.buildSyncMetaPayload('generation-doc-fixture', 1, {
+    settings: { id: 'settings-id', name: 'tw_overlay_settings.json' },
+    checklist: { id: 'checklist-id', name: 'tw_overlay_checklist.json' },
+  });
+  const metaPayloadRows = tableRows('meta-payload-allowlist');
+  assert.deepEqual(
+    metaPayloadRows.get('메타 payload 최상위')?.sort(),
+    Object.keys(metaEnvelope).sort(),
+    '메타 파일 최상위 allowlist가 실제 payload와 일치하지 않습니다.',
+  );
+  assert.deepEqual(
+    metaPayloadRows.get('files.settings')?.sort(),
+    Object.keys(metaEnvelope.files.settings!).sort(),
+    '메타 settings 참조 allowlist가 실제 payload와 일치하지 않습니다.',
+  );
+  assert.deepEqual(
+    metaPayloadRows.get('files.checklist')?.sort(),
+    Object.keys(metaEnvelope.files.checklist!).sort(),
+    '메타 checklist 참조 allowlist가 실제 payload와 일치하지 않습니다.',
+  );
+
+  const highRiskExcludedKeys = [
+    'discordWebhookUrl', 'chatLogPath', 'msgerLogPath', 'customSounds', 'positions',
+    'storedPositionKeys', 'googleSyncEnabled', 'googleSyncAutoSync', 'googleSyncLastTime',
+    'googleSyncUserEmail',
+  ];
+  for (const excluded of highRiskExcludedKeys) {
+    assert.equal(syncDataHelper.SETTINGS_SYNCABLE_KEYS.includes(excluded), false,
+      `민감·PC 종속 키가 설정 allowlist에 포함됐습니다: ${excluded}`);
+    assert.equal(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.includes(excluded), false,
+      `민감·PC 종속 키가 숙제 allowlist에 포함됐습니다: ${excluded}`);
     assert.ok(cloudSyncDocs.includes(`\`${excluded}\``),
       `Google Drive 문서에 중요 제외 키가 누락되었습니다: ${excluded}`);
+  }
+
+  const privacyPolicyMarkdown = read('PRIVACY_POLICY.md');
+  const privacyPolicyHtml = read('docs/privacy/index.html');
+  const privacyParityTerms = [
+    'tw_overlay_settings.json', 'tw_overlay_checklist.json', 'tw_overlay_sync_meta.json',
+    'appDataFolder', 'Discord Webhook URL', 'Google OAuth 토큰', '채팅/메신저 로그 경로',
+    '커스텀 사운드 절대경로', '창 위치·크기', '일지 DB', '채팅 로그', '알람 이력',
+    '종단간 암호화', '이메일은 로컬 계정 표시에만 사용', '세 동기화 JSON에는 저장하지 않습니다',
+    'google-drive-sync.md',
+  ];
+  for (const term of privacyParityTerms) {
+    assert.ok(privacyPolicyMarkdown.includes(term),
+      `Markdown 개인정보처리방침에 클라우드 정책 항목이 누락됐습니다: ${term}`);
+    assert.ok(privacyPolicyHtml.includes(term),
+      `HTML 개인정보처리방침에 클라우드 정책 항목이 누락됐습니다: ${term}`);
   }
 
   const cloudSyncState = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncState.js'));

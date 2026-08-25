@@ -31,6 +31,18 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 
 아래 표가 설정 파일의 전체 허용 범위입니다. 표에 없는 설정은 자동으로 클라우드에 추가하지 않습니다.
 
+파일 최상위 허용 필드는 다음과 같습니다.
+
+<!-- settings-payload-allowlist:start -->
+
+| 범위 | 허용 필드 | 의미 |
+|---|---|---|
+| 설정 payload 최상위 | `schemaVersion`, `appVersion`, `lastSyncedAt`, `updatedBy`, `kind`, `revision`, `generationId`, `checksum`, `data` | `updatedBy`는 Google 이메일이 아니라 이 설치의 device ID이며, `kind`는 `settings`입니다. `checksum`은 `data` 검증용입니다. |
+
+<!-- settings-payload-allowlist:end -->
+
+<!-- settings-data-allowlist:start -->
+
 | 기능 | 동기화 항목 | 내부 설정 키 |
 |---|---|---|
 | 숙제 체크리스트 표시 | 기능 사용 여부, 자동 열기, 마지막 선택 캐릭터, 알림 음량 | `contentsCheckerEnabled`, `autoOpenContentsChecker`, `selectedCharacterId`, `volumeContentsChecker` |
@@ -54,11 +66,27 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 | 채팅 오버레이 색상 | 채널별 색상, 닉네임 색상 방식과 채널별 닉네임 색상 | `chatOverlayColorGeneral`, `chatOverlayColorWhisper`, `chatOverlayColorTeam`, `chatOverlayColorClub`, `chatOverlayColorShout`, `chatOverlayNicknameColorMode`, `chatOverlayNicknameColorGeneral`, `chatOverlayNicknameColorWhisper`, `chatOverlayNicknameColorTeam`, `chatOverlayNicknameColorClub`, `chatOverlayNicknameColorShout` |
 | 사용자·서버 | 테일즈위버 서버, 포커스 채팅의 내 닉네임 | `userServer`, `focusedChatSelfNickname` |
 
+<!-- settings-data-allowlist:end -->
+
 최상위 사운드 설정과 `fieldBossSettings`·`customAlerts` 안의 `soundFile`은 TW-Overlay에 포함된 내장 asset ID일 때만 동기화합니다. 사용자 PC의 절대 파일 경로이면 해당 사운드 값은 업로드하지 않고 다른 PC의 로컬 선택을 유지합니다.
 
 ## 4. `tw_overlay_checklist.json`에 동기화되는 항목
 
-숙제 파일의 최상위 허용 키는 `contentsCheckerItems`, `characterPresets`, `pendingHomeworks` 세 가지입니다.
+<!-- checklist-data-allowlist:start -->
+
+숙제 파일의 data 객체 최상위 허용 키는 `contentsCheckerItems`, `characterPresets`, `pendingHomeworks` 세 가지입니다.
+
+<!-- checklist-data-allowlist:end -->
+
+<!-- checklist-payload-allowlist:start -->
+
+| 범위 | 허용 필드 | 의미 |
+|---|---|---|
+| 숙제 payload 최상위 | `schemaVersion`, `appVersion`, `lastSyncedAt`, `updatedBy`, `kind`, `revision`, `generationId`, `checksum`, `operations`, `operationsChecksum`, `data` | `updatedBy`는 Google 이메일이 아니라 이 설치의 device ID이며, `kind`는 `checklist`입니다. |
+| operation | `id`, `deviceId`, `createdAt`, `keys`, `mutations` | 한 PC에서 만든 안정 operation과 변경 대상 최상위 키입니다. |
+| mutation | `path`, `beforeExists`, `afterExists`, `before`, `after` | 숙제·캐릭터 안정 ID 경로와 변경 전후 값입니다. `before`/`after`는 해당 값이 존재할 때만 포함합니다. |
+
+<!-- checklist-payload-allowlist:end -->
 
 | 구분 | 정확한 내용 |
 |---|---|
@@ -79,7 +107,23 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 
 업로드 직후 다른 PC가 같은 파일을 덮어써 확인했던 operation ID가 원격에서 사라지면, 해당 operation의 안정 ID mutation만 최신 원격 상태 위에 다시 적용합니다. 따라서 다른 PC가 바꾼 비충돌 숙제 상태는 유지하면서 사라진 완료·해제·횟수 변경을 재게시할 수 있습니다. operation에는 Discord Webhook URL, OAuth 토큰, 로컬 경로, 커스텀 사운드가 포함되지 않습니다.
 
-## 5. 클라우드에 동기화하지 않는 항목
+## 5. `tw_overlay_sync_meta.json`에 동기화되는 항목
+
+메타 파일은 사용자 설정값이나 숙제 내용을 복제하지 않고 같은 generation의 두 데이터 파일을 찾는 참조만 저장합니다.
+
+<!-- meta-payload-allowlist:start -->
+
+| 범위 | 허용 필드 | 의미 |
+|---|---|---|
+| 메타 payload 최상위 | `schemaVersion`, `generationId`, `updatedAt`, `files` | 메타 스키마, 공유 generation, 메타 갱신 시각, 파일 참조 묶음입니다. |
+| `files.settings` | `id`, `name` | 설정 Drive file ID와 고정 이름 `tw_overlay_settings.json`입니다. 설정 파일이 아직 없으면 이 참조 전체를 생략합니다. |
+| `files.checklist` | `id`, `name` | 숙제 Drive file ID와 고정 이름 `tw_overlay_checklist.json`입니다. 숙제 파일이 아직 없으면 이 참조 전체를 생략합니다. |
+
+<!-- meta-payload-allowlist:end -->
+
+메타 파일에는 이메일, device ID, OAuth 토큰, Webhook URL, 로컬 경로, 설정값, 숙제 상태를 저장하지 않습니다.
+
+## 6. 클라우드에 동기화하지 않는 항목
 
 | 제외 범주 | 제외 항목·내부 키 | 제외 이유 |
 |---|---|---|
@@ -92,7 +136,7 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 
 동기화에서 제외된 값은 클라우드 복원으로 지우거나 기본값으로 덮어쓰지 않습니다.
 
-## 6. 설정 복원과 새 PC 판정
+## 7. 설정 복원과 새 PC 판정
 
 - 일반 설정은 클라우드 파일에 존재하는 필드를 사용합니다. 적용 직전에 로컬 백업을 만들고 변경 요약과 되돌리기를 제공합니다.
 - 클라우드에 없는 신규 설정 키는 앱의 신규 기본값을 추가합니다. 기존 사용자 값은 `false`, `0`, 빈 문자열, 빈 배열이어도 보존합니다.
@@ -103,7 +147,7 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 - 설정 파일과 숙제 파일은 독립적으로 복원합니다. 한 파일이 없거나 손상됐거나 생성 세대가 달라도 정상인 다른 파일은 적용하고 파일별 결과와 부분 복원 상태를 로컬에 기록합니다.
 - 명시적 복원에서는 설정과 숙제를 각각 선택할 수 있으며, 선택하지 않은 데이터는 현재 PC 상태를 유지합니다.
 
-## 7. 종료와 다음 실행 복구
+## 8. 종료와 다음 실행 복구
 
 - 일반 종료를 시작하면 모든 앱 창과 트레이를 먼저 숨겨 사용자가 종료 지연을 느끼지 않게 합니다.
 - 신규 변경 생산을 멈추고 로컬 config와 숙제 outbox를 저장한 뒤, 클라우드 대기 작업을 최대 3초 동안 정리합니다. 업데이트 설치 종료 경로는 최대 500ms만 기다립니다.
@@ -112,7 +156,7 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 - Windows 로그오프·시스템 종료처럼 긴 대기가 불가능한 경우에는 OS 종료를 막지 않고 로컬 config, 숙제 outbox·recovery marker, DB recovery journal과 WAL을 먼저 보존하는 빠른 경로를 사용합니다.
 - 일반 종료에서는 클라우드 정리 뒤 SQLite WAL checkpoint를 실행하고 DB를 닫습니다. 제한 시간 초과가 데이터의 성공 처리로 기록되지는 않습니다.
 
-## 8. 보안과 개인정보
+## 9. 보안과 개인정보
 
 - 앱은 `drive.appdata` 권한만 요청하며 TW-Overlay가 만든 앱 데이터 파일만 읽고 씁니다.
 - 클라우드 파일은 Google Drive UI에서 일반 문서처럼 보이지 않지만, TW-Overlay가 별도의 종단간 암호화를 추가하는 것은 아닙니다.
@@ -121,7 +165,7 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 - Discord Webhook URL은 클라우드 payload, 데이터 미리보기, 로그, 오류 메시지, 진단 내보내기에 포함하지 않습니다.
 - 로그아웃하면 로컬 OAuth 토큰을 삭제합니다. Google 계정 권한 관리에서도 언제든지 앱 권한을 철회할 수 있습니다.
 
-## 9. 사용자가 확인할 수 있어야 하는 정보
+## 10. 사용자가 확인할 수 있어야 하는 정보
 
 설정의 클라우드 데이터 화면은 다음 정보를 파일별로 표시해야 합니다.
 
@@ -136,7 +180,7 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 
 현재 구현은 파일별 선택 복원, 검증 결과, 부분 복원 상태, 값 비노출 변경 키 요약과 합친 JSON 미리보기를 제공합니다. 설정 화면에서 로컬 checksum, 마지막 확인 클라우드 revision, 대기 변경 수, 업로드·원격 확인 재시도 상태를 파일별로 확인할 수 있으며 최근 복원 전 백업으로 되돌릴 수 있습니다.
 
-## 10. 권한 철회와 데이터 삭제
+## 11. 권한 철회와 데이터 삭제
 
 1. 앱의 설정 > 데이터 관리에서 Google 연동을 해제합니다.
 2. [Google 계정 권한 관리](https://myaccount.google.com/permissions)에서 TW-Overlay 권한을 철회할 수 있습니다.

@@ -435,19 +435,14 @@ async function receiveKind(
 async function uploadMeta(files: SyncFiles): Promise<void> {
   if (!files.settings?.id && !files.checklist?.id) return;
   const state = cloudState.load();
-  const payload: GoogleSyncMetaPayload = {
-    schemaVersion: 1,
-    generationId: state.generationId,
-    updatedAt: Date.now(),
-    files: {
-      ...(files.settings?.id ? {
-        settings: { id: files.settings.id, name: googleDriveSync.SETTINGS_SYNC_FILE_NAME },
-      } : {}),
-      ...(files.checklist?.id ? {
-        checklist: { id: files.checklist.id, name: googleDriveSync.CHECKLIST_SYNC_FILE_NAME },
-      } : {}),
-    },
-  };
+  const payload = syncDataHelper.buildSyncMetaPayload(state.generationId, Date.now(), {
+    ...(files.settings?.id ? {
+      settings: { id: files.settings.id, name: googleDriveSync.SETTINGS_SYNC_FILE_NAME },
+    } : {}),
+    ...(files.checklist?.id ? {
+      checklist: { id: files.checklist.id, name: googleDriveSync.CHECKLIST_SYNC_FILE_NAME },
+    } : {}),
+  });
   const metaId = await googleDriveSync.uploadJsonPayload(
     googleDriveSync.META_SYNC_FILE_NAME,
     payload,

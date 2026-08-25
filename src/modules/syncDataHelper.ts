@@ -13,6 +13,7 @@ import {
   GoogleChecklistSyncOperation,
   GoogleSyncChangeSummary,
   GoogleSyncDataKind,
+  GoogleSyncMetaPayload,
   GoogleSyncPayload,
 } from '../shared/types';
 import { log } from './logger';
@@ -286,7 +287,7 @@ function calculateValueChecksum(value: unknown): string {
 function buildPayload(
   kind: 'settings' | 'checklist',
   data: Partial<AppConfig>,
-  userEmail: string,
+  deviceId: string,
   generationId?: string,
 ): GoogleSyncPayload {
   const lastSyncedAt = Date.now();
@@ -294,7 +295,7 @@ function buildPayload(
     schemaVersion: 1,
     appVersion: app.getVersion(),
     lastSyncedAt,
-    updatedBy: userEmail,
+    updatedBy: deviceId,
     kind,
     revision: `${lastSyncedAt}-${crypto.randomUUID()}`,
     generationId,
@@ -305,10 +306,10 @@ function buildPayload(
 
 export function buildSettingsSyncPayload(
   cfg: AppConfig,
-  userEmail: string,
+  deviceId: string,
   generationId?: string,
 ): GoogleSyncPayload {
-  return buildPayload('settings', extractSettingsSyncData(cfg), userEmail, generationId);
+  return buildPayload('settings', extractSettingsSyncData(cfg), deviceId, generationId);
 }
 
 export function buildChecklistSyncPayload(
@@ -326,10 +327,31 @@ export function buildChecklistSyncPayload(
   return payload;
 }
 
+/** 메타 파일에는 두 데이터 파일을 찾는 최소 참조만 포함한다. */
+export function buildSyncMetaPayload(
+  generationId: string,
+  updatedAt: number,
+  files: GoogleSyncMetaPayload['files'],
+): GoogleSyncMetaPayload {
+  return {
+    schemaVersion: 1,
+    generationId,
+    updatedAt,
+    files: {
+      ...(files.settings ? {
+        settings: { id: files.settings.id, name: files.settings.name },
+      } : {}),
+      ...(files.checklist ? {
+        checklist: { id: files.checklist.id, name: files.checklist.name },
+      } : {}),
+    },
+  };
+}
+
 /** 구글 드라이브 업로드용 페이로드 생성 */
-export function buildSyncPayload(cfg: AppConfig, userEmail: string): GoogleSyncPayload {
+export function buildSyncPayload(cfg: AppConfig, deviceId: string): GoogleSyncPayload {
   const data = extractSyncData(cfg);
-  const payload = buildPayload('settings', data, userEmail);
+  const payload = buildPayload('settings', data, deviceId);
   // 구 단일 payload API는 UI 미리보기 호환용으로만 남긴다.
   delete payload.kind;
   return payload;
