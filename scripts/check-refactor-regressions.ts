@@ -94,6 +94,60 @@ function checkShutdownRecoveryAcrossProcessRestarts(): void {
   }
 }
 
+function checkMainQuitRecoveryScenarios(): void {
+  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-quit-recovery-probe.js');
+  const scenarios = ['settings', 'checklist', 'both'] as const;
+
+  for (const scenario of scenarios) {
+    const probeRoot = path.join(isolatedUserData, `main-quit-recovery-${scenario}`);
+    const resultPath = path.join(probeRoot, 'result.json');
+    fs.mkdirSync(probeRoot, { recursive: true });
+    const result = childProcess.spawnSync(process.execPath, [
+      probePath,
+      scenario,
+      probeRoot,
+      resultPath,
+      '--dev',
+    ], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      timeout: 20_000,
+      windowsHide: true,
+    });
+    assert.equal(result.error, undefined,
+      `${scenario} main quit probe 실행 실패: ${result.error?.message || ''}`);
+    assert.equal(result.status, 0,
+      `${scenario} main quit probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+    assert.equal(fs.existsSync(resultPath), true, `${scenario} main quit 결과 파일이 없습니다.`);
+
+    const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as {
+      quitElapsedMs: number | null;
+      firstVisibleWindowCount: number;
+      hideLatencyMs: number | null;
+      settingsDirtyKeys: string[];
+      checklistOperationIds: string[];
+      recoverySettingsDirtyKeys: string[];
+      recoveryChecklistOperationIds: string[];
+      walCheckpointLogged: boolean;
+      databaseCloseLogged: boolean;
+    };
+    const expectsSettings = scenario === 'settings' || scenario === 'both';
+    const expectsChecklist = scenario === 'checklist' || scenario === 'both';
+    const expectedOperationIds = expectsChecklist ? [`main-quit-${scenario}-operation`] : [];
+    assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
+      `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
+    assert.ok(summary.firstVisibleWindowCount > 0, `${scenario} main quit 전에 표시 창이 없었습니다.`);
+    assert.ok(summary.hideLatencyMs !== null && summary.hideLatencyMs <= 100,
+      `${scenario} main quit 창 숨김이 늦었습니다: ${summary.hideLatencyMs}`);
+    assert.deepEqual(summary.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    assert.deepEqual(summary.recoverySettingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    assert.deepEqual(summary.checklistOperationIds, expectedOperationIds);
+    assert.deepEqual(summary.recoveryChecklistOperationIds, expectedOperationIds);
+    assert.equal(summary.walCheckpointLogged, true, `${scenario} main quit WAL checkpoint 로그가 없습니다.`);
+    assert.equal(summary.databaseCloseLogged, true, `${scenario} main quit DB close 로그가 없습니다.`);
+  }
+}
+
 function createUiUtilsSandbox(): any {
   const registeredListeners: Record<string, Array<() => void>> = {};
   const window: any = {
@@ -6184,6 +6238,7 @@ checkHomeworkSourceEventIdContracts();
 checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
 checkShutdownRecoveryAcrossProcessRestarts();
+checkMainQuitRecoveryScenarios();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
 checkMissedCustomAlertContracts();
