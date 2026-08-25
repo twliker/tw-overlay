@@ -1,5 +1,6 @@
 import assert = require('node:assert/strict');
 import crypto = require('node:crypto');
+import childProcess = require('node:child_process');
 import fs = require('node:fs');
 import os = require('node:os');
 import path = require('node:path');
@@ -32,6 +33,65 @@ function finishRegressionChecks(exitCode: number): never {
 
 function read(relativePath: string): string {
   return fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
+}
+
+function checkShutdownRecoveryAcrossProcessRestarts(): void {
+  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-shutdown-recovery-probe.js');
+  const scenarios = ['settings', 'checklist', 'both'] as const;
+
+  for (const scenario of scenarios) {
+    const scenarioRoot = path.join(isolatedUserData, `shutdown-recovery-${scenario}`);
+    fs.mkdirSync(scenarioRoot, { recursive: true });
+
+    const run = (mode: 'write' | 'read') => {
+      const resultPath = path.join(scenarioRoot, `${mode}-result.json`);
+      const result = childProcess.spawnSync(process.execPath, [
+        probePath,
+        mode,
+        scenario,
+        scenarioRoot,
+        resultPath,
+      ], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        timeout: 20_000,
+        windowsHide: true,
+      });
+      assert.equal(result.error, undefined,
+        `${scenario} ${mode} 종료 복구 프로세스 실행 실패: ${result.error?.message || ''}`);
+      assert.equal(result.status, 0,
+        `${scenario} ${mode} 종료 복구 프로세스 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+      assert.equal(fs.existsSync(resultPath), true,
+        `${scenario} ${mode} 종료 복구 결과 파일이 없습니다.`);
+      const parsed = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as {
+        ok: boolean;
+        error?: string;
+        summary?: {
+          profileState: string;
+          settingsDirtyKeys: string[];
+          checklistOperationIds: string[];
+          recoverySettingsDirtyKeys: string[];
+          recoveryChecklistOperationIds: string[];
+        };
+      };
+      assert.equal(parsed.ok, true, parsed.error || `${scenario} ${mode} 종료 복구 probe 실패`);
+      assert.ok(parsed.summary);
+      return parsed.summary!;
+    };
+
+    const beforeRestart = run('write');
+    const afterRestart = run('read');
+    assert.deepEqual(afterRestart, beforeRestart,
+      `${scenario} dirty/outbox/recovery marker가 프로세스 재시작 뒤 달라졌습니다.`);
+    assert.equal(afterRestart.profileState, 'established');
+
+    const expectsSettings = scenario === 'settings' || scenario === 'both';
+    const expectsChecklist = scenario === 'checklist' || scenario === 'both';
+    assert.deepEqual(afterRestart.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    assert.deepEqual(afterRestart.recoverySettingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    assert.equal(afterRestart.checklistOperationIds.length, expectsChecklist ? 1 : 0);
+    assert.deepEqual(afterRestart.recoveryChecklistOperationIds, afterRestart.checklistOperationIds);
+  }
 }
 
 function createUiUtilsSandbox(): any {
@@ -6123,6 +6183,7 @@ checkLegacyHomeworkMergeContracts();
 checkHomeworkSourceEventIdContracts();
 checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
+checkShutdownRecoveryAcrossProcessRestarts();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
 checkMissedCustomAlertContracts();
