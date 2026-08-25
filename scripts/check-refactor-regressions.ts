@@ -5278,11 +5278,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     modifiedTime: '2026-08-25T10:00:02.000Z',
     payload: { schemaVersion: 999 },
   });
-  configModule.saveImmediate({
-    characterPresets: [{ id: 'local-default', name: '로컬 기본 캐릭터' }],
-    contentsCheckerItems: [],
-    pendingHomeworks: [],
-  });
   cloudSyncState.update((state: any) => {
     state.profileState = 'fresh';
     state.baseChecklist = undefined;
@@ -5294,6 +5289,33 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     state.restoreResults = undefined;
     state.restorePartial = undefined;
   });
+  googleAuth.isLoggedIn = () => false;
+  configModule.saveImmediate({
+    characterPresets: [{ id: 'local-default', name: '로컬 기본 캐릭터' }],
+    contentsCheckerItems: [],
+    pendingHomeworks: [],
+  });
+  assert.equal(cloudSyncState.load().checklistOutbox.length, 0,
+    'fresh 프로필의 로컬 기본 숙제 초기화가 사용자 변경 outbox로 기록되었습니다.');
+  cloudSyncState.update((state: any) => { state.profileState = 'established'; });
+  configModule.saveImmediate({
+    characterPresets: [{ id: 'offline-established', name: '오프라인 기존 PC' }],
+  });
+  assert.equal(cloudSyncState.load().checklistOutbox.length, 1,
+    'established 프로필의 로그인 전 숙제 변경이 outbox에 보존되지 않았습니다.');
+  cloudSyncState.update((state: any) => {
+    state.profileState = 'fresh';
+    state.checklistOutbox = [];
+  });
+  configModule.saveImmediate({
+    characterPresets: [{ id: 'local-default', name: '로컬 기본 캐릭터' }],
+  });
+  assert.equal(cloudSyncState.load().checklistOutbox.length, 0,
+    'fresh 프로필의 재초기화가 숙제 outbox를 다시 만들었습니다.');
+  googleAuth.isLoggedIn = () => true;
+  configModule.saveImmediate({ pendingHomeworks: [] });
+  assert.equal(cloudSyncState.load().checklistOutbox.length, 0,
+    'fresh 프로필의 로그인 직후 변경이 원격 복원 전 outbox를 만들었습니다.');
   const partialRestore = await cloudManager.syncFromCloud(false);
   assert.equal(partialRestore.success, true);
   assert.equal(partialRestore.partial, true);

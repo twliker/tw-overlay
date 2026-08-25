@@ -1146,7 +1146,8 @@ config.addConfigChangeListener(changed => {
     markSettingsDirty(settingsKeys);
     scheduleUpload('settings');
   }
-  if (checklistKeys.length > 0) {
+  const isFreshBootstrap = cloudState.load().profileState === 'fresh';
+  if (checklistKeys.length > 0 && !isFreshBootstrap) {
     markChecklistDirty(checklistKeys);
     scheduleUpload('checklist');
   }
