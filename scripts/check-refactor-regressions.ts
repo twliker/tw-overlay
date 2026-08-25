@@ -468,6 +468,22 @@ async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
     '최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.');
   assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
   assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-download.ready')), true);
+
+  const storePath = path.join(probeRoot, 'remote-store.json');
+  const uploadsBeforeRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
+  for (const device of ['company', 'home'] as const) {
+    const restarted = await runDevice(device);
+    assert.deepEqual(restarted.observation.remoteOperationIds, expectedOperationIds,
+      `${device} 재시작 후 원격 operation 확인 결과가 달라졌습니다.`);
+    assert.deepEqual(restarted.observation.confirmedOperationIds, expectedOperationIds,
+      `${device} 재시작 후 로컬 확인 operation 이력이 사라졌습니다.`);
+    assert.deepEqual(restarted.observation.checklistOutboxIds, []);
+    assert.equal(restarted.observation.companyState.currentCount, 1);
+    assert.equal(restarted.observation.homeState.currentCount, 2);
+    const uploadsAfterRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
+    assert.deepEqual(uploadsAfterRestart, uploadsBeforeRestart,
+      `${device} 재시작이 변경 없는 숙제 echo upload를 만들었습니다.`);
+  }
 }
 
 function createUiUtilsSandbox(): any {
