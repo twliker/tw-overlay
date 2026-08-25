@@ -2,12 +2,12 @@ import fs = require('node:fs');
 import path = require('node:path');
 import { app, BrowserWindow } from 'electron';
 
-type ProbeScenario = 'settings' | 'checklist' | 'both' | 'timeout';
+type ProbeScenario = 'settings' | 'checklist' | 'both' | 'timeout' | 'session-end';
 
 const projectRoot = path.resolve(__dirname, '..');
 const [scenarioValue, probeRoot, resultPath] = process.argv.slice(2);
 const scenario = scenarioValue as ProbeScenario;
-if (!['settings', 'checklist', 'both', 'timeout'].includes(scenario)
+if (!['settings', 'checklist', 'both', 'timeout', 'session-end'].includes(scenario)
   || !path.isAbsolute(probeRoot || '')
   || !path.isAbsolute(resultPath || '')) {
   throw new Error('runtime main quit recovery probe arguments are invalid');
@@ -36,8 +36,10 @@ const contentsChecker = require(path.join(projectRoot, 'dist', 'modules', 'conte
 };
 if (!contentsChecker.init()) throw new Error('runtime main quit contents initialization failed');
 
-const expectsSettings = scenario === 'settings' || scenario === 'both' || scenario === 'timeout';
-const expectsChecklist = scenario === 'checklist' || scenario === 'both' || scenario === 'timeout';
+const expectsSettings = scenario === 'settings' || scenario === 'both'
+  || scenario === 'timeout' || scenario === 'session-end';
+const expectsChecklist = scenario === 'checklist' || scenario === 'both'
+  || scenario === 'timeout' || scenario === 'session-end';
 const operationId = `main-quit-${scenario}-operation`;
 const now = Date.now();
 fs.writeFileSync(path.join(userData, 'cloud-sync-state.json'), JSON.stringify({
@@ -67,6 +69,7 @@ let hidePoll: NodeJS.Timeout | undefined;
 let cancelledRequestCount = 0;
 let firstQuitObserved = false;
 let beforeQuitCount = 0;
+let sessionEndObservation: Record<string, unknown> | null = null;
 
 if (scenario === 'timeout') {
   const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js')) as any;
@@ -109,11 +112,33 @@ app.on('quit', () => {
     cancelledRequestCount,
     shutdownTimeoutLogged: logText.includes('[SHUTDOWN] 클라우드 flush timeout'),
     beforeQuitCount,
+    sessionEndObservation,
   }), 'utf8');
 });
 
 void app.whenReady().then(() => {
   setTimeout(() => {
+    if (scenario === 'session-end') {
+      const targetWindow = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
+      if (!targetWindow) throw new Error('runtime session-end probe window was not created');
+      let prevented = false;
+      targetWindow.emit('query-session-end', {
+        preventDefault: () => { prevented = true; },
+      });
+      const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
+      setTimeout(() => {
+        const logText = fs.readFileSync(path.join(userData, 'debug.log'), 'utf8');
+        sessionEndObservation = {
+          prevented,
+          recoverySettingsDirtyKeys: state.shutdownRecovery?.settings?.dirtyKeys || [],
+          recoveryChecklistOperationIds: state.shutdownRecovery?.checklist?.operationIds || [],
+          walCheckpointLogged: logText.includes('[DiaryDB] WAL Checkpoint executed:'),
+        };
+        quitRequestedAt = Date.now();
+        app.quit();
+      }, 50);
+      return;
+    }
     quitRequestedAt = Date.now();
     app.quit();
     if (scenario === 'timeout') setTimeout(() => app.quit(), 100);

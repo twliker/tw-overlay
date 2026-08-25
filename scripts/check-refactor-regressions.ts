@@ -114,7 +114,7 @@ function checkShutdownRecoveryAcrossProcessRestarts(): void {
 
 function checkMainQuitRecoveryScenarios(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-quit-recovery-probe.js');
-  const scenarios = ['settings', 'checklist', 'both', 'timeout'] as const;
+  const scenarios = ['settings', 'checklist', 'both', 'timeout', 'session-end'] as const;
 
   for (const scenario of scenarios) {
     const probeRoot = path.join(isolatedUserData, `main-quit-recovery-${scenario}`);
@@ -146,9 +146,17 @@ function checkMainQuitRecoveryScenarios(): void {
       cancelledRequestCount: number;
       shutdownTimeoutLogged: boolean;
       beforeQuitCount: number;
+      sessionEndObservation: null | {
+        prevented: boolean;
+        recoverySettingsDirtyKeys: string[];
+        recoveryChecklistOperationIds: string[];
+        walCheckpointLogged: boolean;
+      };
     };
-    const expectsSettings = scenario === 'settings' || scenario === 'both' || scenario === 'timeout';
-    const expectsChecklist = scenario === 'checklist' || scenario === 'both' || scenario === 'timeout';
+    const expectsSettings = scenario === 'settings' || scenario === 'both'
+      || scenario === 'timeout' || scenario === 'session-end';
+    const expectsChecklist = scenario === 'checklist' || scenario === 'both'
+      || scenario === 'timeout' || scenario === 'session-end';
     const expectedOperationIds = expectsChecklist ? [`main-quit-${scenario}-operation`] : [];
     if (scenario === 'timeout') {
       assert.ok(summary.quitElapsedMs !== null
@@ -182,6 +190,17 @@ function checkMainQuitRecoveryScenarios(): void {
       `${scenario} main quit timeout 로그 상태가 다릅니다.`);
     assert.equal(summary.beforeQuitCount, scenario === 'timeout' ? 3 : 2,
       `${scenario} main quit의 외부 요청/finalizer 경계 횟수가 다릅니다.`);
+    if (scenario === 'session-end') {
+      assert.ok(summary.sessionEndObservation);
+      assert.equal(summary.sessionEndObservation.prevented, false,
+        'query-session-end fast path가 Windows 세션 종료를 취소했습니다.');
+      assert.deepEqual(summary.sessionEndObservation.recoverySettingsDirtyKeys, ['userServer']);
+      assert.deepEqual(summary.sessionEndObservation.recoveryChecklistOperationIds, expectedOperationIds);
+      assert.equal(summary.sessionEndObservation.walCheckpointLogged, true,
+        'query-session-end fast path가 WAL checkpoint를 동기식으로 끝내지 않았습니다.');
+    } else {
+      assert.equal(summary.sessionEndObservation, null);
+    }
   }
 }
 
