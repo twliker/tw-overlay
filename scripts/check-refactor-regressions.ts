@@ -4236,7 +4236,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '다음 실행에서 확인된 숙제 operation 기준으로 recovery marker를 정리하지 않습니다.');
 
   const mainSource = read('src/main.ts');
-  assert.match(mainSource, /if \(allowFinalQuit\) return;\s*event\.preventDefault\(\);\s*if \(shutdownStarted\) return;/,
+  assert.match(mainSource, /const decision = shutdownGate\.requestQuit\(\);[\s\S]*?decision === 'allow'[\s\S]*?event\.preventDefault\(\);[\s\S]*?decision === 'wait'/,
     'flush 중 두 번째 quit가 종료 finalizer를 우회할 수 있습니다.');
   assert.match(mainSource, /wm\.hideAllForShutdown\(\)[\s\S]*?config\.hasPending\(\)/,
     '종료 flush 전에 모든 창을 즉시 숨기지 않습니다.');
@@ -4244,6 +4244,16 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '종료 flush 시간초과·실패 시 진행 중인 Drive 요청을 취소하지 않습니다.');
   assert.match(mainSource, /diaryDb\.checkpointWal\(\);\s*if \(!diaryDb\.closeDb\(\)\)/,
     '종료 시 WAL checkpoint 후 DB를 닫지 않습니다.');
+
+  const shutdownCoordinator = require(path.join(projectRoot, 'dist', 'modules', 'shutdownCoordinator.js'));
+  const shutdownGate = shutdownCoordinator.createShutdownGate();
+  assert.equal(shutdownGate.requestQuit(), 'start');
+  assert.equal(shutdownGate.requestQuit(), 'wait');
+  shutdownGate.allowFinalQuit();
+  assert.equal(shutdownGate.requestQuit(), 'allow');
+  assert.equal(await shutdownCoordinator.drainShutdownTask(Promise.resolve(), 50), 'flushed');
+  assert.equal(await shutdownCoordinator.drainShutdownTask(Promise.reject(new Error('forced shutdown failure')), 50), 'failed');
+  assert.equal(await shutdownCoordinator.drainShutdownTask(new Promise(() => undefined), 5), 'timeout');
 
   const authSource = read('src/modules/googleAuth.ts');
   assert.match(authSource, /const loginGeneration = \+\+_loginGeneration/,

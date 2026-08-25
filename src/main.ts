@@ -37,6 +37,7 @@ import { buffTimerManager } from './modules/buffTimerManager';
 import * as scamMonitor from './modules/scamMonitor';
 import { etaCacheManager } from './modules/etaCacheManager';
 import * as cloudSync from './modules/cloudSyncManager';
+import { createShutdownGate, drainShutdownTask } from './modules/shutdownCoordinator';
 
 // ── 에러 트래킹 세팅 ──
 process.on('uncaughtException', (error) => {
@@ -254,14 +255,13 @@ app.whenReady().then(() => {
   setupUpdater(launchMainApp);
 });
 
-let shutdownStarted = false;
-let allowFinalQuit = false;
+const shutdownGate = createShutdownGate();
 
 app.on('before-quit', (event) => {
-  if (allowFinalQuit) return;
+  const decision = shutdownGate.requestQuit();
+  if (decision === 'allow') return;
   event.preventDefault();
-  if (shutdownStarted) return;
-  shutdownStarted = true;
+  if (decision === 'wait') return;
 
   appState.isQuitting = true;
   cloudSync.stopBackgroundSync();
@@ -289,20 +289,7 @@ app.on('before-quit', (event) => {
 
   // 창은 이미 숨긴 상태에서 클라우드 큐를 제한 시간만 drain하고, 시간초과 시 요청을 취소한다.
   void (async () => {
-    let timeout: NodeJS.Timeout | null = null;
-    let outcome: 'flushed' | 'timeout' | 'failed' = 'failed';
-    try {
-      outcome = await Promise.race([
-        cloudSync.flushPendingSync().then(() => 'flushed' as const),
-        new Promise<'timeout'>(resolve => {
-          timeout = setTimeout(() => resolve('timeout'), flushTimeoutMs);
-        }),
-      ]);
-    } catch (err) {
-      log(`[SHUTDOWN] 클라우드 flush 실패, recovery marker 유지: ${err}`);
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
+    const outcome = await drainShutdownTask(cloudSync.flushPendingSync(), flushTimeoutMs);
     if (outcome !== 'flushed') {
       log(`[SHUTDOWN] 클라우드 flush ${outcome}, 진행 요청을 취소하고 다음 실행에서 재확인합니다.`);
       cloudSync.cancelPendingShutdownRequests();
@@ -315,7 +302,7 @@ app.on('before-quit', (event) => {
     } catch (err) {
       log(`[SHUTDOWN] DB close error: ${err}`);
     }
-    allowFinalQuit = true;
+    shutdownGate.allowFinalQuit();
     app.quit();
   })();
 });
