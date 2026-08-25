@@ -54,7 +54,7 @@
 - [ ] Windows 로그오프와 시스템 종료가 지연되거나 취소되지 않는지 확인한다.
 - [ ] 재로그인 뒤 config, 숙제 outbox, 일지 DB와 WAL 데이터가 보존되는지 확인한다.
 
-부분 계측 기록(2026-08-26): `bdb3fdc` 기반 빈 userData 격리 source Electron을 자동 `app.quit()`으로 종료했을 때 visible window가 1개에서 22ms 안에 0개가 되었고 전체 quit는 26ms였다. `93d2922`에서는 Electron 진입 전에 `appData`를 격리한 fresh 프로필을 실제 Windows UI의 `Alt+F4`로 종료했다. 생산자 중지부터 WAL 72/72 checkpoint와 DB close까지 로그 시각 기준 9ms였고 프로세스 종료로 창과 트레이가 함께 제거됐다. 일반 종료의 3초 제한은 통과했지만 설정 dirty·숙제 outbox·응답 유실 변형과 로그오프·시스템 종료는 수행하지 않았으므로 나머지 항목은 대기로 둔다.
+부분 계측 기록(2026-08-26): `bdb3fdc` 기반 빈 userData 격리 source Electron을 자동 `app.quit()`으로 종료했을 때 visible window가 1개에서 22ms 안에 0개가 되었고 전체 quit는 26ms였다. `93d2922`에서는 Electron 진입 전에 `appData`를 격리한 fresh 프로필을 실제 Windows UI의 `Alt+F4`로 종료했다. 생산자 중지부터 WAL 72/72 checkpoint와 DB close까지 로그 시각 기준 9ms였고 프로세스 종료로 창과 트레이가 함께 제거됐다. `0884202`의 별도 Electron 프로세스 재시작 검사에서는 설정 dirty만, 숙제 outbox만, 두 파일 모두 dirty인 세 조합의 dirty key·operation ID·recovery marker가 디스크에 동일하게 보존됐다. 일반 종료의 3초 제한과 프로세스 경계 내구성은 통과했지만 실제 finalizer 중 각 dirty 조합, Drive 응답 유실·원격 재확인, 로그오프·시스템 종료는 수행하지 않았으므로 해당 체크 항목은 대기로 둔다.
 
 ## 4. DPI·모니터·RDP·창 크기
 
@@ -93,7 +93,7 @@
 | 항목 | 빌드/커밋 | 환경 | 시작~종료 시각 | 결과 | 증거/비고 |
 |---|---|---|---|---|---|
 | 두 PC 클라우드 | 대기 | PC-A / PC-B | 대기 | 대기 | |
-| 종료·로그오프 | `93d2922` | 격리 source Electron / Windows `Alt+F4` | 2026-08-26 06:15 KST | 부분 통과 | fresh 프로필 일반 종료 9ms, WAL 72/72, DB close·프로세스 종료 확인. dirty/recovery·로그오프·시스템 종료 대기 |
+| 종료·로그오프 | `93d2922`, `0884202` | 격리 source Electron / Windows `Alt+F4` / 별도 Electron 재시작 | 2026-08-26 06:15~06:36 KST | 부분 통과 | fresh 프로필 일반 종료 9ms, WAL 72/72, DB close·프로세스 종료 확인. 세 dirty 조합의 key·operation·marker 재시작 보존 확인. 실제 Drive 응답 유실·원격 재확인과 로그오프·시스템 종료 대기 |
 | DPI·모니터·RDP | `750ec60` | 격리 source Electron / 강제 100·125·150%·2×·3× | 2026-08-26 06:18~06:27 KST | 부분 통과 | DPR·창 clamp 확인, 854×464 계수 계산기 잘림 수정 및 scroll 검증. 실제 OS 배율 전환·게임 정렬·모니터/RDP 대기 |
 | Z-order 소크 | 대기 | 게임 실행 | 대기 | 대기 | |
 | 대형 로그 소크 | `be3c13b`, `85533d9`, `e034f88` | 격리 Electron / UTF-8·BOM·EUC-KR / Windows 독점 잠금 | 2026-08-26 | 부분 통과 | 8.05MB 전체 검색, 40→42.05MB 2분·14,400줄·메모리 trim, Tail 1/2/4/8/16초 복원, 잠긴 1/2 파일 부분 성공·해제 후 재수렴, 256KB 경계, 실제 프로세스 재시작·지정 폴더 이동 복구. 장시간 게임 로그 대기 |
