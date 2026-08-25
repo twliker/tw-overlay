@@ -33,6 +33,7 @@
 ### 채팅·렌더러·알림·창 관리
 
 - 비정상 대형 채팅 로그는 제한 읽기 모드로 전환하고, 주간 동기화는 유한 batch와 ACK, fingerprint, event ID, 내구 offset으로 재개한다.
+- Tail 오류 뒤 첫 재시도 때 로그 파일이 아직 없어도 같은 경로라면 1/2/4/8/16초 지수 백오프를 계속하며, 복원 뒤 기존 내용을 재생하지 않고 실시간 append부터 처리한다.
 - 채팅 history/search/live 요청의 generation을 분리하고 stale success/catch/finally가 최신 화면을 덮지 않게 했다.
 - 채팅 데이터는 메모리에 보존하되 실제 DOM은 viewport+overscan으로 제한한다. 가변 높이, prepend, live append, 폭 변경 뒤 스크롤 anchor를 복원한다.
 - 모험일지·갤러리·사운드 option의 외부 문자열은 escape 또는 DOM API로 렌더링하고 검증된 ID만 이벤트에 전달한다.
@@ -60,16 +61,17 @@ git diff --check
 - TypeScript 앱·스크립트 검사 통과
 - 전체 빌드 및 정적 회귀 검사 통과
 - Electron renderer behavior 검사 40개 통과
-- 확정 결함 75개 모두 코드·자동 검증 상태를 대조했으며, 그중 6개는 별도의 Windows 실기 재검증 상태를 유지한다.
+- 확정 결함 76개 모두 코드·자동 검증 상태를 대조했으며, 그중 6개는 별도의 Windows 실기 재검증 상태를 유지한다.
 - 채팅 20,000건 + 과거 150건 prepend + live 1,000건에서 실제 DOM 300개 미만, anchor 오차 2px 이내를 확인했다.
 - 교차 숙제 변경, 동일 필드 충돌, 응답 유실, overwrite, 재시작 재수렴, 부분 복원과 종료 recovery fixture를 통과했다.
 - 악성 문자열, DB 마이그레이션 실패·rollback, 대형/잠금/다중 바이트 채팅, scheduler·audio lifecycle fixture를 통과했다.
+- 실제 Electron 격리 검사에서 40MB 당일 로그에 4MB를 append한 뒤 최근 16MB 제한과 4,317줄 trim, 재시작 뒤 최근 marker 검색을 확인했다. Tail 오류 직후 파일을 일시 이동한 검사에서는 1초 실패 뒤 2초 재예약, 복원 후 기존 marker 1건 유지와 live marker 1건 처리를 확인했다.
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
 ## 4. 릴리즈 전 남은 실기 검증
 
-실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했으며 모든 결과 행은 현재 대기 상태다.
+실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
 
 - 실제 Google 계정과 서로 다른 두 PC에서 교차 업로드·pull·재시작 재수렴 확인
 - 실제 Windows 일반 종료, 로그오프, 시스템 종료에서 recovery marker·WAL 복구 확인
