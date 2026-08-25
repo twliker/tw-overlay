@@ -24,6 +24,20 @@ const { COLORS: CHAT_COLORS, stripShoutSuffix, getSystemColorGroup } = require('
 
 type HistoryCategory = 'General' | 'Team' | 'Club' | 'Whisper' | 'System';
 type HistoryMessageType = 'general' | 'team' | 'club' | 'whisper' | 'system';
+const MAX_TAIL_RETRY_ATTEMPTS = 5;
+
+export function getTailRetryDelayMs(attempt: number): number {
+  return Math.min(16000, 1000 * (2 ** Math.max(0, attempt - 1)));
+}
+
+export function releaseFailedTail(tail: { unwatch(): void }): null {
+  try {
+    tail.unwatch();
+  } catch {
+    // 이미 닫힌 watcher의 정리 오류는 재연결을 막지 않습니다.
+  }
+  return null;
+}
 
 function isSeedGainMessage(message: string): boolean {
   return /SEED|Seed|시드/i.test(message) && /(?:획득|습득|입수|얻었|받았|지급|증가|올랐|주웠)/.test(message);
@@ -104,6 +118,8 @@ class ChatLogManager {
   private _initialReadIndex: Record<string, number> = {};
   private readonly _lineNormalizer = new ChatLogLineNormalizer();
   private _normalizerFlushTimer: NodeJS.Timeout | null = null;
+  private _tailRetryTimer: NodeJS.Timeout | null = null;
+  private _tailRetryAttempts = 0;
   private _chatLogEncoding: ChatLogEncoding = 'euc-kr';
   private _recentHistoryMode = false;
   private _todayLineChars = 0;
@@ -138,6 +154,11 @@ class ChatLogManager {
       clearTimeout(this._normalizerFlushTimer);
       this._normalizerFlushTimer = null;
     }
+    if (this._tailRetryTimer) {
+      clearTimeout(this._tailRetryTimer);
+      this._tailRetryTimer = null;
+    }
+    this._tailRetryAttempts = 0;
     this._lineNormalizer.reset();
     this._currentFilePath = null;
     this._todayLines = [];
@@ -167,7 +188,7 @@ class ChatLogManager {
   /**
    * 파일 감시 초기화
    */
-  private initWatch(): void {
+  private initWatch(replayExisting = true): void {
     const filePath = this.getTodayFilePath();
     if (!filePath) {
       log('[CHAT_LOG] 로그 폴더가 설정되지 않았거나 유효하지 않습니다.');
@@ -181,36 +202,38 @@ class ChatLogManager {
     }
 
     // [추가] 새 파일을 읽기 시작할 때, 상단 헤더를 읽어 날짜 정보를 파서에 전달
-    try {
-      const snapshot = readInitialChatLogSnapshot(filePath);
-      this._chatLogEncoding = snapshot.encoding;
-      this._recentHistoryMode = snapshot.limited;
-      const bounded = snapshot.limited
-        ? trimRecentChatLogLines(snapshot.lines)
-        : { lines: snapshot.lines, removedCount: 0, totalChars: snapshot.lines.reduce((sum, line) => sum + line.length + 1, 0) };
-      this._todayLines = bounded.lines;
-      this._todayLineChars = bounded.totalChars;
-      if (snapshot.damaged) {
-        log(`[CHAT_LOG] 문자 손상이 감지되었습니다. 일부 로그를 해석하지 못할 수 있습니다: ${filePath}`);
-      }
-      if (snapshot.limited) {
-        log(`[CHAT_LOG] 대형 로그 최근 구간 모드: ${(snapshot.fileSize / 1024 / 1024).toFixed(1)}MB, ${this._todayLines.length}줄 유지`);
-      }
-      
-      for (let i = 0; i < Math.min(this._todayLines.length, 20); i++) {
-        if (this._todayLines[i].includes('Date :')) {
-          chatParser.parseLine(this._todayLines[i]);
-          break;
+    if (replayExisting) {
+      try {
+        const snapshot = readInitialChatLogSnapshot(filePath);
+        this._chatLogEncoding = snapshot.encoding;
+        this._recentHistoryMode = snapshot.limited;
+        const bounded = snapshot.limited
+          ? trimRecentChatLogLines(snapshot.lines)
+          : { lines: snapshot.lines, removedCount: 0, totalChars: snapshot.lines.reduce((sum, line) => sum + line.length + 1, 0) };
+        this._todayLines = bounded.lines;
+        this._todayLineChars = bounded.totalChars;
+        if (snapshot.damaged) {
+          log(`[CHAT_LOG] 문자 손상이 감지되었습니다. 일부 로그를 해석하지 못할 수 있습니다: ${filePath}`);
         }
+        if (snapshot.limited) {
+          log(`[CHAT_LOG] 대형 로그 최근 구간 모드: ${(snapshot.fileSize / 1024 / 1024).toFixed(1)}MB, ${this._todayLines.length}줄 유지`);
+        }
+
+        for (let i = 0; i < Math.min(this._todayLines.length, 20); i++) {
+          if (this._todayLines[i].includes('Date :')) {
+            chatParser.parseLine(this._todayLines[i]);
+            break;
+          }
+        }
+        // 앱 시작 시 오늘 로그 전체를 히스토리에 채우기 (알림/DB 저장 없이)
+        this.replayTodayLog(this._todayLines);
+      } catch (e) {
+        log(`[CHAT_LOG] 초기 날짜 읽기 실패: ${e}`);
       }
-      // 앱 시작 시 오늘 로그 전체를 히스토리에 채우기 (알림/DB 저장 없이)
-      this.replayTodayLog(this._todayLines);
-    } catch (e) {
-      log(`[CHAT_LOG] 초기 날짜 읽기 실패: ${e}`);
     }
 
     try {
-      this._tail = new Tail(filePath, {
+      const tail = new Tail(filePath, {
         fromBeginning: false,
         follow: true,
         useWatchFile: true, // 네트워크 드라이브나 특정 윈도우 환경 대응
@@ -218,15 +241,20 @@ class ChatLogManager {
         encoding: 'binary' // 원본 바이너리 보존을 위해 binary로 읽음
       });
 
-      this._tail.on('line', (data: string) => {
+      this._tail = tail;
+      tail.on('line', (data: string) => {
+        this._tailRetryAttempts = 0;
         // 바이너리 문자열을 Buffer로 변환 후 초기 파일에서 판별한 문자셋으로 디코딩
         const buffer = Buffer.from(data, 'binary');
         const decodedLine = iconv.decode(buffer, this._chatLogEncoding);
         this.consumeDecodedLine(decodedLine);
       });
 
-      this._tail.on('error', (error) => {
+      tail.on('error', (error) => {
         log(`[CHAT_LOG] Tail 오류: ${error}`);
+        if (this._tail !== tail) return;
+        this._tail = releaseFailedTail(tail);
+        this.scheduleTailReconnect(filePath);
       });
 
       this._currentFilePath = filePath;
@@ -234,7 +262,22 @@ class ChatLogManager {
 
     } catch (err) {
       log(`[CHAT_LOG] 감시 시작 실패: ${err}`);
+      this._tail = null;
+      this.scheduleTailReconnect(filePath);
     }
+  }
+
+  private scheduleTailReconnect(filePath: string): void {
+    if (this._tailRetryTimer || this._tail || this._tailRetryAttempts >= MAX_TAIL_RETRY_ATTEMPTS) return;
+    const attempt = ++this._tailRetryAttempts;
+    const delayMs = getTailRetryDelayMs(attempt);
+    log(`[CHAT_LOG] 파일 감시 재연결 예약: ${delayMs}ms 후 (${attempt}/${MAX_TAIL_RETRY_ATTEMPTS})`);
+    this._tailRetryTimer = setTimeout(() => {
+      this._tailRetryTimer = null;
+      const currentPath = this.getTodayFilePath();
+      if (currentPath !== filePath || !fs.existsSync(filePath)) return;
+      this.initWatch(false);
+    }, delayMs);
   }
 
   private consumeDecodedLine(decodedLine: string): void {

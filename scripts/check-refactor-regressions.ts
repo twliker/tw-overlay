@@ -4875,6 +4875,32 @@ function checkLargeChatLogReadBoundary(): void {
   assert.ok(trimmed.totalChars <= 80);
 }
 
+function checkChatTailRecoveryBoundary(): void {
+  const {
+    getTailRetryDelayMs,
+    releaseFailedTail,
+  } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogManager.js')) as {
+    getTailRetryDelayMs(attempt: number): number;
+    releaseFailedTail(tail: { unwatch(): void }): null;
+  };
+  assert.deepEqual(
+    [1, 2, 3, 4, 5, 6].map(getTailRetryDelayMs),
+    [1000, 2000, 4000, 8000, 16000, 16000],
+  );
+  let unwatchCount = 0;
+  const released = releaseFailedTail({ unwatch: () => { unwatchCount++; } });
+  assert.equal(released, null);
+  assert.equal(unwatchCount, 1);
+  assert.doesNotThrow(() => releaseFailedTail({ unwatch: () => { throw new Error('already closed'); } }));
+
+  const managerSource = read('src/modules/chatLogManager.ts');
+  assert.match(
+    managerSource,
+    /tail\.on\('error',[\s\S]*?this\._tail = releaseFailedTail\(tail\);[\s\S]*?this\.scheduleTailReconnect\(filePath\);/,
+    'Tail 오류 뒤 watcher 해제/null 처리와 재연결 예약이 이어지지 않습니다.',
+  );
+}
+
 checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
@@ -4885,6 +4911,7 @@ checkShoutSuffixStripping();
 checkMandatoryUpdateLogic();
 checkCustomTabHistoryContracts();
 checkLargeChatLogReadBoundary();
+checkChatTailRecoveryBoundary();
 checkPendingHomeworkOrdering();
 checkLegacyHomeworkMergeContracts();
 checkHomeworkSourceEventIdContracts();
