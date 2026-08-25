@@ -728,6 +728,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   const mainSource = read('src/main.ts');
   const placementSource = read('src/modules/windowPlacement.ts');
   const displayStabilizerSource = read('src/modules/displayTopologyStabilizer.ts');
+  const indexSource = read('src/index.html');
   const registrySource = read('src/modules/managedWindowRegistry.ts');
   const moveTrackerSource = read('src/modules/programmaticMoveTracker.ts');
   const layoutSource = read('src/modules/windowLayout.ts');
@@ -800,6 +801,14 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     '브라우저 오버레이의 디스플레이 복구 이동이 사용자 이동으로 저장될 수 있습니다.');
   assert.match(displayStabilizerSource, /candidateSignature[\s\S]*?stableDurationMs[\s\S]*?maxWaitMs/,
     'RDP 전환 중 임시 화면 구성을 건너뛰는 안정화 판정이 없습니다.');
+  assert.match(indexSource, /const interactiveToasts = window\.createInteractiveToastRegistry[\s\S]*?updateIgnoreMouseEvents\(!hasInteractiveToast\)/,
+    'interactive 토스트 참조 수와 사이드바 click-through 상태가 연결되지 않았습니다.');
+  assert.match(indexSource, /scam-toast-[\s\S]*?onclick="removeToast\('\$\{toastId\}', event\)"/,
+    '사기 탐지 토스트 닫기 버튼이 공통 제거 경로를 사용하지 않습니다.');
+  assert.match(indexSource, /appendInteractiveToast\(toast\);[\s\S]*?setTimeout\(\(\) => \{ removeToast\(toastId\); \}, 30000\)/,
+    '사기 탐지 토스트 자동 만료가 공통 제거 경로를 사용하지 않습니다.');
+  assert.doesNotMatch(indexSource, /onclick="document\.getElementById\('\$\{toastId\}'\)\?\.remove\(\)"/,
+    'click-through 복구를 우회하는 토스트 직접 제거가 남아 있습니다.');
   assert.match(
     manager,
     /export function resetGameSessionState\(\)[\s\S]*?lastForegroundSize = null;/,

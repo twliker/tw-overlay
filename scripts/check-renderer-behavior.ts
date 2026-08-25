@@ -1096,6 +1096,10 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     path.join(projectRoot, 'dist', 'shared', 'chatChannels.js'),
     'utf8',
   );
+  const uiUtilsCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'),
+    'utf8',
+  );
   const sidebarCategoriesCode = fs.readFileSync(
     path.join(projectRoot, 'dist', 'shared', 'sidebarCategories.js'),
     'utf8',
@@ -1131,6 +1135,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
 
   const result = await window.webContents.executeJavaScript(`
     (async () => {
+      ${uiUtilsCode}
       ${chatChannelsCode}
       ${sidebarCategoriesCode}
       ${alertsCode}
@@ -1449,6 +1454,14 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         showSidebarToast: sidebarToastInput.checked
       };
 
+      const toastInteractionCounts = [];
+      const toastRegistry = window.createInteractiveToastRegistry(count => toastInteractionCounts.push(count));
+      toastRegistry.add('boss-toast');
+      toastRegistry.add('scam-toast');
+      toastRegistry.remove('boss-toast');
+      toastRegistry.remove('boss-toast');
+      toastRegistry.remove('scam-toast');
+
       return {
         alertShown: alert.classList.contains('show'),
         keywordText: tag.firstChild?.textContent,
@@ -1524,6 +1537,10 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
           generalBinding,
           chatAndAlertBinding,
           overlayAndRadioBinding
+        },
+        toastRegistry: {
+          counts: toastInteractionCounts,
+          finalCount: toastRegistry.count()
         }
       };
     })()
@@ -1540,6 +1557,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     menuManagement: Record<string, unknown>;
     audioControls: Record<string, unknown>;
     configBinding: Record<string, unknown>;
+    toastRegistry: { counts: number[]; finalCount: number };
   };
 
   assert.equal(result.alertShown, true);
@@ -1547,6 +1565,10 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
   assert.equal(result.removeCount, 1);
   assert.equal(result.soundName, '<img id="injected-sound">알림음');
   assert.equal(result.injectedCount, 0);
+  assert.deepEqual(result.toastRegistry, {
+    counts: [1, 2, 1, 0],
+    finalCount: 0,
+  }, '동시 토스트 중 하나만 종료했을 때 click-through 참조가 조기 해제됩니다.');
   assert.deepEqual(result.overlaySettings, {
     width: 512,
     height: 400,

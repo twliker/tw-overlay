@@ -212,6 +212,9 @@ interface Window {
     analysisReason?: string;
     detectedScamTypes?: string;
   }): ScamToastPresentation;
+  createInteractiveToastRegistry(
+    onCountChanged: (count: number) => void,
+  ): InteractiveToastRegistry;
   showChatLogWarningBanner(options?: { variant?: 'overlay' }): void;
   bindChatLogStatusWarning(options?: { variant?: 'overlay' }): void;
   gameOverlayAlerts: GameOverlayAlerts;
@@ -245,4 +248,10 @@ interface Window {
   testLokagos(type?: string, zone?: string): void;
   testEthos(passwordOrDirection?: string): void;
   testAbyssApostle(): void;
+}
+
+interface InteractiveToastRegistry {
+  add(id: string): void;
+  remove(id: string): void;
+  count(): number;
 }

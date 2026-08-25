@@ -238,6 +238,27 @@ window.getScamToastPresentation = function (result: {
   };
 };
 
+/** 여러 interactive 토스트의 수명을 ID로 추적해 마지막 토스트 종료 시점을 정확히 알립니다. */
+window.createInteractiveToastRegistry = function (
+  onCountChanged: (count: number) => void,
+): InteractiveToastRegistry {
+  const ids = new Set<string>();
+  return {
+    add(id: string): void {
+      const previousSize = ids.size;
+      ids.add(id);
+      if (ids.size !== previousSize) onCountChanged(ids.size);
+    },
+    remove(id: string): void {
+      if (!ids.delete(id)) return;
+      onCountChanged(ids.size);
+    },
+    count(): number {
+      return ids.size;
+    },
+  };
+};
+
 // 채팅 로그 경로가 유효하지 않을 때 모든 렌더러에서 공통으로 표시하는 경고 배너
 window.showChatLogWarningBanner = function (
   options: { variant?: 'overlay' } = {},

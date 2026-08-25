@@ -494,6 +494,18 @@
       }
     }
 
+    const interactiveToasts = window.createInteractiveToastRegistry((count) => {
+      const hasInteractiveToast = count > 0;
+      updateIgnoreMouseEvents(!hasInteractiveToast);
+      updateSidebarWindowWidth(hasInteractiveToast ? 400 : 50);
+    });
+
+    function appendInteractiveToast(toast) {
+      toastContainer.appendChild(toast);
+      interactiveToasts.add(toast.id);
+      refreshIcons();
+    }
+
     function createToast(bossName, isCustomFromApi, spawnTime, offset, isAlreadyRecorded) {
       const {
         isRealBoss,
@@ -534,10 +546,7 @@
         </div>` : ''}
       `;
 
-      toastContainer.appendChild(toast);
-      refreshIcons();
-      updateIgnoreMouseEvents(false);
-      updateSidebarWindowWidth(400); // 알림 생성 시 즉시 너비 확장 (짤림 방지)
+      appendInteractiveToast(toast);
 
       // 자동 삭제 타이머
       let duration = 5000; // 커스텀 알림 기본 5초
@@ -551,12 +560,12 @@
       if (event) event.stopPropagation();
       const toast = document.getElementById(id);
       if (toast) {
+        if (toast.dataset.removing === 'true') return;
+        toast.dataset.removing = 'true';
         toast.classList.remove('show');
         setTimeout(() => {
           if (toast.parentElement) toast.remove();
-          if (toastContainer.children.length === 0) {
-            updateIgnoreMouseEvents(true);
-          }
+          interactiveToasts.remove(id);
         }, 300);
       }
     }
@@ -709,7 +718,7 @@
         colorClass,
         reason,
       } = window.getScamToastPresentation(result);
-      const toastId = 'scam-toast-' + Date.now();
+      const toastId = 'scam-toast-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
       const toast = document.createElement('div');
       toast.id = toastId;
       toast.className = 'boss-toast show';
@@ -724,7 +733,7 @@
               ${reason ? `<div class="text-xs text-slate-400 mt-1 leading-snug line-clamp-2">${reason}</div>` : ''}
             </div>
           </div>
-          <button onclick="document.getElementById('${toastId}')?.remove()" class="p-1 text-slate-400 hover:text-white bg-white/5 hover:bg-red-500/80 rounded-md transition-colors shrink-0">
+          <button onclick="removeToast('${toastId}', event)" class="p-1 text-slate-400 hover:text-white bg-white/5 hover:bg-red-500/80 rounded-md transition-colors shrink-0">
             <i data-lucide="x" class="w-3.5 h-3.5"></i>
           </button>
         </div>
@@ -733,11 +742,8 @@
         </div>
       `;
 
-      toastContainer.appendChild(toast);
-      refreshIcons();
-      updateIgnoreMouseEvents(false);
-      updateSidebarWindowWidth(400);
-      setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 30000);
+      appendInteractiveToast(toast);
+      setTimeout(() => { removeToast(toastId); }, 30000);
     });
 
     window.electronAPI.onSidebarStatus((collapsed) => {
