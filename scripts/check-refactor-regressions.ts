@@ -4278,10 +4278,21 @@ function checkMissedCustomAlertContracts(): void {
 }
 
 function checkMissedBossAlertContracts(): void {
-  const { getDueBossAlertsAt } = require(
+  const {
+    getDueBossAlertsAt,
+    formatBossDateKey,
+    getScheduledBossAnalyticsAt,
+    takeUntrackedBossAnalytics,
+  } = require(
     path.join(projectRoot, 'dist', 'modules', 'bossNotifier.js'),
   ) as {
     getDueBossAlertsAt(config: Record<string, unknown>, now: Date): Array<{ name: string; offset: number }>;
+    formatBossDateKey(now: Date): string;
+    getScheduledBossAnalyticsAt(now: Date): Array<{ eventName: string; analyticsKey: string }>;
+    takeUntrackedBossAnalytics(
+      now: Date,
+      trackedKeys: Set<string>,
+    ): Array<{ eventName: string; analyticsKey: string }>;
   };
   const bossConfig = {
     fieldBossNotifyEnabled: true,
@@ -4300,12 +4311,31 @@ function checkMissedBossAlertContracts(): void {
       .map(due => ({ name: due.name, offset: due.offset })),
     [{ name: '골론', offset: 0 }],
   );
+  assert.equal(formatBossDateKey(new Date(2026, 0, 15, 23, 59)), '2026-01-15');
+  assert.equal(formatBossDateKey(new Date(2026, 1, 15, 0, 0)), '2026-02-15',
+    '보스 알림 정리 날짜 키가 월 경계를 구분하지 않습니다.');
+  assert.deepEqual(
+    getScheduledBossAnalyticsAt(new Date(2026, 7, 25, 13, 0)),
+    [
+      { eventName: 'boss_time_골모답', analyticsKey: '2026-08-25 13:00_골모답' },
+      { eventName: 'boss_time_혼란한_대지', analyticsKey: '2026-08-25 13:00_혼란한 대지' },
+    ],
+  );
+  const trackedAnalyticsKeys = new Set<string>();
+  assert.equal(takeUntrackedBossAnalytics(new Date(2026, 7, 25, 13, 0), trackedAnalyticsKeys).length, 2);
+  assert.equal(takeUntrackedBossAnalytics(new Date(2026, 7, 25, 13, 0), trackedAnalyticsKeys).length, 0,
+    '같은 분 보스 analytics 재검사가 중복 이벤트를 반환했습니다.');
 
   const bossSource = read('src/modules/bossNotifier.ts');
   assert.match(bossSource, /minuteScheduler\.start\(checkBossTime, recordMissedBossAlerts\)/,
     '필드보스 알림이 절전 중 놓친 분 기록 콜백을 등록하지 않습니다.');
   assert.match(bossSource, /diaryDb\.addAlarmLog\('boss', '절전 중 놓친 알람'/,
     '절전 중 놓친 필드보스 알림을 이력에 기록하지 않습니다.');
+  assert.match(bossSource,
+    /takeUntrackedBossAnalytics\(now, _trackedBossAnalyticsKeys\)[\s\S]*?analytics\.trackEvent/,
+    '같은 분 재검사에서 보스 analytics 중복 기록을 차단하지 않습니다.');
+  assert.match(bossSource, /let _lastCleanupDate = formatBossDateKey\(new Date\(\)\)/,
+    '보스 알림 Set 정리 경계가 연-월-일 키를 사용하지 않습니다.');
 }
 
 async function checkGoogleSyncDataContracts(): Promise<void> {

@@ -49,9 +49,34 @@ interface DueBossAlert extends BossTime {
   soundFile: string;
 }
 
+export function formatBossDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function formatBossMinuteKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  return `${formatBossDateKey(date)}`
     + ` ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+export function getScheduledBossAnalyticsAt(now: Date): Array<{ eventName: string; analyticsKey: string }> {
+  const minuteKey = formatBossMinuteKey(now);
+  const HHmmNow = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return BOSS_SCHEDULE
+    .filter(boss => boss.time === HHmmNow)
+    .map(boss => ({
+      eventName: `boss_time_${boss.name.replace(/\s+/g, '_')}`,
+      analyticsKey: `${minuteKey}_${boss.name}`,
+    }));
+}
+
+export function takeUntrackedBossAnalytics(
+  now: Date,
+  trackedKeys: Set<string>
+): Array<{ eventName: string; analyticsKey: string }> {
+  const untracked = getScheduledBossAnalyticsAt(now)
+    .filter(scheduled => !trackedKeys.has(scheduled.analyticsKey));
+  for (const scheduled of untracked) trackedKeys.add(scheduled.analyticsKey);
+  return untracked;
 }
 
 /** 실제 보스 알림과 절전 중 놓친 이력이 같은 오프셋/개별 보스 설정을 사용한다. */
@@ -86,7 +111,8 @@ export function getBossTimes(bossName: string): string[] {
 
 const minuteScheduler = new MinuteAlignedScheduler();
 const _notifiedBossKeys = new Set<string>();
-let _lastCleanupDate = new Date().getDate();
+const _trackedBossAnalyticsKeys = new Set<string>();
+let _lastCleanupDate = formatBossDateKey(new Date());
 
 /** 알림 루프 시작 */
 export function start(): void {
@@ -101,9 +127,12 @@ export function stop(): void {
 
 function checkBossTime(): void {
   // 날짜 변경 시 알림 디듀플 셋 정리
-  const currentDate = new Date().getDate();
-  if (currentDate !== _lastCleanupDate || _notifiedBossKeys.size > 500) {
+  const now = new Date();
+  const currentDate = formatBossDateKey(now);
+  if (currentDate !== _lastCleanupDate
+    || _notifiedBossKeys.size + _trackedBossAnalyticsKeys.size > 500) {
     _notifiedBossKeys.clear();
+    _trackedBossAnalyticsKeys.clear();
     _lastCleanupDate = currentDate;
   }
 
@@ -114,13 +143,9 @@ function checkBossTime(): void {
     wm.applySettings({});
   }
 
-  const now = new Date();
-  const HHmmNow = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const scheduledBosses = BOSS_SCHEDULE.filter(b => b.time === HHmmNow);
-  scheduledBosses.forEach(scheduledBoss => {
-    const eventName = 'boss_time_' + scheduledBoss.name.replace(/\s+/g, '_');
-    analytics.trackEvent(eventName);
-  });
+  for (const scheduled of takeUntrackedBossAnalytics(now, _trackedBossAnalyticsKeys)) {
+    analytics.trackEvent(scheduled.eventName);
+  }
 
   const cfg = config.load();
   for (const due of getDueBossAlertsAt(cfg, now)) {
