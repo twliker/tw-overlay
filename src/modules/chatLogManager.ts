@@ -39,6 +39,10 @@ export function releaseFailedTail(tail: { unwatch(): void }): null {
   return null;
 }
 
+export function shouldAutoDiscoverChatLogPath(configuredPath: unknown): boolean {
+  return typeof configuredPath !== 'string' || configuredPath.trim().length === 0;
+}
+
 function isSeedGainMessage(message: string): boolean {
   return /SEED|Seed|시드/i.test(message) && /(?:획득|습득|입수|얻었|받았|지급|증가|올랐|주웠)/.test(message);
 }
@@ -785,8 +789,8 @@ class ChatLogManager {
   private checkFileChange(): void {
     let cfg = config.load();
 
-    // 1. 만약 config에 chatLogPath가 없거나, 설정된 경로가 실제로 존재하지 않는 경우 자동 탐색을 재시도
-    if (!cfg.chatLogPath || !fs.existsSync(cfg.chatLogPath)) {
+    // 설정값이 비어 있을 때만 자동 탐색합니다. 지정 경로의 일시 장애는 설정을 바꾸지 않습니다.
+    if (shouldAutoDiscoverChatLogPath(cfg.chatLogPath)) {
       const foundPath = findChatLogPath();
       if (foundPath) {
         config.save({ chatLogPath: foundPath });

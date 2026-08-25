@@ -4879,9 +4879,11 @@ function checkChatTailRecoveryBoundary(): void {
   const {
     getTailRetryDelayMs,
     releaseFailedTail,
+    shouldAutoDiscoverChatLogPath,
   } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogManager.js')) as {
     getTailRetryDelayMs(attempt: number): number;
     releaseFailedTail(tail: { unwatch(): void }): null;
+    shouldAutoDiscoverChatLogPath(configuredPath: unknown): boolean;
   };
   assert.deepEqual(
     [1, 2, 3, 4, 5, 6].map(getTailRetryDelayMs),
@@ -4892,6 +4894,9 @@ function checkChatTailRecoveryBoundary(): void {
   assert.equal(released, null);
   assert.equal(unwatchCount, 1);
   assert.doesNotThrow(() => releaseFailedTail({ unwatch: () => { throw new Error('already closed'); } }));
+  assert.equal(shouldAutoDiscoverChatLogPath(''), true);
+  assert.equal(shouldAutoDiscoverChatLogPath('   '), true);
+  assert.equal(shouldAutoDiscoverChatLogPath('Z:\\Temporarily-Offline\\ChatLog'), false);
 
   const managerSource = read('src/modules/chatLogManager.ts');
   assert.match(
