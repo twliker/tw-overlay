@@ -61,7 +61,7 @@ git diff --check
 - TypeScript 앱·스크립트 검사 통과
 - 전체 빌드 및 정적 회귀 검사 통과
 - Electron renderer behavior 검사 40개 통과
-- 확정 결함 77개 모두 코드·자동 검증 상태를 대조했으며, Windows 실기 항목은 실제 증거가 확보된 범위만 개별 완료 처리한다.
+- 확정 결함 78개 모두 코드·자동 검증 상태를 대조했으며, Windows 실기 항목은 실제 증거가 확보된 범위만 개별 완료 처리한다.
 - 채팅 20,000건 + 과거 150건 prepend + live 1,000건에서 실제 DOM 300개 미만, anchor 오차 2px 이내를 확인했다.
 - 교차 숙제 변경, 동일 필드 충돌, 응답 유실, overwrite, 재시작 재수렴, 부분 복원과 종료 recovery fixture를 통과했다.
 - 악성 문자열, DB 마이그레이션 실패·rollback, 대형/잠금/다중 바이트 채팅, scheduler·audio lifecycle fixture를 통과했다.
@@ -70,6 +70,7 @@ git diff --check
 - UTF-8, UTF-8 BOM, EUC-KR, 256KB 경계 직전에서 한글 멀티바이트가 갈라지는 UTF-8 실제 파일 4개를 Electron 주간 동기화로 처리해 SEED 4건을 반영했고, 재실행에서는 신규 반영이 0건임을 확인했다.
 - 8.05MB·50,002줄 정상 당일 로그는 전체 검색 모드를 유지해 앞·뒤 marker를 모두 찾았다. 파일 부재를 16초 최종 예약까지 유지한 Tail 검사는 1/2/4/8/16초 백오프를 모두 거쳐 복원됐고 기존 줄 중복 없이 live 한 줄만 추가했다.
 - 실제 Electron 프로세스를 종료·재시작한 주간 동기화는 첫 실행의 확정 offset 188과 SEED event ID를 재사용해 두 번째 실행 신규 반영 0건으로 끝났다. 사용자 지정 로그 폴더를 통째로 이동·복원하는 동안 config 경로는 유지됐고 watcher도 같은 경로로 복구됐다.
+- 40.0→42.05MB 로그에 2분간 14,400줄을 추가한 소크에서 최근 창은 16MB 도달 후 22,194줄을 제거해 12.77M chars로 복귀했다. heap 80.96→44.37MB, RSS 204.71→130.57MB, 최대 event-loop lag 14ms였다. 이 검사에서 유효 UTF-8 제한 구간을 손상으로 잘못 경고하는 E-11을 찾아 수정했다.
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
