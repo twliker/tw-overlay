@@ -61,7 +61,7 @@ git diff --check
 - TypeScript 앱·스크립트 검사 통과
 - 전체 빌드 및 정적 회귀 검사 통과
 - Electron renderer behavior 검사 40개 통과
-- 확정 결함 78개 모두 코드·자동 검증 상태를 대조했으며, Windows 실기 항목은 실제 증거가 확보된 범위만 개별 완료 처리한다.
+- 확정 결함 79개 모두 코드·자동 검증 상태를 대조했으며, Windows 실기 항목은 실제 증거가 확보된 범위만 개별 완료 처리한다.
 - 채팅 20,000건 + 과거 150건 prepend + live 1,000건에서 실제 DOM 300개 미만, anchor 오차 2px 이내를 확인했다.
 - 교차 숙제 변경, 동일 필드 충돌, 응답 유실, overwrite, 재시작 재수렴, 부분 복원과 종료 recovery fixture를 통과했다.
 - 악성 문자열, DB 마이그레이션 실패·rollback, 대형/잠금/다중 바이트 채팅, scheduler·audio lifecycle fixture를 통과했다.
@@ -72,7 +72,7 @@ git diff --check
 - 실제 Electron 프로세스를 종료·재시작한 주간 동기화는 첫 실행의 확정 offset 188과 SEED event ID를 재사용해 두 번째 실행 신규 반영 0건으로 끝났다. 사용자 지정 로그 폴더를 통째로 이동·복원하는 동안 config 경로는 유지됐고 watcher도 같은 경로로 복구됐다.
 - 40.0→42.05MB 로그에 2분간 14,400줄을 추가한 소크에서 최근 창은 16MB 도달 후 22,194줄을 제거해 12.77M chars로 복귀했다. heap 80.96→44.37MB, RSS 204.71→130.57MB, 최대 event-loop lag 14ms였다. 이 검사에서 유효 UTF-8 제한 구간을 손상으로 잘못 경고하는 E-11을 찾아 수정했다.
 - `93d2922` 격리 fresh 프로필을 실제 Windows UI의 `Alt+F4`로 종료했다. 생산자 중지, WAL 72/72 checkpoint, DB close와 프로세스 종료가 로그 시각 기준 9ms 안에 완료되어 일반 종료 3초 제한을 통과했다. dirty/recovery 변형과 로그오프·시스템 종료는 별도 실기로 남겼다.
-- `8715215` 격리 source Electron을 강제 100/125/150% 배율로 각각 시작해 renderer DPR 1/1.25/1.5를 확인했다. 2560×1392, 2048×1114, 1707×928 DIP 작업영역에서 대형 계수 계산기 창은 모두 영역 안에 맞았고 document scroll 크기가 client 크기를 넘지 않았다. 실제 OS 배율 전환·게임 오버레이 정렬·모니터/RDP는 별도 실기로 남겼다.
+- `8715215` 격리 source Electron을 강제 100/125/150% 배율로 각각 시작해 renderer DPR 1/1.25/1.5를 확인했다. 추가 2×/3× probe의 1280×696에서는 기존 계수 계산기 2열이 유지됐지만 854×464에서는 816px 창 안의 문서 폭이 998px로 남아 183px가 잘리는 F-09를 재현했다. `750ec60`에서 소형 입력 줄바꿈, 가이드 하단 배치, 문서 세로·테이블 가로 스크롤을 적용했고 동일 probe의 document client/scroll 폭 811/811px와 실제 세로 scroll 이동을 확인했다. 일반 1100px 2열·360px 가이드도 회귀 검사로 유지했다.
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
