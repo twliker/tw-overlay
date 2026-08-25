@@ -5,11 +5,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { app } from 'electron';
-import { AppConfig, ContentsCheckerItem, GoogleChecklistSyncOperation, GoogleSyncPayload, CharacterPreset } from '../shared/types';
+import {
+  AppConfig,
+  CharacterPreset,
+  ContentsCheckerItem,
+  GoogleChecklistSyncMutation,
+  GoogleChecklistSyncOperation,
+  GoogleSyncPayload,
+} from '../shared/types';
 import { log } from './logger';
 import { sanitizeExternalConfigPatch } from './config';
 
 const BACKUP_FILENAME = 'config.backup-sync.json';
+const MAX_SYNC_PAYLOAD_BYTES = 5 * 1024 * 1024;
 
 /** 설정 파일에만 저장하는 휴대 가능한 필드. */
 export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
@@ -282,6 +290,9 @@ export function buildChecklistSyncPayload(
   const payload = buildPayload('checklist', extractChecklistSyncData(cfg), installationId, generationId);
   payload.operations = cloneValue(operations.slice(-1_000));
   payload.operationsChecksum = calculateValueChecksum(payload.operations);
+  if (Buffer.byteLength(JSON.stringify(payload), 'utf-8') > MAX_SYNC_PAYLOAD_BYTES) {
+    throw new Error('숙제 동기화 payload가 허용 크기를 초과했습니다.');
+  }
   return payload;
 }
 
@@ -320,7 +331,7 @@ export function validateSyncPayload(
   } catch {
     return false;
   }
-  if (Buffer.byteLength(serialized, 'utf-8') > 5 * 1024 * 1024) return false;
+  if (Buffer.byteLength(serialized, 'utf-8') > MAX_SYNC_PAYLOAD_BYTES) return false;
 
   const allowedKeys = new Set<string>(expectedKind === 'settings'
     ? SETTINGS_SYNCABLE_KEYS
@@ -329,13 +340,18 @@ export function validateSyncPayload(
   if (!sanitizeExternalConfigPatch(value.data)) return false;
   if (expectedKind === 'checklist' && value.operations !== undefined) {
     if (!Array.isArray(value.operations) || value.operations.length > 1_000
-      || value.operations.some(operation => !isPlainObject(operation)
-        || typeof operation.id !== 'string' || operation.id.length > 200
-        || typeof operation.deviceId !== 'string' || operation.deviceId.length > 200
-        || typeof operation.createdAt !== 'number' || !Number.isFinite(operation.createdAt)
-        || !Array.isArray(operation.keys) || operation.keys.length > CHECKLIST_SYNCABLE_KEYS.length
-        || operation.keys.some(key => typeof key !== 'string'
-          || !CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig)))) return false;
+      || value.operations.some(operation => {
+        if (!isPlainObject(operation)
+          || typeof operation.id !== 'string' || operation.id.length > 200
+          || typeof operation.deviceId !== 'string' || operation.deviceId.length > 200
+          || typeof operation.createdAt !== 'number' || !Number.isFinite(operation.createdAt)
+          || !Array.isArray(operation.keys) || operation.keys.length > CHECKLIST_SYNCABLE_KEYS.length
+          || operation.keys.some(key => typeof key !== 'string'
+            || !CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig))
+          || !Array.isArray(operation.mutations) || operation.mutations.length > 10_000) return true;
+        const operationKeys = new Set(operation.keys as string[]);
+        return operation.mutations.some(mutation => !isValidChecklistMutation(mutation, operationKeys));
+      })) return false;
     if (typeof value.operationsChecksum !== 'string'
       || value.operationsChecksum !== calculateValueChecksum(value.operations)) return false;
   }
@@ -355,6 +371,160 @@ function resolveValue<T>(base: T | undefined, local: T | undefined, remote: T | 
   if (!remoteChanged) return cloneValue(local);
   // 동일 필드를 양쪽에서 바꾼 경우에는 실제 플레이 PC인 로컬을 우선한다.
   return cloneValue(local);
+}
+
+const BLOCKED_MUTATION_PATHS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function checklistEntityId(key: keyof AppConfig, value: any): string | null {
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string') return null;
+  if (key === 'pendingHomeworks') return `${value.id}:${value.resetCycleKey || 'unknown'}`;
+  return value.id;
+}
+
+/**
+ * 배열 인덱스가 아니라 숙제/캐릭터의 안정 ID로 mutation 경로를 만들기 위한 내부 표현.
+ * 서로 다른 PC에서 배열 순서가 달라도 같은 논리 필드를 가리킨다.
+ */
+function normalizeChecklistForMutations(data: Partial<AppConfig> | undefined): Record<string, unknown> {
+  const normalized: Record<string, unknown> = Object.create(null);
+  for (const key of CHECKLIST_SYNCABLE_KEYS) {
+    const collection: Record<string, unknown> = Object.create(null);
+    const values = data?.[key];
+    if (Array.isArray(values)) {
+      for (const value of values) {
+        const id = checklistEntityId(key, value);
+        if (id !== null && !BLOCKED_MUTATION_PATHS.has(id)) collection[id] = cloneValue(value);
+      }
+    }
+    normalized[String(key)] = collection;
+  }
+  return normalized;
+}
+
+function denormalizeChecklistMutations(normalized: Record<string, unknown>): Partial<AppConfig> {
+  const result: Partial<AppConfig> = {};
+  for (const key of CHECKLIST_SYNCABLE_KEYS) {
+    const collection = normalized[String(key)];
+    (result as any)[key] = isPlainObject(collection)
+      ? Object.values(collection).map(cloneValue)
+      : [];
+  }
+  return result;
+}
+
+function collectChecklistMutations(
+  before: unknown,
+  after: unknown,
+  path: string[],
+  result: GoogleChecklistSyncMutation[],
+  beforeExists = true,
+  afterExists = true,
+): void {
+  if (beforeExists === afterExists && valuesEqual(before, after)) return;
+  if (beforeExists && afterExists && isPlainObject(before) && isPlainObject(after)) {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    for (const key of keys) {
+      collectChecklistMutations(
+        before[key],
+        after[key],
+        [...path, key],
+        result,
+        Object.prototype.hasOwnProperty.call(before, key),
+        Object.prototype.hasOwnProperty.call(after, key),
+      );
+    }
+    return;
+  }
+  result.push({
+    path,
+    beforeExists,
+    afterExists,
+    ...(beforeExists ? { before: cloneValue(before) } : {}),
+    ...(afterExists ? { after: cloneValue(after) } : {}),
+  });
+}
+
+/** 마지막 로컬 기준과 저장 완료된 현재 숙제 상태 사이의 재실행 가능한 논리 mutation을 만든다. */
+export function createChecklistOperationMutations(
+  beforeData: Partial<AppConfig> | undefined,
+  afterData: Partial<AppConfig>,
+): GoogleChecklistSyncMutation[] {
+  const before = normalizeChecklistForMutations(beforeData);
+  const after = normalizeChecklistForMutations(afterData);
+  const result: GoogleChecklistSyncMutation[] = [];
+  collectChecklistMutations(before, after, [], result);
+  return result;
+}
+
+function isValidChecklistMutation(value: unknown, operationKeys?: Set<string>): value is GoogleChecklistSyncMutation {
+  if (!isPlainObject(value)
+    || !Array.isArray(value.path) || value.path.length < 2 || value.path.length > 32
+    || value.path.some(segment => typeof segment !== 'string' || segment.length === 0 || segment.length > 500
+      || BLOCKED_MUTATION_PATHS.has(segment))
+    || !CHECKLIST_SYNCABLE_KEYS.includes(value.path[0] as keyof AppConfig)
+    || (operationKeys && !operationKeys.has(value.path[0]))
+    || typeof value.beforeExists !== 'boolean'
+    || typeof value.afterExists !== 'boolean') return false;
+  if (value.beforeExists !== Object.prototype.hasOwnProperty.call(value, 'before')) return false;
+  if (value.afterExists !== Object.prototype.hasOwnProperty.call(value, 'after')) return false;
+  return true;
+}
+
+function readMutationPath(root: Record<string, unknown>, path: string[]): { exists: boolean; value?: unknown } {
+  let current: unknown = root;
+  for (const segment of path) {
+    if (!isPlainObject(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+      return { exists: false };
+    }
+    current = current[segment];
+  }
+  return { exists: true, value: current };
+}
+
+function writeMutationPath(
+  root: Record<string, unknown>,
+  path: string[],
+  exists: boolean,
+  value?: unknown,
+): void {
+  let current = root;
+  for (const segment of path.slice(0, -1)) {
+    if (!isPlainObject(current[segment])) current[segment] = Object.create(null);
+    current = current[segment] as Record<string, unknown>;
+  }
+  const leaf = path[path.length - 1];
+  if (exists) current[leaf] = cloneValue(value);
+  else delete current[leaf];
+}
+
+/** 원격에서 사라진 operation만 최신 원격 상태 위에 재실행한다. */
+export function replayChecklistOperations(
+  remoteData: Partial<AppConfig>,
+  operations: GoogleChecklistSyncOperation[],
+): Partial<AppConfig> {
+  const normalized = normalizeChecklistForMutations(remoteData);
+  const ordered = [...operations].sort((left, right) => left.createdAt - right.createdAt
+    || left.deviceId.localeCompare(right.deviceId)
+    || left.id.localeCompare(right.id));
+  for (const operation of ordered) {
+    const operationKeys = new Set(operation.keys);
+    for (const mutation of operation.mutations) {
+      if (!isValidChecklistMutation(mutation, operationKeys)) {
+        throw new Error(`숙제 operation ${operation.id}의 mutation 경로가 올바르지 않습니다.`);
+      }
+      const remote = readMutationPath(normalized, mutation.path);
+      const resolved = resolveValue(
+        mutation.beforeExists ? mutation.before : undefined,
+        mutation.afterExists ? mutation.after : undefined,
+        remote.exists ? remote.value : undefined,
+      );
+      writeMutationPath(normalized, mutation.path, resolved !== undefined, resolved);
+    }
+  }
+  const replayed = denormalizeChecklistMutations(normalized);
+  const sanitized = sanitizeExternalConfigPatch(replayed);
+  if (!sanitized) throw new Error('숙제 operation 재실행 결과가 설정 스키마를 벗어났습니다.');
+  return extractChecklistSyncData(sanitized as AppConfig);
 }
 
 function mergeRecordThreeWay(

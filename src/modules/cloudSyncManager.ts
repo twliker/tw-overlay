@@ -183,21 +183,20 @@ async function applyConfigFromCloud(nextConfig: AppConfig): Promise<void> {
     if (!config.saveImmediate(nextConfig)) {
       throw new Error(`클라우드 데이터를 로컬에 저장하지 못했습니다: ${config.getLastSaveError() || '알 수 없는 오류'}`);
     }
+    try {
+      const contentsChecker = await import('./contentsChecker');
+      contentsChecker.init();
+    } catch (error) {
+      log(`[CloudSyncManager] 숙제 화면 갱신 실패: ${error}`);
+    }
+    try {
+      const wm = await import('./windowManager');
+      wm.applySettings(nextConfig);
+    } catch (error) {
+      log(`[CloudSyncManager] 창 설정 갱신 실패: ${error}`);
+    }
   } finally {
     applyingCloud = false;
-  }
-
-  try {
-    const contentsChecker = await import('./contentsChecker');
-    contentsChecker.init();
-  } catch (error) {
-    log(`[CloudSyncManager] 숙제 화면 갱신 실패: ${error}`);
-  }
-  try {
-    const wm = await import('./windowManager');
-    wm.applySettings(nextConfig);
-  } catch (error) {
-    log(`[CloudSyncManager] 창 설정 갱신 실패: ${error}`);
   }
 }
 
@@ -238,7 +237,23 @@ async function receiveKind(
   const settingsKeysChangedDuringRequest = kind === 'settings'
     ? state.settingsDirtyKeys.filter(key => (state.settingsDirtyAt[key] || 0) > requestStartedAt)
     : [];
-  const nextConfig = combineRemoteIntoLocal(kind, payload, manualRestore, settingsKeysChangedDuringRequest);
+  let effectivePayload = payload;
+  if (kind === 'checklist') {
+    const remoteOperationIds = new Set((payload.operations || []).map(operation => operation.id));
+    const localOperations = new Map([
+      ...state.confirmedChecklistOperations,
+      ...state.checklistOutbox,
+    ].map(operation => [operation.id, operation]));
+    const missingOperations = Array.from(localOperations.values())
+      .filter(operation => !remoteOperationIds.has(operation.id));
+    if (missingOperations.length > 0) {
+      effectivePayload = {
+        ...payload,
+        data: syncDataHelper.replayChecklistOperations(payload.data, missingOperations),
+      };
+    }
+  }
+  const nextConfig = combineRemoteIntoLocal(kind, effectivePayload, manualRestore, settingsKeysChangedDuringRequest);
   await applyConfigFromCloud(nextConfig);
   cloudState.update(next => {
     next.remoteRevisions[kind] = remoteRevision;
@@ -254,7 +269,7 @@ async function receiveKind(
       const queuedIds = new Set(next.checklistOutbox.map(operation => operation.id));
       for (const missing of next.confirmedChecklistOperations) {
         if (!remoteOperationIds.has(missing.id) && !queuedIds.has(missing.id)) {
-          next.checklistOutbox.push({ id: missing.id, createdAt: missing.createdAt, keys: [...missing.keys] });
+          next.checklistOutbox.push(structuredClone(missing));
         }
       }
       const confirmedById = new Map(next.confirmedChecklistOperations.map(operation => [operation.id, operation]));
@@ -304,10 +319,17 @@ function markSettingsDirty(keys: string[]): void {
 function markChecklistDirty(keys: string[]): void {
   if (keys.length === 0) return;
   cloudState.update(state => {
+    const currentChecklist = syncDataHelper.extractChecklistSyncData(config.load());
+    const operationBase = syncDataHelper.replayChecklistOperations(
+      state.baseChecklist || {},
+      state.checklistOutbox,
+    );
     state.checklistOutbox.push({
       id: crypto.randomUUID(),
+      deviceId: state.deviceId,
       createdAt: Date.now(),
       keys: Array.from(new Set(keys)),
+      mutations: syncDataHelper.createChecklistOperationMutations(operationBase, currentChecklist),
     });
     state.checklistOutbox = state.checklistOutbox.slice(-1_000);
   });

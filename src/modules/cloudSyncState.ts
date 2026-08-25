@@ -12,11 +12,7 @@ import { log } from './logger';
 const STATE_FILE_NAME = 'cloud-sync-state.json';
 const STATE_SCHEMA_VERSION = 1;
 
-export interface ChecklistOutboxEntry {
-  id: string;
-  createdAt: number;
-  keys: string[];
-}
+export type ChecklistOutboxEntry = GoogleChecklistSyncOperation;
 
 export interface CloudSyncLocalState {
   schemaVersion: number;
@@ -107,15 +103,18 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
     checklistOutbox: Array.isArray(parsed.checklistOutbox)
       ? parsed.checklistOutbox.filter(entry => entry
         && typeof entry.id === 'string'
+        && typeof entry.deviceId === 'string'
         && typeof entry.createdAt === 'number'
-        && isStringArray(entry.keys)).slice(-1_000)
+        && isStringArray(entry.keys)
+        && Array.isArray(entry.mutations)).slice(-1_000)
       : [],
     confirmedChecklistOperations: Array.isArray(parsed.confirmedChecklistOperations)
       ? parsed.confirmedChecklistOperations.filter(entry => entry
         && typeof entry.id === 'string'
         && typeof entry.deviceId === 'string'
         && typeof entry.createdAt === 'number'
-        && isStringArray(entry.keys)).slice(-1_000)
+        && isStringArray(entry.keys)
+        && Array.isArray(entry.mutations)).slice(-1_000)
       : [],
     lastPullAt: typeof parsed.lastPullAt === 'number' ? parsed.lastPullAt : undefined,
   };

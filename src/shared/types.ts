@@ -602,6 +602,15 @@ export interface GoogleChecklistSyncOperation {
     deviceId: string;
     createdAt: number;
     keys: string[];
+    mutations: GoogleChecklistSyncMutation[];
+}
+
+export interface GoogleChecklistSyncMutation {
+    path: string[];
+    beforeExists: boolean;
+    afterExists: boolean;
+    before?: unknown;
+    after?: unknown;
 }
 
 export interface GoogleSyncMetaPayload {

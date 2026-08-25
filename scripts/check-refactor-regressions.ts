@@ -4093,6 +4093,105 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(threeWay.contentsCheckerItems.some((item: any) => item.id === 'custom-deleted-remotely'), false,
     '원격에서만 삭제한 커스텀 숙제가 다시 살아났습니다.');
 
+  // 교차 업로드에서 먼저 확인된 payload가 직후 다른 PC에 의해 덮인 경우를 재현한다.
+  // 회사 PC의 base/local은 이미 자신의 완료를 확인한 상태이고, 원격에는 집 PC의
+  // 서로 다른 완료만 남아 있다. operation 재게시 전에 두 변경을 모두 복구해야 한다.
+  const crossedCompanyBase = JSON.parse(JSON.stringify(baseChecklist));
+  crossedCompanyBase.contentsCheckerItems[0].completedState['char-1'] = {
+    isCompleted: true, currentCount: 1, lastCompletedAt: 3000,
+  };
+  const crossedCompanyLocal = {
+    ...sampleLocalConfig,
+    ...JSON.parse(JSON.stringify(crossedCompanyBase)),
+  };
+  const crossedHomeRemote = JSON.parse(JSON.stringify(baseChecklist));
+  crossedHomeRemote.contentsCheckerItems[0].completedState['char-2'] = {
+    isCompleted: true, currentCount: 1, lastCompletedAt: 3100,
+  };
+  const companyOperation = {
+    id: 'operation-company-complete',
+    deviceId: 'company-pc',
+    createdAt: 3000,
+    keys: ['contentsCheckerItems'],
+    mutations: syncDataHelper.createChecklistOperationMutations(baseChecklist, crossedCompanyBase),
+  };
+  const crossedRemoteWithReplay = syncDataHelper.replayChecklistOperations(
+    crossedHomeRemote,
+    [companyOperation],
+  );
+  const crossedMerged = syncDataHelper.mergeChecklistThreeWay(
+    crossedCompanyBase,
+    crossedCompanyLocal,
+    crossedRemoteWithReplay,
+  );
+  const crossedItem = crossedMerged.contentsCheckerItems.find((item: any) => item.id === 'daily-abyss');
+  assert.equal(crossedItem.completedState['char-1'].isCompleted, true,
+    '업로드 확인 직후 다른 PC가 덮어쓰면 먼저 확인된 회사 PC 완료가 사라집니다.');
+  assert.equal(crossedItem.completedState['char-2'].isCompleted, true,
+    '교차 업로드 복구 중 집 PC의 서로 다른 완료가 사라집니다.');
+
+  const crossConflictCases = [
+    {
+      name: '완료/횟수 충돌',
+      base: { isCompleted: false, currentCount: 0 },
+      company: { isCompleted: true, currentCount: 1, lastCompletedAt: 4000 },
+      home: { isCompleted: false, currentCount: 2, lastCompletedAt: 4100 },
+    },
+    {
+      name: '완료 해제/재완료 충돌',
+      base: { isCompleted: true, currentCount: 1, lastCompletedAt: 4200 },
+      company: { isCompleted: false, currentCount: 0, lastCompletedAt: 4200 },
+      home: { isCompleted: true, currentCount: 2, lastCompletedAt: 4300 },
+    },
+    {
+      name: '횟수 감소/증가 충돌',
+      base: { isCompleted: false, currentCount: 2, lastCompletedAt: 4400 },
+      company: { isCompleted: false, currentCount: 1, lastCompletedAt: 4400 },
+      home: { isCompleted: true, currentCount: 3, lastCompletedAt: 4500 },
+    },
+  ];
+  for (const [index, fixture] of crossConflictCases.entries()) {
+    const conflictBase = JSON.parse(JSON.stringify(baseChecklist));
+    conflictBase.contentsCheckerItems[0].completedState['char-1'] = fixture.base;
+    const conflictCompany = JSON.parse(JSON.stringify(conflictBase));
+    conflictCompany.contentsCheckerItems[0].completedState['char-1'] = fixture.company;
+    const conflictHome = JSON.parse(JSON.stringify(conflictBase));
+    conflictHome.contentsCheckerItems[0].completedState['char-1'] = fixture.home;
+    const homeOperation = {
+      id: `operation-home-${index}`,
+      deviceId: 'home-pc',
+      createdAt: 5000 + index,
+      keys: ['contentsCheckerItems'],
+      mutations: syncDataHelper.createChecklistOperationMutations(conflictBase, conflictHome),
+    };
+    const replayedCompanyOperation = JSON.parse(JSON.stringify({
+      id: `operation-company-${index}`,
+      deviceId: 'company-pc',
+      createdAt: 5100 + index,
+      keys: ['contentsCheckerItems'],
+      mutations: syncDataHelper.createChecklistOperationMutations(conflictBase, conflictCompany),
+    }));
+    const convergedRemote = syncDataHelper.replayChecklistOperations(conflictHome, [replayedCompanyOperation]);
+    const companyLocal = syncDataHelper.mergeChecklistThreeWay(conflictCompany, {
+      ...sampleLocalConfig,
+      ...conflictCompany,
+    }, convergedRemote);
+    const homeLocal = syncDataHelper.mergeChecklistThreeWay(conflictHome, {
+      ...sampleLocalConfig,
+      ...conflictHome,
+    }, convergedRemote);
+    assert.deepEqual(companyLocal, homeLocal, `${fixture.name}에서 회사/집 상태가 수렴하지 않았습니다.`);
+    const finalPayload = syncDataHelper.buildChecklistSyncPayload({
+      ...sampleLocalConfig,
+      ...convergedRemote,
+    }, 'company-pc', 'generation-cross', [homeOperation, replayedCompanyOperation]);
+    assert.equal(syncDataHelper.validateSyncPayload(finalPayload, 'checklist'), true,
+      `${fixture.name}의 재수렴 payload가 검증을 통과하지 못했습니다.`);
+    assert.deepEqual(finalPayload.operations.map((operation: any) => operation.id),
+      [homeOperation.id, replayedCompanyOperation.id],
+      `${fixture.name}의 최종 원격 payload에 두 operation ID가 남지 않았습니다.`);
+  }
+
   const dirtySettingsMerged = syncDataHelper.mergeSettingsSnapshot(sampleLocalConfig, settingsPayload, ['userServer']);
   assert.equal(dirtySettingsMerged.userServer, sampleLocalConfig.userServer,
     '아직 업로드하지 않은 로컬 설정이 원격 pull에 의해 사라졌습니다.');
@@ -4150,7 +4249,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(typeof initialState.deviceId, 'string');
   cloudSyncState.update((state: any) => {
     state.settingsDirtyKeys = ['userServer'];
-    state.checklistOutbox.push({ id: 'operation-1', createdAt: 1000, keys: ['contentsCheckerItems'] });
+    state.checklistOutbox.push({
+      id: 'operation-1', deviceId: state.deviceId, createdAt: 1000,
+      keys: ['contentsCheckerItems'], mutations: [],
+    });
   });
   cloudSyncState.resetCacheForTests();
   const persistedState = cloudSyncState.load();
@@ -4176,6 +4278,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const memoryFiles = new Map<string, { id: string; name: string; modifiedTime: string; payload: any }>();
   let nextFileId = 1;
   let uploadCount = 0;
+  let loseNextChecklistResponse = false;
   googleDrive.listSyncFiles = async () => Array.from(memoryFiles.values()).map(file => ({
     id: file.id,
     name: file.name,
@@ -4195,6 +4298,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       modifiedTime: new Date(Date.now() + uploadCount).toISOString(),
       payload: structuredClone(payloadValue),
     });
+    if (fileName === 'tw_overlay_checklist.json' && loseNextChecklistResponse) {
+      loseNextChecklistResponse = false;
+      throw new Error('mock checklist response lost after commit');
+    }
     return id;
   };
   googleDrive.cancelPendingRequests = () => undefined;
@@ -4211,6 +4318,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   ]);
   const uploadedSettings = Array.from(memoryFiles.values()).find(file => file.name === 'tw_overlay_settings.json')!;
   const uploadedChecklist = Array.from(memoryFiles.values()).find(file => file.name === 'tw_overlay_checklist.json')!;
+  const currentChecklistFile = () => Array.from(memoryFiles.values())
+    .find(file => file.name === 'tw_overlay_checklist.json')!;
   assert.equal(uploadedSettings.payload.data.contentsCheckerItems, undefined,
     '실제 설정 업로드 파일에 숙제 상태가 섞였습니다.');
   assert.equal(uploadedChecklist.payload.data.userServer, undefined,
@@ -4235,6 +4344,114 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(received.lastCompletedAt, 5000);
   assert.equal(uploadCount, uploadsBeforePull,
     '원격 숙제 변경을 적용한 직후 불필요한 echo upload가 발생했습니다.');
+  assert.equal(cloudSyncState.load().checklistOutbox.length, 0,
+    '원격 숙제 적용 직후 파생 설정 저장이 echo outbox를 만들었습니다.');
+
+  // 실제 매니저 흐름: 회사 PC 업로드가 확인된 직후 집 PC payload가 덮어쓴다.
+  const beforeCompanyPayload = structuredClone(uploadedChecklist.payload);
+  const baselineOperationIds = new Set((beforeCompanyPayload.operations || []).map((operation: any) => operation.id));
+  const companyItems = structuredClone(configModule.load().contentsCheckerItems);
+  const companyState = companyItems.find((item: any) => item.id === 'daily-abyss').completedState['char-1'];
+  companyState.isCompleted = false;
+  companyState.currentCount = 0;
+  companyState.lastCompletedAt = 6000;
+  configModule.saveImmediate({ contentsCheckerItems: companyItems });
+  const companyUpload = await cloudManager.syncToCloud(true);
+  assert.equal(companyUpload.success, true);
+  const companyPayload = structuredClone(currentChecklistFile().payload);
+  const companyOperationIds = (companyPayload.operations || [])
+    .map((operation: any) => operation.id)
+    .filter((id: string) => !baselineOperationIds.has(id));
+  assert.ok(companyOperationIds.length >= 1, '회사 PC의 로컬 operation이 payload에 기록되지 않았습니다.');
+
+  const homeData = structuredClone(beforeCompanyPayload.data);
+  const homeState = homeData.contentsCheckerItems
+    .find((item: any) => item.id === 'daily-abyss').completedState['char-2'];
+  homeState.isCompleted = true;
+  homeState.currentCount = 2;
+  homeState.lastCompletedAt = 6100;
+  const homeOperation = {
+    id: 'operation-home-overwrite',
+    deviceId: 'home-pc',
+    createdAt: 6100,
+    keys: ['contentsCheckerItems'],
+    mutations: syncDataHelper.createChecklistOperationMutations(beforeCompanyPayload.data, homeData),
+  };
+  const homePayload = syncDataHelper.buildChecklistSyncPayload({
+    ...configModule.load(),
+    ...homeData,
+  }, 'home-pc', companyPayload.generationId, [
+    ...(beforeCompanyPayload.operations || []),
+    homeOperation,
+  ]);
+  currentChecklistFile().payload = structuredClone(homePayload);
+  currentChecklistFile().modifiedTime = new Date(Date.now() + 20_000).toISOString();
+
+  const crossPull = await cloudManager.syncFromCloud(false);
+  assert.equal(crossPull.success, true);
+  await cloudManager.flushPendingSync();
+  const convergedItem = configModule.load().contentsCheckerItems
+    .find((item: any) => item.id === 'daily-abyss');
+  assert.equal(convergedItem.completedState['char-1'].isCompleted, false,
+    '집 PC overwrite 뒤 회사 PC의 완료 해제가 복원되지 않았습니다.');
+  assert.equal(convergedItem.completedState['char-2'].currentCount, 2,
+    '회사 PC operation 재게시 중 집 PC의 횟수 변경이 사라졌습니다.');
+  const convergedRemoteIds = new Set((currentChecklistFile().payload.operations || [])
+    .map((operation: any) => operation.id));
+  assert.equal(convergedRemoteIds.has(homeOperation.id), true,
+    '최종 원격 payload에서 집 PC operation ID가 사라졌습니다.');
+  for (const id of companyOperationIds) {
+    assert.equal(convergedRemoteIds.has(id), true,
+      `최종 원격 payload에서 회사 PC operation ID가 사라졌습니다: ${id}`);
+  }
+  let convergedLocalState = cloudSyncState.load();
+  assert.equal(convergedLocalState.checklistOutbox.length, 0,
+    '재수렴 확인 뒤에도 회사 PC outbox가 남았습니다.');
+  assert.equal(convergedLocalState.confirmedChecklistOperations.some((operation: any) => operation.id === homeOperation.id), true,
+    '회사 PC 로컬 상태에 집 PC operation ID가 확인 이력으로 남지 않았습니다.');
+
+  // 상태 파일 재로드(앱 재시작 상당) 뒤 같은 overwrite가 다시 발생해도 조용히 재수렴한다.
+  cloudSyncState.resetCacheForTests();
+  const restartedState = cloudSyncState.load();
+  assert.equal(restartedState.confirmedChecklistOperations.some((operation: any) =>
+    companyOperationIds.includes(operation.id)), true,
+    '재시작 후 회사 PC의 확인 operation 이력이 사라졌습니다.');
+  const restartOverwrite = structuredClone(homePayload);
+  restartOverwrite.lastSyncedAt += 10_000;
+  restartOverwrite.revision = `${restartOverwrite.lastSyncedAt}-restart-overwrite`;
+  restartOverwrite.checksum = syncDataHelper.calculateSyncChecksum(restartOverwrite.data);
+  currentChecklistFile().payload = restartOverwrite;
+  currentChecklistFile().modifiedTime = new Date(Date.now() + 30_000).toISOString();
+  await cloudManager.syncFromCloud(false);
+  await cloudManager.flushPendingSync();
+  const restartedRemoteIds = new Set((currentChecklistFile().payload.operations || [])
+    .map((operation: any) => operation.id));
+  for (const id of companyOperationIds) {
+    assert.equal(restartedRemoteIds.has(id), true,
+      `재시작 후 재수렴한 payload에서 회사 PC operation ID가 사라졌습니다: ${id}`);
+  }
+
+  // 서버 commit 뒤 응답만 유실되면 outbox를 유지하고, 재시작 시 원격 operation을 확인해 제거한다.
+  const responseLossItems = structuredClone(configModule.load().contentsCheckerItems);
+  const responseLossState = responseLossItems
+    .find((item: any) => item.id === 'daily-abyss').completedState['char-1'];
+  responseLossState.isCompleted = true;
+  responseLossState.currentCount = 1;
+  responseLossState.lastCompletedAt = 7000;
+  configModule.saveImmediate({ contentsCheckerItems: responseLossItems });
+  loseNextChecklistResponse = true;
+  await assert.rejects(cloudManager.syncToCloud(true), /response lost after commit/,
+    '업로드 응답 유실 fixture가 실패로 관측되지 않았습니다.');
+  assert.ok(cloudSyncState.load().checklistOutbox.length > 0,
+    '응답 유실 직후 확인되지 않은 outbox가 제거되었습니다.');
+  const uploadsAfterLostResponse = uploadCount;
+  cloudSyncState.resetCacheForTests();
+  await cloudManager.flushPendingSync();
+  assert.equal(uploadCount, uploadsAfterLostResponse,
+    '재시작 reconciliation이 이미 commit된 payload를 중복 업로드했습니다.');
+  convergedLocalState = cloudSyncState.load();
+  assert.equal(convergedLocalState.checklistOutbox.length, 0,
+    '재시작 reconciliation 뒤 원격에서 확인된 outbox가 제거되지 않았습니다.');
 }
 
 checkDiscordNotifierContracts();
