@@ -5065,6 +5065,97 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       `${fixture.name}의 최종 원격 payload에 두 operation ID가 남지 않았습니다.`);
   }
 
+  // 고정 fixture 밖의 완료/해제/횟수/operation 순서 조합도 결정론적으로 반복 검증한다.
+  for (let index = 0; index < 256; index++) {
+    const stressBase = JSON.parse(JSON.stringify(baseChecklist));
+    const baseCount = index % 4;
+    stressBase.contentsCheckerItems[0].completedState['char-1'] = {
+      isCompleted: baseCount === 3,
+      currentCount: baseCount,
+      lastCompletedAt: 10_000 + index * 10,
+    };
+    stressBase.contentsCheckerItems[0].completedState['char-2'] = {
+      isCompleted: false,
+      currentCount: 0,
+      lastCompletedAt: 10_000 + index * 10,
+    };
+
+    const companyChecklist = JSON.parse(JSON.stringify(stressBase));
+    const companyCount = (baseCount + 1 + (index % 2)) % 4;
+    companyChecklist.contentsCheckerItems[0].completedState['char-1'] = {
+      isCompleted: companyCount === 3 || index % 5 === 0,
+      currentCount: companyCount,
+      lastCompletedAt: 10_001 + index * 10,
+    };
+
+    const sameFieldConflict = index % 3 !== 0;
+    const homeCharacterId = sameFieldConflict ? 'char-1' : 'char-2';
+    const homeChecklist = JSON.parse(JSON.stringify(stressBase));
+    const homeCount = (baseCount + 2 + (index % 2)) % 4;
+    homeChecklist.contentsCheckerItems[0].completedState[homeCharacterId] = {
+      isCompleted: homeCount === 3 || index % 7 === 0,
+      currentCount: homeCount,
+      lastCompletedAt: 10_002 + index * 10,
+    };
+
+    const companyOperation = {
+      id: `stress-company-${index}`,
+      deviceId: 'company-pc',
+      createdAt: 20_000 + index * 2 + (index % 2),
+      keys: ['contentsCheckerItems'],
+      mutations: syncDataHelper.createChecklistOperationMutations(stressBase, companyChecklist),
+    };
+    const homeOperation = {
+      id: `stress-home-${index}`,
+      deviceId: 'home-pc',
+      createdAt: 20_000 + index * 2 + (index % 2 === 0 ? 1 : 0),
+      keys: ['contentsCheckerItems'],
+      mutations: syncDataHelper.createChecklistOperationMutations(stressBase, homeChecklist),
+    };
+    const companyFirst = syncDataHelper.replayChecklistOperations(
+      stressBase, [companyOperation, homeOperation],
+    );
+    const homeFirst = syncDataHelper.replayChecklistOperations(
+      stressBase, [homeOperation, companyOperation],
+    );
+    assert.deepEqual(companyFirst, homeFirst,
+      `교차 stress ${index}에서 operation 입력 순서에 따라 원격 결과가 달라졌습니다.`);
+
+    if (!sameFieldConflict) {
+      const convergedItem = companyFirst.contentsCheckerItems
+        .find((item: any) => item.id === 'daily-abyss');
+      assert.deepEqual(convergedItem.completedState['char-1'],
+        companyChecklist.contentsCheckerItems[0].completedState['char-1'],
+        `교차 stress ${index}에서 회사 PC의 비충돌 변경이 사라졌습니다.`);
+      assert.deepEqual(convergedItem.completedState['char-2'],
+        homeChecklist.contentsCheckerItems[0].completedState['char-2'],
+        `교차 stress ${index}에서 집 PC의 비충돌 변경이 사라졌습니다.`);
+    }
+
+    const companyBase = syncDataHelper.replayChecklistOperations(stressBase, [companyOperation]);
+    const homeBase = syncDataHelper.replayChecklistOperations(stressBase, [homeOperation]);
+    const convergedCompany = syncDataHelper.mergeChecklistThreeWay(companyBase, {
+      ...sampleLocalConfig,
+      ...companyBase,
+    }, companyFirst);
+    const convergedHome = syncDataHelper.mergeChecklistThreeWay(homeBase, {
+      ...sampleLocalConfig,
+      ...homeBase,
+    }, companyFirst);
+    assert.deepEqual(convergedCompany, convergedHome,
+      `교차 stress ${index}에서 회사/집 로컬 상태가 수렴하지 않았습니다.`);
+
+    const stressPayload = syncDataHelper.buildChecklistSyncPayload({
+      ...sampleLocalConfig,
+      ...companyFirst,
+    }, 'stress-pc', 'generation-stress', [homeOperation, companyOperation]);
+    assert.equal(syncDataHelper.validateSyncPayload(stressPayload, 'checklist'), true,
+      `교차 stress ${index}의 최종 payload가 검증을 통과하지 못했습니다.`);
+    assert.deepEqual(new Set(stressPayload.operations.map((operation: any) => operation.id)),
+      new Set([companyOperation.id, homeOperation.id]),
+      `교차 stress ${index}의 최종 payload에 두 operation ID가 남지 않았습니다.`);
+  }
+
   const dirtySettingsMerged = syncDataHelper.mergeSettingsSnapshot(sampleLocalConfig, settingsPayload, ['userServer']);
   assert.equal(dirtySettingsMerged.userServer, sampleLocalConfig.userServer,
     '아직 업로드하지 않은 로컬 설정이 원격 pull에 의해 사라졌습니다.');
