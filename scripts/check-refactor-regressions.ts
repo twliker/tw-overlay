@@ -2235,6 +2235,19 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
   ));
   assert.equal(eucKrDecoded.encoding, 'euc-kr');
   assert.equal(eucKrDecoded.damaged, false);
+  const longAsciiPrefix = Buffer.from('A'.repeat(80 * 1024), 'ascii');
+  const utf8Tail = Buffer.from('\n<font color="white"> [13시 47분 0초] </font> 한글 메시지', 'utf8');
+  const multiSampleUtf8 = decodeChatLogBuffer(Buffer.concat([longAsciiPrefix, utf8Tail]));
+  assert.equal(multiSampleUtf8.encoding, 'utf8');
+  assert.match(multiSampleUtf8.content, /한글 메시지/);
+  assert.equal(decodeChatLogBuffer(Buffer.from(
+    '<meta charset="utf-8">' + 'ASCII only',
+    'ascii',
+  )).encoding, 'utf8');
+  assert.equal(decodeChatLogBuffer(Buffer.concat([
+    Buffer.from('<meta charset="euc-kr">', 'ascii'),
+    iconv.encode('한글', 'euc-kr'),
+  ])).encoding, 'euc-kr');
 
   assert.deepEqual(parseItemAcquisition('펫이 [장비 강화석]을(를) 주웠습니다.'), {
     itemName: '장비 강화석', count: 1, source: 'pet', isOwn: true,

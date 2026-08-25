@@ -136,23 +136,48 @@ export function normalizeChatLogLines(lines: readonly string[]): string[] {
 }
 
 function decodingScore(value: string): number {
-  const sample = value.slice(0, 65536);
-  const replacementPenalty = (sample.match(/\uFFFD/g) || []).length * 20;
-  const timestampScore = Math.min((sample.match(/\d+\s*시\s*\d+\s*분\s*\d+\s*초/g) || []).length, 20) * 5;
-  const dateScore = /Date\s*:\s*\d+년\s*\d+월\s*\d+일/.test(sample) ? 30 : 0;
+  const replacementPenalty = (value.match(/\uFFFD/g) || []).length * 20;
+  const timestampScore = Math.min((value.match(/\d+\s*시\s*\d+\s*분\s*\d+\s*초/g) || []).length, 20) * 5;
+  const dateScore = /Date\s*:\s*\d+년\s*\d+월\s*\d+일/.test(value) ? 30 : 0;
   return timestampScore + dateScore - replacementPenalty;
+}
+
+function buildEncodingProbe(buffer: Buffer): Buffer {
+  const segmentBytes = 32 * 1024;
+  if (buffer.length <= segmentBytes * 3) return buffer;
+  const middleStart = Math.max(0, Math.floor((buffer.length - segmentBytes) / 2));
+  return Buffer.concat([
+    buffer.subarray(0, segmentBytes),
+    Buffer.from('\n'),
+    buffer.subarray(middleStart, middleStart + segmentBytes),
+    Buffer.from('\n'),
+    buffer.subarray(buffer.length - segmentBytes),
+  ]);
+}
+
+export function detectChatLogEncoding(buffer: Buffer): ChatLogEncoding {
+  if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
+    return 'utf8';
+  }
+
+  const header = buffer.subarray(0, Math.min(buffer.length, 64 * 1024)).toString('latin1');
+  const declaredCharset = header.match(/<meta[^>]+charset\s*=\s*["']?([^\s"'/>]+)/i)?.[1]?.toLowerCase();
+  if (declaredCharset && /^(?:utf-8|utf8)$/.test(declaredCharset)) return 'utf8';
+  if (declaredCharset && /^(?:euc-kr|cp949|ks_c_5601-1987)$/.test(declaredCharset)) return 'euc-kr';
+
+  const probe = buildEncodingProbe(buffer);
+  const eucKrScore = decodingScore(iconv.decode(probe, 'euc-kr'));
+  const utf8Score = decodingScore(iconv.decode(probe, 'utf8'));
+  return utf8Score > eucKrScore ? 'utf8' : 'euc-kr';
 }
 
 /** 원본 로그가 EUC-KR 또는 UTF-8인지 표본을 비교해 안전하게 디코딩합니다. */
 export function decodeChatLogBuffer(buffer: Buffer): { content: string; encoding: ChatLogEncoding; damaged: boolean } {
-  const candidates: Array<{ content: string; encoding: ChatLogEncoding }> = [
-    { content: iconv.decode(buffer, 'euc-kr'), encoding: 'euc-kr' },
-    { content: iconv.decode(buffer, 'utf8'), encoding: 'utf8' },
-  ];
-  candidates.sort((left, right) => decodingScore(right.content) - decodingScore(left.content));
-  const selected = candidates[0];
+  const encoding = detectChatLogEncoding(buffer);
+  const content = iconv.decode(buffer, encoding);
   return {
-    ...selected,
-    damaged: selected.content.includes('\uFFFD'),
+    content,
+    encoding,
+    damaged: content.includes('\uFFFD'),
   };
 }
