@@ -22,7 +22,7 @@ import {
   canResumeChatLogFile,
   createDurableFileState,
   getChatLogSyncStateKey,
-  inspectChatLogFile,
+  inspectChatLogFileWithRetry,
   loadChatLogSyncState,
   saveChatLogSyncState,
 } from './chatLogSyncState';
@@ -197,10 +197,21 @@ export async function syncWeeklyChatLogs(options?: {
   const workerScriptPath = path.join(__dirname, 'chatLogSyncWorker.js');
   const syncState = loadChatLogSyncState();
   const workerTargets: WorkerSyncTargetFile[] = [];
+  const preflightFailedFiles: WorkerDoneData['failedFiles'] = [];
   for (const target of targetFiles) {
     const stateKey = getChatLogSyncStateKey(target.filePath);
     const previous = syncState.files[stateKey];
-    const inspection = inspectChatLogFile(target.filePath, target.dateStr, previous);
+    let inspection: Awaited<ReturnType<typeof inspectChatLogFileWithRetry>>;
+    try {
+      inspection = await inspectChatLogFileWithRetry(target.filePath, target.dateStr, previous);
+    } catch (error) {
+      preflightFailedFiles.push({
+        fileName: target.fileName,
+        date: target.dateStr,
+        error: String(error),
+      });
+      continue;
+    }
     const canResume = canResumeChatLogFile(previous, inspection, target.dateStr);
     const durable = canResume ? {
       ...previous,
@@ -383,7 +394,7 @@ export async function syncWeeklyChatLogs(options?: {
     }
   }
   const homeworkDetected = Object.keys(accumulatedHomework).length;
-  const failedFiles = doneData.failedFiles || [];
+  const failedFiles = [...preflightFailedFiles, ...(doneData.failedFiles || [])];
   if (failedFiles.length === targetFiles.length) {
     return {
       success: false,

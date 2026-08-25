@@ -5779,6 +5779,30 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
       wait?: (delayMs: number) => Promise<void>,
     ): Promise<Buffer>;
   };
+  const { inspectChatLogFileWithRetry } = require(path.join(
+    projectRoot,
+    'dist',
+    'modules',
+    'chatLogSyncState.js',
+  )) as {
+    inspectChatLogFileWithRetry(
+      filePath: string,
+      dateStr: string,
+      previous: unknown,
+      inspect: () => {
+        fingerprint: string;
+        fingerprintBytes: number;
+        snapshotSize: number;
+        encoding: 'utf8' | 'euc-kr';
+      },
+      wait: (delayMs: number) => Promise<void>,
+    ): Promise<{
+      fingerprint: string;
+      fingerprintBytes: number;
+      snapshotSize: number;
+      encoding: 'utf8' | 'euc-kr';
+    }>;
+  };
   assert.deepEqual([1, 2, 3, 4].map(getChatLogReadRetryDelayMs), [100, 200, 400, 800]);
 
   let attempts = 0;
@@ -5813,9 +5837,38 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
   ));
   assert.equal(fatalAttempts, 1);
 
+  let inspectionAttempts = 0;
+  const inspectionDelays: number[] = [];
+  const inspection = await inspectChatLogFileWithRetry(
+    'locked-inspection-fixture.html',
+    '2026-08-26',
+    undefined,
+    () => {
+      inspectionAttempts++;
+      if (inspectionAttempts < 3) {
+        const error = new Error('locked inspection') as NodeJS.ErrnoException;
+        error.code = 'EBUSY';
+        throw error;
+      }
+      return {
+        fingerprint: 'recovered-inspection',
+        fingerprintBytes: 32,
+        snapshotSize: 64,
+        encoding: 'utf8',
+      };
+    },
+    async delayMs => { inspectionDelays.push(delayMs); },
+  );
+  assert.equal(inspection.fingerprint, 'recovered-inspection');
+  assert.equal(inspectionAttempts, 3);
+  assert.deepEqual(inspectionDelays, [100, 200]);
+
   const workerSource = read('src/modules/chatLogSyncWorker.ts');
+  const managerSource = read('src/modules/chatLogSyncManager.ts');
   assert.match(workerSource, /failedFiles\.push\([\s\S]*?fileName: file\.fileName[\s\S]*?error: String\(error\)/);
-  assert.match(read('src/modules/chatLogSyncManager.ts'), /partial = failedFiles\.length > 0/);
+  assert.match(managerSource, /preflightFailedFiles\.push\([\s\S]*?fileName: target\.fileName[\s\S]*?continue;/);
+  assert.match(managerSource, /failedFiles = \[\.\.\.preflightFailedFiles, \.\.\.\(doneData\.failedFiles \|\| \[\]\)\]/);
+  assert.match(managerSource, /partial = failedFiles\.length > 0/);
   assert.match(read('src/settings.html'), /일부 동기화 완료/);
 }
 

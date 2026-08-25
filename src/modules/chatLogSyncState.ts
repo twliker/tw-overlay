@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { detectChatLogEncoding, type ChatLogEncoding } from './chatLogNormalizer';
+import { getChatLogReadRetryDelayMs, isRetryableChatLogReadError } from './chatLogFileRetry';
 import {
   createEmptyChatLogFileAggregate,
   type ChatLogFileAggregate,
@@ -195,6 +196,24 @@ export function inspectChatLogFile(
     snapshotSize,
     encoding: detectChatLogEncoding(encodingProbe),
   };
+}
+
+export async function inspectChatLogFileWithRetry(
+  filePath: string,
+  dateStr: string,
+  previous?: DurableChatLogFileState,
+  inspect: typeof inspectChatLogFile = inspectChatLogFile,
+  wait: (delayMs: number) => Promise<void> = delayMs => new Promise(resolve => setTimeout(resolve, delayMs)),
+): Promise<ReturnType<typeof inspectChatLogFile>> {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      return inspect(filePath, dateStr, previous);
+    } catch (error) {
+      if (!isRetryableChatLogReadError(error) || attempt === 4) throw error;
+      await wait(getChatLogReadRetryDelayMs(attempt));
+    }
+  }
+  throw new Error('채팅 로그 사전 검사 재시도 상태가 올바르지 않습니다.');
 }
 
 export function canResumeChatLogFile(
