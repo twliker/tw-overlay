@@ -2,7 +2,7 @@ import fs = require('node:fs');
 import path = require('node:path');
 import { app } from 'electron';
 
-type ProbeMode = 'partial' | 'blocked';
+type ProbeMode = 'partial' | 'blocked' | 'confirmed';
 
 interface RemoteFile {
   id: string;
@@ -20,7 +20,7 @@ interface RemoteStore {
 const projectRoot = path.resolve(__dirname, '..');
 const [modeValue, probeRoot, resultPath] = process.argv.slice(2);
 const mode = modeValue as ProbeMode;
-if (!['partial', 'blocked'].includes(mode)
+if (!['partial', 'blocked', 'confirmed'].includes(mode)
   || !path.isAbsolute(probeRoot || '')
   || !path.isAbsolute(resultPath || '')) {
   throw new Error('runtime main partial restore probe arguments are invalid');
@@ -108,6 +108,20 @@ if (mode === 'partial') {
     size: String(Buffer.byteLength(JSON.stringify(settingsPayload), 'utf8')),
     payload: settingsPayload,
   };
+  if (mode === 'confirmed') {
+    const checklistPayload = syncDataHelper.buildChecklistSyncPayload({
+      characterPresets: [{ id: 'not-selected-character', name: '선택하지 않은 원격 캐릭터' }],
+      contentsCheckerItems: [],
+      pendingHomeworks: [],
+    }, 'remote-device', generationId, []);
+    store.files['valid-checklist'] = {
+      id: 'valid-checklist',
+      name: 'tw_overlay_checklist.json',
+      modifiedTime: new Date(Date.now() + 1).toISOString(),
+      size: String(Buffer.byteLength(JSON.stringify(checklistPayload), 'utf8')),
+      payload: checklistPayload,
+    };
+  }
   saveStore(store);
 }
 
@@ -162,6 +176,48 @@ app.on('quit', () => {
 });
 
 void app.whenReady().then(() => {
+  if (mode === 'confirmed') {
+    setTimeout(() => {
+      void (async () => {
+        const cloudSyncManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js')) as any;
+        const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as any;
+        const restoreResult = await cloudSyncManager.syncFromCloud(true, ['settings']);
+        if (!restoreResult.success) {
+          probeError = restoreResult.error || 'manual settings restore failed';
+          app.quit();
+          return;
+        }
+        configModule.saveImmediate({ userServer: 17 });
+        const deadline = Date.now() + 5_000;
+        const poll = setInterval(() => {
+          const store = loadStore();
+          const remoteServer = store.files['corrupt-settings']?.payload?.data?.userServer;
+          if (remoteServer === 17) {
+            clearInterval(poll);
+            const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
+            const config = JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8'));
+            observation = {
+              profileState: state.profileState,
+              userServer: config.userServer,
+              characterPresetIds: config.characterPresets.map((character: any) => character.id),
+              remoteServer,
+              uploadCounts: structuredClone(store.uploadCounts),
+            };
+            app.quit();
+          } else if (Date.now() >= deadline) {
+            clearInterval(poll);
+            probeError = 'automatic settings upload did not resume after manual confirmation';
+            app.quit();
+          }
+        }, 50);
+      })().catch(error => {
+        probeError = error instanceof Error ? error.message : String(error);
+        app.quit();
+      });
+    }, 2_500);
+    return;
+  }
+
   if (mode === 'blocked') {
     setTimeout(() => {
       const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));

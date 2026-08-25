@@ -264,7 +264,7 @@ function checkMainPartialRestoreConfirmationGate(): void {
   const probeRoot = path.join(isolatedUserData, 'main-partial-restore');
   fs.mkdirSync(probeRoot, { recursive: true });
 
-  const run = (mode: 'partial' | 'blocked') => {
+  const run = (mode: 'partial' | 'blocked' | 'confirmed') => {
     const resultPath = path.join(probeRoot, `${mode}-result.json`);
     const result = spawnElectronProbe([
       probePath,
@@ -301,6 +301,17 @@ function checkMainPartialRestoreConfirmationGate(): void {
     'needs-confirmation 재시작에서 사용자 선택 전에 원격 파일을 업로드했습니다.');
   assert.equal(blocked.remoteStore.files['corrupt-settings'].payload.data.userServer, 16,
     'needs-confirmation 재시작에서 원격 설정을 로컬 값으로 덮어썼습니다.');
+
+  const confirmed = run('confirmed');
+  assert.equal(confirmed.observation.profileState, 'established');
+  assert.equal(confirmed.observation.userServer, 17);
+  assert.deepEqual(confirmed.observation.characterPresetIds, ['remote-character'],
+    '설정만 선택한 복원이 원격 숙제/캐릭터 파일까지 적용했습니다.');
+  assert.equal(confirmed.observation.remoteServer, 17,
+    '수동 복원 확인 뒤 설정 자동 업로드가 재개되지 않았습니다.');
+  assert.equal(confirmed.remoteStore.uploadCounts['tw_overlay_settings.json'], 1);
+  assert.equal(confirmed.observation.uploadCounts['tw_overlay_checklist.json'], undefined,
+    '설정 선택 복원 직후 변경하지 않은 숙제 파일이 함께 업로드되었습니다.');
 }
 
 function createUiUtilsSandbox(): any {
