@@ -28,7 +28,7 @@
 - [ ] 실제 플레이 중인 로컬 변경 우선 정책과 operation 보존 결과가 계획과 일치하는지 확인한다.
 - [ ] 양쪽 앱을 계속 실행한 상태에서 게임 실행 중 약 30초, 게임 미실행 시 약 5분 안에 pull되는지 확인한다.
 
-자동 강화 기록(2026-08-26, `8f643f1`, `9974c5a`): 완료·해제·횟수 0~3, 같은 필드 충돌·다른 캐릭터 변경과 operation 순서를 조합한 256개 결정론적 stress fixture에서 원격 결과와 두 로컬 상태가 모두 수렴하고 최종 payload에 두 operation ID가 유지됐다. 이어 독립 userData의 실제 `main.js` 두 프로세스를 동시에 실행해 같은 원격 revision을 읽게 한 뒤 최초 두 업로드의 상호 overwrite와 총 3회 이상의 누락 operation 재게시를 강제했으며, 최종 원격·양쪽 로컬 확인 이력과 숙제 상태가 모두 수렴하고 outbox가 비워졌다. 실제 두 Windows PC와 Google Drive의 전송 시각·poll 간격·echo 여부를 대신하지 않으므로 실기 항목은 대기로 둔다.
+자동 강화 기록(2026-08-26, `8f643f1`, `9974c5a`, `ab443e9`): 완료·해제·횟수 0~3, 같은 필드 충돌·다른 캐릭터 변경과 operation 순서를 조합한 256개 결정론적 stress fixture에서 원격 결과와 두 로컬 상태가 모두 수렴하고 최종 payload에 두 operation ID가 유지됐다. 이어 독립 userData의 실제 `main.js` 두 프로세스를 동시에 실행해 같은 원격 revision을 읽게 한 뒤 최초 두 업로드의 상호 overwrite와 총 3회 이상의 누락 operation 재게시를 강제했으며, 최종 원격·양쪽 로컬 확인 이력과 숙제 상태가 모두 수렴하고 outbox가 비워졌다. 수렴한 양쪽 userData를 각각 새 메인 프로세스로 재실행해도 operation·숙제 상태가 유지되고 추가 echo upload는 발생하지 않았다. 실제 두 Windows PC와 Google Drive의 전송 시각·poll 간격·echo 여부를 대신하지 않으므로 실기 항목은 대기로 둔다.
 
 ### 응답 유실·overwrite·재시작
 
@@ -96,7 +96,7 @@
 
 | 항목 | 빌드/커밋 | 환경 | 시작~종료 시각 | 결과 | 증거/비고 |
 |---|---|---|---|---|---|
-| 두 PC 클라우드 | `8f643f1`, `9974c5a` | 독립 userData 실제 `main.js` 2개 / 지속형 모의 Drive | 2026-08-26 07:48~07:50 KST | 부분 통과 | 같은 revision 교차 업로드·overwrite·누락 operation 재게시, 최종 원격/양쪽 로컬 두 operation 보존 및 outbox 정리 확인. 실제 Google 계정·두 Windows PC·poll/echo 대기 |
+| 두 PC 클라우드 | `8f643f1`, `9974c5a`, `ab443e9` | 독립 userData 실제 `main.js` 2개 / 지속형 모의 Drive | 2026-08-26 07:48~08:01 KST | 부분 통과 | 같은 revision 교차 업로드·overwrite·누락 operation 재게시, 최종 원격/양쪽 로컬 두 operation 보존·outbox 정리, 양쪽 재시작 후 무 echo 확인. 실제 Google 계정·두 Windows PC·poll/echo 대기 |
 | 새 PC·부분 복원 | `b1fbef7`, `e7f7b57`, `26d95c2`, `0c5d6f0` | 실제 `main.js` / 지속형 모의 Drive / 동일 userData 재시작 | 2026-08-26 07:10~07:56 KST | 부분 통과 | 설정·숙제 양방향 독립 복원, 손상 파일 분리, `needs-confirmation` 재시작 무전송·양쪽 설정 보존, 설정 선택 복원 뒤 자동 전송 재개, 설정·숙제 복원 전 백업 되돌리기 및 후속 원격 수렴 확인. 실제 Google 계정 UI 조작 대기 |
 | 종료·로그오프 | `93d2922`, `0884202`, `65ea23d`, `431c2a9`, `62dd7a6`, `35f3dab`, `bb2e782`, `4257b5b` | 격리 source Electron / Windows `Alt+F4` / 별도 Electron 재시작·main finalizer·Drive timeout·session-end 이벤트·지속형 모의 Drive | 2026-08-26 06:15~07:35 KST | 부분 통과 | 일반 종료, 세 dirty 조합, 3초 timeout 취소, 반복 quit 차단, session-end marker·WAL fast path, 설정/숙제별 원격 commit 후 응답 유실·재시작 무중복 수렴 확인. 실제 Google Drive 응답 유실과 실제 로그오프·시스템 종료 대기 |
 | DPI·모니터·RDP | `750ec60` | 격리 source Electron / 강제 100·125·150%·2×·3× | 2026-08-26 06:18~06:27 KST | 부분 통과 | DPR·창 clamp 확인, 854×464 계수 계산기 잘림 수정 및 scroll 검증. 실제 OS 배율 전환·게임 정렬·모니터/RDP 대기 |
