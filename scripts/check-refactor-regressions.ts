@@ -4332,6 +4332,25 @@ function checkViewRequestGenerationContracts(): void {
   assert.match(diarySource,
     /it\.source === 'manual'[\s\S]*?data-delete-row-id/,
     '복수 마정석 그룹의 manual 자식 row ID 삭제 경계가 없습니다.');
+
+  const chatSource = read('src/chatOverlayRenderer.ts');
+  assert.match(chatSource,
+    /const chatViewRequests = window\.createViewRequestGeneration\(\)/,
+    '채팅 history/search가 공유 view generation을 만들지 않습니다.');
+  assert.match(chatSource,
+    /async function executeSearch[\s\S]*?chatViewRequests\.begin\(`search:[\s\S]*?await window\.electronAPI\.searchChatLogs[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?catch[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?finally[\s\S]*?chatViewRequests\.isCurrent\(request\)/,
+    '채팅 검색 success/catch/finally의 공유 generation guard가 없습니다.');
+  assert.match(chatSource,
+    /async function loadHistory[\s\S]*?chatViewRequests\.begin\(`history:[\s\S]*?await window\.electronAPI\.getChatHistory\(requestedTab\)[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;[\s\S]*?catch[\s\S]*?if \(!chatViewRequests\.isCurrent\(request\)\) return;/,
+    '채팅 history success/catch의 공유 generation guard가 없습니다.');
+  const liveHandler = chatSource.match(/window\.electronAPI\.onChatUpdated\(\(chatItem\) => \{([\s\S]*?)\n\}\);/)?.[1] || '';
+  assert.doesNotMatch(liveHandler, /chatViewRequests/,
+    '실시간 이벤트가 view generation을 무효화하고 있습니다.');
+
+  const chatHtml = read('src/chat-overlay.html');
+  assert.match(chatHtml,
+    /assets\/request-generation\.js[\s\S]*?chatOverlayRenderer\.js/,
+    '채팅 화면에서 request generation helper가 렌더러보다 먼저 로드되지 않습니다.');
 }
 
 function checkMissedCustomAlertContracts(): void {

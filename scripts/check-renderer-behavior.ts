@@ -2033,6 +2033,7 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
 async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
   const html = fs.readFileSync(path.join(projectRoot, 'dist', 'chat-overlay.html'), 'utf8')
     .replace('<script src="assets/ui-utils.js"></script>', '')
+    .replace('<script src="assets/request-generation.js"></script>', '')
     .replace('<script src="shared/chatChannels.js"></script>', '')
     .replace('<script src="shared/chatConstants.js"></script>', '')
     .replace('<script src="chatOverlayRenderer.js"></script>', '');
@@ -2040,6 +2041,10 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
 
   const uiUtilsCode = fs.readFileSync(
     path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'),
+    'utf8',
+  );
+  const requestGenerationCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'assets', 'request-generation.js'),
     'utf8',
   );
   const rendererCode = fs.readFileSync(
@@ -2110,7 +2115,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
           toggleSettings() {},
         };
 
-        eval(${JSON.stringify(`${uiUtilsCode}\n${chatChannelsCode}\n${chatConstantsCode}\n${rendererCode}`)});
+        eval(${JSON.stringify(`${uiUtilsCode}\n${requestGenerationCode}\n${chatChannelsCode}\n${chatConstantsCode}\n${rendererCode}`)});
 
         window.__modeCallback('main');
         window.__configCallback({
@@ -2259,6 +2264,124 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
 
   assert.equal(result.searchContainerVisible, true, '검색창이 열리지 않았습니다.');
   assert.ok(result.highlightElements.includes('시드'), '검색어 하이라이트(search-highlight)가 생성되지 않았습니다.');
+
+  const generationResult = await window.webContents.executeJavaScript(`
+    (async () => {
+      const tick = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
+      const rowMessages = () => Array.from(document.querySelectorAll('.chat-message-row'))
+        .map(row => row.querySelector('.chat-text')?.textContent?.trim());
+      document.getElementById('btnExitSearchMode')?.click();
+      await tick();
+
+      window.__pendingHistory = [];
+      window.__pendingSearch = [];
+      window.electronAPI.getChatHistory = category => new Promise((resolve, reject) => {
+        window.__pendingHistory.push({ category, resolve, reject });
+      });
+      window.electronAPI.searchChatLogs = (query, options) => new Promise((resolve, reject) => {
+        window.__pendingSearch.push({ query, options, resolve, reject });
+      });
+
+      const historyItem = (id, type, message) => ({
+        id, type, timestamp: '23시 40분 00초', sender: type === 'system' ? '시스템' : '테스터',
+        message, color: '#ffffff', level: null,
+      });
+
+      document.querySelector('[data-tab="Club"]')?.click();
+      document.querySelector('[data-tab="System"]')?.click();
+      const clubHistory = window.__pendingHistory[0];
+      const systemHistory = window.__pendingHistory[1];
+      systemHistory.resolve([historyItem('system-new', 'system', '최신 시스템 이력')]);
+      await tick();
+      clubHistory.resolve([historyItem('club-old', 'club', '늦은 클럽 이력')]);
+      await tick();
+      const tabRaceMessages = rowMessages();
+
+      document.querySelector('[data-tab="Club"]')?.click();
+      const staleHistory = window.__pendingHistory[2];
+      document.getElementById('btnToggleSearch')?.click();
+      const searchInput = document.getElementById('searchInput');
+      searchInput.value = 'needle';
+      document.getElementById('btnExecuteSearch')?.click();
+      const searchAfterHistory = window.__pendingSearch[0];
+      staleHistory.resolve([historyItem('stale-history', 'club', '검색을 덮으면 안 되는 이력')]);
+      await tick();
+      const searchStatusAfterStaleHistory = document.getElementById('searchResultText')?.textContent;
+      searchAfterHistory.resolve([historyItem('search-new', 'club', 'needle 최신 검색')]);
+      await tick();
+      const searchRaceMessages = rowMessages();
+
+      searchInput.value = 'old-query';
+      document.getElementById('btnExecuteSearch')?.click();
+      const oldSearch = window.__pendingSearch[1];
+      searchInput.value = 'new-query';
+      document.getElementById('btnExecuteSearch')?.click();
+      const newSearch = window.__pendingSearch[2];
+      oldSearch.reject(new Error('stale search rejection'));
+      await tick();
+      const statusAfterStaleReject = document.getElementById('searchResultText')?.textContent;
+      newSearch.resolve([historyItem('new-search', 'club', 'new-query 최신 결과')]);
+      await tick();
+      const latestSearchMessages = rowMessages();
+
+      searchInput.value = 'closing';
+      document.getElementById('btnExecuteSearch')?.click();
+      const closingSearch = window.__pendingSearch[3];
+      document.getElementById('btnExitSearchMode')?.click();
+      const historyAfterClose = window.__pendingHistory[3];
+      closingSearch.reject(new Error('closed search rejection'));
+      await tick();
+      const statusHiddenAfterClose = document.getElementById('searchStatusBar')?.classList.contains('hidden');
+      historyAfterClose.resolve([historyItem('close-history', 'club', '검색 닫은 뒤 이력')]);
+      await tick();
+      const closeRaceMessages = rowMessages();
+
+      document.querySelector('[data-tab="System"]')?.click();
+      const historyWithLive = window.__pendingHistory[4];
+      window.__chatUpdatedCallback(historyItem('live-during-history', 'system', '요청 중 실시간 이벤트'));
+      await tick(50);
+      historyWithLive.resolve([historyItem('history-after-live', 'system', '실시간 뒤 정상 이력 응답')]);
+      await tick();
+      const liveDoesNotInvalidateMessages = rowMessages();
+
+      return {
+        pendingHistoryCategories: window.__pendingHistory.map(item => item.category),
+        tabRaceMessages,
+        searchStatusAfterStaleHistory,
+        searchRaceMessages,
+        statusAfterStaleReject,
+        latestSearchMessages,
+        statusHiddenAfterClose,
+        closeRaceMessages,
+        liveDoesNotInvalidateMessages,
+      };
+    })()
+  `) as {
+    pendingHistoryCategories: string[];
+    tabRaceMessages: string[];
+    searchStatusAfterStaleHistory: string;
+    searchRaceMessages: string[];
+    statusAfterStaleReject: string;
+    latestSearchMessages: string[];
+    statusHiddenAfterClose: boolean;
+    closeRaceMessages: string[];
+    liveDoesNotInvalidateMessages: string[];
+  };
+
+  assert.deepEqual(generationResult.pendingHistoryCategories, ['Club', 'System', 'Club', 'Club', 'System']);
+  assert.deepEqual(generationResult.tabRaceMessages, ['최신 시스템 이력'],
+    '늦은 이전 탭 history가 최신 탭 화면을 덮었습니다.');
+  assert.equal(generationResult.searchStatusAfterStaleHistory, '"needle" 검색 중...',
+    '이전 history 응답이 진행 중인 검색 상태를 덮었습니다.');
+  assert.deepEqual(generationResult.searchRaceMessages, ['needle 최신 검색']);
+  assert.equal(generationResult.statusAfterStaleReject, '"new-query" 검색 중...',
+    '이전 검색 reject/finally가 최신 검색 상태를 덮었습니다.');
+  assert.deepEqual(generationResult.latestSearchMessages, ['new-query 최신 결과']);
+  assert.equal(generationResult.statusHiddenAfterClose, true,
+    '닫힌 검색의 늦은 reject가 검색 상태 표시를 다시 노출했습니다.');
+  assert.deepEqual(generationResult.closeRaceMessages, ['검색 닫은 뒤 이력']);
+  assert.ok(generationResult.liveDoesNotInvalidateMessages.includes('실시간 뒤 정상 이력 응답'),
+    '실시간 이벤트가 정상 history 요청을 무효화했습니다.');
 }
 
 function cleanHtmlForTest(filePath: string): string {

@@ -37,8 +37,7 @@ const FIREWORK_NICKNAMES_SET = new Set<string>([
   '아아'
 ]);
 
-let _currentHistorySeq = 0;
-let _currentSearchSeq = 0;
+const chatViewRequests = window.createViewRequestGeneration();
 
 // NPC/몬스터 대사 여부 판별 함수
 function isNpcOrMonsterChat(chat: BrowserChatItem): boolean {
@@ -471,7 +470,8 @@ function closeSearchBar() {
   if (isSearchMode) {
     isSearchMode = false;
     currentSearchQuery = '';
-    loadHistory();
+    isSearching = false;
+    void loadHistory();
   }
 }
 
@@ -486,6 +486,8 @@ async function executeSearch(query?: string) {
   isSearching = true;
   isSearchMode = true;
   currentSearchQuery = q;
+  const requestedTab = chatOverlayCurrentTab;
+  const request = chatViewRequests.begin(`search:${requestedTab}:${q}`);
 
   if (searchStatusBar) {
     searchStatusBar.classList.remove('hidden');
@@ -497,17 +499,16 @@ async function executeSearch(query?: string) {
   chatArea.innerHTML = '';
 
   try {
-    const seq = ++_currentSearchSeq;
     const results = await window.electronAPI.searchChatLogs(q, {
-      category: chatOverlayCurrentTab,
+      category: requestedTab,
       limit: 500
     });
-    if (seq !== _currentSearchSeq) return;
+    if (!chatViewRequests.isCurrent(request)) return;
 
     if (results && results.length > 0) {
       const filtered = results.filter((chat: BrowserChatItem) => shouldShowChat(chat));
       filtered.forEach((chat: BrowserChatItem) => {
-        chatArea.appendChild(createChatRow(chat, currentSearchQuery));
+        chatArea.appendChild(createChatRow(chat, q));
       });
       scrollToBottom();
       if (searchResultText) {
@@ -523,13 +524,16 @@ async function executeSearch(query?: string) {
       chatArea.appendChild(emptyRow);
     }
   } catch (err) {
+    if (!chatViewRequests.isCurrent(request)) return;
     console.error('채팅 검색 실패:', err);
     if (searchResultText) {
       searchResultText.textContent = `검색 실패 ("${q}")`;
     }
   } finally {
-    isSearching = false;
-    initIcons();
+    if (chatViewRequests.isCurrent(request)) {
+      isSearching = false;
+      initIcons();
+    }
   }
 }
 
@@ -538,11 +542,13 @@ async function loadHistory() {
   clearPendingIncomingChat();
   isLoadingMore = false;
   hasReachedEnd = false;
+  isSearching = false;
+  const requestedTab = chatOverlayCurrentTab;
+  const request = chatViewRequests.begin(`history:${requestedTab}`);
   chatArea.innerHTML = '';
-  const seq = ++_currentHistorySeq;
   try {
-    const history = await window.electronAPI.getChatHistory(chatOverlayCurrentTab);
-    if (seq !== _currentHistorySeq) return;
+    const history = await window.electronAPI.getChatHistory(requestedTab);
+    if (!chatViewRequests.isCurrent(request)) return;
 
     if (history && history.length > 0) {
       const filtered = history.filter((chat: BrowserChatItem) => shouldShowChat(chat));
@@ -567,6 +573,7 @@ async function loadHistory() {
       chatArea.appendChild(emptyRow);
     }
   } catch (e) {
+    if (!chatViewRequests.isCurrent(request)) return;
     console.error('Failed to load chat history:', e);
   }
 }
@@ -590,9 +597,9 @@ function selectTab(tabName: string, save = true) {
   hasReachedEnd = false;
 
   if (isSearchMode && currentSearchQuery) {
-    executeSearch(currentSearchQuery);
+    void executeSearch(currentSearchQuery);
   } else {
-    loadHistory();
+    void loadHistory();
   }
 
   if (save) {
