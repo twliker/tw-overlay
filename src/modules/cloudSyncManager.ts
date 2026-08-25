@@ -761,6 +761,7 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
 
   let latestAt = 0;
   let applied = false;
+  let backupCreated = false;
   let discoveredGeneration = files.generationId;
   for (const kind of ['settings', 'checklist'] as const) {
     const requestStartedAt = Date.now();
@@ -776,7 +777,14 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
       cloudState.update(state => { state.generationId = payload.generationId!; });
     }
     latestAt = Math.max(latestAt, payload.lastSyncedAt);
-    applied = (await receiveKind(kind, payload, manualRestore, requestStartedAt)) || applied;
+    const revisionChanged = cloudState.load().remoteRevisions[kind] !== revisionOf(payload);
+    if (revisionChanged && !backupCreated) {
+      syncDataHelper.createLocalBackupBeforeSync(config.load());
+      backupCreated = true;
+    }
+    applied = (await receiveKind(kind, payload, manualRestore, requestStartedAt, {
+      createBackup: false,
+    })) || applied;
   }
 
   if (latestAt > 0) {

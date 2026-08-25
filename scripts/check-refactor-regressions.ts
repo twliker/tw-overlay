@@ -4375,6 +4375,13 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   remoteChecklistPayload.checksum = syncDataHelper.calculateSyncChecksum(remoteChecklistPayload.data);
   uploadedChecklist.payload = remoteChecklistPayload;
   uploadedChecklist.modifiedTime = new Date(Date.now() + 10_000).toISOString();
+  const remoteSettingsPayload = structuredClone(uploadedSettings.payload);
+  remoteSettingsPayload.data.userServer = 7;
+  remoteSettingsPayload.lastSyncedAt += 900;
+  remoteSettingsPayload.revision = `${remoteSettingsPayload.lastSyncedAt}-remote-office`;
+  remoteSettingsPayload.checksum = syncDataHelper.calculateSyncChecksum(remoteSettingsPayload.data);
+  uploadedSettings.payload = remoteSettingsPayload;
+  uploadedSettings.modifiedTime = new Date(Date.now() + 9_000).toISOString();
   const uploadsBeforePull = uploadCount;
 
   const pullResult = await cloudManager.syncFromCloud(false);
@@ -4384,6 +4391,14 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(received.isCompleted, true,
     '회사 PC의 원격 숙제 완료가 집 PC 자동 pull에 반영되지 않았습니다.');
   assert.equal(received.lastCompletedAt, 5000);
+  assert.equal(configModule.load().userServer, 7,
+    '같은 pull의 원격 설정 변경이 반영되지 않았습니다.');
+  const combinedPullBackup = JSON.parse(fs.readFileSync(
+    path.join(isolatedUserData, 'config.backup-sync.json'),
+    'utf8',
+  ));
+  assert.equal(combinedPullBackup.userServer, 16,
+    '설정과 숙제를 함께 받은 pull이 전체 적용 전 백업을 보존하지 않았습니다.');
   assert.equal(uploadCount, uploadsBeforePull,
     '원격 숙제 변경을 적용한 직후 불필요한 echo upload가 발생했습니다.');
   assert.equal(cloudSyncState.load().checklistOutbox.length, 0,
