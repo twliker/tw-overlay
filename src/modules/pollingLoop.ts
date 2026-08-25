@@ -19,10 +19,13 @@ import { log } from './logger';
 import * as tracker from './tracker';
 import * as wm from './windowManager';
 import * as config from './config';
+import { ProcessBoostRetryPolicy } from './processBoostRetryPolicy';
 
 let pollingTimer: NodeJS.Timeout | null = null;
 let gameWasEverFound = false;
 const TRANSIENT_STATE_CONFIRM_SAMPLES = 2;
+const PROCESS_BOOST_INITIAL_RETRY_MS = 1_000;
+const PROCESS_BOOST_MAX_RETRY_MS = 60_000;
 
 export type GameStatus = 'running' | 'minimized' | 'not-running' | null;
 let _currentStatus: GameStatus = null;
@@ -34,7 +37,10 @@ export function getGameStatus(): GameStatus {
 export function start(): void {
     let lastRect: GameQueryResult = null;
     let stableCount = 0;
-    let isBoosted = false;
+    const processBoostRetry = new ProcessBoostRetryPolicy(
+        PROCESS_BOOST_INITIAL_RETRY_MS,
+        PROCESS_BOOST_MAX_RETRY_MS,
+    );
     let consecutiveNotRunning = 0;
     let consecutiveMinimized = 0;
     // lastStatus 대신 _currentStatus 사용
@@ -97,7 +103,7 @@ export function start(): void {
                 lastRect = null;
             }
             stableCount = 0;
-            isBoosted = false;
+            processBoostRetry.reset();
             pollingTimer = setTimeout(poll, POLLING_IDLE_MS);
             return;
         }
@@ -126,13 +132,20 @@ export function start(): void {
         consecutiveNotRunning = 0;
         consecutiveMinimized = 0;
         gameWasEverFound = true;
-        if (!isBoosted) {
+        const gameProcessId = tracker.getGameProcessId();
+        if (gameProcessId && processBoostRetry.tryStart(gameProcessId, Date.now())) {
             tracker.boostGameProcess().then(res => {
-                if (res === 'BOOSTED' || res === 'ALREADY_HIGH') {
+                const success = res === 'BOOSTED' || res === 'ALREADY_HIGH';
+                const retryDelayMs = processBoostRetry.finish(gameProcessId, success, Date.now());
+                if (success) {
                     log(`[POLL] Game process priority elevated: ${res}`);
-                    isBoosted = true;
+                } else if (retryDelayMs !== null) {
+                    log(`[POLL] Game process priority elevation failed; retrying in ${retryDelayMs}ms (PID: ${gameProcessId})`);
                 }
-            }).catch(e => log(`[POLL] boostGameProcess failed: ${e}`));
+            }).catch(e => {
+                const retryDelayMs = processBoostRetry.finish(gameProcessId, false, Date.now());
+                log(`[POLL] boostGameProcess failed: ${e}${retryDelayMs === null ? '' : `; retrying in ${retryDelayMs}ms`}`);
+            });
         }
 
         const isStateChanged = _currentStatus !== 'running' || !rectEquals(currentRect, lastRect);

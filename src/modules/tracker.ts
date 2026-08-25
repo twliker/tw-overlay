@@ -190,6 +190,10 @@ export function getGameHwnd(): string | undefined {
     return cachedHwnd ? cachedHwnd.toString() : undefined;
 }
 
+export function getGameProcessId(): number | null {
+    return lastProcessId;
+}
+
 export function isGameRunning(): boolean {
     if (!cachedHwnd || !isHwndValid(cachedHwnd)) {
         cachedHwnd = findGameWindow();

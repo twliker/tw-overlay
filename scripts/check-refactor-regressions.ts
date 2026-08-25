@@ -728,6 +728,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   const mainSource = read('src/main.ts');
   const placementSource = read('src/modules/windowPlacement.ts');
   const displayStabilizerSource = read('src/modules/displayTopologyStabilizer.ts');
+  const processBoostSource = read('src/modules/processBoostRetryPolicy.ts');
   const indexSource = read('src/index.html');
   const registrySource = read('src/modules/managedWindowRegistry.ts');
   const moveTrackerSource = read('src/modules/programmaticMoveTracker.ts');
@@ -801,6 +802,10 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     '브라우저 오버레이의 디스플레이 복구 이동이 사용자 이동으로 저장될 수 있습니다.');
   assert.match(displayStabilizerSource, /candidateSignature[\s\S]*?stableDurationMs[\s\S]*?maxWaitMs/,
     'RDP 전환 중 임시 화면 구성을 건너뛰는 안정화 판정이 없습니다.');
+  assert.match(processBoostSource, /inFlight[\s\S]*?nextAttemptAt[\s\S]*?maximumDelayMs/,
+    '프로세스 우선순위 상승 실패의 single-flight 지수 백오프가 없습니다.');
+  assert.match(read('src/modules/pollingLoop.ts'), /getGameProcessId\(\)[\s\S]*?processBoostRetry\.tryStart[\s\S]*?processBoostRetry\.finish/,
+    '게임 PID별 우선순위 상승 재시도 정책이 폴링 루프에 연결되지 않았습니다.');
   assert.match(indexSource, /const interactiveToasts = window\.createInteractiveToastRegistry[\s\S]*?updateIgnoreMouseEvents\(!hasInteractiveToast\)/,
     'interactive 토스트 참조 수와 사이드바 click-through 상태가 연결되지 않았습니다.');
   assert.match(indexSource, /scam-toast-[\s\S]*?onclick="removeToast\('\$\{toastId\}', event\)"/,
@@ -956,6 +961,38 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     'RDP 중간 화면 구성 직후 위치 복구를 실행합니다.');
   assert.equal(topologyStabilizer.observe('rdp-final', 1_800), true,
     'RDP 최종 화면 구성이 안정화된 뒤에도 위치 복구를 실행하지 않습니다.');
+
+  const boostPolicyModule = require(path.join(projectRoot, 'dist', 'modules', 'processBoostRetryPolicy.js')) as {
+    ProcessBoostRetryPolicy: new (initialDelayMs: number, maximumDelayMs: number) => {
+      tryStart: (processId: number, now: number) => boolean;
+      finish: (processId: number, success: boolean, now: number) => number | null;
+      reset: () => void;
+    };
+  };
+  const boostPolicy = new boostPolicyModule.ProcessBoostRetryPolicy(1_000, 60_000);
+  assert.equal(boostPolicy.tryStart(10, 0), true);
+  assert.equal(boostPolicy.tryStart(10, 0), false, '우선순위 상승 요청이 완료 전 중복 실행됩니다.');
+  assert.equal(boostPolicy.finish(10, false, 100), 1_000);
+  assert.equal(boostPolicy.tryStart(10, 1_099), false);
+  assert.equal(boostPolicy.tryStart(10, 1_100), true);
+  assert.equal(boostPolicy.finish(10, false, 1_200), 2_000);
+  assert.equal(boostPolicy.tryStart(10, 3_199), false);
+  assert.equal(boostPolicy.tryStart(10, 3_200), true);
+  assert.equal(boostPolicy.finish(10, false, 3_300), 4_000);
+  assert.equal(boostPolicy.tryStart(20, 3_301), true, '게임 PID 변경 시 이전 PID의 백오프가 유지됩니다.');
+  assert.equal(boostPolicy.finish(10, true, 3_302), null, '이전 PID의 늦은 응답이 새 PID 상태를 변경합니다.');
+  assert.equal(boostPolicy.finish(20, true, 3_303), null);
+  assert.equal(boostPolicy.tryStart(20, 100_000), false, '우선순위 상승 성공 후 같은 PID를 다시 시도합니다.');
+  boostPolicy.reset();
+  assert.equal(boostPolicy.tryStart(20, 100_001), true, '게임 종료 후 재시도 상태가 초기화되지 않습니다.');
+  const cappedBoostPolicy = new boostPolicyModule.ProcessBoostRetryPolicy(40_000, 60_000);
+  assert.equal(cappedBoostPolicy.tryStart(30, 0), true);
+  assert.equal(cappedBoostPolicy.finish(30, false, 0), 40_000);
+  assert.equal(cappedBoostPolicy.tryStart(30, 40_000), true);
+  assert.equal(cappedBoostPolicy.finish(30, false, 40_000), 60_000);
+  assert.equal(cappedBoostPolicy.tryStart(30, 100_000), true);
+  assert.equal(cappedBoostPolicy.finish(30, false, 100_000), 60_000,
+    '프로세스 우선순위 재시도 간격이 60초 상한을 초과합니다.');
 
   const registryModule = require(path.join(projectRoot, 'dist', 'modules', 'managedWindowRegistry.js')) as {
     createManagedWindowRegistry: () => Record<string, { key: string; html: string; width: number; height: number; ref: unknown }>;
