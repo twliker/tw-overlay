@@ -1,0 +1,168 @@
+import { createHash, randomUUID } from 'crypto';
+import type { ChatLogEncoding } from './chatLogNormalizer';
+
+export const CHAT_SYNC_BATCH_LINE_LIMIT = 2_000;
+export const CHAT_SYNC_BATCH_EVENT_LIMIT = 250;
+export const CHAT_SYNC_READ_CHUNK_BYTES = 256 * 1024;
+
+export interface SyncHomeworkAggregate {
+  count: number;
+  isIncrement: boolean;
+}
+
+export interface SyncMagicStoneAggregate {
+  latestTime: string;
+  totalCount: number;
+}
+
+export interface SyncElsoAggregate {
+  latestTime: string;
+  totalAmount: number;
+}
+
+export interface ChatLogFileAggregate {
+  totalLines: number;
+  lootsDetected: number;
+  essencesDetected: number;
+  shoutsDetected: number;
+  seedsDetected: number;
+  elsoPointsDetected: number;
+  homework: Record<string, SyncHomeworkAggregate>;
+  magicStones: Record<string, Record<string, SyncMagicStoneAggregate>>;
+  elsoByDate: Record<string, SyncElsoAggregate>;
+}
+
+export interface DurableChatLogFileState extends ChatLogFileAggregate {
+  filePath: string;
+  fileName: string;
+  dateStr: string;
+  fingerprint: string;
+  fingerprintBytes: number;
+  confirmedOffset: number;
+  snapshotSize: number;
+  updatedAt: number;
+}
+
+export interface WorkerSyncTargetFile {
+  filePath: string;
+  fileName: string;
+  dateStr: string;
+  fingerprint: string;
+  fingerprintBytes: number;
+  startOffset: number;
+  snapshotSize: number;
+  encoding: ChatLogEncoding;
+  aggregate: ChatLogFileAggregate;
+}
+
+export interface ParsedLootEvent {
+  eventId?: string;
+  date: string;
+  timeOnly: string;
+  diaryContent: string;
+  count: number;
+}
+
+export interface ParsedShoutEvent {
+  eventId?: string;
+  fullTimestamp: number;
+  sender: string;
+  message: string;
+}
+
+export interface ParsedSeedEvent {
+  eventId?: string;
+  date: string;
+  timeOnly: string;
+  content: string;
+  amount: number;
+}
+
+export interface ParsedElsoEvent {
+  date: string;
+  timeOnly: string;
+  amount: number;
+}
+
+export interface ChatLogSyncBatchData {
+  jobId: string;
+  batchId: string;
+  filePath: string;
+  fileName: string;
+  dateStr: string;
+  fingerprint: string;
+  fingerprintBytes: number;
+  confirmedOffset: number;
+  snapshotSize: number;
+  fileComplete: boolean;
+  aggregate: ChatLogFileAggregate;
+  loots: ParsedLootEvent[];
+  essences: ParsedLootEvent[];
+  shouts: ParsedShoutEvent[];
+  seeds: ParsedSeedEvent[];
+  elsoPoints: ParsedElsoEvent[];
+}
+
+export interface WorkerDoneData {
+  jobId: string;
+  failedFiles: Array<{ fileName: string; date: string; error: string }>;
+}
+
+export interface WorkerProgressMessage {
+  type: 'progress';
+  data: unknown;
+}
+
+export interface WorkerBatchMessage {
+  type: 'batch';
+  data: ChatLogSyncBatchData;
+}
+
+export interface WorkerDoneMessage {
+  type: 'done';
+  data: WorkerDoneData;
+}
+
+export interface WorkerErrorMessage {
+  type: 'error';
+  error: string;
+}
+
+export type ChatLogSyncWorkerMessage = WorkerProgressMessage | WorkerBatchMessage | WorkerDoneMessage | WorkerErrorMessage;
+
+export interface ChatLogSyncBatchAck {
+  type: 'batch-ack';
+  jobId: string;
+  batchId: string;
+  success: boolean;
+  error?: string;
+}
+
+export function createEmptyChatLogFileAggregate(): ChatLogFileAggregate {
+  return {
+    totalLines: 0,
+    lootsDetected: 0,
+    essencesDetected: 0,
+    shoutsDetected: 0,
+    seedsDetected: 0,
+    elsoPointsDetected: 0,
+    homework: {},
+    magicStones: {},
+    elsoByDate: {},
+  };
+}
+
+export function createChatLogSyncJobId(): string {
+  return randomUUID();
+}
+
+export function createStableChatSyncEventId(
+  fingerprint: string,
+  byteOffset: number,
+  kind: string,
+  sequence: number,
+): string {
+  return createHash('sha256')
+    .update(`${fingerprint}\0${Math.max(0, Math.trunc(byteOffset))}\0${kind}\0${Math.max(0, Math.trunc(sequence))}`)
+    .digest('hex');
+}

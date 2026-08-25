@@ -386,6 +386,11 @@ export function initDb(): void {
         committed_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS chat_sync_committed_events (
+        event_id TEXT PRIMARY KEY,
+        committed_at INTEGER NOT NULL
+      );
+
       -- 성능 최적화 인덱스 생성
       CREATE INDEX IF NOT EXISTS idx_activity_logs_date_type ON activity_logs (date, type);
       CREATE INDEX IF NOT EXISTS idx_activity_logs_date_time_content ON activity_logs (date, time, content);
@@ -1380,11 +1385,11 @@ export function deduplicateShoutHistory(): void {
 }
 
 export interface BatchSyncData {
-  loots: Array<{ date: string; timeOnly: string; diaryContent: string; count: number }>;
-  essences: Array<{ date: string; timeOnly: string; diaryContent: string; count: number }>;
-  seeds: Array<{ date: string; timeOnly: string; content: string; amount: number }>;
+  loots: Array<{ eventId?: string; date: string; timeOnly: string; diaryContent: string; count: number }>;
+  essences: Array<{ eventId?: string; date: string; timeOnly: string; diaryContent: string; count: number }>;
+  seeds: Array<{ eventId?: string; date: string; timeOnly: string; content: string; amount: number }>;
   elsoPoints: Array<{ date: string; timeOnly: string; amount: number }>;
-  shouts: Array<{ fullTimestamp: number; sender: string; message: string }>;
+  shouts: Array<{ eventId?: string; fullTimestamp: number; sender: string; message: string }>;
 }
 
 export interface BatchSyncResult {
@@ -1436,8 +1441,17 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     ORDER BY id ASC LIMIT 1
   `);
   const updateStone = db.prepare('UPDATE activity_logs SET content = ?, time = ?, amount = ? WHERE id = ?');
+  const insertCommittedEvent = db.prepare(`
+    INSERT OR IGNORE INTO chat_sync_committed_events (event_id, committed_at)
+    VALUES (?, ?)
+  `);
 
   const runBatch = db.transaction(() => {
+    const claimEvent = (eventId?: string): boolean => {
+      if (!eventId) return true;
+      return insertCommittedEvent.run(eventId, Date.now()).changes > 0;
+    };
+
     // 1-1. 득템 및 마정석 기록
     const magicStonesByDate: Record<string, Record<string, { latestTime: string; totalCount: number }>> = {};
     for (const item of data.loots) {
@@ -1451,6 +1465,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
         magicStonesByDate[item.date][grade].totalCount += (item.count || 1);
         magicStonesByDate[item.date][grade].latestTime = item.timeOnly;
       } else {
+        if (!claimEvent(item.eventId)) continue;
         const existing = selectActivity.get(item.date, item.timeOnly, item.diaryContent);
         if (!existing) {
           insertActivity.run(item.date, 'loot', item.diaryContent, item.timeOnly, item.count);
@@ -1481,6 +1496,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
     // 1-2. 경험의 정수 기록
     for (const item of (data.essences || [])) {
+      if (!claimEvent(item.eventId)) continue;
       ensureDiaryExists(item.date);
       const existing = selectActivity.get(item.date, item.timeOnly, item.diaryContent);
       if (!existing) {
@@ -1491,6 +1507,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
     // 2. SEED 기록
     for (const item of data.seeds) {
+      if (!claimEvent(item.eventId)) continue;
       ensureDiaryExists(item.date);
       const existing = selectActivity.get(item.date, item.timeOnly, item.content);
       if (!existing) {
@@ -1528,6 +1545,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
     // 4. 외치기 기록 (5초 이내 동일 발신자/내용 중복 방지)
     for (const item of data.shouts) {
+      if (!claimEvent(item.eventId)) continue;
       const existing = selectShout.get(item.sender, item.message, item.fullTimestamp);
       if (!existing) {
         insertShout.run(item.fullTimestamp, item.sender, item.message);

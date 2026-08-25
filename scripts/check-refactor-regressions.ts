@@ -10,9 +10,25 @@ const projectRoot = path.resolve(__dirname, '..');
 const sourceRoot = path.join(projectRoot, 'src');
 const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-regression-'));
 app.setPath('userData', isolatedUserData);
-process.once('exit', () => {
-  fs.rmSync(isolatedUserData, { recursive: true, force: true });
-});
+function cleanupIsolatedUserData(): void {
+  try {
+    fs.rmSync(isolatedUserData, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+  } catch {
+    // Windows의 종료 중 파일 핸들이 늦게 풀려도 테스트 결과를 가리지 않는다.
+  }
+}
+process.once('exit', cleanupIsolatedUserData);
+
+function finishRegressionChecks(exitCode: number): never {
+  try {
+    const diaryDb = require(path.join(projectRoot, 'dist', 'modules', 'diaryDb.js')) as { closeDb(): boolean };
+    diaryDb.closeDb();
+  } catch {
+    // 실패 결과에서도 테스트 프로세스 종료를 보장한다.
+  }
+  cleanupIsolatedUserData();
+  return (process as NodeJS.Process & { reallyExit(code: number): never }).reallyExit(exitCode);
+}
 
 function read(relativePath: string): string {
   return fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
@@ -5057,6 +5073,192 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
   assert.match(read('src/settings.html'), /일부 동기화 완료/);
 }
 
+async function checkChatLogWorkerBatchProtocol(): Promise<void> {
+  const { Worker } = require('node:worker_threads') as typeof import('node:worker_threads');
+  const iconv = require('iconv-lite') as typeof import('iconv-lite');
+  const protocol = require(path.join(projectRoot, 'dist', 'modules', 'chatLogSyncProtocol.js')) as any;
+  const stateModule = require(path.join(projectRoot, 'dist', 'modules', 'chatLogSyncState.js')) as any;
+  const diaryDb = require(path.join(projectRoot, 'dist', 'modules', 'diaryDb.js')) as any;
+  const workerScript = path.join(projectRoot, 'dist', 'modules', 'chatLogSyncWorker.js');
+  const fixtureDirectory = path.join(isolatedUserData, 'chat-sync-worker-fixtures');
+  fs.mkdirSync(fixtureDirectory, { recursive: true });
+
+  const runFixture = async (encoding: 'utf8' | 'euc-kr', holdFirstAck: boolean) => {
+    const filePath = path.join(fixtureDirectory, `TWChatLog_2026_08_${encoding === 'utf8' ? '24' : '25'}.html`);
+    const magicOne = '<font size="2" color="white"> [22시 39분 34초] </font> <font size="2" color="#ff64ff">하급 마정석 1개를 획득 하였습니다.</font></br>';
+    const filler = Array.from({ length: 1_999 }, (_, index) => `ignored-${index}`);
+    const magicTwo = '<font size="2" color="white"> [22시 40분 15초] </font><font>[하급 마정석] 2개를 획득하였습니다.</font></br>';
+    const longSeed = `<font size="2" color="white"> [ 0시 25분 25초] </font> <font size="2" color="#ff64ff">${'A'.repeat(270_000)} 콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>`;
+    const content = [magicOne, ...filler, magicTwo, longSeed].join('\n') + '\n';
+    const encoded = encoding === 'utf8' ? Buffer.from(content, 'utf8') : iconv.encode(content, 'euc-kr');
+    fs.writeFileSync(filePath, encoded);
+    const fingerprint = crypto.createHash('sha256').update(encoded).digest('hex');
+    const jobId = `regression-${encoding}-${crypto.randomUUID()}`;
+    const batches: any[] = [];
+
+    const worker = new Worker(workerScript, {
+      workerData: {
+        jobId,
+        lootKeywords: [],
+        targetFiles: [{
+          filePath,
+          fileName: path.basename(filePath),
+          dateStr: encoding === 'utf8' ? '2026-08-24' : '2026-08-25',
+          fingerprint,
+          fingerprintBytes: 4_096,
+          startOffset: 0,
+          snapshotSize: encoded.length,
+          encoding,
+          aggregate: protocol.createEmptyChatLogFileAggregate(),
+        }],
+      },
+    });
+
+    let firstBatchResolve!: () => void;
+    const firstBatch = new Promise<void>(resolve => { firstBatchResolve = resolve; });
+    let doneResolve!: () => void;
+    let doneReject!: (error: Error) => void;
+    const done = new Promise<void>((resolve, reject) => {
+      doneResolve = resolve;
+      doneReject = reject;
+    });
+    worker.on('message', (message: any) => {
+      if (message.type === 'batch') {
+        batches.push(message.data);
+        if (batches.length === 1) firstBatchResolve();
+        if (!holdFirstAck || batches.length > 1) {
+          worker.postMessage({
+            type: 'batch-ack',
+            jobId,
+            batchId: message.data.batchId,
+            success: true,
+          });
+        }
+      } else if (message.type === 'done') {
+        doneResolve();
+      } else if (message.type === 'error') {
+        doneReject(new Error(message.error));
+      }
+    });
+    worker.on('error', doneReject);
+
+    await firstBatch;
+    if (holdFirstAck) {
+      await new Promise(resolve => setTimeout(resolve, 75));
+      assert.equal(batches.length, 1, '메인의 ACK 전에 워커가 다음 배치를 전송했습니다.');
+      worker.postMessage({
+        type: 'batch-ack',
+        jobId,
+        batchId: batches[0].batchId,
+        success: true,
+      });
+    }
+    await done;
+    await worker.terminate();
+    worker.removeAllListeners();
+
+    assert.ok(batches.length >= 2, '2,000줄 경계에서 유한 배치가 분리되지 않았습니다.');
+    assert.equal(batches[0].fileComplete, false);
+    assert.equal(batches[0].loots.length, 0,
+      '파일 완료 전 마정석 부분 합계가 DB 반영 배치에 포함되었습니다.');
+    assert.equal(batches[0].aggregate.magicStones[encoding === 'utf8' ? '2026-08-24' : '2026-08-25'].하급.totalCount, 1);
+    const finalBatch = batches.at(-1)!;
+    assert.equal(finalBatch.fileComplete, true);
+    assert.equal(finalBatch.confirmedOffset, encoded.length);
+    assert.equal(finalBatch.loots.find((item: any) => item.diaryContent.includes('하급 마정석'))?.count, 3,
+      '파일 완료 배치가 마정석의 파일 전체 합계를 전달하지 않았습니다.');
+    assert.equal(finalBatch.seeds.length, 1,
+      `${encoding} 다중 바이트 문자가 read chunk 경계에서 손상되었습니다.`);
+    assert.equal(finalBatch.aggregate.seedsDetected, 1);
+    return { filePath, encoded, batches };
+  };
+
+  const utf8First = await runFixture('utf8', true);
+  const utf8Replay = await runFixture('utf8', false);
+  assert.equal(
+    utf8First.batches.at(-1)!.seeds[0].eventId,
+    utf8Replay.batches.at(-1)!.seeds[0].eventId,
+    '같은 파일의 같은 byte offset 이벤트 ID가 재실행에서 달라졌습니다.',
+  );
+  await runFixture('euc-kr', false);
+
+  const initialInspection = stateModule.inspectChatLogFile(utf8First.filePath, '2026-08-24');
+  const durable = stateModule.createDurableFileState(
+    utf8First.filePath,
+    path.basename(utf8First.filePath),
+    '2026-08-24',
+    initialInspection.fingerprint,
+    initialInspection.fingerprintBytes,
+    initialInspection.snapshotSize,
+  );
+  durable.confirmedOffset = initialInspection.snapshotSize;
+  const localState = { schemaVersion: 1, files: { [stateModule.getChatLogSyncStateKey(utf8First.filePath)]: durable } };
+  stateModule.saveChatLogSyncStateAtPath(fixtureDirectory, localState);
+  const reloaded = stateModule.loadChatLogSyncStateAtPath(fixtureDirectory);
+  assert.equal(reloaded.files[stateModule.getChatLogSyncStateKey(utf8First.filePath)].confirmedOffset, initialInspection.snapshotSize);
+
+  fs.appendFileSync(utf8First.filePath, Buffer.from('append-only\n', 'utf8'));
+  const appendInspection = stateModule.inspectChatLogFile(utf8First.filePath, '2026-08-24', durable);
+  assert.equal(stateModule.canResumeChatLogFile(durable, appendInspection, '2026-08-24'), true,
+    '정상 append 뒤 확정 offset에서 재개하지 못합니다.');
+  fs.writeFileSync(utf8First.filePath, 'truncated\n', 'utf8');
+  const truncateInspection = stateModule.inspectChatLogFile(utf8First.filePath, '2026-08-24', durable);
+  assert.equal(stateModule.canResumeChatLogFile(durable, truncateInspection, '2026-08-24'), false,
+    'truncate/replace된 파일에 이전 확정 offset을 재사용합니다.');
+
+  const managerFixtureDirectory = path.join(fixtureDirectory, 'manager-integration');
+  fs.mkdirSync(managerFixtureDirectory, { recursive: true });
+  const managerFile = path.join(managerFixtureDirectory, 'TWChatLog_2026_08_26.html');
+  const managerSeedMessage = '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.';
+  const managerLines = [
+    '<font size="2" color="white"> [22시 39분 34초] </font> <font size="2" color="#ff64ff">하급 마정석 1개를 획득 하였습니다.</font></br>',
+    ...Array.from({ length: 2_001 }, (_, index) => `manager-ignored-${index}`),
+    `<font size="2" color="white"> [ 0시 25분 25초] </font> <font size="2" color="#ff64ff">${managerSeedMessage}</font></br>`,
+  ];
+  fs.writeFileSync(managerFile, managerLines.join('\n') + '\n', 'utf8');
+  const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as any;
+  const syncManager = require(path.join(projectRoot, 'dist', 'modules', 'chatLogSyncManager.js')) as any;
+  const previousChatLogPath = configModule.load().chatLogPath;
+  try {
+    configModule.saveImmediate({ chatLogPath: managerFixtureDirectory, lootKeywords: [] });
+    const startDate = new Date(2026, 7, 26);
+    const firstSync = await syncManager.syncWeeklyChatLogs({ startDate, endDate: startDate });
+    assert.equal(firstSync.success, true);
+    assert.equal(firstSync.totalFiles, 1);
+    assert.equal(firstSync.seedsDetected, 1);
+    assert.equal(firstSync.lootsDetected, 1);
+    assert.equal(firstSync.seedsAdded, 1);
+    assert.equal(firstSync.lootsAdded, 1);
+
+    const resumedSync = await syncManager.syncWeeklyChatLogs({ startDate, endDate: startDate });
+    assert.equal(resumedSync.success, true);
+    assert.equal(resumedSync.totalLines, firstSync.totalLines);
+    assert.equal(resumedSync.seedsAdded, 0, '확정 offset 재실행이 SEED를 중복 반영했습니다.');
+    assert.equal(resumedSync.lootsAdded, 0, '확정 offset 재실행이 마정석 합계를 중복 증가시켰습니다.');
+    const persistedManagerState = stateModule.loadChatLogSyncStateAtPath(isolatedUserData);
+    const managerState = persistedManagerState.files[stateModule.getChatLogSyncStateKey(managerFile)];
+    assert.equal(managerState.confirmedOffset, fs.statSync(managerFile).size,
+      '메인 ACK 뒤 snapshot 확정 offset이 내구 상태에 저장되지 않았습니다.');
+  } finally {
+    configModule.saveImmediate({ chatLogPath: previousChatLogPath });
+  }
+
+  const eventDate = '2099-12-31';
+  const eventId = protocol.createStableChatSyncEventId('regression-file', 123, 'loot', 0);
+  const firstCommit = diaryDb.batchInsertSyncResults({
+    loots: [{ eventId, date: eventDate, timeOnly: '12:00:00', diaryContent: '[득템] 안정 ID A', count: 1 }],
+    essences: [], seeds: [], elsoPoints: [], shouts: [],
+  });
+  const replayCommit = diaryDb.batchInsertSyncResults({
+    loots: [{ eventId, date: eventDate, timeOnly: '12:00:01', diaryContent: '[득템] 안정 ID B', count: 1 }],
+    essences: [], seeds: [], elsoPoints: [], shouts: [],
+  });
+  assert.equal(firstCommit.lootsAdded, 1);
+  assert.equal(replayCommit.lootsAdded, 0, '동일 event ID 재전송이 DB에 중복 반영되었습니다.');
+  assert.equal(diaryDb.hasActivityLog(eventDate, '12:00:01', '[득템] 안정 ID B'), false);
+  diaryDb.removeActivityLog(eventDate, 'loot', '[득템] 안정 ID A');
+}
+
 checkDiscordNotifierContracts();
 checkBossNotifierContracts();
 checkBackendServiceContracts();
@@ -5080,11 +5282,13 @@ checkAbandonedFeeMatchingContracts();
 checkMissedMinuteSchedulerContracts();
 checkMissedCustomAlertContracts();
 checkMissedBossAlertContracts();
-void checkChatLogWorkerReadRecovery().then(() => checkGoogleSyncDataContracts()).then(() => {
+void checkChatLogWorkerReadRecovery()
+  .then(() => checkChatLogWorkerBatchProtocol())
+  .then(() => checkGoogleSyncDataContracts()).then(() => {
   console.log('Refactor regression checks passed.');
-  process.exit(0);
+  finishRegressionChecks(0);
 }).catch(error => {
   console.error(error);
-  process.exit(1);
+  finishRegressionChecks(1);
 });
 

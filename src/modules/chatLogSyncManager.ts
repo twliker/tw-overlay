@@ -8,8 +8,24 @@ import * as diaryDb from './diaryDb';
 import * as contentsChecker from './contentsChecker';
 import type { SyncProgressInfo, SyncResultReport } from '../shared/types';
 import { broadcastToAllWindows, sendToFirstWindowByPage } from './windowMessaging';
-import type { WorkerDoneData } from './chatLogSyncWorker';
 import { normalizeNotificationKeywords } from '../shared/keywordSanitizer';
+import {
+  createChatLogSyncJobId,
+  type ChatLogFileAggregate,
+  type ChatLogSyncBatchAck,
+  type ChatLogSyncBatchData,
+  type ChatLogSyncWorkerMessage,
+  type WorkerDoneData,
+  type WorkerSyncTargetFile,
+} from './chatLogSyncProtocol';
+import {
+  canResumeChatLogFile,
+  createDurableFileState,
+  getChatLogSyncStateKey,
+  inspectChatLogFile,
+  loadChatLogSyncState,
+  saveChatLogSyncState,
+} from './chatLogSyncState';
 
 /**
  * 테일즈위버 주간 초기화 기준인 최근 월요일(00:00:00) Date 객체를 반환합니다.
@@ -179,36 +195,147 @@ export async function syncWeeklyChatLogs(options?: {
 
   const lootKeywords = normalizeNotificationKeywords(cfg.lootKeywords);
   const workerScriptPath = path.join(__dirname, 'chatLogSyncWorker.js');
+  const syncState = loadChatLogSyncState();
+  const workerTargets: WorkerSyncTargetFile[] = [];
+  for (const target of targetFiles) {
+    const stateKey = getChatLogSyncStateKey(target.filePath);
+    const previous = syncState.files[stateKey];
+    const inspection = inspectChatLogFile(target.filePath, target.dateStr, previous);
+    const canResume = canResumeChatLogFile(previous, inspection, target.dateStr);
+    const durable = canResume ? {
+      ...previous,
+      snapshotSize: inspection.snapshotSize,
+      updatedAt: Date.now(),
+    } : createDurableFileState(
+      target.filePath,
+      target.fileName,
+      target.dateStr,
+      inspection.fingerprint,
+      inspection.fingerprintBytes,
+      inspection.snapshotSize,
+    );
+    syncState.files[stateKey] = durable;
+    workerTargets.push({
+      filePath: target.filePath,
+      fileName: target.fileName,
+      dateStr: target.dateStr,
+      fingerprint: durable.fingerprint,
+      fingerprintBytes: durable.fingerprintBytes,
+      startOffset: durable.confirmedOffset,
+      snapshotSize: inspection.snapshotSize,
+      encoding: inspection.encoding,
+      aggregate: {
+        totalLines: durable.totalLines,
+        lootsDetected: durable.lootsDetected,
+        essencesDetected: durable.essencesDetected,
+        shoutsDetected: durable.shoutsDetected,
+        seedsDetected: durable.seedsDetected,
+        elsoPointsDetected: durable.elsoPointsDetected,
+        homework: durable.homework,
+        magicStones: durable.magicStones,
+        elsoByDate: durable.elsoByDate,
+      },
+    });
+  }
+  saveChatLogSyncState(syncState);
+  const jobId = createChatLogSyncJobId();
+
+  const committed = {
+    lootsAdded: 0,
+    essencesAdded: 0,
+    seedsAdded: 0,
+    elsoPointsAdded: 0,
+    shoutsAdded: 0,
+  };
 
   let doneData: WorkerDoneData;
   try {
     doneData = await new Promise<WorkerDoneData>((resolve, reject) => {
       const worker = new Worker(workerScriptPath, {
         workerData: {
-          targetFiles,
+          jobId,
+          targetFiles: workerTargets,
           lootKeywords
         }
       });
 
-      worker.on('message', (msg: { type: string; data?: any; error?: string }) => {
+      let settled = false;
+      const rejectOnce = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+        void worker.terminate();
+      };
+
+      worker.on('message', (msg: ChatLogSyncWorkerMessage) => {
         if (msg.type === 'progress') {
           const progressInfo = msg.data as SyncProgressInfo;
           if (options?.onProgress) options.onProgress(progressInfo);
           broadcastToAllWindows('chat-log-sync-progress', progressInfo);
+        } else if (msg.type === 'batch') {
+          const batch = msg.data as ChatLogSyncBatchData;
+          const ack: ChatLogSyncBatchAck = {
+            type: 'batch-ack',
+            jobId,
+            batchId: batch.batchId,
+            success: false,
+          };
+          try {
+            if (batch.jobId !== jobId) throw new Error('채팅 로그 배치 작업 ID가 일치하지 않습니다.');
+            const expected = workerTargets.find(target => target.filePath === batch.filePath);
+            if (!expected || expected.fingerprint !== batch.fingerprint) {
+              throw new Error(`채팅 로그 배치 파일 fingerprint가 일치하지 않습니다: ${batch.fileName}`);
+            }
+            const batchResult = diaryDb.batchInsertSyncResults(batch);
+            if (!batchResult.success) {
+              throw new Error(batchResult.error || '채팅 로그 DB 배치 반영 실패');
+            }
+
+            const stateKey = getChatLogSyncStateKey(batch.filePath);
+            syncState.files[stateKey] = {
+              ...batch.aggregate,
+              filePath: batch.filePath,
+              fileName: batch.fileName,
+              dateStr: batch.dateStr,
+              fingerprint: batch.fingerprint,
+              fingerprintBytes: batch.fingerprintBytes,
+              confirmedOffset: batch.confirmedOffset,
+              snapshotSize: batch.snapshotSize,
+              updatedAt: Date.now(),
+            };
+            saveChatLogSyncState(syncState);
+            committed.lootsAdded += batchResult.lootsAdded;
+            committed.essencesAdded += batchResult.essencesAdded;
+            committed.seedsAdded += batchResult.seedsAdded;
+            committed.elsoPointsAdded += batchResult.elsoPointsAdded;
+            committed.shoutsAdded += batchResult.shoutsAdded;
+            ack.success = true;
+            worker.postMessage(ack);
+          } catch (error) {
+            ack.error = error instanceof Error ? error.message : String(error);
+            worker.postMessage(ack);
+            rejectOnce(new Error(ack.error));
+          }
         } else if (msg.type === 'done') {
-          resolve(msg.data as WorkerDoneData);
+          if (msg.data.jobId !== jobId) {
+            rejectOnce(new Error('채팅 로그 워커 완료 작업 ID가 일치하지 않습니다.'));
+          } else if (!settled) {
+            settled = true;
+            resolve(msg.data as WorkerDoneData);
+            void worker.terminate();
+          }
         } else if (msg.type === 'error') {
-          reject(new Error(msg.error || 'Worker error'));
+          rejectOnce(new Error(msg.error || 'Worker error'));
         }
       });
 
       worker.on('error', (err) => {
-        reject(err);
+        rejectOnce(err);
       });
 
       worker.on('exit', (code) => {
         if (code !== 0) {
-          reject(new Error(`Worker stopped with exit code ${code}`));
+          rejectOnce(new Error(`Worker stopped with exit code ${code}`));
         }
       });
     });
@@ -236,12 +363,26 @@ export async function syncWeeklyChatLogs(options?: {
     };
   }
 
-  const lootsDetected = doneData.loots.length;
-  const essencesDetected = (doneData.essences || []).reduce((sum, item) => sum + item.count, 0);
-  const seedsDetected = doneData.seeds.length;
-  const shoutsDetected = doneData.shouts.length;
-  const homeworkDetected = Object.keys(doneData.accumulatedHomework).length;
-  const elsoPointsDetected = doneData.elsoPoints.reduce((sum, item) => sum + item.amount, 0);
+  const currentFileStates = workerTargets.map(target => syncState.files[getChatLogSyncStateKey(target.filePath)])
+    .filter((state): state is NonNullable<typeof state> => !!state);
+  const lootsDetected = currentFileStates.reduce((sum, state) => sum + state.lootsDetected, 0);
+  const essencesDetected = currentFileStates.reduce((sum, state) => sum + state.essencesDetected, 0);
+  const seedsDetected = currentFileStates.reduce((sum, state) => sum + state.seedsDetected, 0);
+  const shoutsDetected = currentFileStates.reduce((sum, state) => sum + state.shoutsDetected, 0);
+  const elsoPointsDetected = currentFileStates.reduce((sum, state) => sum + state.elsoPointsDetected, 0);
+  const accumulatedHomework: ChatLogFileAggregate['homework'] = {};
+  for (const state of currentFileStates) {
+    for (const [id, detected] of Object.entries(state.homework)) {
+      const existing = accumulatedHomework[id];
+      if (!existing) accumulatedHomework[id] = { ...detected };
+      else if (detected.isIncrement) existing.count += detected.count;
+      else {
+        existing.count = Math.max(existing.count, detected.count);
+        existing.isIncrement = false;
+      }
+    }
+  }
+  const homeworkDetected = Object.keys(accumulatedHomework).length;
   const failedFiles = doneData.failedFiles || [];
   if (failedFiles.length === targetFiles.length) {
     return {
@@ -249,7 +390,7 @@ export async function syncWeeklyChatLogs(options?: {
       startDate: startDateStr,
       endDate: endDateStr,
       totalFiles: targetFiles.length,
-      totalLines: doneData.totalLines,
+      totalLines: currentFileStates.reduce((sum, state) => sum + state.totalLines, 0),
       lootsAdded: 0,
       shoutsAdded: 0,
       homeworkUpdated: 0,
@@ -267,41 +408,11 @@ export async function syncWeeklyChatLogs(options?: {
     };
   }
 
-  // 메인 프로세스에서 단 1회의 트랜잭션으로 초고속 일괄 반영 (0.01초 미만 완료, UI 프리징 제로)
-  const batchResult = diaryDb.batchInsertSyncResults(doneData);
-  if (!batchResult.success) {
-    log(`[SYNC] 주간 채팅 로그 DB 반영 실패: ${batchResult.error || '알 수 없는 오류'}`);
-    return {
-      success: false,
-      startDate: startDateStr,
-      endDate: endDateStr,
-      totalFiles: targetFiles.length,
-      totalLines: doneData.totalLines,
-      lootsAdded: 0,
-      shoutsAdded: 0,
-      homeworkUpdated: 0,
-      seedsAdded: 0,
-      elsoPointsAdded: 0,
-      essencesAdded: 0,
-      lootsDetected,
-      homeworkDetected,
-      shoutsDetected,
-      seedsDetected,
-      elsoPointsDetected,
-      essencesDetected,
-      error: `동기화 결과 저장 중 오류가 발생했습니다: ${batchResult.error || '알 수 없는 오류'}`
-    };
-  }
-
-  const lootsAdded = batchResult.lootsAdded;
-  const essencesAdded = batchResult.essencesAdded;
-  const seedsAdded = batchResult.seedsAdded;
-  const elsoPointsAdded = batchResult.elsoPointsAdded;
-  const shoutsAdded = batchResult.shoutsAdded;
+  const { lootsAdded, essencesAdded, seedsAdded, elsoPointsAdded, shoutsAdded } = committed;
 
   let homeworkUpdated = 0;
-  for (const [hwId, detectedCount] of Object.entries(doneData.accumulatedHomework)) {
-    const updated = contentsChecker.mergeHomeworkCountFromSync(hwId, detectedCount);
+  for (const [hwId, detected] of Object.entries(accumulatedHomework)) {
+    const updated = contentsChecker.mergeHomeworkCountFromSync(hwId, detected.count);
     if (updated) homeworkUpdated++;
   }
 
@@ -317,7 +428,7 @@ export async function syncWeeklyChatLogs(options?: {
     startDate: startDateStr,
     endDate: endDateStr,
     totalFiles: targetFiles.length,
-    totalLines: doneData.totalLines,
+    totalLines: currentFileStates.reduce((sum, state) => sum + state.totalLines, 0),
     // 신규 반영 결과
     lootsAdded,
     homeworkUpdated,
