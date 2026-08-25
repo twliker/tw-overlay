@@ -54,7 +54,7 @@
 - [ ] Windows 로그오프와 시스템 종료가 지연되거나 취소되지 않는지 확인한다.
 - [ ] 재로그인 뒤 config, 숙제 outbox, 일지 DB와 WAL 데이터가 보존되는지 확인한다.
 
-부분 계측 기록(2026-08-26): `bdb3fdc` 기반 빈 userData 격리 source Electron을 자동 `app.quit()`으로 종료했을 때 visible window가 1개에서 22ms 안에 0개가 되었고 전체 quit는 26ms였다. `93d2922`에서는 Electron 진입 전에 `appData`를 격리한 fresh 프로필을 실제 Windows UI의 `Alt+F4`로 종료했다. 생산자 중지부터 WAL 72/72 checkpoint와 DB close까지 로그 시각 기준 9ms였고 프로세스 종료로 창과 트레이가 함께 제거됐다. `0884202`의 별도 Electron 프로세스 재시작 검사에서는 설정 dirty만, 숙제 outbox만, 두 파일 모두 dirty인 세 조합의 dirty key·operation ID·recovery marker가 디스크에 동일하게 보존됐다. `65ea23d`는 같은 세 조합을 표시 창이 있는 실제 `main.js`로 각각 시작·종료해 창 숨김 100ms·전체 종료 3초 제한, marker 보존, WAL checkpoint와 DB close를 검증했다. `431c2a9`에서는 응답하지 않는 격리 Drive 요청을 약 3초 뒤 정확히 한 번 취소하고 종료 시점 dirty/outbox marker, WAL checkpoint와 DB close를 보존했다. `62dd7a6`에서는 timeout 시작 100ms 뒤 두 번째 외부 quit를 요청해도 최초 finalizer가 정리를 끝낸 뒤 내부 최종 quit에서만 종료되는 것을 확인했다. 실제 서버 반영 후 응답만 유실되는 실계정 조건의 원격 재확인, 로그오프·시스템 종료는 수행하지 않았으므로 해당 항목은 대기로 둔다.
+부분 계측 기록(2026-08-26): `bdb3fdc` 기반 빈 userData 격리 source Electron을 자동 `app.quit()`으로 종료했을 때 visible window가 1개에서 22ms 안에 0개가 되었고 전체 quit는 26ms였다. `93d2922`에서는 Electron 진입 전에 `appData`를 격리한 fresh 프로필을 실제 Windows UI의 `Alt+F4`로 종료했다. 생산자 중지부터 WAL 72/72 checkpoint와 DB close까지 로그 시각 기준 9ms였고 프로세스 종료로 창과 트레이가 함께 제거됐다. `0884202`의 별도 Electron 프로세스 재시작 검사에서는 설정 dirty만, 숙제 outbox만, 두 파일 모두 dirty인 세 조합의 dirty key·operation ID·recovery marker가 디스크에 동일하게 보존됐다. `65ea23d`는 같은 세 조합을 표시 창이 있는 실제 `main.js`로 각각 시작·종료해 창 숨김 100ms·전체 종료 3초 제한, marker 보존, WAL checkpoint와 DB close를 검증했다. `431c2a9`에서는 응답하지 않는 격리 Drive 요청을 약 3초 뒤 정확히 한 번 취소하고 종료 시점 dirty/outbox marker, WAL checkpoint와 DB close를 보존했다. `62dd7a6`에서는 timeout 시작 100ms 뒤 두 번째 외부 quit를 요청해도 최초 finalizer가 정리를 끝낸 뒤 내부 최종 quit에서만 종료되는 것을 확인했다. `35f3dab`에서는 main 창의 `query-session-end` 이벤트가 취소되지 않고 핸들러 반환 시점에 dirty/outbox marker가 저장되며 WAL checkpoint가 실행되는 fast path를 확인했다. 실제 서버 반영 후 응답만 유실되는 실계정 조건의 원격 재확인, 실제 로그오프·시스템 종료는 수행하지 않았으므로 해당 항목은 대기로 둔다.
 
 ## 4. DPI·모니터·RDP·창 크기
 
@@ -93,7 +93,7 @@
 | 항목 | 빌드/커밋 | 환경 | 시작~종료 시각 | 결과 | 증거/비고 |
 |---|---|---|---|---|---|
 | 두 PC 클라우드 | 대기 | PC-A / PC-B | 대기 | 대기 | |
-| 종료·로그오프 | `93d2922`, `0884202`, `65ea23d`, `431c2a9`, `62dd7a6` | 격리 source Electron / Windows `Alt+F4` / 별도 Electron 재시작·main finalizer·Drive timeout | 2026-08-26 06:15~06:52 KST | 부분 통과 | fresh 프로필 일반 종료 9ms, 세 dirty 조합, 응답 없는 Drive의 3초 취소와 반복 quit 차단, marker·WAL/DB 정리 확인. 실제 서버 반영 후 응답 유실·원격 재확인과 로그오프·시스템 종료 대기 |
+| 종료·로그오프 | `93d2922`, `0884202`, `65ea23d`, `431c2a9`, `62dd7a6`, `35f3dab` | 격리 source Electron / Windows `Alt+F4` / 별도 Electron 재시작·main finalizer·Drive timeout·session-end 이벤트 | 2026-08-26 06:15~06:57 KST | 부분 통과 | 일반 종료, 세 dirty 조합, 3초 timeout 취소, 반복 quit 차단, session-end marker·WAL fast path 확인. 실제 서버 반영 후 응답 유실·원격 재확인과 실제 로그오프·시스템 종료 대기 |
 | DPI·모니터·RDP | `750ec60` | 격리 source Electron / 강제 100·125·150%·2×·3× | 2026-08-26 06:18~06:27 KST | 부분 통과 | DPR·창 clamp 확인, 854×464 계수 계산기 잘림 수정 및 scroll 검증. 실제 OS 배율 전환·게임 정렬·모니터/RDP 대기 |
 | Z-order 소크 | 대기 | 게임 실행 | 대기 | 대기 | |
 | 대형 로그 소크 | `be3c13b`, `85533d9`, `e034f88` | 격리 Electron / UTF-8·BOM·EUC-KR / Windows 독점 잠금 | 2026-08-26 | 부분 통과 | 8.05MB 전체 검색, 40→42.05MB 2분·14,400줄·메모리 trim, Tail 1/2/4/8/16초 복원, 잠긴 1/2 파일 부분 성공·해제 후 재수렴, 256KB 경계, 실제 프로세스 재시작·지정 폴더 이동 복구. 장시간 게임 로그 대기 |
