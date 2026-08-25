@@ -862,6 +862,7 @@ export function register(): void {
       : ['settings', 'checklist'] as const;
     return cloudSync.syncFromCloud(true, [...normalizedKinds]);
   });
+  ipcMain.handle('google-sync-rollback', async () => cloudSync.rollbackLastRestore());
   ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
   ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
     if (!isBoolean(enabled)) return cloudSync.getSyncStatus();

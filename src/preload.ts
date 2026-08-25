@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, ChatItem, TimerRecord, EquipmentDictionaryItem, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleDriveFileMeta } from './shared/types';
+import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, ChatItem, TimerRecord, EquipmentDictionaryItem, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
 
 // sandbox preload은 로컬 모듈 require가 제한되므로 메인 프로세스의 단일 기본값 원본을 동기 조회합니다.
@@ -185,6 +185,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('google-sync-backup'),
   googleSyncRestore: (selectedKinds: GoogleSyncDataKind[] = ['settings', 'checklist']): Promise<GoogleSyncResult> =>
     ipcRenderer.invoke('google-sync-restore', selectedKinds),
+  googleSyncRollback: (): Promise<GoogleSyncResult> =>
+    ipcRenderer.invoke('google-sync-rollback'),
   googleSyncPreview: (): Promise<{
     success: boolean;
     payload?: GoogleSyncPayload;
@@ -192,6 +194,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     fileCount?: number;
     files?: GoogleDriveFileMeta[];
     restoreResults?: GoogleSyncFileRestoreResult[];
+    changeSummaries?: GoogleSyncChangeSummary[];
     partial?: boolean;
     error?: string;
   }> =>

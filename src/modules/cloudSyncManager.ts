@@ -5,6 +5,7 @@
 import * as crypto from 'crypto';
 import {
   AppConfig,
+  GoogleSyncChangeSummary,
   GoogleSyncDataKind,
   GoogleSyncFileRestoreResult,
   GoogleSyncMetaPayload,
@@ -80,6 +81,7 @@ export function getSyncStatus(): GoogleSyncStatus {
   const profile = googleAuth.loadStoredProfile();
   const cfg = config.load();
   const state = cloudState.load();
+  const backup = syncDataHelper.getLocalSyncBackupInfo();
   return {
     isLinked,
     email: profile?.email || cfg.googleSyncUserEmail,
@@ -90,6 +92,8 @@ export function getSyncStatus(): GoogleSyncStatus {
     profileState: state.profileState,
     restoreResults: state.restoreResults,
     restorePartial: state.restorePartial,
+    localBackupAvailable: backup.available,
+    localBackupCreatedAt: backup.createdAt,
   };
 }
 
@@ -898,6 +902,25 @@ export async function syncFromCloud(
   }
 }
 
+/** 마지막 클라우드 복원 직전 로컬 config로 되돌린다. 정상 저장 이벤트를 통해 필요한 재동기화를 예약한다. */
+export async function rollbackLastRestore(): Promise<GoogleSyncResult> {
+  try {
+    return await enqueueTransfer('복원 되돌리기', async () => {
+      const backup = syncDataHelper.loadLocalSyncBackup();
+      if (!config.saveImmediate(backup)) {
+        return { success: false, error: config.getLastSaveError() || '로컬 백업 적용에 실패했습니다.' };
+      }
+      return {
+        success: true,
+        message: '클라우드 복원 전 이 PC의 설정으로 되돌렸습니다.',
+        profileState: cloudState.load().profileState,
+      };
+    });
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** 설정 화면용 미리보기: 두 데이터 파일을 하나의 읽기 전용 payload로 합쳐 반환한다. */
 export async function getCloudDataPreview(): Promise<{
   success: boolean;
@@ -906,6 +929,7 @@ export async function getCloudDataPreview(): Promise<{
   fileCount?: number;
   files?: googleDriveSync.DriveFileMeta[];
   restoreResults?: GoogleSyncFileRestoreResult[];
+  changeSummaries?: GoogleSyncChangeSummary[];
   partial?: boolean;
   error?: string;
 }> {
@@ -945,6 +969,14 @@ export async function getCloudDataPreview(): Promise<{
         };
       }
       const latest = Math.max(settings?.payload.lastSyncedAt || 0, checklist?.payload.lastSyncedAt || 0);
+      const localCfg = config.load();
+      const changeSummaries = [settings, checklist]
+        .filter((candidate): candidate is ValidatedRestoreCandidate => candidate !== undefined)
+        .map(candidate => syncDataHelper.buildSyncChangeSummary(
+          candidate.payload.kind as SyncKind,
+          localCfg,
+          candidate.payload.data,
+        ));
       return {
         success: true,
         payload: {
@@ -958,6 +990,7 @@ export async function getCloudDataPreview(): Promise<{
         fileCount: files.all.length,
         files: files.all,
         restoreResults,
+        changeSummaries,
         partial,
       };
     });

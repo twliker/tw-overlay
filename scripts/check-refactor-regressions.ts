@@ -4681,6 +4681,14 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     modifiedTime: '2026-08-25T13:20:00.000Z',
     payload: settingsPreservationPayload,
   });
+  const preservationPreview = await cloudManager.getCloudDataPreview();
+  assert.equal(preservationPreview.success, true);
+  const settingsSummary = preservationPreview.changeSummaries.find((summary: any) => summary.kind === 'settings');
+  assert.equal(settingsSummary.changedKeys.includes('userServer'), true);
+  assert.equal(settingsSummary.preservedLocalKeys.includes('showTodaySummaryHud'), true,
+    '클라우드에 없는 신규 설정 키가 현재 PC 유지 항목으로 요약되지 않았습니다.');
+  assert.equal(JSON.stringify(settingsSummary).includes('local-secret'), false,
+    '변경 요약에 로컬 비밀값이 포함되었습니다.');
   const preservationRestore = await cloudManager.syncFromCloud(true, ['settings']);
   assert.equal(preservationRestore.success, true);
   const preservedConfig = configModule.load();
@@ -4702,6 +4710,14 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(preRestoreBackup.userServer, 3,
     '설정 복원 전 로컬 상태가 백업 파일에 보존되지 않았습니다.');
   assert.equal(preRestoreBackup.discordWebhookUrl, 'https://discord.com/api/webhooks/local-secret');
+  const backupStatus = cloudManager.getSyncStatus();
+  assert.equal(backupStatus.localBackupAvailable, true);
+  assert.equal(typeof backupStatus.localBackupCreatedAt, 'number');
+  const rollbackResult = await cloudManager.rollbackLastRestore();
+  assert.equal(rollbackResult.success, true);
+  assert.equal(configModule.load().userServer, 3,
+    '클라우드 복원 전 로컬 설정으로 되돌리지 못했습니다.');
+  assert.equal(configModule.load().discordWebhookUrl, 'https://discord.com/api/webhooks/local-secret');
 }
 
 checkDiscordNotifierContracts();

@@ -583,6 +583,14 @@ export interface GoogleSyncFileRestoreResult {
     error?: string;
 }
 
+export interface GoogleSyncChangeSummary {
+    kind: GoogleSyncDataKind;
+    addedKeys: string[];
+    changedKeys: string[];
+    preservedLocalKeys: string[];
+    unchangedCount: number;
+}
+
 export interface GoogleSyncStatus {
     isLinked: boolean;
     email?: string;
@@ -596,6 +604,8 @@ export interface GoogleSyncStatus {
     profileState?: GoogleSyncProfileState;
     restoreResults?: GoogleSyncFileRestoreResult[];
     restorePartial?: boolean;
+    localBackupAvailable?: boolean;
+    localBackupCreatedAt?: number;
     error?: string;
 }
 
@@ -649,6 +659,7 @@ export interface GoogleSyncResult {
     files?: GoogleDriveFileMeta[];
     profileState?: GoogleSyncProfileState;
     restoreResults?: GoogleSyncFileRestoreResult[];
+    changeSummaries?: GoogleSyncChangeSummary[];
     partial?: boolean;
     error?: string;
 }

@@ -11,6 +11,8 @@ import {
   ContentsCheckerItem,
   GoogleChecklistSyncMutation,
   GoogleChecklistSyncOperation,
+  GoogleSyncChangeSummary,
+  GoogleSyncDataKind,
   GoogleSyncPayload,
 } from '../shared/types';
 import { log } from './logger';
@@ -247,6 +249,34 @@ function stableJson(value: unknown): string {
 
 export function calculateSyncChecksum(data: Partial<AppConfig>): string {
   return crypto.createHash('sha256').update(stableJson(data), 'utf-8').digest('hex');
+}
+
+/** 값은 노출하지 않고 복원 시 달라지는 동기화 키만 파일별로 요약한다. */
+export function buildSyncChangeSummary(
+  kind: GoogleSyncDataKind,
+  localCfg: AppConfig,
+  remoteData: Partial<AppConfig>,
+): GoogleSyncChangeSummary {
+  const allowedKeys = kind === 'settings' ? SETTINGS_SYNCABLE_KEYS : CHECKLIST_SYNCABLE_KEYS;
+  const addedKeys: string[] = [];
+  const changedKeys: string[] = [];
+  const preservedLocalKeys: string[] = [];
+  let unchangedCount = 0;
+
+  for (const key of allowedKeys) {
+    const keyName = String(key);
+    const hasRemote = Object.prototype.hasOwnProperty.call(remoteData, key);
+    const hasLocal = localCfg[key] !== undefined;
+    if (!hasRemote) {
+      if (hasLocal) preservedLocalKeys.push(keyName);
+      continue;
+    }
+    if (!hasLocal) addedKeys.push(keyName);
+    else if (stableJson(localCfg[key]) !== stableJson(remoteData[key])) changedKeys.push(keyName);
+    else unchangedCount++;
+  }
+
+  return { kind, addedKeys, changedKeys, preservedLocalKeys, unchangedCount };
 }
 
 function calculateValueChecksum(value: unknown): string {
@@ -702,6 +732,31 @@ export function createLocalBackupBeforeSync(cfg: AppConfig): void {
   } catch (err) {
     log(`[SyncDataHelper] 로컬 백업 실패 (진행은 계속됨): ${err}`);
   }
+}
+
+export function getLocalSyncBackupInfo(): { available: boolean; createdAt?: number } {
+  const backupPath = path.join(app.getPath('userData'), BACKUP_FILENAME);
+  try {
+    const stat = fs.statSync(backupPath);
+    return { available: stat.isFile(), createdAt: stat.mtimeMs };
+  } catch {
+    return { available: false };
+  }
+}
+
+/** 복원 전 백업을 현재 config에 적용하기 전에 크기·형태·알려진 키를 다시 검증한다. */
+export function loadLocalSyncBackup(): AppConfig {
+  const backupPath = path.join(app.getPath('userData'), BACKUP_FILENAME);
+  const stat = fs.statSync(backupPath);
+  if (!stat.isFile() || stat.size > MAX_SYNC_PAYLOAD_BYTES) {
+    throw new Error('로컬 동기화 백업 파일의 크기가 올바르지 않습니다.');
+  }
+  const parsed = JSON.parse(fs.readFileSync(backupPath, 'utf-8')) as unknown;
+  const sanitized = sanitizeExternalConfigPatch(parsed);
+  if (!sanitized || Object.keys(sanitized).length === 0) {
+    throw new Error('로컬 동기화 백업 파일의 형식이 올바르지 않습니다.');
+  }
+  return sanitized as AppConfig;
 }
 
 /** 숙제 체크리스트 병합 (캐릭터별 lastCompletedAt 타임스탬프 기준 최신 우선) */
