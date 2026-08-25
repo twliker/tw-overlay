@@ -14,6 +14,20 @@ const STATE_SCHEMA_VERSION = 1;
 
 export type ChecklistOutboxEntry = GoogleChecklistSyncOperation;
 
+export interface CloudShutdownRecovery {
+  createdAt: number;
+  settings?: {
+    dirtyKeys: string[];
+    checksum: string;
+    remoteRevision?: string;
+  };
+  checklist?: {
+    operationIds: string[];
+    checksum: string;
+    remoteRevision?: string;
+  };
+}
+
 export interface CloudSyncLocalState {
   schemaVersion: number;
   deviceId: string;
@@ -37,6 +51,7 @@ export interface CloudSyncLocalState {
   confirmedChecklistOperations: GoogleChecklistSyncOperation[];
   restoreResults?: GoogleSyncFileRestoreResult[];
   restorePartial?: boolean;
+  shutdownRecovery?: CloudShutdownRecovery;
   lastPullAt?: number;
 }
 
@@ -119,6 +134,34 @@ function normalizeRestoreResults(value: unknown): GoogleSyncFileRestoreResult[] 
     && allowedStatuses.has(entry.status));
 }
 
+function normalizeShutdownRecovery(value: unknown): CloudShutdownRecovery | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const parsed = value as Partial<CloudShutdownRecovery>;
+  if (typeof parsed.createdAt !== 'number' || !Number.isFinite(parsed.createdAt)) return undefined;
+  const settings = parsed.settings && typeof parsed.settings === 'object'
+    && isStringArray(parsed.settings.dirtyKeys)
+    && typeof parsed.settings.checksum === 'string'
+    ? {
+      dirtyKeys: parsed.settings.dirtyKeys.slice(0, 500),
+      checksum: parsed.settings.checksum,
+      remoteRevision: typeof parsed.settings.remoteRevision === 'string'
+        ? parsed.settings.remoteRevision : undefined,
+    }
+    : undefined;
+  const checklist = parsed.checklist && typeof parsed.checklist === 'object'
+    && isStringArray(parsed.checklist.operationIds)
+    && typeof parsed.checklist.checksum === 'string'
+    ? {
+      operationIds: parsed.checklist.operationIds.slice(0, 1_000),
+      checksum: parsed.checklist.checksum,
+      remoteRevision: typeof parsed.checklist.remoteRevision === 'string'
+        ? parsed.checklist.remoteRevision : undefined,
+    }
+    : undefined;
+  if (!settings && !checklist) return undefined;
+  return { createdAt: parsed.createdAt, settings, checklist };
+}
+
 function normalizeState(value: unknown): CloudSyncLocalState | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const parsed = value as Partial<CloudSyncLocalState>;
@@ -164,6 +207,7 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
       : [],
     restoreResults: normalizeRestoreResults(parsed.restoreResults),
     restorePartial: typeof parsed.restorePartial === 'boolean' ? parsed.restorePartial : undefined,
+    shutdownRecovery: normalizeShutdownRecovery(parsed.shutdownRecovery),
     lastPullAt: typeof parsed.lastPullAt === 'number' ? parsed.lastPullAt : undefined,
   };
 }

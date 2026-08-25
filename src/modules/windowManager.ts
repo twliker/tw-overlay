@@ -1855,6 +1855,14 @@ export function hideAll(): void {
   focusController.cancelPendingRestore();
 }
 
+/** 종료 flush를 기다리는 동안 사용자에게 앱이 남아 보이지 않도록 모든 Electron 창만 즉시 숨긴다. */
+export function hideAllForShutdown(): void {
+  focusController.setRestoreSuppressed(true);
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed() && window.isVisible()) window.hide();
+  }
+}
+
 export function getMainWindow(): BrowserWindow | null {
   return (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : null;
 }

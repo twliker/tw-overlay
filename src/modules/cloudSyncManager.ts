@@ -623,6 +623,7 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
       applyingCloud = false;
     }
   }
+  reconcileShutdownRecovery();
   return {
     success: true,
     message: latestAt > 0 ? '클라우드 동기화가 완료되었습니다.' : '업로드할 변경 사항이 없습니다.',
@@ -915,7 +916,10 @@ export async function syncFromCloud(
       ? pullRestoreFromCloud(normalizedKinds, state.profileState === 'fresh')
       : pullFromCloud(false));
     if (!result.success && !manual) pullFailureCount++;
-    else if (result.success) pullFailureCount = 0;
+    else if (result.success) {
+      pullFailureCount = 0;
+      reconcileShutdownRecovery();
+    }
     return result;
   } catch (error) {
     if (!manual) pullFailureCount++;
@@ -1052,6 +1056,67 @@ export function refreshBackgroundSchedule(): void {
   else stopBackgroundSync();
 }
 
+/** 종료 직전 dirty/outbox의 확인 기준을 원자 저장한다. 성공 여부가 불명확하면 다음 실행까지 유지한다. */
+export function prepareShutdownRecovery(): boolean {
+  const state = cloudState.load();
+  const current = config.load();
+  const hasSettings = state.settingsDirtyKeys.length > 0;
+  const hasChecklist = state.checklistOutbox.length > 0;
+  if (!hasSettings && !hasChecklist) return state.shutdownRecovery !== undefined;
+  cloudState.update(next => {
+    const previous = next.shutdownRecovery;
+    next.shutdownRecovery = {
+      createdAt: previous?.createdAt || Date.now(),
+      ...(hasSettings || previous?.settings ? {
+        settings: {
+          dirtyKeys: Array.from(new Set([
+            ...(previous?.settings?.dirtyKeys || []),
+            ...state.settingsDirtyKeys,
+          ])),
+          checksum: syncDataHelper.calculateSyncChecksum(syncDataHelper.extractSettingsSyncData(current)),
+          remoteRevision: state.remoteRevisions.settings,
+        },
+      } : {}),
+      ...(hasChecklist || previous?.checklist ? {
+        checklist: {
+          operationIds: Array.from(new Set([
+            ...(previous?.checklist?.operationIds || []),
+            ...state.checklistOutbox.map(operation => operation.id),
+          ])),
+          checksum: syncDataHelper.calculateSyncChecksum(syncDataHelper.extractChecklistSyncData(current)),
+          remoteRevision: state.remoteRevisions.checklist,
+        },
+      } : {}),
+    };
+  });
+  return true;
+}
+
+/** 검증된 upload/pull이 recovery 당시 dirty key와 operation을 처리했을 때만 marker를 제거한다. */
+export function reconcileShutdownRecovery(): boolean {
+  const snapshot = cloudState.load();
+  if (!snapshot.shutdownRecovery) return true;
+  const next = cloudState.update(state => {
+    const recovery = state.shutdownRecovery;
+    if (!recovery) return;
+    if (recovery.settings
+      && recovery.settings.dirtyKeys.every(key => !state.settingsDirtyKeys.includes(key))) {
+      delete recovery.settings;
+    }
+    const pendingOperationIds = new Set(state.checklistOutbox.map(operation => operation.id));
+    if (recovery.checklist
+      && recovery.checklist.operationIds.every(id => !pendingOperationIds.has(id))) {
+      delete recovery.checklist;
+    }
+    if (!recovery.settings && !recovery.checklist) delete state.shutdownRecovery;
+  });
+  return !next.shutdownRecovery;
+}
+
+export function cancelPendingShutdownRequests(): void {
+  googleDriveSync.cancelPendingRequests();
+}
+
 /** 종료 전 현재 큐를 비운다. main의 3초 제한이 이 Promise 바깥에서 적용된다. */
 export async function flushPendingSync(): Promise<void> {
   settingsTimer = clearTimer(settingsTimer);
@@ -1061,6 +1126,7 @@ export async function flushPendingSync(): Promise<void> {
     await enqueueTransfer('종료 flush', () => uploadKinds(['settings', 'checklist']));
   }
   await transferTail;
+  reconcileShutdownRecovery();
 }
 
 googleAuth.setOnAuthInvalidated(() => {

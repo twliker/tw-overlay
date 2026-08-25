@@ -254,49 +254,70 @@ app.whenReady().then(() => {
   setupUpdater(launchMainApp);
 });
 
-let isFlushingAndQuitting = false;
+let shutdownStarted = false;
+let allowFinalQuit = false;
 
 app.on('before-quit', (event) => {
-  if (isFlushingAndQuitting) return;
+  if (allowFinalQuit) return;
+  event.preventDefault();
+  if (shutdownStarted) return;
+  shutdownStarted = true;
 
   appState.isQuitting = true;
   cloudSync.stopBackgroundSync();
   contentsChecker.cancelPendingDiaryWriteRetries();
-  if (config.hasPending()) config.saveImmediate();
-  if (!diaryDb.flushPendingElso()) {
-    log('[SHUTDOWN] 엘소 DB flush 실패 — 디스크 복구 기록을 다음 실행에 재생합니다.');
-  }
   chatLogManager.stop();
   pollingLoop.stop();
   bossNotifier.stop();
   customNotifier.stop();
   gallery.stop();
   trade.stop();
+  wm.hideAllForShutdown();
   tray.destroyTray();
   tracker.stop();
   buffTimerManager.stop();
   scamMonitor.stop();
 
-  event.preventDefault();
-  isFlushingAndQuitting = true;
+  if (config.hasPending()) config.saveImmediate();
+  if (!diaryDb.flushPendingElso()) {
+    log('[SHUTDOWN] 엘소 DB flush 실패 — 디스크 복구 기록을 다음 실행에 재생합니다.');
+  }
+  cloudSync.prepareShutdownRecovery();
 
   const isUpdating = getIsUpdaterQuitting();
   const flushTimeoutMs = isUpdating ? 500 : 3000;
 
-  // 대기 중인 클라우드 동기화 완료 후 DB 종료 및 프로세스 종료 (업데이트 시 파일 락 방지를 위해 500ms로 단축)
-  Promise.race([
-    cloudSync.flushPendingSync(),
-    new Promise((resolve) => setTimeout(resolve, flushTimeoutMs)),
-  ]).finally(() => {
+  // 창은 이미 숨긴 상태에서 클라우드 큐를 제한 시간만 drain하고, 시간초과 시 요청을 취소한다.
+  void (async () => {
+    let timeout: NodeJS.Timeout | null = null;
+    let outcome: 'flushed' | 'timeout' | 'failed' = 'failed';
     try {
+      outcome = await Promise.race([
+        cloudSync.flushPendingSync().then(() => 'flushed' as const),
+        new Promise<'timeout'>(resolve => {
+          timeout = setTimeout(() => resolve('timeout'), flushTimeoutMs);
+        }),
+      ]);
+    } catch (err) {
+      log(`[SHUTDOWN] 클라우드 flush 실패, recovery marker 유지: ${err}`);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+    if (outcome !== 'flushed') {
+      log(`[SHUTDOWN] 클라우드 flush ${outcome}, 진행 요청을 취소하고 다음 실행에서 재확인합니다.`);
+      cloudSync.cancelPendingShutdownRequests();
+    }
+    try {
+      diaryDb.checkpointWal();
       if (!diaryDb.closeDb()) {
         log('[SHUTDOWN] 엘소 flush 미완료 상태로 DB를 닫았습니다. 복구 기록은 유지됩니다.');
       }
     } catch (err) {
       log(`[SHUTDOWN] DB close error: ${err}`);
     }
+    allowFinalQuit = true;
     app.quit();
-  });
+  })();
 });
 
 app.on('window-all-closed', () => app.quit());

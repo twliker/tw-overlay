@@ -4230,6 +4230,20 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '숙제 변경의 내구 outbox가 실제 전송 경로에 연결되지 않았습니다.');
   assert.match(managerSource, /verifiedIds[\s\S]*?outboxIds\.some/,
     '숙제 operation이 원격에서 확인되기 전에 outbox를 제거할 수 있습니다.');
+  assert.match(managerSource, /prepareShutdownRecovery[\s\S]*?shutdownRecovery/,
+    '종료 전 파일별 클라우드 recovery marker를 저장하지 않습니다.');
+  assert.match(managerSource, /reconcileShutdownRecovery[\s\S]*?operationIds\.every/,
+    '다음 실행에서 확인된 숙제 operation 기준으로 recovery marker를 정리하지 않습니다.');
+
+  const mainSource = read('src/main.ts');
+  assert.match(mainSource, /if \(allowFinalQuit\) return;\s*event\.preventDefault\(\);\s*if \(shutdownStarted\) return;/,
+    'flush 중 두 번째 quit가 종료 finalizer를 우회할 수 있습니다.');
+  assert.match(mainSource, /wm\.hideAllForShutdown\(\)[\s\S]*?config\.hasPending\(\)/,
+    '종료 flush 전에 모든 창을 즉시 숨기지 않습니다.');
+  assert.match(mainSource, /outcome !== 'flushed'[\s\S]*?cancelPendingShutdownRequests/,
+    '종료 flush 시간초과·실패 시 진행 중인 Drive 요청을 취소하지 않습니다.');
+  assert.match(mainSource, /diaryDb\.checkpointWal\(\);\s*if \(!diaryDb\.closeDb\(\)\)/,
+    '종료 시 WAL checkpoint 후 DB를 닫지 않습니다.');
 
   const authSource = read('src/modules/googleAuth.ts');
   assert.match(authSource, /const loginGeneration = \+\+_loginGeneration/,
@@ -4496,11 +4510,14 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   responseLossState.currentCount = 1;
   responseLossState.lastCompletedAt = 7000;
   configModule.saveImmediate({ contentsCheckerItems: responseLossItems });
+  assert.equal(cloudManager.prepareShutdownRecovery(), true);
   loseNextChecklistResponse = true;
   await assert.rejects(cloudManager.syncToCloud(true), /response lost after commit/,
     '업로드 응답 유실 fixture가 실패로 관측되지 않았습니다.');
   assert.ok(cloudSyncState.load().checklistOutbox.length > 0,
     '응답 유실 직후 확인되지 않은 outbox가 제거되었습니다.');
+  assert.ok(cloudSyncState.load().shutdownRecovery?.checklist,
+    '응답 유실 직후 숙제 recovery marker가 유지되지 않았습니다.');
   const uploadsAfterLostResponse = uploadCount;
   cloudSyncState.resetCacheForTests();
   await cloudManager.flushPendingSync();
@@ -4509,6 +4526,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   convergedLocalState = cloudSyncState.load();
   assert.equal(convergedLocalState.checklistOutbox.length, 0,
     '재시작 reconciliation 뒤 원격에서 확인된 outbox가 제거되지 않았습니다.');
+  assert.equal(convergedLocalState.shutdownRecovery, undefined,
+    '재시작 후 원격 operation을 확인했는데 recovery marker가 남았습니다.');
 
   // fresh 프로필의 파일별 독립 복원: 손상된 설정 때문에 정상 숙제 복원이 막히지 않아야 한다.
   memoryFiles.clear();
@@ -4737,6 +4756,57 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(configModule.load().userServer, 3,
     '클라우드 복원 전 로컬 설정으로 되돌리지 못했습니다.');
   assert.equal(configModule.load().discordWebhookUrl, 'https://discord.com/api/webhooks/local-secret');
+
+  // 종료 marker는 파일별 dirty/operation을 내구 저장하고 각각 확인된 뒤에만 제거한다.
+  cloudSyncState.update((state: any) => {
+    state.settingsDirtyKeys = ['userServer'];
+    state.settingsDirtyAt = { userServer: Date.now() };
+    state.checklistOutbox = [{
+      id: 'shutdown-operation-1',
+      deviceId: state.deviceId,
+      createdAt: Date.now(),
+      keys: ['contentsCheckerItems'],
+      mutations: [],
+    }];
+  });
+  assert.equal(cloudManager.prepareShutdownRecovery(), true);
+  cloudSyncState.resetCacheForTests();
+  let shutdownState = cloudSyncState.load();
+  assert.deepEqual(shutdownState.shutdownRecovery.settings.dirtyKeys, ['userServer']);
+  assert.deepEqual(shutdownState.shutdownRecovery.checklist.operationIds, ['shutdown-operation-1']);
+  cloudSyncState.update((state: any) => {
+    state.settingsDirtyKeys = [];
+    state.settingsDirtyAt = {};
+    state.checklistOutbox = [];
+  });
+  assert.equal(cloudManager.prepareShutdownRecovery(), true,
+    '원격 확인 없이 다시 종료할 때 기존 recovery marker를 제거했습니다.');
+  assert.ok(cloudSyncState.load().shutdownRecovery.settings);
+  assert.ok(cloudSyncState.load().shutdownRecovery.checklist);
+  cloudSyncState.update((state: any) => {
+    state.settingsDirtyKeys = ['userServer'];
+    state.settingsDirtyAt = { userServer: Date.now() };
+    state.checklistOutbox = [{
+      id: 'shutdown-operation-1',
+      deviceId: state.deviceId,
+      createdAt: Date.now(),
+      keys: ['contentsCheckerItems'],
+      mutations: [],
+    }];
+  });
+  assert.equal(cloudManager.reconcileShutdownRecovery(), false,
+    '미확인 dirty/outbox가 있는데 종료 recovery marker를 제거했습니다.');
+  cloudSyncState.update((state: any) => {
+    state.settingsDirtyKeys = [];
+    state.settingsDirtyAt = {};
+  });
+  assert.equal(cloudManager.reconcileShutdownRecovery(), false);
+  shutdownState = cloudSyncState.load();
+  assert.equal(shutdownState.shutdownRecovery.settings, undefined);
+  assert.ok(shutdownState.shutdownRecovery.checklist);
+  cloudSyncState.update((state: any) => { state.checklistOutbox = []; });
+  assert.equal(cloudManager.reconcileShutdownRecovery(), true);
+  assert.equal(cloudSyncState.load().shutdownRecovery, undefined);
 }
 
 checkDiscordNotifierContracts();
