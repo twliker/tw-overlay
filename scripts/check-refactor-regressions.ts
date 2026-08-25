@@ -4133,6 +4133,114 @@ async function checkMissedMinuteSchedulerContracts(): Promise<void> {
   slowScheduler.stop();
 }
 
+async function checkAudioPlaybackContracts(): Promise<void> {
+  const sandbox: any = {
+    window: {},
+    console,
+    performance: { now: () => 0 },
+    setTimeout,
+    clearTimeout,
+  };
+  vm.runInNewContext(read('dist/assets/audio-playback.js'), sandbox, {
+    filename: 'dist/assets/audio-playback.js',
+  });
+
+  let monotonicNow = 1_000;
+  const throttle = sandbox.window.createSoundThrottle({
+    intervalMs: 800,
+    maxEntries: 128,
+    now: () => monotonicNow,
+  });
+  assert.equal(throttle.shouldPlay('same.mp3'), true);
+  monotonicNow = 1_799;
+  assert.equal(throttle.shouldPlay('same.mp3'), false,
+    '동일 사운드의 800ms 미만 중복 재생을 허용했습니다.');
+  monotonicNow = 1_800;
+  assert.equal(throttle.shouldPlay('same.mp3'), true,
+    '동일 사운드의 800ms 경계 재생을 차단했습니다.');
+  for (let index = 0; index < 200; index += 1) {
+    throttle.shouldPlay(`sound-${index}.mp3`);
+  }
+  assert.equal(throttle.size(), 128, '사운드 throttle Map 상한이 유지되지 않습니다.');
+
+  let nextTimerId = 1;
+  const timers = new Map<number, () => void>();
+  const createdAudios: Array<{
+    source: string;
+    onended: (() => void) | null;
+    pauseCalls: number;
+    volume: number;
+    rejectPlay(error: unknown): void;
+  }> = [];
+  const controller = sandbox.window.createAudioPlaybackController({
+    createCacheToken: () => 'fixture',
+    getDefaultVolume: () => 0.35,
+    setTimeout(callback: () => void) {
+      const timerId = nextTimerId++;
+      timers.set(timerId, callback);
+      return timerId;
+    },
+    clearTimeout(timerId: number) {
+      timers.delete(timerId);
+    },
+    createAudio(source: string) {
+      let rejectPlay: (error: unknown) => void = () => undefined;
+      const audio = {
+        source,
+        onended: null as (() => void) | null,
+        pauseCalls: 0,
+        volume: 0,
+        pause() { this.pauseCalls += 1; },
+        play() {
+          return new Promise<void>((_resolve, reject) => { rejectPlay = reject; });
+        },
+        rejectPlay(error: unknown) { rejectPlay(error); },
+      };
+      createdAudios.push(audio);
+      return audio;
+    },
+  });
+
+  controller.enqueue({ soundFile: 'first.mp3', volume: 70 });
+  assert.equal(createdAudios.length, 1);
+  assert.equal(createdAudios[0].source, 'tw-sound://default/first.mp3?t=fixture');
+  assert.equal(createdAudios[0].volume, 0.7);
+  createdAudios[0].onended?.();
+  assert.equal(timers.size, 1, '재생 종료 뒤 다음 큐 전환 타이머가 예약되지 않았습니다.');
+
+  controller.interruptAndPlay({ soundFile: 'custom_preview', volume: null });
+  assert.equal(timers.size, 0, '미리보기가 이전 세대의 지연 전환 타이머를 취소하지 않았습니다.');
+  assert.equal(createdAudios.length, 2);
+  assert.equal(createdAudios[1].source, 'tw-sound://custom/custom_preview?t=fixture');
+  assert.equal(createdAudios[1].volume, 0.35);
+  createdAudios[0].rejectPlay({ name: 'AbortError' });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(createdAudios.length, 2,
+    '이전 Audio의 늦은 reject가 새 미리보기 재생을 교체했습니다.');
+  assert.equal(createdAudios[1].pauseCalls, 0,
+    '이전 Audio callback이 새 미리보기 Audio를 정지했습니다.');
+
+  controller.enqueue({ soundFile: 'queued.mp3', volume: 20 });
+  assert.equal(controller.pendingCount(), 1);
+  createdAudios[1].onended?.();
+  assert.equal(timers.size, 1);
+  const transition = [...timers.entries()][0];
+  timers.delete(transition[0]);
+  transition[1]();
+  assert.equal(createdAudios.length, 3, '미리보기 종료 뒤 대기 사운드가 순차 재생되지 않았습니다.');
+  assert.equal(createdAudios[2].source, 'tw-sound://default/queued.mp3?t=fixture');
+  controller.dispose();
+  assert.equal(timers.size, 0);
+  assert.equal(createdAudios[2].pauseCalls, 1);
+
+  const indexSource = read('src/index.html');
+  assert.match(indexSource, /createSoundThrottle\(\{ intervalMs: 800, maxEntries: 128 \}\)/,
+    '사이드바 사운드 throttle이 단조 시계·상한 정책에 연결되지 않았습니다.');
+  assert.doesNotMatch(indexSource, /_lastSoundPlayedTimes|const now = Date\.now\(\)/,
+    '사이드바 사운드 경로에 벽시계 기반 무상한 throttle이 남았습니다.');
+}
+
 function checkMissedCustomAlertContracts(): void {
   const { getDueCustomAlertsAt } = require(
     path.join(projectRoot, 'dist', 'modules', 'customNotifier.js'),
@@ -5636,6 +5744,7 @@ checkAbandonedFeeMatchingContracts();
 checkMissedCustomAlertContracts();
 checkMissedBossAlertContracts();
 void checkMissedMinuteSchedulerContracts()
+  .then(() => checkAudioPlaybackContracts())
   .then(() => checkChatLogWorkerReadRecovery())
   .then(() => checkChatSearchSizeBoundaries())
   .then(() => checkChatLogWorkerBatchProtocol())

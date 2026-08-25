@@ -8,6 +8,20 @@ interface SoundListItem {
   file: string;
 }
 
+interface AudioPlaybackController {
+  enqueue(sound: { soundFile: string; volume?: number | null }): void;
+  interruptAndPlay(sound: { soundFile: string; volume?: number | null }): void;
+  dispose(): void;
+  pendingCount(): number;
+  isPlaying(): boolean;
+}
+
+interface SoundThrottle {
+  shouldPlay(soundFile: string): boolean;
+  clear(): void;
+  size(): number;
+}
+
 interface BossToastPresentation {
   isRealBoss: boolean;
   validSpawnTime: string | null;
@@ -215,6 +229,20 @@ interface Window {
   createInteractiveToastRegistry(
     onCountChanged: (count: number) => void,
   ): InteractiveToastRegistry;
+  createAudioPlaybackController(options?: {
+    createAudio?: (sourceUrl: string) => Pick<HTMLAudioElement, 'onended' | 'pause' | 'play' | 'volume'>;
+    getDefaultVolume?: () => number;
+    setTimeout?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+    clearTimeout?: (timer: ReturnType<typeof setTimeout>) => void;
+    createCacheToken?: () => string;
+    transitionDelayMs?: number;
+    onError?: (error: unknown) => void;
+  }): AudioPlaybackController;
+  createSoundThrottle(options?: {
+    intervalMs?: number;
+    maxEntries?: number;
+    now?: () => number;
+  }): SoundThrottle;
   showChatLogWarningBanner(options?: { variant?: 'overlay' }): void;
   bindChatLogStatusWarning(options?: { variant?: 'overlay' }): void;
   gameOverlayAlerts: GameOverlayAlerts;

@@ -7,6 +7,7 @@
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
+  <script src="assets/audio-playback.js"></script>
   <script src="shared/sidebarCategories.js"></script>
 
   <script>
@@ -194,7 +195,6 @@
   <script>
     // 전역 변수 선언
     const tooltip = document.getElementById('tooltip');
-    let bossAudio = null;
     const toastContainer = document.getElementById('toast-container');
     const wrapper = document.getElementById('wrapper');
 
@@ -205,54 +205,10 @@
     let sidebarPos = 'right';
     let isCollapsed = false;
 
-    // 오디오 순차 재생용 큐 및 상태 변수
-    let audioQueue = [];
-    let isPlayingAudio = false;
-
-    function playNextAudio() {
-      if (audioQueue.length === 0) {
-        isPlayingAudio = false;
-        return;
-      }
-      isPlayingAudio = true;
-      const { soundFile, volume } = audioQueue.shift();
-
-      // 기존 재생 중인 오디오 정지 및 정리
-      if (bossAudio) {
-        try {
-          bossAudio.pause();
-          bossAudio.onended = null;
-        } catch (e) {}
-        bossAudio = null;
-      }
-
-      const rand = Math.random().toString(36).substring(2, 9);
-      let srcUrl = '';
-      if (soundFile.startsWith('custom_')) {
-        srcUrl = `tw-sound://custom/${soundFile}?t=${rand}`;
-      } else {
-        srcUrl = `tw-sound://default/${soundFile}?t=${rand}`;
-      }
-
-      // 새 Audio 객체 인스턴스 생성 (소스 변경 시 브라우저 오디오 엔진 레이스 컨디션 및 AbortError 전이 방지)
-      bossAudio = new Audio(srcUrl);
-      bossAudio.volume = (volume !== undefined && volume !== null) ? volume / 100 : bossNotifyVolume;
-
-      bossAudio.onended = () => {
-        bossAudio = null;
-        setTimeout(playNextAudio, 500);
-      };
-
-      bossAudio.play().catch(e => {
-        if (e.name === 'AbortError') {
-          console.log('[AUDIO] Play request was interrupted (AbortError). Ignoring.');
-          return;
-        }
-        console.error('Audio play failed:', e);
-        bossAudio = null;
-        setTimeout(playNextAudio, 500);
-      });
-    }
+    const audioPlayback = window.createAudioPlaybackController({
+      getDefaultVolume: () => bossNotifyVolume,
+    });
+    const soundThrottle = window.createSoundThrottle({ intervalMs: 800, maxEntries: 128 });
 
     function showTooltip(text, el) {
       const rect = el.getBoundingClientRect();
@@ -647,24 +603,14 @@
 
     function openGallery() { document.getElementById('noti-badge').classList.add('hidden'); window.electronAPI.toggleGallery(); }
 
-    const _lastSoundPlayedTimes = new Map();
-
     // IPC 리스너 등록
     window.electronAPI.onPlaySound(async ({ label, soundFile, volume, isCustom, spawnTime, offset, isAlreadyRecorded, isPreview, showToast }) => {
       // 사운드 파일 재생 처리 (soundFile이 있을 때만)
       if (soundFile) {
         let shouldPlay = true;
-        const now = Date.now();
 
         // 미리보기가 아닌 경우 800ms 이내 동일 사운드 중복 스로틀링
-        if (!isPreview) {
-          const lastTime = _lastSoundPlayedTimes.get(soundFile) || 0;
-          if (now - lastTime < 800) {
-            shouldPlay = false;
-          } else {
-            _lastSoundPlayedTimes.set(soundFile, now);
-          }
-        }
+        if (!isPreview && !soundThrottle.shouldPlay(soundFile)) shouldPlay = false;
 
         // 미리보기(테스트)가 아니고 게임이 꺼진 상태이면 소리 재생을 차단함 (게임 종료 시 알림 받기 옵션 켜짐 시 재생 허용)
         if (shouldPlay && !isPreview) {
@@ -683,22 +629,11 @@
 
         if (shouldPlay) {
           if (isPreview) {
-            // 미리보기 요청일 경우 현재 울리던 소리를 즉각 차단하고 큐를 초기화함
-            audioQueue = [];
-            if (bossAudio) {
-              try {
-                bossAudio.pause();
-                bossAudio.onended = null;
-              } catch (e) {}
-              bossAudio = null;
-            }
-            isPlayingAudio = false;
-          }
-
-          // 사운드 재생 큐에 삽입 후 순차 재생 처리
-          audioQueue.push({ soundFile, volume });
-          if (!isPlayingAudio) {
-            playNextAudio();
+            // 미리보기는 이전 큐와 지연 전환을 폐기하고 새 세대에서 즉시 재생한다.
+            audioPlayback.interruptAndPlay({ soundFile, volume });
+          } else {
+            // 실제 알림은 기존처럼 서로 다른 사운드를 순차 재생한다.
+            audioPlayback.enqueue({ soundFile, volume });
           }
         }
       }
