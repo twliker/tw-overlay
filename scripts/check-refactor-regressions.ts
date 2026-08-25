@@ -58,6 +58,46 @@ function spawnElectronProbe(
   return lastResult!;
 }
 
+function spawnElectronProbeAsync(args: string[], timeout: number): Promise<{
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: Error;
+}> {
+  return new Promise(resolve => {
+    const child = childProcess.spawn(process.execPath, args, {
+      cwd: projectRoot,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolve({ status: null, stdout, stderr, error: new Error(`probe timed out after ${timeout}ms`) });
+    }, timeout);
+    child.once('error', error => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ status: null, stdout, stderr, error });
+    });
+    child.once('exit', status => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ status, stdout, stderr });
+    });
+  });
+}
+
 function checkShutdownRecoveryAcrossProcessRestarts(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-shutdown-recovery-probe.js');
   const scenarios = ['settings', 'checklist', 'both'] as const;
@@ -355,6 +395,60 @@ function checkMainPartialRestoreConfirmationGate(): void {
   assert.equal(confirmed.remoteStore.uploadCounts['tw_overlay_settings.json'], 1);
   assert.equal(confirmed.observation.uploadCounts['tw_overlay_checklist.json'], undefined,
     '설정 선택 복원 직후 변경하지 않은 숙제 파일이 함께 업로드되었습니다.');
+}
+
+async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
+  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-cross-upload-probe.js');
+  const probeRoot = path.join(isolatedUserData, 'main-cross-upload');
+  fs.mkdirSync(probeRoot, { recursive: true });
+
+  for (const device of ['company', 'home'] as const) {
+    const resultPath = path.join(probeRoot, `${device}-prepare-result.json`);
+    const result = spawnElectronProbe([
+      probePath, 'prepare', device, probeRoot, resultPath, '--dev',
+    ], 20_000);
+    assert.equal(result.error, undefined,
+      `${device} cross upload prepare 실행 실패: ${result.error?.message || ''}`);
+    assert.equal(result.status, 0,
+      `${device} cross upload prepare 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+  }
+
+  const runDevice = async (device: 'company' | 'home') => {
+    const resultPath = path.join(probeRoot, `${device}-run-result.json`);
+    const result = await spawnElectronProbeAsync([
+      probePath, 'run', device, probeRoot, resultPath, '--dev',
+    ], 25_000);
+    assert.equal(result.error, undefined,
+      `${device} concurrent main probe 실행 실패: ${result.error?.message || ''}`);
+    assert.equal(result.status, 0,
+      `${device} concurrent main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+    assert.equal(fs.existsSync(resultPath), true, `${device} concurrent main 결과 파일이 없습니다.`);
+    const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
+    assert.equal(summary.probeError, null, summary.probeError || `${device} concurrent main probe 실패`);
+    return summary;
+  };
+
+  const [company, home] = await Promise.all([runDevice('company'), runDevice('home')]);
+  const expectedOperationIds = ['cross-upload-company-operation', 'cross-upload-home-operation'];
+  assert.equal(company.observation.firstChecklistRevision, home.observation.firstChecklistRevision,
+    '두 main 프로세스의 첫 숙제 다운로드가 같은 원격 revision에서 교차하지 않았습니다.');
+  for (const [device, summary] of [['company', company], ['home', home]] as const) {
+    assert.deepEqual(summary.observation.remoteOperationIds, expectedOperationIds,
+      `${device}가 확인한 최종 원격 payload에 두 operation ID가 남지 않았습니다.`);
+    assert.deepEqual(summary.observation.confirmedOperationIds, expectedOperationIds,
+      `${device} 로컬 확인 이력에 두 operation ID가 남지 않았습니다.`);
+    assert.deepEqual(summary.observation.checklistOutboxIds, []);
+    assert.equal(summary.observation.companyState.currentCount, 1);
+    assert.equal(summary.observation.homeState.currentCount, 2);
+  }
+  assert.ok(company.remoteStore.uploadCounts.company >= 1);
+  assert.ok(company.remoteStore.uploadCounts.home >= 1);
+  assert.ok(company.remoteStore.uploadOrder.length >= 3,
+    '교차 overwrite 뒤 누락 operation 재게시가 발생하지 않았습니다.');
+  assert.deepEqual(new Set(company.remoteStore.uploadOrder.slice(0, 2)), new Set(['company', 'home']),
+    '최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.');
+  assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
+  assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-download.ready')), true);
 }
 
 function createUiUtilsSandbox(): any {
@@ -6548,6 +6642,7 @@ checkMissedBossAlertContracts();
 checkViewRequestGenerationContracts();
 void checkMissedMinuteSchedulerContracts()
   .then(() => checkAudioPlaybackContracts())
+  .then(() => checkMainConcurrentCrossUploadConvergence())
   .then(() => checkChatLogWorkerReadRecovery())
   .then(() => checkChatSearchSizeBoundaries())
   .then(() => checkChatLogWorkerBatchProtocol())
