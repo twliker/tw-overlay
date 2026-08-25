@@ -4939,6 +4939,38 @@ function checkNotificationKeywordBoundaries(): void {
   }
 }
 
+function checkChatLogPathCandidateBoundaries(): void {
+  const {
+    buildChatLogPathCandidates,
+    parseRegistryPathValue,
+  } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogPathFinder.js')) as {
+    buildChatLogPathCandidates(options?: {
+      documentsPath?: string | null;
+      homeDir?: string;
+      env?: NodeJS.ProcessEnv;
+    }): string[];
+    parseRegistryPathValue(output: string, valueName: string, env?: NodeJS.ProcessEnv): string | null;
+  };
+  const env = {
+    USERPROFILE: 'C:\\Users\\tester',
+    OneDriveCommercial: 'D:\\CompanyDrive',
+    OneDriveConsumer: 'E:\\PersonalDrive',
+  };
+  assert.equal(
+    parseRegistryPathValue('    Personal    REG_EXPAND_SZ    %USERPROFILE%\\문서', 'Personal', env),
+    path.normalize('C:\\Users\\tester\\문서'),
+  );
+  const candidates = buildChatLogPathCandidates({
+    documentsPath: 'D:\\Redirected Documents',
+    homeDir: 'C:\\Users\\tester',
+    env,
+  });
+  assert.ok(candidates.includes(path.normalize('D:\\Redirected Documents\\Talesweaver\\ChatLog')));
+  assert.ok(candidates.includes(path.normalize('D:\\CompanyDrive\\Documents\\Talesweaver\\ChatLog')));
+  assert.ok(candidates.includes(path.normalize('E:\\PersonalDrive\\Documents\\Talesweaver\\ChatLog')));
+  assert.equal(new Set(candidates.map(candidate => candidate.toLowerCase())).size, candidates.length);
+}
+
 async function checkChatLogWorkerReadRecovery(): Promise<void> {
   const {
     getChatLogReadRetryDelayMs,
@@ -5003,6 +5035,7 @@ checkCustomTabHistoryContracts();
 checkLargeChatLogReadBoundary();
 checkChatTailRecoveryBoundary();
 checkNotificationKeywordBoundaries();
+checkChatLogPathCandidateBoundaries();
 checkPendingHomeworkOrdering();
 checkLegacyHomeworkMergeContracts();
 checkHomeworkSourceEventIdContracts();
