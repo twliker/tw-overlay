@@ -287,7 +287,7 @@
 
 대상: A-07~A-09, B-05, D-01~D-06, D-09~D-10
 
-진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation mutation 재실행·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드, 회사→집 숙제 수신, 파생 echo outbox 방지, 교차 PATCH overwrite, 동일 숙제 완료/해제/횟수 충돌, 응답 유실과 재시작 재수렴을 통과했다. 새 PC 부분 복원 UI, 종료 recovery marker와 실계정 2-PC 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
+진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation mutation 재실행·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드, 회사→집 숙제 수신, 파생 echo outbox 방지, 교차 PATCH overwrite, 동일 숙제 완료/해제/횟수 충돌, 응답 유실과 재시작 재수렴을 통과했다. 새 PC 프로필 판정, 유효 중복 파일 선택, 파일별 선택·독립 복원과 부분 결과 UI도 자동 검증했다. 파일별 변경 요약·백업 되돌리기 진입점, 종료 recovery marker와 실계정 2-PC 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
 
 1. 클라우드 정식 저장 계약을 처음부터 다음 세 파일로 구성한다. 개발 중 생성된 `tw_overlay_sync.json`은 조회하지 않는다.
    - `tw_overlay_settings.json`: 일반 설정의 클라우드 권위 스냅샷
@@ -345,8 +345,8 @@
 - 집 PC가 절전 중이거나 네트워크가 끊긴 동안 회사 PC에서 여러 숙제를 완료한 뒤, 집 PC 복귀/게임 시작 시 중간 revision을 놓치지 않고 최종 상태로 수렴하는지 검증한다.
 - 회사 PC 업로드와 집 PC의 로컬 완료가 같은 시점에 교차하는 fixture에서 양쪽 operation ID가 최종 원격 payload와 두 로컬 상태에 모두 남고, 이후 아무 조작 없이 pull만으로 같은 결과가 되는지 검증한다.
 - **자동 검증 완료(2026-08-25):** 서로 다른 캐릭터 상태의 교차 변경과 같은 숙제의 완료/해제/횟수 충돌 fixture가 같은 로컬 결과로 수렴하고 두 operation ID를 최종 payload에 보존했다. 실제 매니저+메모리 Drive에서는 확인 직후 overwrite→누락 mutation 재게시, 응답 유실 뒤 중복 업로드 없는 확인, `cloud-sync-state.json` 재로드 뒤 재수렴을 통과했다. 실계정 2-PC 검증은 별도로 남긴다.
-- fresh/established/needs-confirmation 설치, 중복 파일명, 손상된 메타, 설정만 존재, 숙제만 존재 상태의 fixture를 추가한다. 개발 중 단일 파일은 발견되어도 무시되는지 검사한다.
-- 새 PC 부분 복원에서 정상 파일의 사용자 값은 보존되고 없는 신규 기본 키만 추가되는지 검사한다. 기존 PC 자동 동기화에서는 일반 설정만 클라우드로 교체되고 숙제 상태는 3방향 병합되며, PC 종속·민감 필드와 로컬 이력은 변하지 않는지 검증한다.
+- **자동 검증 완료(2026-08-25):** 앱 데이터 fixture에서 `fresh`/`established`/`needs-confirmation`을 구분하고, `needs-confirmation` 자동 복원을 차단했다. 최신 메타가 손상된 중복 파일은 이전 유효 메타가 가리키는 checksum 통과 파일로 대체했으며, 설정만·숙제만 존재하거나 generation이 다른 경우에도 정상 파일을 독립 복원하고 나머지를 `missing`/`generation-mismatch`로 분리 보고했다. Electron 렌더러 검사에서 설정/숙제 선택값 전달과 부분 복원 결과 표시를 통과했다.
+- 새 PC 부분 복원에서 정상 파일의 사용자 값은 보존되고 없는 신규 기본 키만 추가되는지 검사한다. 기존 PC 자동 동기화에서는 일반 설정만 클라우드로 교체되고 숙제 상태는 3방향 병합되며, PC 종속·민감 필드와 로컬 이력은 변하지 않는지 검증한다. 개발 중 단일 파일은 발견되어도 무시되는지 명시 fixture로 고정한다.
 - 오프라인 로컬 설정 변경과 다른 PC의 클라우드 설정 변경이 충돌하는 fixture에서 클라우드 설정이 적용되고 직전 로컬 설정 백업으로 되돌릴 수 있는지 검증한다.
 - fetch abort 직전 서버 반영, 응답 유실, 다른 PC의 직후 overwrite, 재시작 reconciliation을 파일별로 테스트한다.
 - 신규 쓰기 생산자를 먼저 정지한 뒤 config와 checklist outbox를 flush해 종료 중 큐가 다시 더러워지지 않게 한다.
