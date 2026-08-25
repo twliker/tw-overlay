@@ -259,6 +259,50 @@ function checkMainResponseLossRestartReconciliation(): void {
   assert.equal(restarted.remoteStore.uploadCounts['tw_overlay_checklist.json'], 1);
 }
 
+function checkMainPartialRestoreConfirmationGate(): void {
+  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-partial-restore-probe.js');
+  const probeRoot = path.join(isolatedUserData, 'main-partial-restore');
+  fs.mkdirSync(probeRoot, { recursive: true });
+
+  const run = (mode: 'partial' | 'blocked') => {
+    const resultPath = path.join(probeRoot, `${mode}-result.json`);
+    const result = spawnElectronProbe([
+      probePath,
+      mode,
+      probeRoot,
+      resultPath,
+      '--dev',
+    ], 20_000);
+    assert.equal(result.error, undefined,
+      `${mode} partial restore main probe 실행 실패: ${result.error?.message || ''}`);
+    assert.equal(result.status, 0,
+      `${mode} partial restore main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+    assert.equal(fs.existsSync(resultPath), true, `${mode} partial restore 결과 파일이 없습니다.`);
+    const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
+    assert.equal(summary.probeError, null, summary.probeError || `${mode} partial restore probe 실패`);
+    return summary;
+  };
+
+  const partial = run('partial');
+  assert.equal(partial.observation.profileState, 'needs-confirmation');
+  assert.equal(partial.observation.settingsStatus, 'invalid');
+  assert.equal(partial.observation.checklistStatus, 'restored');
+  assert.deepEqual(partial.observation.characterPresetIds, ['remote-character']);
+  assert.deepEqual(partial.remoteStore.uploadCounts, {},
+    '부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
+
+  const blocked = run('blocked');
+  assert.equal(blocked.observation.profileState, 'needs-confirmation');
+  assert.equal(blocked.observation.userServer, 7,
+    'needs-confirmation 재시작에서 원격 설정이 자동 적용되었습니다.');
+  assert.equal(blocked.observation.downloadCount, 0,
+    'needs-confirmation 재시작에서 사용자 선택 전에 원격 파일을 다운로드했습니다.');
+  assert.deepEqual(blocked.remoteStore.uploadCounts, blocked.phaseStartUploadCounts,
+    'needs-confirmation 재시작에서 사용자 선택 전에 원격 파일을 업로드했습니다.');
+  assert.equal(blocked.remoteStore.files['corrupt-settings'].payload.data.userServer, 16,
+    'needs-confirmation 재시작에서 원격 설정을 로컬 값으로 덮어썼습니다.');
+}
+
 function createUiUtilsSandbox(): any {
   const registeredListeners: Record<string, Array<() => void>> = {};
   const window: any = {
@@ -6351,6 +6395,7 @@ checkContentsInitializationContracts();
 checkShutdownRecoveryAcrossProcessRestarts();
 checkMainQuitRecoveryScenarios();
 checkMainResponseLossRestartReconciliation();
+checkMainPartialRestoreConfirmationGate();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
 checkMissedCustomAlertContracts();

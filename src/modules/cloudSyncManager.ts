@@ -65,7 +65,8 @@ function canAutoSync(): boolean {
   const cfg = config.load();
   return cfg.googleSyncEnabled === true
     && cfg.googleSyncAutoSync !== false
-    && googleAuth.isLoggedIn();
+    && googleAuth.isLoggedIn()
+    && cloudState.load().profileState !== 'needs-confirmation';
 }
 
 function revisionOf(payload: GoogleSyncPayload): string {
@@ -496,6 +497,11 @@ function scheduleUpload(kind: SyncKind, immediate = false, retryDelay?: number):
   else checklistTimer = clearTimer(checklistTimer);
 
   const callback = () => {
+    if (!canAutoSync()) {
+      if (kind === 'settings') settingsTimer = null;
+      else checklistTimer = null;
+      return;
+    }
     if (config.hasPending()) {
       if (kind === 'settings') settingsTimer = setTimeout(callback, CONFIG_PERSIST_RETRY_MS);
       else checklistTimer = setTimeout(callback, CONFIG_PERSIST_RETRY_MS);
