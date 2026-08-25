@@ -29,6 +29,15 @@ class BuffTimerManager {
   private _buffDefs: Map<string, BuffDefinition> = new Map();
   /** config.load() I/O 최소화를 위한 warnSeconds 캐시 */
   private _cachedWarnSeconds: number[] = [60, 10];
+  private readonly _buffUsedHandler = (data: {
+    date: string;
+    timestamp: string;
+    buffId: string;
+    usedBy: string;
+  }): void => {
+    const startTime = this._parseLogTimestamp(data.date, data.timestamp);
+    this.activateBuff(data.buffId, data.usedBy, undefined, startTime);
+  };
 
   public start(): void {
     this.loadBuffDefs();
@@ -36,10 +45,7 @@ class BuffTimerManager {
 
     if (!this._started) {
       this._started = true;
-      chatParser.on('BUFF_USED', (data) => {
-        const startTime = this._parseLogTimestamp(data.date, data.timestamp);
-        this.activateBuff(data.buffId, data.usedBy, undefined, startTime);
-      });
+      chatParser.on('BUFF_USED', this._buffUsedHandler);
     }
 
     if (this._tickInterval) clearInterval(this._tickInterval);
@@ -78,6 +84,10 @@ class BuffTimerManager {
     if (this._tickInterval) {
       clearInterval(this._tickInterval);
       this._tickInterval = null;
+    }
+    if (this._started) {
+      chatParser.removeListener('BUFF_USED', this._buffUsedHandler);
+      this._started = false;
     }
     this._activeBuffs.clear();
     log('[BUFF_TIMER] 매니저 중지됨');

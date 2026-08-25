@@ -225,6 +225,8 @@ async function checkBuffRefreshPolicy(): Promise<void> {
     path.join(projectRoot, 'dist/modules/buffTimerManager.js'),
   ) as {
     buffTimerManager: {
+      start(): void;
+      stop(): void;
       loadBuffDefs(): void;
       activateBuff(buffId: string, usedBy?: string, customDurationMs?: number, startTime?: number): void;
       getActiveBuffs(): Array<{ buffId: string; startTime: number; warnedAt: Set<number> }>;
@@ -267,6 +269,25 @@ async function checkBuffRefreshPolicy(): Promise<void> {
   );
 
   buffTimerManager.clearAllBuffs();
+
+  const { chatParser } = require(path.join(projectRoot, 'dist/modules/chatParser.js')) as {
+    chatParser: { listenerCount(event: string): number };
+  };
+  buffTimerManager.stop();
+  const listenerBaseline = chatParser.listenerCount('BUFF_USED');
+  buffTimerManager.start();
+  assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline + 1);
+  buffTimerManager.start();
+  assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline + 1,
+    'buff timer 중복 start가 BUFF_USED 리스너를 추가 등록했습니다.');
+  buffTimerManager.stop();
+  assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline,
+    'buff timer stop이 BUFF_USED 리스너를 제거하지 않았습니다.');
+  buffTimerManager.start();
+  assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline + 1,
+    'buff timer stop 뒤 start가 리스너를 다시 등록하지 못했습니다.');
+  buffTimerManager.stop();
+  assert.equal(chatParser.listenerCount('BUFF_USED'), listenerBaseline);
 }
 
 async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
