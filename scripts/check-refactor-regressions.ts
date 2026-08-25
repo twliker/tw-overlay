@@ -6140,6 +6140,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   cloudSyncState.update((state: any) => { state.profileState = 'established'; });
   const pollingLoopModule = require(path.join(projectRoot, 'dist', 'modules', 'pollingLoop.js'));
   const originalGetGameStatus = pollingLoopModule.getGameStatus;
+  const originalListSyncFiles = googleDrive.listSyncFiles;
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
   const scheduledPullDelays: number[] = [];
@@ -6173,9 +6174,40 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     const idleDelay = await capturePullDelay('stopped');
     assert.ok(idleDelay >= 270_000 && idleDelay <= 330_000,
       `게임 미실행 pull 주기가 5분 installation jitter 범위를 벗어났습니다: ${idleDelay}`);
+
+    pollingLoopModule.getGameStatus = () => 'running';
+    cloudManager.startBackgroundSync();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    let before = scheduledPullDelays.length;
+    googleDrive.listSyncFiles = async () => {
+      throw new Error('forced periodic pull failure');
+    };
+    await assert.rejects(cloudManager.syncFromCloud(false), /forced periodic pull failure/);
+    for (let attempt = 0; attempt < 5 && scheduledPullDelays.length === before; attempt++) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    assert.equal(scheduledPullDelays.length, before + 1,
+      '자동 pull 실패 뒤 다음 재시도 타이머를 예약하지 않았습니다.');
+    const failureDelay = scheduledPullDelays[before];
+    assert.ok(failureDelay >= 54_000 && failureDelay <= 66_000,
+      `첫 pull 실패의 2배 backoff가 60초 installation jitter 범위를 벗어났습니다: ${failureDelay}`);
+
+    googleDrive.listSyncFiles = originalListSyncFiles;
+    before = scheduledPullDelays.length;
+    const recoveredPull = await cloudManager.syncFromCloud(false);
+    assert.equal(recoveredPull.success, true);
+    for (let attempt = 0; attempt < 5 && scheduledPullDelays.length === before; attempt++) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    assert.equal(scheduledPullDelays.length, before + 1,
+      '자동 pull 성공 뒤 정상 주기 타이머를 다시 예약하지 않았습니다.');
+    const recoveredDelay = scheduledPullDelays[before];
+    assert.ok(recoveredDelay >= 27_000 && recoveredDelay <= 33_000,
+      `성공 뒤 pull backoff가 30초 installation jitter 범위로 초기화되지 않았습니다: ${recoveredDelay}`);
   } finally {
     cloudManager.stopBackgroundSync();
     pollingLoopModule.getGameStatus = originalGetGameStatus;
+    googleDrive.listSyncFiles = originalListSyncFiles;
     (globalThis as any).setTimeout = originalSetTimeout;
     (globalThis as any).clearTimeout = originalClearTimeout;
   }
