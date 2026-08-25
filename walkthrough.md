@@ -72,12 +72,13 @@ git diff --check
 - 실제 Electron 프로세스를 종료·재시작한 주간 동기화는 첫 실행의 확정 offset 188과 SEED event ID를 재사용해 두 번째 실행 신규 반영 0건으로 끝났다. 사용자 지정 로그 폴더를 통째로 이동·복원하는 동안 config 경로는 유지됐고 watcher도 같은 경로로 복구됐다.
 - 40.0→42.05MB 로그에 2분간 14,400줄을 추가한 소크에서 최근 창은 16MB 도달 후 22,194줄을 제거해 12.77M chars로 복귀했다. heap 80.96→44.37MB, RSS 204.71→130.57MB, 최대 event-loop lag 14ms였다. 이 검사에서 유효 UTF-8 제한 구간을 손상으로 잘못 경고하는 E-11을 찾아 수정했다.
 - `93d2922` 격리 fresh 프로필을 실제 Windows UI의 `Alt+F4`로 종료했다. 생산자 중지, WAL 72/72 checkpoint, DB close와 프로세스 종료가 로그 시각 기준 9ms 안에 완료되어 일반 종료 3초 제한을 통과했다. dirty/recovery 변형과 로그오프·시스템 종료는 별도 실기로 남겼다.
+- `8715215` 격리 source Electron을 강제 100/125/150% 배율로 각각 시작해 renderer DPR 1/1.25/1.5를 확인했다. 2560×1392, 2048×1114, 1707×928 DIP 작업영역에서 대형 계수 계산기 창은 모두 영역 안에 맞았고 document scroll 크기가 client 크기를 넘지 않았다. 실제 OS 배율 전환·게임 오버레이 정렬·모니터/RDP는 별도 실기로 남겼다.
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
 ## 4. 릴리즈 전 남은 실기 검증
 
-실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail과 일반 종료의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
+실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail, 일반 종료, 강제 DPI 렌더링의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
 
 - 실제 Google 계정과 서로 다른 두 PC에서 교차 업로드·pull·재시작 재수렴 확인
 - 실제 Windows 설정 dirty·숙제 outbox·응답 유실 종료와 로그오프·시스템 종료에서 recovery marker·WAL 복구 확인
