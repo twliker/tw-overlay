@@ -292,14 +292,16 @@ function checkMainResponseLossRestartReconciliation(): void {
 function checkMainPartialRestoreConfirmationGate(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-partial-restore-probe.js');
   const probeRoot = path.join(isolatedUserData, 'main-partial-restore');
+  const reverseProbeRoot = path.join(isolatedUserData, 'main-reverse-partial-restore');
   fs.mkdirSync(probeRoot, { recursive: true });
+  fs.mkdirSync(reverseProbeRoot, { recursive: true });
 
-  const run = (mode: 'partial' | 'blocked' | 'confirmed') => {
-    const resultPath = path.join(probeRoot, `${mode}-result.json`);
+  const run = (mode: 'partial' | 'reverse-partial' | 'blocked' | 'confirmed', root = probeRoot) => {
+    const resultPath = path.join(root, `${mode}-result.json`);
     const result = spawnElectronProbe([
       probePath,
       mode,
-      probeRoot,
+      root,
       resultPath,
       '--dev',
     ], 20_000);
@@ -320,6 +322,17 @@ function checkMainPartialRestoreConfirmationGate(): void {
   assert.deepEqual(partial.observation.characterPresetIds, ['remote-character']);
   assert.deepEqual(partial.remoteStore.uploadCounts, {},
     '부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
+
+  const reversePartial = run('reverse-partial', reverseProbeRoot);
+  assert.equal(reversePartial.observation.profileState, 'needs-confirmation');
+  assert.equal(reversePartial.observation.settingsStatus, 'restored');
+  assert.equal(reversePartial.observation.checklistStatus, 'invalid');
+  assert.equal(reversePartial.observation.userServer, 16,
+    '정상 설정 파일이 손상된 숙제 파일과 독립적으로 복원되지 않았습니다.');
+  assert.deepEqual(reversePartial.observation.characterPresetIds, ['local-default'],
+    '손상된 숙제 파일 때문에 기존 로컬 숙제/캐릭터 설정이 변경되었습니다.');
+  assert.deepEqual(reversePartial.remoteStore.uploadCounts, {},
+    '역방향 부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
 
   const blocked = run('blocked');
   assert.equal(blocked.observation.profileState, 'needs-confirmation');

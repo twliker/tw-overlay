@@ -2,7 +2,7 @@ import fs = require('node:fs');
 import path = require('node:path');
 import { app } from 'electron';
 
-type ProbeMode = 'partial' | 'blocked' | 'confirmed';
+type ProbeMode = 'partial' | 'reverse-partial' | 'blocked' | 'confirmed';
 
 interface RemoteFile {
   id: string;
@@ -20,7 +20,7 @@ interface RemoteStore {
 const projectRoot = path.resolve(__dirname, '..');
 const [modeValue, probeRoot, resultPath] = process.argv.slice(2);
 const mode = modeValue as ProbeMode;
-if (!['partial', 'blocked', 'confirmed'].includes(mode)
+if (!['partial', 'reverse-partial', 'blocked', 'confirmed'].includes(mode)
   || !path.isAbsolute(probeRoot || '')
   || !path.isAbsolute(resultPath || '')) {
   throw new Error('runtime main partial restore probe arguments are invalid');
@@ -44,7 +44,7 @@ function loadStore(): RemoteStore {
   return JSON.parse(fs.readFileSync(storePath, 'utf8')) as RemoteStore;
 }
 
-if (mode === 'partial') {
+if (mode === 'partial' || mode === 'reverse-partial') {
   const now = Date.now();
   fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify({
     userServer: 7,
@@ -74,20 +74,32 @@ if (mode === 'partial') {
     contentsCheckerItems: [],
     pendingHomeworks: [],
   }, 'remote-device', generationId, []);
+  const settingsPayload = syncDataHelper.buildSettingsSyncPayload(
+    { userServer: 16 }, 'remote-device', generationId);
   const files: Record<string, RemoteFile> = {
     'corrupt-settings': {
       id: 'corrupt-settings',
       name: 'tw_overlay_settings.json',
       modifiedTime: new Date(now).toISOString(),
-      size: '32',
-      payload: { schemaVersion: 1, kind: 'settings', data: { userServer: 16 } },
+      size: String(Buffer.byteLength(JSON.stringify(
+        mode === 'partial'
+          ? { schemaVersion: 1, kind: 'settings', data: { userServer: 16 } }
+          : settingsPayload), 'utf8')),
+      payload: mode === 'partial'
+        ? { schemaVersion: 1, kind: 'settings', data: { userServer: 16 } }
+        : settingsPayload,
     },
     'valid-checklist': {
       id: 'valid-checklist',
       name: 'tw_overlay_checklist.json',
       modifiedTime: new Date(now + 1).toISOString(),
-      size: String(Buffer.byteLength(JSON.stringify(checklistPayload), 'utf8')),
-      payload: checklistPayload,
+      size: String(Buffer.byteLength(JSON.stringify(
+        mode === 'reverse-partial'
+          ? { schemaVersion: 1, kind: 'checklist', data: { characterPresets: [] } }
+          : checklistPayload), 'utf8')),
+      payload: mode === 'reverse-partial'
+        ? { schemaVersion: 1, kind: 'checklist', data: { characterPresets: [] } }
+        : checklistPayload,
     },
     'corrupt-meta': {
       id: 'corrupt-meta',
@@ -238,15 +250,18 @@ void app.whenReady().then(() => {
     const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
     const settingsResult = state.restoreResults?.find((result: any) => result.kind === 'settings');
     const checklistResult = state.restoreResults?.find((result: any) => result.kind === 'checklist');
+    const expectedSettingsStatus = mode === 'reverse-partial' ? 'restored' : 'invalid';
+    const expectedChecklistStatus = mode === 'reverse-partial' ? 'invalid' : 'restored';
     if (state.profileState === 'needs-confirmation'
-      && settingsResult?.status === 'invalid'
-      && checklistResult?.status === 'restored') {
+      && settingsResult?.status === expectedSettingsStatus
+      && checklistResult?.status === expectedChecklistStatus) {
       clearInterval(poll);
       const config = JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8'));
       observation = {
         profileState: state.profileState,
         settingsStatus: settingsResult.status,
         checklistStatus: checklistResult.status,
+        userServer: config.userServer,
         characterPresetIds: config.characterPresets.map((character: any) => character.id),
         uploadCounts: structuredClone(loadStore().uploadCounts),
       };
