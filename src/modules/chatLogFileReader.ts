@@ -79,10 +79,12 @@ export function readInitialChatLogSnapshot(
     if (prefixLength < fileSize) prefixLines.pop();
     const headerLines = prefixLines.slice(0, 25);
     const recentLines = normalizeChatLogLines(recentText.split('\n'));
+    const damaged = headerLines.some(line => line.includes('\uFFFD'))
+      || recentText.includes('\uFFFD');
     return {
       lines: headerLines.concat(recentLines),
       encoding: detected.encoding,
-      damaged: detected.damaged,
+      damaged,
       limited: true,
       fileSize,
     };

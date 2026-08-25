@@ -5561,7 +5561,7 @@ function checkLargeChatLogReadBoundary(): void {
     readInitialChatLogSnapshot(
       filePath: string,
       options?: { maxFullReadBytes?: number; recentReadBytes?: number; headerReadBytes?: number },
-    ): { lines: string[]; limited: boolean; fileSize: number };
+    ): { lines: string[]; damaged: boolean; limited: boolean; fileSize: number };
     trimRecentChatLogLines(
       lines: readonly string[],
       maxChars?: number,
@@ -5597,6 +5597,23 @@ function checkLargeChatLogReadBoundary(): void {
   assert.match(largeText, /Date : 2026년 8월 25일/);
   assert.match(largeText, /latest-marker-must-remain/);
   assert.doesNotMatch(largeText, /middle-marker-must-not-remain/);
+
+  const splitUtf8Path = path.join(fixtureDir, 'split-valid-utf8.html');
+  const splitHeader = `${dateHeader}\n`;
+  const splitBody = `${'가나다라마바사'.repeat(200)}\nlatest-valid-marker\n`;
+  const splitBuffer = Buffer.from(splitHeader + splitBody, 'utf8');
+  fs.writeFileSync(splitUtf8Path, splitBuffer);
+  const firstKoreanByte = Buffer.byteLength(splitHeader, 'utf8');
+  const splitUtf8 = readInitialChatLogSnapshot(splitUtf8Path, {
+    maxFullReadBytes: 1,
+    headerReadBytes: firstKoreanByte + 1,
+    recentReadBytes: splitBuffer.length - firstKoreanByte - 1,
+  });
+  assert.equal(splitUtf8.limited, true);
+  assert.equal(splitUtf8.damaged, false,
+    '제한 구간 시작·끝의 폐기할 불완전 UTF-8 행을 실제 파일 손상으로 오인했습니다.');
+  assert.equal(splitUtf8.lines.some(line => line.includes('\uFFFD')), false);
+  assert.match(splitUtf8.lines.join('\n'), /latest-valid-marker/);
 
   const trimmed = trimRecentChatLogLines(['a'.repeat(60), 'b'.repeat(60), 'latest'], 100, 80);
   assert.ok(trimmed.removedCount > 0);
