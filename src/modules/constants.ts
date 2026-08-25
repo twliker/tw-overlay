@@ -2,7 +2,6 @@
  * 앱 전역 상수 정의
  */
 import * as path from 'path';
-import * as fs from 'fs';
 
 function getElectronApp(): Electron.App | null {
   try {
@@ -66,22 +65,14 @@ export const TITLE_BUFFER_LENGTH = 256;
 
 export const get_CONFIG_PATH = () => {
   const electronApp = getElectronApp();
-  const appData = electronApp ? electronApp.getPath('appData') : (process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming'));
-  const targetDir = path.join(appData, 'twOverlay');
-  if (!fs.existsSync(targetDir)) {
-    try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
-  }
-  return path.join(targetDir, 'config.json');
+  const userData = electronApp ? electronApp.getPath('userData') : process.cwd();
+  return path.join(userData, 'config.json');
 };
 
 export const get_LOG_PATH = () => {
   const electronApp = getElectronApp();
-  const appData = electronApp ? electronApp.getPath('appData') : (process.env.APPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Roaming'));
-  const targetDir = path.join(appData, 'twOverlay');
-  if (!fs.existsSync(targetDir)) {
-    try { fs.mkdirSync(targetDir, { recursive: true }); } catch {}
-  }
-  return path.join(targetDir, 'debug.log');
+  const userData = electronApp ? electronApp.getPath('userData') : process.cwd();
+  return path.join(userData, 'debug.log');
 };
 
 /** 리소스 경로 유틸리티 (dist 폴더 기준) */

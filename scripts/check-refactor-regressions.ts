@@ -3376,6 +3376,18 @@ function checkRendererBundleCleanliness(): void {
 }
 
 function checkCorruptedConfigResilience(): void {
+  const constantsModule = require('../dist/modules/constants');
+  assert.equal(
+    path.resolve(constantsModule.get_CONFIG_PATH()),
+    path.join(isolatedUserData, 'config.json'),
+    '회귀 테스트의 설정 파일이 격리된 userData 경로를 사용하지 않습니다.',
+  );
+  assert.equal(
+    path.resolve(constantsModule.get_LOG_PATH()),
+    path.join(isolatedUserData, 'debug.log'),
+    '회귀 테스트의 로그 파일이 격리된 userData 경로를 사용하지 않습니다.',
+  );
+
   const configModule = require('../dist/modules/config');
   const loaded = configModule.load();
   assert.ok(loaded && typeof loaded === 'object', '기본 설정 로드 시 유효한 객체가 반환되지 않았습니다.');
