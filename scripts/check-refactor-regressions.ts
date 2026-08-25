@@ -474,8 +474,8 @@ async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
         '동일 숙제·캐릭터 충돌에서 회사/집 로컬 상태가 수렴하지 않았습니다.');
       assert.deepEqual(company.observation.companyState, company.observation.remoteCompanyState,
         '동일 숙제·캐릭터 충돌에서 최종 원격과 회사 로컬 상태가 다릅니다.');
-      assert.equal(company.observation.companyState.isCompleted, true,
-        '동일 필드 충돌에서 양쪽이 동일하게 완료로 바꾼 값이 보존되지 않았습니다.');
+      assert.equal(company.observation.companyState.isCompleted, false,
+        '동일 완료 여부 필드 충돌에서 더 늦은 집 PC의 미완료 값이 보존되지 않았습니다.');
       assert.equal(company.observation.companyState.currentCount, 2,
         '동일 횟수 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
       assert.equal(company.observation.companyState.lastCompletedAt, 20_000,

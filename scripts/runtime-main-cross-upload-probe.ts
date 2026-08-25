@@ -61,7 +61,8 @@ function withStoreLock<T>(callback: () => T): T {
       fs.mkdirSync(storeLockPath);
       break;
     } catch (error: any) {
-      if (error?.code !== 'EEXIST' || Date.now() >= deadline) throw error;
+      const retryableLockErrors = new Set(['EEXIST', 'EPERM', 'EACCES', 'ENOENT']);
+      if (!retryableLockErrors.has(error?.code) || Date.now() >= deadline) throw error;
       wait(5);
     }
   }
@@ -132,7 +133,11 @@ void app.whenReady().then(() => {
     const baseItem = baseChecklist.contentsCheckerItems
       .find((item: any) => item.id === targetItemId);
     if (!baseItem) throw new Error(`cross upload target item is missing: ${targetItemId}`);
-    baseItem.completedState['company-character'] = { isCompleted: false, currentCount: 0 };
+    if (scenario === 'nonconflict') {
+      baseItem.completedState['company-character'] = { isCompleted: false, currentCount: 0 };
+    } else {
+      delete baseItem.completedState['company-character'];
+    }
     baseItem.completedState['home-character'] = { isCompleted: false, currentCount: 0 };
 
     const localChecklist = structuredClone(baseChecklist);
@@ -262,10 +267,10 @@ void app.whenReady().then(() => {
           && companyState?.currentCount === 1
           && homeState?.isCompleted === true
           && homeState?.currentCount === 2
-        : companyState?.isCompleted === true
+        : companyState?.isCompleted === false
           && companyState?.currentCount === 2
           && companyState?.lastCompletedAt === 20_000
-          && remoteCompanyState?.isCompleted === true
+          && remoteCompanyState?.isCompleted === false
           && remoteCompanyState?.currentCount === 2
           && remoteCompanyState?.lastCompletedAt === 20_000
           && homeState?.isCompleted === false
