@@ -204,6 +204,61 @@ function checkMainQuitRecoveryScenarios(): void {
   }
 }
 
+function checkMainResponseLossRestartReconciliation(): void {
+  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-response-loss-probe.js');
+  const probeRoot = path.join(isolatedUserData, 'main-response-loss-restart');
+  fs.mkdirSync(probeRoot, { recursive: true });
+
+  const run = (mode: 'loss' | 'restart') => {
+    const resultPath = path.join(probeRoot, `${mode}-result.json`);
+    const result = spawnElectronProbe([
+      probePath,
+      mode,
+      probeRoot,
+      resultPath,
+      '--dev',
+    ], 20_000);
+    assert.equal(result.error, undefined,
+      `${mode} response loss main probe 실행 실패: ${result.error?.message || ''}`);
+    assert.equal(result.status, 0,
+      `${mode} response loss main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+    assert.equal(fs.existsSync(resultPath), true, `${mode} response loss 결과 파일이 없습니다.`);
+    const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
+    assert.equal(summary.probeError, null, summary.probeError || `${mode} response loss probe 실패`);
+    return summary;
+  };
+
+  const lostResponse = run('loss');
+  const remoteChecklist = lostResponse.remoteStore.files['tw_overlay_checklist.json'];
+  assert.ok(lostResponse.quitElapsedMs >= 2_900 && lostResponse.quitElapsedMs <= 3_500);
+  assert.equal(lostResponse.cancelledRequestCount, 1);
+  assert.equal(lostResponse.shutdownTimeoutLogged, true);
+  assert.equal(lostResponse.checklistOperationIds.includes('response-loss-checklist-operation'), true,
+    '응답 유실 뒤 로컬 outbox에서 검증 대상 숙제 operation이 사라졌습니다.');
+  assert.deepEqual(
+    [...lostResponse.recoveryChecklistOperationIds].sort(),
+    [...lostResponse.checklistOperationIds].sort(),
+    '응답 유실 종료 복구 marker가 로컬 outbox operation을 모두 보존하지 않았습니다.',
+  );
+  const remoteChecklistOperationIds = remoteChecklist.payload.operations
+    .map((operation: any) => operation.id);
+  for (const operationId of lostResponse.checklistOperationIds) {
+    assert.equal(remoteChecklistOperationIds.includes(operationId), true,
+      `응답 유실 전에 commit된 원격 payload에 숙제 operation ${operationId}이(가) 없습니다.`);
+  }
+  assert.equal(lostResponse.remoteStore.uploadCounts['tw_overlay_checklist.json'], 1);
+
+  const restarted = run('restart');
+  assert.ok(restarted.convergenceObservation);
+  assert.deepEqual(restarted.convergenceObservation.checklistOperationIds, []);
+  assert.deepEqual(restarted.convergenceObservation.recoveryChecklistOperationIds, []);
+  assert.equal(restarted.convergenceObservation.confirmedChecklistOperationIds
+    .includes('response-loss-checklist-operation'), true);
+  assert.equal(restarted.convergenceObservation.checklistUploadCount, 1,
+    '재시작 원격 확인이 이미 commit된 숙제 payload를 중복 업로드했습니다.');
+  assert.equal(restarted.remoteStore.uploadCounts['tw_overlay_checklist.json'], 1);
+}
+
 function createUiUtilsSandbox(): any {
   const registeredListeners: Record<string, Array<() => void>> = {};
   const window: any = {
@@ -6295,6 +6350,7 @@ checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
 checkShutdownRecoveryAcrossProcessRestarts();
 checkMainQuitRecoveryScenarios();
+checkMainResponseLossRestartReconciliation();
 checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
 checkMissedCustomAlertContracts();
