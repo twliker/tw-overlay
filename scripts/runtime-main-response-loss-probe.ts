@@ -3,6 +3,7 @@ import path = require('node:path');
 import { app } from 'electron';
 
 type ProbeMode = 'loss' | 'restart';
+type ResponseLossKind = 'settings' | 'checklist';
 
 interface RemoteFile {
   id: string;
@@ -15,13 +16,15 @@ interface RemoteFile {
 interface RemoteStore {
   files: Record<string, RemoteFile>;
   uploadCounts: Record<string, number>;
-  checklistLossCommitted?: boolean;
+  lossCommitted?: boolean;
 }
 
 const projectRoot = path.resolve(__dirname, '..');
-const [modeValue, probeRoot, resultPath] = process.argv.slice(2);
+const [modeValue, probeRoot, resultPath, responseLossKindValue] = process.argv.slice(2);
 const mode = modeValue as ProbeMode;
+const responseLossKind = responseLossKindValue as ResponseLossKind;
 if (!['loss', 'restart'].includes(mode)
+  || !['settings', 'checklist'].includes(responseLossKind)
   || !path.isAbsolute(probeRoot || '')
   || !path.isAbsolute(resultPath || '')) {
   throw new Error('runtime main response loss probe arguments are invalid');
@@ -107,12 +110,12 @@ googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, exist
     size: String(Buffer.byteLength(JSON.stringify(payload), 'utf8')),
     payload: structuredClone(payload),
   };
-  const loseChecklistResponse = mode === 'loss'
-    && fileName === 'tw_overlay_checklist.json'
-    && store.checklistLossCommitted !== true;
-  if (loseChecklistResponse) store.checklistLossCommitted = true;
+  const loseResponse = mode === 'loss'
+    && fileName === `tw_overlay_${responseLossKind}.json`
+    && store.lossCommitted !== true;
+  if (loseResponse) store.lossCommitted = true;
   saveStore(store);
-  if (loseChecklistResponse) return new Promise<string>(() => undefined);
+  if (loseResponse) return new Promise<string>(() => undefined);
   return id;
 };
 
@@ -151,21 +154,28 @@ void app.whenReady().then(() => {
   const deadline = Date.now() + 8_000;
   const poll = setInterval(() => {
     const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
+    const settingsRecovery = state.shutdownRecovery?.settings;
     const checklistRecovery = state.shutdownRecovery?.checklist;
-    if (state.checklistOutbox.length === 0 && !checklistRecovery) {
+    if (state.settingsDirtyKeys.length === 0
+      && state.checklistOutbox.length === 0
+      && !settingsRecovery
+      && !checklistRecovery) {
       clearInterval(poll);
       const store = loadStore();
       convergenceObservation = {
+        settingsDirtyKeys: state.settingsDirtyKeys,
         checklistOperationIds: state.checklistOutbox.map((operation: any) => operation.id),
         confirmedChecklistOperationIds: state.confirmedChecklistOperations.map((operation: any) => operation.id),
+        recoverySettingsDirtyKeys: settingsRecovery?.dirtyKeys || [],
         recoveryChecklistOperationIds: checklistRecovery?.operationIds || [],
+        settingsUploadCount: store.uploadCounts['tw_overlay_settings.json'] || 0,
         checklistUploadCount: store.uploadCounts['tw_overlay_checklist.json'] || 0,
       };
       quitRequestedAt = Date.now();
       app.quit();
     } else if (Date.now() >= deadline) {
       clearInterval(poll);
-      probeError = 'restart process did not reconcile the committed checklist operation';
+      probeError = `restart process did not reconcile the committed ${responseLossKind} response loss`;
       quitRequestedAt = Date.now();
       app.quit();
     }
