@@ -4931,6 +4931,73 @@ function checkLargeChatLogReadBoundary(): void {
   assert.ok(trimmed.totalChars <= 80);
 }
 
+async function checkChatSearchSizeBoundaries(): Promise<void> {
+  const { readInitialChatLogSnapshot } = require(
+    path.join(projectRoot, 'dist', 'modules', 'chatLogFileReader.js'),
+  ) as {
+    readInitialChatLogSnapshot(
+      filePath: string,
+      options?: { maxFullReadBytes?: number; recentReadBytes?: number; headerReadBytes?: number },
+    ): { lines: string[]; limited: boolean; fileSize: number };
+  };
+  const { chatLogManager } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogManager.js')) as any;
+  const fixtureDirectory = path.join(isolatedUserData, 'chat-search-size-fixtures');
+  fs.mkdirSync(fixtureDirectory, { recursive: true });
+  const fixturePath = path.join(fixtureDirectory, 'TWChatLog_2026_08_26.html');
+  const chatLine = (hour: number, message: string) => (
+    `<font color="white"> [ ${hour}시 1분 1초] </font><font color="#ffffff">검색자 : ${message}</font></br>`
+  );
+  const recentLines = [
+    chatLine(20, 'recent-marker-1'),
+    chatLine(21, 'recent-marker-2'),
+    chatLine(22, 'recent-marker-3'),
+  ];
+  const fixtureLines = [
+    'Date : 2026년 8월 26일',
+    ...Array.from({ length: 300 }, (_, index) => chatLine(index % 20, `ordinary-${index}-${'x'.repeat(24)}`)),
+    ...recentLines,
+  ];
+  fs.writeFileSync(fixturePath, fixtureLines.join('\n') + '\n', 'utf8');
+  const fileSize = fs.statSync(fixturePath).size;
+  const normal = readInitialChatLogSnapshot(fixturePath, { maxFullReadBytes: fileSize + 1 });
+  const boundary = readInitialChatLogSnapshot(fixturePath, { maxFullReadBytes: fileSize });
+  const oversized = readInitialChatLogSnapshot(fixturePath, {
+    maxFullReadBytes: fileSize - 1,
+    recentReadBytes: 2_048,
+    headerReadBytes: 64,
+  });
+  assert.equal(normal.limited, false);
+  assert.equal(boundary.limited, false);
+  assert.equal(oversized.limited, true);
+
+  const originalLines = chatLogManager._todayLines;
+  try {
+    const search = async (lines: string[]) => {
+      chatLogManager._todayLines = lines;
+      const result = await chatLogManager.searchChatLogs('recent-marker', { category: 'Basic', limit: 50 });
+      return result.map((item: any) => ({
+        type: item.type,
+        timestamp: item.timestamp,
+        sender: item.sender,
+        message: item.message,
+        color: item.color,
+      }));
+    };
+    const normalResult = await search(normal.lines);
+    assert.deepEqual(await search(boundary.lines), normalResult,
+      '당일 로그 안전 모드 경계값에서 검색 결과가 달라졌습니다.');
+    assert.deepEqual(await search(oversized.lines), normalResult,
+      '초대형 최근 구간 안전 모드에서 보존 대상 검색 결과가 달라졌습니다.');
+    assert.deepEqual(normalResult.map((item: any) => item.message), [
+      'recent-marker-1',
+      'recent-marker-2',
+      'recent-marker-3',
+    ]);
+  } finally {
+    chatLogManager._todayLines = originalLines;
+  }
+}
+
 function checkChatTailRecoveryBoundary(): void {
   const {
     getTailRetryDelayMs,
@@ -5088,8 +5155,9 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const magicOne = '<font size="2" color="white"> [22시 39분 34초] </font> <font size="2" color="#ff64ff">하급 마정석 1개를 획득 하였습니다.</font></br>';
     const filler = Array.from({ length: 1_999 }, (_, index) => `ignored-${index}`);
     const magicTwo = '<font size="2" color="white"> [22시 40분 15초] </font><font>[하급 마정석] 2개를 획득하였습니다.</font></br>';
+    const eternalFloor = '<font size="2" color="white"> [17시 11분  8초] </font><font>[이터널 플로어 보상 상자] 아이템을 획득하였습니다.</font></br>';
     const longSeed = `<font size="2" color="white"> [ 0시 25분 25초] </font> <font size="2" color="#ff64ff">${'A'.repeat(270_000)} 콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>`;
-    const content = [magicOne, ...filler, magicTwo, longSeed].join('\n') + '\n';
+    const content = [magicOne, ...filler, magicTwo, eternalFloor, longSeed].join('\n') + '\n';
     const encoded = encoding === 'utf8' ? Buffer.from(content, 'utf8') : iconv.encode(content, 'euc-kr');
     fs.writeFileSync(filePath, encoded);
     const fingerprint = crypto.createHash('sha256').update(encoded).digest('hex');
@@ -5170,6 +5238,35 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     assert.equal(finalBatch.seeds.length, 1,
       `${encoding} 다중 바이트 문자가 read chunk 경계에서 손상되었습니다.`);
     assert.equal(finalBatch.aggregate.seedsDetected, 1);
+    assert.deepEqual(finalBatch.aggregate.homework['weekly-eternal-floor'], { count: 1, isIncrement: true });
+
+    const { ChatParser } = require(path.join(projectRoot, 'dist', 'modules', 'chatParser.js')) as any;
+    const normalizer = require(path.join(projectRoot, 'dist', 'modules', 'chatLogNormalizer.js')) as any;
+    const fullParser = new ChatParser();
+    fullParser.setCurrentDate(encoding === 'utf8' ? '2026-08-24' : '2026-08-25');
+    const golden = { magicEvents: 0, magicCount: 0, seedEvents: 0, seedAmount: 0, eternalFloor: 0 };
+    fullParser.on('MAGIC_STONE_GAIN', (event: any) => {
+      golden.magicEvents++;
+      golden.magicCount += event.count;
+    });
+    fullParser.on('SEED_GAINED', (event: any) => {
+      golden.seedEvents++;
+      golden.seedAmount += event.amount;
+    });
+    fullParser.on('ETERNAL_FLOOR_CLEAR', () => { golden.eternalFloor++; });
+    const fullyDecoded = normalizer.decodeChatLogBuffer(encoded);
+    normalizer.normalizeChatLogLines(fullyDecoded.content.split('\n')).forEach((line: string) => fullParser.parseLine(line));
+    assert.deepEqual(
+      {
+        magicEvents: finalBatch.aggregate.lootsDetected,
+        magicCount: finalBatch.loots.find((item: any) => item.diaryContent.includes('하급 마정석'))?.count,
+        seedEvents: finalBatch.aggregate.seedsDetected,
+        seedAmount: finalBatch.seeds.reduce((sum: number, item: any) => sum + item.amount, 0),
+        eternalFloor: finalBatch.aggregate.homework['weekly-eternal-floor']?.count || 0,
+      },
+      golden,
+      `${encoding} 스트리밍 워커 결과가 기존 전파일 파싱 golden 결과와 다릅니다.`,
+    );
     return { filePath, encoded, batches };
   };
 
@@ -5283,6 +5380,7 @@ checkMissedMinuteSchedulerContracts();
 checkMissedCustomAlertContracts();
 checkMissedBossAlertContracts();
 void checkChatLogWorkerReadRecovery()
+  .then(() => checkChatSearchSizeBoundaries())
   .then(() => checkChatLogWorkerBatchProtocol())
   .then(() => checkGoogleSyncDataContracts()).then(() => {
   console.log('Refactor regression checks passed.');
