@@ -602,6 +602,7 @@
   </div>
 
   <script src="assets/ui-utils.js"></script>
+  <script src="assets/request-generation.js"></script>
   <script src="renderer/diary/log-utils.js"></script>
   <script>
     const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
@@ -626,6 +627,9 @@
     let currentTab = 'log';
     let revenueChart = null;
     let allItems = [];
+    const detailRequests = window.createViewRequestGeneration();
+    const monthRequests = window.createViewRequestGeneration();
+    const statisticsRequests = window.createViewRequestGeneration();
 
     async function loadItemsData() {
       try {
@@ -773,10 +777,18 @@
           const itemsHtml = hasMultiple ? log.items.map(it => {
             const t = isWeekly ? it.displayTime.split(' ')[1] : it.time;
             const cnt = it.amount || resolveLootCount(it.content, it.amount);
-            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${escapeHtml(t)}</span><span class="text-slate-400 truncate flex-1 px-2">${escapeHtml(it.content.replace('[득템] ', '').trim())}</span><span class="text-amber-300/70 font-mono font-bold">${cnt}개</span></div>`;
+            const childDelete = !isWeekly && it.source === 'manual' && Number.isSafeInteger(it.id)
+              ? `<button type="button" data-delete-row-id="${it.id}" class="w-5 h-5 flex items-center justify-center ml-2 text-slate-500 hover:text-red-400 bg-slate-800/50 rounded transition-colors shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button>`
+              : '';
+            return `<div class="flex items-center justify-between py-1 px-2 text-xs"><span class="text-slate-500">${escapeHtml(t)}</span><span class="text-slate-400 truncate flex-1 px-2">${escapeHtml(it.content.replace('[득템] ', '').trim())}</span><span class="text-amber-300/70 font-mono font-bold">${cnt}개</span>${childDelete}</div>`;
           }).join('') : '';
+          const singleItem = log.items[0];
+          const singleDelete = !hasMultiple && !isWeekly && singleItem?.source === 'manual'
+            && Number.isSafeInteger(singleItem.id)
+            ? `<button type="button" data-delete-row-id="${singleItem.id}" class="w-5 h-5 flex items-center justify-center ml-2 text-slate-500 hover:text-red-400 bg-slate-800/50 rounded transition-colors shrink-0"><i data-lucide="x" class="w-3 h-3"></i></button>`
+            : '';
 
-          htmls.push(`<div class="timeline-item flex flex-col pr-2"><img src="${stoneImg}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[4px] select-none" onerror="handleLootImageError(this, 'sparkles', 'amber-400')"><div ${hasMultiple ? `onclick="toggleAutoGroup('${gid}')"` : ''} class="flex items-baseline gap-2 pl-1 pt-[2px] ${hasMultiple ? 'cursor-pointer hover:bg-white/5' : ''} rounded px-1 transition-colors"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${escapeHtml(timeDisplay)}</span><span class="text-[11px] font-bold text-amber-400/80 shrink-0">[마정석]</span><span class="text-[11px] font-medium text-slate-300 flex-1">${escapeHtml(log.grade)} 마정석 ${hasMultiple ? `(${log.items.length}회 획득)` : ''}</span><span class="text-[12px] font-black text-amber-400 font-mono">${Number(log.totalCount).toLocaleString()}개</span>${hasMultiple ? `<i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i>` : ''}</div>${hasMultiple ? `<div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-amber-500/20">${itemsHtml}</div>` : ''}</div>`);
+          htmls.push(`<div class="timeline-item flex flex-col pr-2"><img src="${stoneImg}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[4px] select-none" onerror="handleLootImageError(this, 'sparkles', 'amber-400')"><div ${hasMultiple ? `onclick="toggleAutoGroup('${gid}')"` : ''} class="flex items-baseline gap-2 pl-1 pt-[2px] ${hasMultiple ? 'cursor-pointer hover:bg-white/5' : ''} rounded px-1 transition-colors"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${escapeHtml(timeDisplay)}</span><span class="text-[11px] font-bold text-amber-400/80 shrink-0">[마정석]</span><span class="text-[11px] font-medium text-slate-300 flex-1">${escapeHtml(log.grade)} 마정석 ${hasMultiple ? `(${log.items.length}회 획득)` : ''}</span><span class="text-[12px] font-black text-amber-400 font-mono">${Number(log.totalCount).toLocaleString()}개</span>${hasMultiple ? `<i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i>` : ''}${singleDelete}</div>${hasMultiple ? `<div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-amber-500/20">${itemsHtml}</div>` : ''}</div>`);
         } else {
           let icon = log.type === 'boss' ? 'sword' : (log.type === 'calc' ? 'gem' : (log.type === 'homework' ? 'check-square' : 'sparkles'));
           let color = log.type === 'boss' ? 'red-400' : (log.type === 'calc' ? 'orange-400' : (log.type === 'homework' ? 'blue-400' : 'amber-400'));
@@ -877,6 +889,7 @@
 
     function switchTab(tabId) {
       currentTab = tabId;
+      if (tabId !== 'stats') statisticsRequests.invalidate();
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('bg-teal-500/20', 'text-teal-400', 'border-teal-500/30', 'shadow-lg', 'shadow-teal-500/10');
         btn.classList.add('hover:bg-slate-800', 'text-slate-500');
@@ -892,10 +905,11 @@
       const year = currentDate.getFullYear();
       const month = String(currentDate.getMonth() + 1).padStart(2, '0');
       const yearMonth = `${year}-${month}`;
+      const request = statisticsRequests.begin(yearMonth);
       document.getElementById('stats-month-label').innerText = `${year}. ${month}`;
 
       const stats = await window.electronAPI.diaryGetStatistics(yearMonth);
-      if (!stats) return;
+      if (!statisticsRequests.isCurrent(request) || currentTab !== 'stats' || !stats) return;
 
       document.getElementById('stats-attendance').innerText = stats.attendanceDays;
       document.getElementById('stats-bosses').innerText = stats.totalBosses.toLocaleString();
@@ -999,7 +1013,9 @@
         goldenTimeEl.innerText = '"기록된 활동이 없어 골든 타임을 분석할 수 없습니다."';
       }
 
-      renderRevenueChart(await window.electronAPI.diaryGetMonthlyRevenue(yearMonth));
+      const revenueData = await window.electronAPI.diaryGetMonthlyRevenue(yearMonth);
+      if (!statisticsRequests.isCurrent(request) || currentTab !== 'stats') return;
+      renderRevenueChart(revenueData);
       lucide.createIcons();
     }
 
@@ -1032,11 +1048,17 @@
       const year = currentDate.getFullYear();
       const month = String(currentDate.getMonth() + 1).padStart(2, '0');
       const yearMonth = `${year}-${month}`;
+      const request = monthRequests.begin(yearMonth);
       document.getElementById('current-month').innerText = `${year}. ${month}`;
 
       try {
-        monthlyData = await window.electronAPI.diaryGetByMonth(yearMonth);
-        currentSummary = await window.electronAPI.diaryGetMonthlySummary(yearMonth);
+        const [nextMonthlyData, nextSummary] = await Promise.all([
+          window.electronAPI.diaryGetByMonth(yearMonth),
+          window.electronAPI.diaryGetMonthlySummary(yearMonth),
+        ]);
+        if (!monthRequests.isCurrent(request)) return;
+        monthlyData = nextMonthlyData;
+        currentSummary = nextSummary;
 
         document.getElementById('monthly-total-seed-badge').innerText = window.formatSeedAmount(currentSummary.totalSeed);
         document.getElementById('monthly-total-loot-badge').innerText = currentSummary.totalLoots.toLocaleString() + '개';
@@ -1108,13 +1130,16 @@
 
         if (seedListEl.innerHTML === '') seedListEl.innerHTML = '<div class="text-[13px] text-slate-600 italic py-6 text-center">기록 없음</div>';
         renderCalendar();
-        if (currentTab === 'stats') loadStatistics();
-      } catch (e) { console.error(e); }
+        if (currentTab === 'stats') void loadStatistics();
+      } catch (e) {
+        if (monthRequests.isCurrent(request)) console.error(e);
+      }
     }
 
     function changeMonth(offset) {
       currentDate.setMonth(currentDate.getMonth() + offset);
-      loadMonthData();
+      statisticsRequests.invalidate();
+      void loadMonthData();
     }
 
     function renderCalendar() {
@@ -1212,6 +1237,7 @@
     }
 
         async function selectWeek(weekIndex, dates, cellElement, hwDone, hwTotal) {
+      const request = detailRequests.begin(`week:${dates.join(',')}`);
       selectedDateStr = null; 
       document.querySelectorAll('.calendar-cell').forEach(c => c.classList.remove('active'));
       if (cellElement) cellElement.classList.add('active');
@@ -1229,6 +1255,7 @@
       let totalWeekElso = 0;
       
       const weekResults = await Promise.all(dates.map(d => window.electronAPI.diaryGetByDate(d).catch(() => null)));
+      if (!detailRequests.isCurrent(request)) return;
       weekResults.forEach((res, idx) => {
         if (!res) return;
         const d = dates[idx];
@@ -1340,6 +1367,7 @@
     }
 
     async function selectDate(dateStr, cellElement) {
+      const request = detailRequests.begin(`date:${dateStr}`);
       selectedDateStr = dateStr;
       document.querySelectorAll('.calendar-cell').forEach(c => c.classList.remove('active'));
       if (cellElement) cellElement.classList.add('active');
@@ -1348,7 +1376,13 @@
       document.getElementById('add-record-area').classList.remove('hidden');
       document.getElementById('weekly-summary-area').classList.add('hidden');
       document.getElementById('daily-summary-area').classList.remove('hidden');
-      try { renderDetail(dateStr, await window.electronAPI.diaryGetByDate(dateStr)); } catch (e) { console.error(e); }
+      try {
+        const data = await window.electronAPI.diaryGetByDate(dateStr);
+        if (!detailRequests.isCurrent(request) || selectedDateStr !== dateStr) return;
+        renderDetail(dateStr, data);
+      } catch (e) {
+        if (detailRequests.isCurrent(request)) console.error(e);
+      }
     }
 
     function renderDetail(dateStr, data) {
@@ -1436,32 +1470,36 @@
     }
 
     async function deleteTimelineItem(rowId) {
-      if (!selectedDateStr) return;
+      const renderedDate = selectedDateStr;
+      if (!renderedDate) return;
       const removed = await window.electronAPI.diaryRemoveActivity(rowId);
-      if (removed) await selectDate(selectedDateStr);
+      if (removed && selectedDateStr === renderedDate) await selectDate(renderedDate);
     }
 
     async function saveLoot() {
-      if (!selectedDateStr) return;
+      const targetDate = selectedDateStr;
+      if (!targetDate) return;
       const name = document.getElementById('loot-name').value.trim(), count = parseInt(document.getElementById('loot-count').value) || 1;
       if (!name) return;
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      const rowId = await window.electronAPI.diaryAddActivity(selectedDateStr, t, 'loot', count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`);
+      const rowId = await window.electronAPI.diaryAddActivity(targetDate, t, 'loot', count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`);
       if (!Number.isSafeInteger(rowId)) return;
       document.getElementById('loot-name').value = ''; document.getElementById('loot-count').value = '1';
-      await selectDate(selectedDateStr);
+      if (selectedDateStr === targetDate) await selectDate(targetDate);
     }
 
     async function saveManualSeed(btn) {
-      if (!selectedDateStr) return;
+      const targetDate = selectedDateStr;
+      if (!targetDate) return;
       const dIn = document.getElementById('manual-seed-desc'), aIn = document.getElementById('manual-seed-amount');
       const desc = dIn.value.trim() || '수익', amount = parseInt(aIn.value) || 0;
       if (amount === 0) return;
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      const rowId = await window.electronAPI.diaryAddActivity(selectedDateStr, t, 'calc', `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`);
+      const rowId = await window.electronAPI.diaryAddActivity(targetDate, t, 'calc', `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`);
       if (!Number.isSafeInteger(rowId)) return;
       dIn.value = ''; aIn.value = ''; document.getElementById('manual-seed-preview').innerText = '';
-      const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black'); await selectDate(selectedDateStr);
+      const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black');
+      if (selectedDateStr === targetDate) await selectDate(targetDate);
       setTimeout(() => { btn.innerHTML = old; btn.classList.remove('bg-orange-500', 'text-black'); }, 1000);
     }
 

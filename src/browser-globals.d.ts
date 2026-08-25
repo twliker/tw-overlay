@@ -22,6 +22,13 @@ interface SoundThrottle {
   size(): number;
 }
 
+interface ViewRequestGeneration {
+  begin(key: string): { generation: number; key: string };
+  isCurrent(token: { generation: number; key: string }): boolean;
+  invalidate(): void;
+  currentKey(): string | null;
+}
+
 interface BossToastPresentation {
   isRealBoss: boolean;
   validSpawnTime: string | null;
@@ -243,6 +250,7 @@ interface Window {
     maxEntries?: number;
     now?: () => number;
   }): SoundThrottle;
+  createViewRequestGeneration(): ViewRequestGeneration;
   showChatLogWarningBanner(options?: { variant?: 'overlay' }): void;
   bindChatLogStatusWarning(options?: { variant?: 'overlay' }): void;
   gameOverlayAlerts: GameOverlayAlerts;

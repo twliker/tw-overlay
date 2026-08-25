@@ -4295,6 +4295,45 @@ async function checkAudioPlaybackContracts(): Promise<void> {
     '사이드바 사운드 경로에 벽시계 기반 무상한 throttle이 남았습니다.');
 }
 
+function checkViewRequestGenerationContracts(): void {
+  const sandbox: any = { window: {} };
+  vm.runInNewContext(read('dist/assets/request-generation.js'), sandbox, {
+    filename: 'dist/assets/request-generation.js',
+  });
+  const requests = sandbox.window.createViewRequestGeneration();
+  const january = requests.begin('2026-01');
+  const february = requests.begin('2026-02');
+  assert.equal(requests.isCurrent(january), false,
+    '이전 월 요청 토큰이 최신 요청으로 남았습니다.');
+  assert.equal(requests.isCurrent(february), true);
+  requests.invalidate();
+  assert.equal(requests.isCurrent(february), false,
+    '탭/화면 전환이 진행 중 요청 토큰을 무효화하지 않았습니다.');
+
+  const diarySource = read('src/diary.html');
+  assert.match(diarySource,
+    /const request = detailRequests\.begin\(`date:\$\{dateStr\}`\)[\s\S]*?await window\.electronAPI\.diaryGetByDate\(dateStr\)[\s\S]*?!detailRequests\.isCurrent\(request\)/,
+    '일간 상세 응답에 날짜 generation guard가 없습니다.');
+  assert.match(diarySource,
+    /detailRequests\.begin\(`week:[\s\S]*?Promise\.all[\s\S]*?!detailRequests\.isCurrent\(request\)/,
+    '주간 상세 응답이 일간 상세와 공유 generation을 사용하지 않습니다.');
+  assert.match(diarySource,
+    /const \[nextMonthlyData, nextSummary\] = await Promise\.all[\s\S]*?!monthRequests\.isCurrent\(request\)/,
+    '월 데이터/요약 응답 역전 guard가 없습니다.');
+  assert.match(diarySource,
+    /diaryGetMonthlyRevenue\(yearMonth\)[\s\S]*?!statisticsRequests\.isCurrent\(request\)/,
+    '통계 차트의 늦은 월 응답 guard가 없습니다.');
+  assert.match(diarySource,
+    /const renderedDate = selectedDateStr[\s\S]*?diaryRemoveActivity\(rowId\)[\s\S]*?selectedDateStr === renderedDate/,
+    'row ID 삭제 완료 뒤 다른 날짜를 잘못 새로고침할 수 있습니다.');
+  assert.match(diarySource,
+    /singleItem\?\.source === 'manual'[\s\S]*?data-delete-row-id/,
+    '단일 마정석 그룹의 manual 원본 row ID 삭제 경계가 없습니다.');
+  assert.match(diarySource,
+    /it\.source === 'manual'[\s\S]*?data-delete-row-id/,
+    '복수 마정석 그룹의 manual 자식 row ID 삭제 경계가 없습니다.');
+}
+
 function checkMissedCustomAlertContracts(): void {
   const { getDueCustomAlertsAt } = require(
     path.join(projectRoot, 'dist', 'modules', 'customNotifier.js'),
@@ -5827,6 +5866,7 @@ checkXpExchangeContracts();
 checkAbandonedFeeMatchingContracts();
 checkMissedCustomAlertContracts();
 checkMissedBossAlertContracts();
+checkViewRequestGenerationContracts();
 void checkMissedMinuteSchedulerContracts()
   .then(() => checkAudioPlaybackContracts())
   .then(() => checkChatLogWorkerReadRecovery())
