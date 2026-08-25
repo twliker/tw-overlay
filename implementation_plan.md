@@ -461,7 +461,7 @@
 
 대상: G-02~G-06, 남은 P3 정리, 버전·산출물
 
-진행 상태: 일간/주간 상세의 공유 generation, 월/통계/차트의 월별 generation, 렌더 시점 날짜·원본 row ID를 이용한 단건 삭제를 적용했다. 마정석 묶음은 등급별 합계를 유지하되 수동 원본 자식 행만 삭제 버튼을 제공한다. 채팅 history/search/검색 닫기/탭 전환도 하나의 view generation으로 통합하고 live 이벤트 generation과 분리했다. 채팅 데이터는 메모리에 유지하면서 실제 DOM을 viewport+overscan으로 제한하고, 실측 높이 캐시로 과거 prepend·live append·폭 변경의 앵커를 보존한다. G-02~G-06, 남은 P3와 렌더러 injection 경계, 클라우드 allowlist·개인정보 문서 정합성은 자동 검증을 완료했으며 최종 릴리즈 게이트는 남아 있다.
+진행 상태: 일간/주간 상세의 공유 generation, 월/통계/차트의 월별 generation, 렌더 시점 날짜·원본 row ID를 이용한 단건 삭제를 적용했다. 마정석 묶음은 등급별 합계를 유지하되 수동 원본 자식 행만 삭제 버튼을 제공한다. 채팅 history/search/검색 닫기/탭 전환도 하나의 view generation으로 통합하고 live 이벤트 generation과 분리했다. 채팅 데이터는 메모리에 유지하면서 실제 DOM을 viewport+overscan으로 제한하고, 실측 높이 캐시로 과거 prepend·live append·폭 변경의 앵커를 보존한다. G-02~G-06, 남은 P3와 렌더러 injection 경계, 클라우드 allowlist·개인정보 문서 정합성, 전체 diff·산출물 검토와 최종 자동 게이트를 완료했다. `walkthrough.md`에는 자동 검증 결과와 실기·버전 보류 항목을 기록했으며, 실제 릴리즈 완료 판정은 남은 실기와 사용자 승인 뒤에만 갱신한다.
 
 1. 일간/주간 상세 요청에 공유 generation token을 적용하고 삭제는 렌더된 row id를 사용한다.
 2. 월/통계/차트는 캡처한 월과 sequence를 모든 await 뒤 확인한다.
@@ -489,11 +489,13 @@
 
 **잔여 P3·renderer injection 완료 감사(2026-08-26):** `isVisible` 없는 레거시 숙제의 보임 해석, DB 초기화 실패 뒤 `getStmt()` 오류 전달·마이그레이션 롤백, 채팅 로그 파일명 날짜 왕복 검사는 각각 실행 fixture가 현재 코드를 직접 통과하는지 재확인했다. 모험일지 로그, 갤러리 감시 키·제목, 커스텀 사운드 option에는 태그·속성 종료 악성 문자열을 실제 Electron DOM에 주입해 텍스트는 보존되면서 새 요소가 생성되지 않고 검증된 숫자 ID만 이벤트에 전달되는지 확인했다.
 
+**전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 검증 기록을 포함한 현재 변경은 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 확정 결함 74개의 상태를 코드·테스트와 대조했으며 6개 Windows 실기 재검증 항목은 완료로 승격하지 않았다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
+
 최종 릴리즈 게이트:
 
 - TypeScript 검사 100% 통과
 - 전체 빌드 및 정적 회귀 검사 통과
-- 렌더러 동작 검사 전체 통과(현재 기준 39개, 추가 검사는 총수 증가)
+- 렌더러 동작 검사 전체 통과(현재 기준 40개, 추가 검사는 총수 증가)
 - 수만 건 메모리 채팅 → 목록 가상화 스크롤 → 과거 탐색 → 라이브 복귀 시 데이터 누락·스크롤 점프·DOM 무한 증가 없음
 - history/search/live 이벤트 순서 역전과 stale reject 검사 통과
 - 악성 문자열 XSS fixture 통과
@@ -501,7 +503,7 @@
 - 클라우드 큐·종료 재진입·취소 fixture 통과
 - 대용량/잠금/멀티바이트 채팅 fixture 통과
 - `git diff --check` 통과
-- `walkthrough.md` 작성 완료
+- `walkthrough.md` 자동 검증 기록 작성 완료, 실기·버전 승인 뒤 최종 판정 갱신
 
 ## 6. 사용자 결정 기록 (Resolved Decisions)
 
