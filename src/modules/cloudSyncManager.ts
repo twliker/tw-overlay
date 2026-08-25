@@ -358,9 +358,12 @@ function combineRemoteIntoLocal(
       manualRestore ? [] : settingsKeysChangedDuringRequest,
     );
   }
-  const checklist = freshBootstrap && !state.baseChecklist
+  const mergedChecklist = freshBootstrap && !state.baseChecklist
     ? syncDataHelper.extractChecklistSyncData(payload.data as AppConfig)
     : syncDataHelper.mergeChecklistThreeWay(state.baseChecklist, current, payload.data);
+  const checklist = payload.operations && payload.operations.length > 0
+    ? syncDataHelper.replayChecklistOperations(mergedChecklist, payload.operations)
+    : mergedChecklist;
   const merged = { ...current, ...checklist };
   if (merged.characterPresets && merged.characterPresets.length > 0
     && !merged.characterPresets.some(character => character.id === merged.selectedCharacterId)) {
@@ -385,19 +388,16 @@ async function receiveKind(
     : [];
   let effectivePayload = payload;
   if (kind === 'checklist') {
-    const remoteOperationIds = new Set((payload.operations || []).map(operation => operation.id));
-    const localOperations = new Map([
+    const replayOperations = Array.from(new Map([
+      ...(payload.operations || []),
       ...state.confirmedChecklistOperations,
       ...state.checklistOutbox,
-    ].map(operation => [operation.id, operation]));
-    const missingOperations = Array.from(localOperations.values())
-      .filter(operation => !remoteOperationIds.has(operation.id));
-    if (missingOperations.length > 0) {
-      effectivePayload = {
-        ...payload,
-        data: syncDataHelper.replayChecklistOperations(payload.data, missingOperations),
-      };
-    }
+    ].map(operation => [operation.id, operation])).values());
+    effectivePayload = {
+      ...payload,
+      operations: replayOperations,
+      data: syncDataHelper.replayChecklistOperations(payload.data, replayOperations),
+    };
   }
   const nextConfig = combineRemoteIntoLocal(
     kind,
@@ -414,7 +414,7 @@ async function receiveKind(
       next.settingsDirtyKeys = manualRestore ? [] : settingsKeysChangedDuringRequest;
       next.settingsDirtyAt = Object.fromEntries(next.settingsDirtyKeys.map(key => [key, next.settingsDirtyAt[key]]));
     } else {
-      next.baseChecklist = structuredClone(payload.data);
+      next.baseChecklist = structuredClone(effectivePayload.data);
       const remoteOperations = payload.operations || [];
       const remoteOperationIds = new Set(remoteOperations.map(operation => operation.id));
       next.checklistOutbox = next.checklistOutbox.filter(operation => !remoteOperationIds.has(operation.id));
@@ -564,16 +564,25 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
     const dirtyKeys = [...state.settingsDirtyKeys];
     const outboxIds = state.checklistOutbox.map(entry => entry.id);
     const capturedSerial = settingsChangeSerial;
+    const checklistOperations = kind === 'checklist'
+      ? Array.from(new Map([
+        ...state.confirmedChecklistOperations,
+        ...state.checklistOutbox.map(operation => ({ ...operation, deviceId: state.deviceId })),
+      ].map(operation => [operation.id, operation])).values())
+      : [];
     const payload = kind === 'settings'
       ? syncDataHelper.buildSettingsSyncPayload(current, state.deviceId, state.generationId)
       : syncDataHelper.buildChecklistSyncPayload(
-        current,
+        {
+          ...current,
+          ...syncDataHelper.replayChecklistOperations(
+            syncDataHelper.extractChecklistSyncData(current),
+            checklistOperations,
+          ),
+        },
         state.deviceId,
         state.generationId,
-        Array.from(new Map([
-          ...state.confirmedChecklistOperations,
-          ...state.checklistOutbox.map(operation => ({ ...operation, deviceId: state.deviceId })),
-        ].map(operation => [operation.id, operation])).values()),
+        checklistOperations,
       );
     const previousFileId = fileForKind(files, kind)?.id;
     const fileId = await googleDriveSync.uploadJsonPayload(

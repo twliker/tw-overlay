@@ -133,11 +133,7 @@ void app.whenReady().then(() => {
     const baseItem = baseChecklist.contentsCheckerItems
       .find((item: any) => item.id === targetItemId);
     if (!baseItem) throw new Error(`cross upload target item is missing: ${targetItemId}`);
-    if (scenario === 'nonconflict') {
-      baseItem.completedState['company-character'] = { isCompleted: false, currentCount: 0 };
-    } else {
-      delete baseItem.completedState['company-character'];
-    }
+    baseItem.completedState['company-character'] = { isCompleted: false, currentCount: 0 };
     baseItem.completedState['home-character'] = { isCompleted: false, currentCount: 0 };
 
     const localChecklist = structuredClone(baseChecklist);
@@ -267,10 +263,10 @@ void app.whenReady().then(() => {
           && companyState?.currentCount === 1
           && homeState?.isCompleted === true
           && homeState?.currentCount === 2
-        : companyState?.isCompleted === false
+        : companyState?.isCompleted === true
           && companyState?.currentCount === 2
           && companyState?.lastCompletedAt === 20_000
-          && remoteCompanyState?.isCompleted === false
+          && remoteCompanyState?.isCompleted === true
           && remoteCompanyState?.currentCount === 2
           && remoteCompanyState?.lastCompletedAt === 20_000
           && homeState?.isCompleted === false

@@ -474,8 +474,8 @@ async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
         '동일 숙제·캐릭터 충돌에서 회사/집 로컬 상태가 수렴하지 않았습니다.');
       assert.deepEqual(company.observation.companyState, company.observation.remoteCompanyState,
         '동일 숙제·캐릭터 충돌에서 최종 원격과 회사 로컬 상태가 다릅니다.');
-      assert.equal(company.observation.companyState.isCompleted, false,
-        '동일 완료 여부 필드 충돌에서 더 늦은 집 PC의 미완료 값이 보존되지 않았습니다.');
+      assert.equal(company.observation.companyState.isCompleted, true,
+        '회사 PC의 완료 변경이 집 PC의 횟수 변경과 결합되지 않았습니다.');
       assert.equal(company.observation.companyState.currentCount, 2,
         '동일 횟수 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
       assert.equal(company.observation.companyState.lastCompletedAt, 20_000,
@@ -5670,12 +5670,29 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(uploadedChecklist.payload.data.userServer, undefined,
     '실제 숙제 업로드 파일에 일반 설정이 섞였습니다.');
 
-  const remoteChecklistPayload = structuredClone(uploadedChecklist.payload);
+  let remoteChecklistPayload = structuredClone(uploadedChecklist.payload);
+  const remoteChecklistBefore = structuredClone(remoteChecklistPayload.data);
   const remoteItem = remoteChecklistPayload.data.contentsCheckerItems.find((item: any) => item.id === 'daily-abyss');
   remoteItem.completedState['char-2'] = { isCompleted: true, currentCount: 1, lastCompletedAt: 5000 };
-  remoteChecklistPayload.lastSyncedAt += 1000;
-  remoteChecklistPayload.revision = `${remoteChecklistPayload.lastSyncedAt}-remote-office`;
-  remoteChecklistPayload.checksum = syncDataHelper.calculateSyncChecksum(remoteChecklistPayload.data);
+  remoteChecklistPayload.operations = [
+    ...(remoteChecklistPayload.operations || []),
+    {
+      id: 'operation-remote-office-complete',
+      deviceId: 'remote-office-pc',
+      createdAt: Date.now(),
+      keys: ['contentsCheckerItems'],
+      mutations: syncDataHelper.createChecklistOperationMutations(
+        remoteChecklistBefore,
+        remoteChecklistPayload.data,
+      ),
+    },
+  ];
+  remoteChecklistPayload = syncDataHelper.buildChecklistSyncPayload(
+    { ...configModule.load(), ...remoteChecklistPayload.data },
+    'remote-office-pc',
+    remoteChecklistPayload.generationId,
+    remoteChecklistPayload.operations,
+  );
   uploadedChecklist.payload = remoteChecklistPayload;
   uploadedChecklist.modifiedTime = new Date(Date.now() + 10_000).toISOString();
   const remoteSettingsPayload = structuredClone(uploadedSettings.payload);
@@ -5733,7 +5750,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const homeOperation = {
     id: 'operation-home-overwrite',
     deviceId: 'home-pc',
-    createdAt: 6100,
+    createdAt: Date.now() + 1_000,
     keys: ['contentsCheckerItems'],
     mutations: syncDataHelper.createChecklistOperationMutations(beforeCompanyPayload.data, homeData),
   };
