@@ -71,15 +71,16 @@ git diff --check
 - 8.05MB·50,002줄 정상 당일 로그는 전체 검색 모드를 유지해 앞·뒤 marker를 모두 찾았다. 파일 부재를 16초 최종 예약까지 유지한 Tail 검사는 1/2/4/8/16초 백오프를 모두 거쳐 복원됐고 기존 줄 중복 없이 live 한 줄만 추가했다.
 - 실제 Electron 프로세스를 종료·재시작한 주간 동기화는 첫 실행의 확정 offset 188과 SEED event ID를 재사용해 두 번째 실행 신규 반영 0건으로 끝났다. 사용자 지정 로그 폴더를 통째로 이동·복원하는 동안 config 경로는 유지됐고 watcher도 같은 경로로 복구됐다.
 - 40.0→42.05MB 로그에 2분간 14,400줄을 추가한 소크에서 최근 창은 16MB 도달 후 22,194줄을 제거해 12.77M chars로 복귀했다. heap 80.96→44.37MB, RSS 204.71→130.57MB, 최대 event-loop lag 14ms였다. 이 검사에서 유효 UTF-8 제한 구간을 손상으로 잘못 경고하는 E-11을 찾아 수정했다.
+- `93d2922` 격리 fresh 프로필을 실제 Windows UI의 `Alt+F4`로 종료했다. 생산자 중지, WAL 72/72 checkpoint, DB close와 프로세스 종료가 로그 시각 기준 9ms 안에 완료되어 일반 종료 3초 제한을 통과했다. dirty/recovery 변형과 로그오프·시스템 종료는 별도 실기로 남겼다.
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
 ## 4. 릴리즈 전 남은 실기 검증
 
-실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
+실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail과 일반 종료의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
 
 - 실제 Google 계정과 서로 다른 두 PC에서 교차 업로드·pull·재시작 재수렴 확인
-- 실제 Windows 일반 종료, 로그오프, 시스템 종료에서 recovery marker·WAL 복구 확인
+- 실제 Windows 설정 dirty·숙제 outbox·응답 유실 종료와 로그오프·시스템 종료에서 recovery marker·WAL 복구 확인
 - 100/125/150% DPI, 보조 모니터 분리, 작은 작업 영역, Remote Desktop 전환 확인
 - 정상 게임 플레이 중 30~60분 무조작 Z-order·작업표시줄 소크 테스트
 - 실제 비정상 대형 게임 로그 장시간 처리와 Tail 재연결 확인

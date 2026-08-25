@@ -358,6 +358,7 @@
 - **자동 검증 완료(2026-08-25):** 서버가 숙제 업로드를 반영한 직후 응답이 유실된 fixture에서 outbox와 파일별 recovery marker가 유지되고, 로컬 상태 캐시를 재로드한 다음 실행에서 원격 operation을 확인해 중복 업로드 없이 둘을 제거했다. 설정 dirty key와 숙제 operation은 각각 확인된 파일만 marker에서 독립 제거된다.
 - **자동 검증 완료(2026-08-25):** 첫 quit만 finalizer를 시작하고 정리 중 두 번째 quit는 대기시키며 finalizer가 허용한 마지막 quit만 통과하는 상태 전이와, drain의 성공·실패·시간 초과 경계를 실행 테스트로 고정했다. 표준 종료는 신규 생산자 정지, 창·트레이 즉시 숨김, config/outbox 저장, 최대 3초 클라우드 drain·취소, WAL checkpoint, DB close 순서를 정적 회귀 검사로 확인했다.
 - **자동 검증 완료(2026-08-25):** Windows `query-session-end`에서는 OS 종료를 막지 않고 클라우드 recovery marker, config, 엘소 recovery journal과 WAL checkpoint를 동기식 fast path로 먼저 보존하는 등록·호출 순서를 정적 회귀 검사로 고정했다. 실제 Windows 로그오프·시스템 종료 실기는 별도로 남긴다.
+- **일반 종료 실기 부분 통과(2026-08-26):** `93d2922`의 격리 fresh 프로필을 실제 Windows UI `Alt+F4`로 종료했다. 생산자 중지부터 WAL 72/72 checkpoint, DB close와 프로세스 종료까지 로그 시각 기준 9ms로 3초 제한을 통과했다. 설정 dirty·숙제 outbox·응답 유실 변형과 Windows 로그오프·시스템 종료는 별도 실기로 남긴다.
 - Phase 종료 게이트: `npm run typecheck`.
 
 ### Phase 4 — 대용량 채팅·파일 I/O·모니터 안정화
