@@ -11,7 +11,7 @@
   <style>
     /* ── Base ─────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; }
-    body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; letter-spacing: -0.02em; }
+    body { font-family: 'Pretendard', 'Apple SD Gothic Neo', sans-serif; letter-spacing: -0.02em; overflow: hidden; }
     input[type="number"]::-webkit-inner-spin-button,
     input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
@@ -217,6 +217,44 @@
       justify-content: space-between; gap: 3px; overflow: hidden;
     }
 
+    .calculator-main, .calculator-table-pane { overflow: hidden; }
+
+    /* 소형 작업영역에서는 우측 가이드를 아래로 내려 전체 기능을 세로 스크롤로 유지합니다. */
+    @media (max-width: 1000px) {
+      body {
+        height: auto !important;
+        min-height: 100vh;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+      }
+      .calculator-tab-bar { overflow-x: auto; }
+      .calculator-stat-bar {
+        height: auto !important;
+        min-height: 50px;
+        flex-wrap: wrap;
+        padding-top: 6px;
+        padding-bottom: 6px;
+      }
+      .calculator-stat-inputs { flex-wrap: wrap; }
+      .calculator-main {
+        flex: none;
+        flex-direction: column;
+        overflow: visible;
+      }
+      .calculator-table-pane {
+        flex: none;
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 8px;
+      }
+      .calculator-guide-pane {
+        width: 100% !important;
+        height: 360px;
+        flex: none;
+        border-top: 1px solid rgba(51,65,85,.6);
+      }
+    }
+
     /* ── Tooltip ──────────────────────────────── */
     .tooltip-wrap { display: inline-flex; align-items: center; cursor: help; }
   </style>
@@ -225,7 +263,7 @@
 </script>
 </head>
 
-<body class="bg-slate-950 text-slate-100 select-none h-screen flex flex-col border border-slate-800 overflow-hidden">
+<body class="bg-slate-950 text-slate-100 select-none h-screen flex flex-col border border-slate-800">
 
   <!-- ① Win Header ───────────────────────────── -->
   <div class="win-header shrink-0 drag">
@@ -256,7 +294,7 @@
   </div>
 
   <!-- ② Tab Bar ──────────────── -->
-  <div class="flex items-center bg-slate-900 border-b border-slate-800/60 px-4 no-drag flex-shrink-0" style="height:40px">
+  <div class="calculator-tab-bar flex items-center bg-slate-900 border-b border-slate-800/60 px-4 no-drag flex-shrink-0" style="height:40px">
     <!-- Tabs -->
     <div class="flex">
       <button class="tab-btn active" data-type="stab">찌르기</button>
@@ -275,9 +313,9 @@
   </div>
 
   <!-- ③ Stats & Doping Bar (row 2) ──────────────── -->
-  <div class="flex items-center bg-slate-900/50 border-b border-slate-800/80 px-4 no-drag flex-shrink-0 gap-4" style="height:50px">
+  <div class="calculator-stat-bar flex items-center bg-slate-900/50 border-b border-slate-800/80 px-4 no-drag flex-shrink-0 gap-4" style="height:50px">
     <!-- Character stats -->
-    <div class="flex items-center gap-2">
+    <div class="calculator-stat-inputs flex items-center gap-2">
       <div class="flex items-center gap-1">
         <label class="text-xs font-black text-slate-500">찌르기</label>
         <input type="number" id="stat-stab" class="sb-input" value="850">
@@ -350,10 +388,10 @@
   </div>
 
   <!-- ④ Main Body Wrapper (좌: 계산기 테이블 / 우: 콘텐츠 가이드) ──────────────── -->
-  <div class="flex flex-1 overflow-hidden no-drag text-slate-200">
+  <div class="calculator-main flex flex-1 no-drag text-slate-200">
     
     <!-- Left Pane: Main Table -->
-    <div class="flex-1 overflow-hidden px-3 pt-2 border-r border-slate-800/60">
+    <div class="calculator-table-pane flex-1 px-3 pt-2 border-r border-slate-800/60">
       <table class="ct">
         <colgroup>
           <col style="width:60px">   <!-- 부위 -->
@@ -504,7 +542,7 @@
     </div>
 
     <!-- Right Pane: Content Guide -->
-    <div class="w-[360px] flex-shrink-0 flex flex-col bg-slate-900/10">
+    <div class="calculator-guide-pane w-[360px] flex-shrink-0 flex flex-col bg-slate-900/10">
       <div class="flex items-center justify-between px-3 py-2 border-b border-slate-800/60 flex-shrink-0" style="height:38px">
         <h3 class="text-[11px] font-black text-slate-500 flex items-center gap-1.5">
           <i data-lucide="award" class="w-3.5 h-3.5 text-purple-500"></i>콘텐츠 가이드

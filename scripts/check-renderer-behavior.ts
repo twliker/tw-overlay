@@ -1831,6 +1831,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
 async function checkCoefficientDropdown(window: BrowserWindow): Promise<void> {
   await window.loadFile(path.join(projectRoot, 'dist', 'coefficient-calculator.html'));
   await waitForSelector(window, '.custom-dropdown-menu');
+  window.setContentSize(816, 424);
+  await new Promise(resolve => setTimeout(resolve, 50));
 
   const result = await window.webContents.executeJavaScript(`
     (async () => {
@@ -1846,11 +1848,84 @@ async function checkCoefficientDropdown(window: BrowserWindow): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 0));
       const closed = menu.classList.contains('hidden')
         && getComputedStyle(menu).display === 'none';
-      return { initiallyHidden, opened, closed };
+      const tablePane = document.querySelector('.calculator-table-pane');
+      const guidePane = document.querySelector('.calculator-guide-pane');
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await new Promise(resolve => requestAnimationFrame(() => resolve()));
+      return {
+        initiallyHidden,
+        opened,
+        closed,
+        layout: {
+          innerWidth: window.innerWidth,
+          documentClientWidth: document.documentElement.clientWidth,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          mainDirection: getComputedStyle(document.querySelector('.calculator-main')).flexDirection,
+          bodyOverflowY: getComputedStyle(document.body).overflowY,
+          tableOverflowX: getComputedStyle(tablePane).overflowX,
+          guideWidth: guidePane.getBoundingClientRect().width,
+          guideBelowTable: guidePane.getBoundingClientRect().top >= tablePane.getBoundingClientRect().bottom - 1,
+          scrollY: window.scrollY,
+        },
+      };
     })()
-  `) as { initiallyHidden: boolean; opened: boolean; closed: boolean };
+  `) as {
+    initiallyHidden: boolean;
+    opened: boolean;
+    closed: boolean;
+    layout: {
+      innerWidth: number;
+      documentClientWidth: number;
+      documentScrollWidth: number;
+      mainDirection: string;
+      bodyOverflowY: string;
+      tableOverflowX: string;
+      guideWidth: number;
+      guideBelowTable: boolean;
+      scrollY: number;
+    };
+  };
 
-  assert.deepEqual(result, { initiallyHidden: true, opened: true, closed: true });
+  assert.deepEqual({
+    initiallyHidden: result.initiallyHidden,
+    opened: result.opened,
+    closed: result.closed,
+  }, { initiallyHidden: true, opened: true, closed: true });
+  assert.ok(result.layout.innerWidth <= 816,
+    `소형 계수 계산기 회귀 창이 축소되지 않았습니다: ${result.layout.innerWidth}px`);
+  assert.equal(result.layout.documentScrollWidth, result.layout.documentClientWidth,
+    '소형 계수 계산기에서 문서 전체가 가로로 잘립니다.');
+  assert.equal(result.layout.mainDirection, 'column');
+  assert.equal(result.layout.bodyOverflowY, 'auto');
+  assert.equal(result.layout.tableOverflowX, 'auto');
+  assert.ok(result.layout.guideWidth <= result.layout.documentClientWidth,
+    '소형 계수 계산기의 콘텐츠 가이드가 작업영역 폭을 넘습니다.');
+  assert.equal(result.layout.guideBelowTable, true,
+    '소형 계수 계산기의 콘텐츠 가이드가 테이블 아래로 재배치되지 않았습니다.');
+  assert.ok(result.layout.scrollY > 0,
+    '소형 계수 계산기의 세로 문서를 실제로 스크롤할 수 없습니다.');
+  window.setContentSize(1100, 720);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const standardLayout = await window.webContents.executeJavaScript(`({
+    documentClientWidth: document.documentElement.clientWidth,
+    documentScrollWidth: document.documentElement.scrollWidth,
+    mainDirection: getComputedStyle(document.querySelector('.calculator-main')).flexDirection,
+    bodyOverflowY: getComputedStyle(document.body).overflowY,
+    guideWidth: document.querySelector('.calculator-guide-pane').getBoundingClientRect().width,
+  })`) as {
+    documentClientWidth: number;
+    documentScrollWidth: number;
+    mainDirection: string;
+    bodyOverflowY: string;
+    guideWidth: number;
+  };
+  assert.deepEqual(standardLayout, {
+    documentClientWidth: 1100,
+    documentScrollWidth: 1100,
+    mainDirection: 'row',
+    bodyOverflowY: 'hidden',
+    guideWidth: 360,
+  }, '일반 폭 계수 계산기의 기존 2열 레이아웃이 바뀌었습니다.');
 }
 
 async function checkFocusedChat(window: BrowserWindow): Promise<void> {
