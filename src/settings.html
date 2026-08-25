@@ -2678,6 +2678,8 @@
                 </div>
               </div>
 
+              <div id="google-file-sync-status" class="grid grid-cols-1 md:grid-cols-2 gap-3" aria-live="polite"></div>
+
               <div class="flex flex-wrap items-center justify-between gap-3 p-4 bg-black/20 rounded-xl border border-white/5">
                 <label class="flex items-center gap-2.5 cursor-pointer select-none">
                   <input type="checkbox" id="google-auto-sync-toggle" onchange="handleGoogleToggleAuto(this.checked)" class="custom-toggle rounded">
@@ -3574,6 +3576,52 @@
         });
     }
 
+    function renderGoogleFileStatuses(fileStatuses, pullRetryCount = 0) {
+      const container = document.getElementById('google-file-sync-status');
+      if (!container) return;
+      container.replaceChildren();
+      const labels = { settings: '일반 설정', checklist: '숙제 체크리스트' };
+      for (const status of Array.isArray(fileStatuses) ? fileStatuses : []) {
+        const card = document.createElement('div');
+        card.className = 'rounded-xl border border-white/5 bg-black/20 p-3 space-y-2';
+        const top = document.createElement('div');
+        top.className = 'flex items-center justify-between gap-3';
+        const name = document.createElement('span');
+        name.className = 'text-xs font-bold text-slate-200';
+        name.textContent = labels[status.kind] || status.kind;
+        const pending = document.createElement('span');
+        pending.className = status.pendingChanges > 0 ? 'text-[11px] font-semibold text-amber-300' : 'text-[11px] text-emerald-300';
+        pending.textContent = status.pendingChanges > 0 ? `대기 ${status.pendingChanges}개` : '전송 완료';
+        top.append(name, pending);
+        card.appendChild(top);
+
+        const local = document.createElement('div');
+        local.className = 'text-[11px] text-slate-400 font-mono truncate';
+        local.textContent = `로컬 ${String(status.localChecksum || '-').slice(0, 12)}`;
+        local.title = status.localChecksum || '';
+        const cloud = document.createElement('div');
+        cloud.className = 'text-[11px] text-slate-400 font-mono truncate';
+        cloud.textContent = `클라우드 ${String(status.cloudRevision || '확인 전').slice(0, 20)}`;
+        cloud.title = status.cloudRevision || '';
+        card.append(local, cloud);
+
+        if (status.retryCount > 0 || status.lastError) {
+          const retry = document.createElement('div');
+          retry.className = 'text-[11px] text-rose-300';
+          retry.textContent = `업로드 재시도 ${status.retryCount || 0}회${status.lastError ? ' · 최근 실패' : ''}`;
+          if (status.lastError) retry.title = status.lastError;
+          card.appendChild(retry);
+        }
+        container.appendChild(card);
+      }
+      if (pullRetryCount > 0) {
+        const retry = document.createElement('div');
+        retry.className = 'md:col-span-2 text-[11px] text-amber-300 px-1';
+        retry.textContent = `원격 확인 재시도 ${pullRetryCount}회`;
+        container.appendChild(retry);
+      }
+    }
+
     function updateGoogleSyncUI(status) {
       if (!status) return;
       const unlinkedView = document.getElementById('google-sync-unlinked-view');
@@ -3627,6 +3675,7 @@
           : '마지막 클라우드 복원 전 로컬 설정으로 되돌립니다.';
       }
       renderGoogleRestoreStatus(status.restoreResults, status.restorePartial, status.profileState);
+      renderGoogleFileStatuses(status.fileStatuses, status.pullRetryCount);
       window.refreshIcons();
     }
 

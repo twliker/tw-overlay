@@ -591,6 +591,15 @@ export interface GoogleSyncChangeSummary {
     unchangedCount: number;
 }
 
+export interface GoogleSyncFileStatus {
+    kind: GoogleSyncDataKind;
+    localChecksum: string;
+    cloudRevision?: string;
+    pendingChanges: number;
+    retryCount: number;
+    lastError?: string;
+}
+
 export interface GoogleSyncStatus {
     isLinked: boolean;
     email?: string;
@@ -606,6 +615,8 @@ export interface GoogleSyncStatus {
     restorePartial?: boolean;
     localBackupAvailable?: boolean;
     localBackupCreatedAt?: number;
+    fileStatuses?: GoogleSyncFileStatus[];
+    pullRetryCount?: number;
     error?: string;
 }
 

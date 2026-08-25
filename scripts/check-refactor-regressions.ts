@@ -4728,6 +4728,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const backupStatus = cloudManager.getSyncStatus();
   assert.equal(backupStatus.localBackupAvailable, true);
   assert.equal(typeof backupStatus.localBackupCreatedAt, 'number');
+  assert.deepEqual(backupStatus.fileStatuses.map((status: any) => status.kind), ['settings', 'checklist']);
+  assert.equal(backupStatus.fileStatuses.every((status: any) => /^[a-f0-9]{64}$/.test(status.localChecksum)), true);
+  assert.equal(JSON.stringify(backupStatus.fileStatuses).includes('local-secret'), false,
+    '파일별 상태에 로컬 비밀값이 포함되었습니다.');
   const rollbackResult = await cloudManager.rollbackLastRestore();
   assert.equal(rollbackResult.success, true);
   assert.equal(configModule.load().userServer, 3,

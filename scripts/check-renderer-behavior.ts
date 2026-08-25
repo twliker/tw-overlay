@@ -675,7 +675,12 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         googleSyncGetStatus: async () => ({
           isLinked: true,
           localBackupAvailable: true,
-          localBackupCreatedAt: 1000
+          localBackupCreatedAt: 1000,
+          fileStatuses: [
+            { kind: 'settings', localChecksum: 'abcdef0123456789', cloudRevision: 'remote-settings-1', pendingChanges: 2, retryCount: 1, lastError: 'mock failure' },
+            { kind: 'checklist', localChecksum: '1234567890abcdef', cloudRevision: 'remote-checklist-1', pendingChanges: 0, retryCount: 0 }
+          ],
+          pullRetryCount: 1
         })
       };
       document.getElementById('google-restore-settings').checked = true;
@@ -688,9 +693,15 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       updateGoogleSyncUI({
         isLinked: true,
         localBackupAvailable: true,
-        localBackupCreatedAt: 1000
+        localBackupCreatedAt: 1000,
+        fileStatuses: [
+          { kind: 'settings', localChecksum: 'abcdef0123456789', cloudRevision: 'remote-settings-1', pendingChanges: 2, retryCount: 1, lastError: 'mock failure' },
+          { kind: 'checklist', localChecksum: '1234567890abcdef', cloudRevision: 'remote-checklist-1', pendingChanges: 0, retryCount: 0 }
+        ],
+        pullRetryCount: 1
       });
       const rollbackVisible = !document.getElementById('btn-google-rollback')?.classList.contains('hidden');
+      const fileStatusText = document.getElementById('google-file-sync-status')?.textContent || '';
       await handleGoogleRollback();
       return {
         restoreCalls,
@@ -703,6 +714,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         summaryText,
         summaryVisible,
         rollbackVisible,
+        fileStatusText,
       };
     })()
   `) as {
@@ -716,6 +728,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     summaryText: string;
     summaryVisible: boolean;
     rollbackVisible: boolean;
+    fileStatusText: string;
   };
 
   assert.deepEqual(result.restoreCalls, [['settings']]);
@@ -730,6 +743,10 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.summaryText, /showTodaySummaryHud/);
   assert.match(result.confirms[0], /변경 1개, 현재 PC 유지 1개/);
   assert.equal(result.rollbackVisible, true);
+  assert.match(result.fileStatusText, /일반 설정대기 2개/);
+  assert.match(result.fileStatusText, /업로드 재시도 1회/);
+  assert.match(result.fileStatusText, /숙제 체크리스트전송 완료/);
+  assert.match(result.fileStatusText, /원격 확인 재시도 1회/);
   assert.equal(result.alerts.length, 2);
 }
 

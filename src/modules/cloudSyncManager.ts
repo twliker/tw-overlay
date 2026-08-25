@@ -39,6 +39,7 @@ let applyingCloud = false;
 let settingsChangeSerial = 0;
 let backgroundStarted = false;
 const uploadFailureCount: Record<SyncKind, number> = { settings: 0, checklist: 0 };
+const uploadLastError: Partial<Record<SyncKind, string>> = {};
 let pullFailureCount = 0;
 
 interface SyncFiles {
@@ -82,6 +83,16 @@ export function getSyncStatus(): GoogleSyncStatus {
   const cfg = config.load();
   const state = cloudState.load();
   const backup = syncDataHelper.getLocalSyncBackupInfo();
+  const fileStatuses = (['settings', 'checklist'] as const).map(kind => ({
+    kind,
+    localChecksum: syncDataHelper.calculateSyncChecksum(kind === 'settings'
+      ? syncDataHelper.extractSettingsSyncData(cfg)
+      : syncDataHelper.extractChecklistSyncData(cfg)),
+    cloudRevision: state.remoteRevisions[kind],
+    pendingChanges: kind === 'settings' ? state.settingsDirtyKeys.length : state.checklistOutbox.length,
+    retryCount: uploadFailureCount[kind],
+    lastError: uploadLastError[kind],
+  }));
   return {
     isLinked,
     email: profile?.email || cfg.googleSyncUserEmail,
@@ -94,6 +105,8 @@ export function getSyncStatus(): GoogleSyncStatus {
     restorePartial: state.restorePartial,
     localBackupAvailable: backup.available,
     localBackupCreatedAt: backup.createdAt,
+    fileStatuses,
+    pullRetryCount: pullFailureCount,
   };
 }
 
@@ -498,8 +511,10 @@ function scheduleUpload(kind: SyncKind, immediate = false, retryDelay?: number):
     enqueueTransfer(`${kind} 자동 업로드`, () => uploadKinds([kind])).then(result => {
       if (!result.success) throw new Error(result.error || `${kind} 자동 업로드 실패`);
       uploadFailureCount[kind] = 0;
+      delete uploadLastError[kind];
     }).catch(error => {
       uploadFailureCount[kind]++;
+      uploadLastError[kind] = error instanceof Error ? error.message : String(error);
       const retryMs = Math.min(60_000, (kind === 'settings' ? SETTINGS_DEBOUNCE_MS : CHECKLIST_DEBOUNCE_MS)
         * (2 ** uploadFailureCount[kind]));
       log(`[CloudSyncManager] ${kind} 자동 업로드 실패, ${retryMs}ms 후 재시도: ${error}`);
