@@ -5396,6 +5396,20 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Windows 로그오프·시스템 종료 fast path가 창에 등록되지 않았습니다.');
   assert.match(mainSource, /function prepareFastSessionEnd[\s\S]*?config\.hasPending\(\)[\s\S]*?prepareShutdownRecovery\(\)[\s\S]*?flushPendingElso\(\)[\s\S]*?checkpointWal\(\)/,
     'Windows 세션 종료 전에 config·클라우드 marker·DB 상태를 동기 저장하지 않습니다.');
+  assert.match(mainSource, /startBackgroundSync\(\);\s*cloudSync\.syncFromCloud\(false\)/,
+    '앱 시작 시 로그인된 자동 동기화 프로필의 즉시 pull이 연결되지 않았습니다.');
+  assert.match(mainSource, /powerMonitor\.on\('resume',[\s\S]*?requestImmediatePull\('system-resume'\)/,
+    '절전 복귀가 클라우드 즉시 pull에 연결되지 않았습니다.');
+  assert.match(mainSource, /powerMonitor\.on\('unlock-screen',[\s\S]*?requestImmediatePull\('screen-unlock'\)/,
+    '잠금 해제가 클라우드 즉시 pull에 연결되지 않았습니다.');
+  assert.match(mainSource, /let wasNetworkOnline = net\.isOnline\(\)[\s\S]*?!wasNetworkOnline && isNetworkOnline[\s\S]*?requestImmediatePull\('network-reconnected'\)[\s\S]*?10_000/,
+    '10초 네트워크 복구 감지가 클라우드 즉시 pull에 연결되지 않았습니다.');
+  const pollingSource = read('src/modules/pollingLoop.ts');
+  assert.match(pollingSource, /gameJustStarted[\s\S]*?requestImmediatePull\('game-started'\)/,
+    '게임 시작 전환이 클라우드 즉시 pull에 연결되지 않았습니다.');
+  const ipcSource = read('src/modules/ipcHandlers.ts');
+  assert.match(ipcSource, /google-sync-toggle-auto[\s\S]*?refreshBackgroundSchedule\(\)[\s\S]*?if \(enabled\) cloudSync\.requestImmediatePull\('auto-sync-enabled'\)/,
+    '자동 동기화 활성화가 scheduler 갱신과 즉시 pull에 연결되지 않았습니다.');
 
   const shutdownCoordinator = require(path.join(projectRoot, 'dist', 'modules', 'shutdownCoordinator.js'));
   const shutdownGate = shutdownCoordinator.createShutdownGate();
