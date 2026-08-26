@@ -98,6 +98,8 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 
 로컬 `cloud-sync-state.json`을 다시 읽을 때는 installation/generation ID, Drive file ID·revision·설정 dirty key, 숙제 operation/mutation과 종료 recovery marker를 필드별로 검증합니다. 일부 값이 손상돼도 정상 file ID와 미전송 operation/recovery는 함께 버리지 않고 독립적으로 보존하며, 핵심 식별자가 손상된 기존 프로필을 새 PC로 오인하지 않습니다.
 
+최초 installation/generation ID는 상태를 처음 읽는 즉시 원자 저장합니다. 저장 도중 정식 파일로 rename되기 전에 프로세스가 중단돼 유효한 `.tmp`만 남으면 다음 실행에서 이를 검증해 정식 상태로 승격하므로 dirty/outbox/recovery marker를 잃지 않습니다.
+
 숙제 상태는 `contentId + characterId + resetCycle`을 키로 마지막 정상 동기화본·현재 로컬·현재 클라우드를 비교하는 3방향 병합을 수행합니다.
 
 - 로컬만 바뀜: 로컬 적용

@@ -160,6 +160,7 @@
 - **D-18 [P1, 코드 수정·자동 검증 완료]** OS가 OAuth 루프백 callback에 브라우저 차단 포트(실제 재현 `1723`)를 할당하면 로컬 서버는 열리지만 Chromium/Fetch가 `bad port`로 접근을 거부해 로그인이 60초 뒤 실패했다. WHATWG 차단 포트만 다시 배정받고 허용되는 낮은 포트는 유지하며, 기본 브라우저 실행 Promise가 거부되면 타임아웃 대신 즉시 실패로 정리한다.
 - **D-19 [P1, 코드 수정·자동 검증 완료]** OAuth callback의 `error`, 계정 이메일, 내부 오류 문자열을 HTML 응답에 그대로 삽입해 로컬 callback 페이지에서 임의 태그가 실행될 수 있었고, 요청별 `state`도 검증하지 않아 다른 로그인 응답과의 결합을 차단하지 못했다. 모든 동적 응답 값을 HTML escape하고 로그인마다 생성한 `state`가 일치하지 않으면 token 교환 전에 HTTP 400으로 거부한다. URL 파싱 기준도 요청 `Host`가 아닌 고정 loopback origin으로 제한한다.
 - **D-20 [P1, 코드 수정·자동 검증 완료]** 로컬 `cloud-sync-state.json`의 최상위 버전만 확인하고 installation/generation ID, 중첩 file ID·revision·dirty key, 숙제 operation mutation과 종료 recovery 필드를 그대로 신뢰해, 부분 손상 뒤 잘못된 Drive 조회나 영구적인 숙제 업로드 실패가 발생할 수 있었다. 필드별 허용 타입·길이·allowlist를 적용하고 Drive payload와 동일한 operation/mutation 검증으로 손상 항목만 제거하면서 정상 dirty/outbox/recovery는 보존한다. 핵심 식별자가 손상된 기존 프로필은 새 ID를 만들되 `fresh`로 오인하지 않는다.
+- **D-21 [P1, 코드 수정·자동 검증 완료]** 최초 로컬 동기화 상태는 메모리에만 생성되어 첫 변경 전 installation/generation ID가 내구 기록되지 않았고, 첫 원자 저장이 임시 파일 fsync 뒤 rename 전에 중단되면 다음 실행이 유효한 `.tmp`의 dirty/outbox/recovery를 무시했다. 새 상태를 생성 즉시 원자 저장하고, 정식 상태가 없거나 손상됐을 때만 검증을 통과한 임시 상태를 정식 파일로 승격한다. 유효한 정식 파일이 있으면 정식 파일을 우선한다.
 
 ### E. 채팅·파일 I/O·모니터
 
@@ -301,7 +302,7 @@
 
 ### Phase 3 — 클라우드 큐·인증·종료 상태 머신
 
-대상: A-07~A-09, B-05, D-01~D-06, D-09~D-20
+대상: A-07~A-09, B-05, D-01~D-06, D-09~D-21
 
 진행 상태: 분리 파일 전송 큐·파일별 dirty/debounce·meta ID/generation·숙제 base snapshot/로컬 outbox/3방향 병합·업로드 후 operation 재조회 확인/누락 operation mutation 재실행·회사/집 pull 루프·절전/게임/네트워크 복구 즉시 pull·installation jitter/지수 백오프·OAuth 로그인 세대 차단·401 재인증 및 요청 취소를 연결했다. 메모리 Drive 통합 검사로 분리 업로드, 회사→집 숙제 수신, 파생 echo outbox 방지, 교차 PATCH overwrite, 동일 숙제 완료/해제/횟수 충돌, 응답 유실과 재시작 재수렴을 통과했다. 새 PC 프로필 판정, 유효 중복 파일 선택, 파일별 선택·독립 복원·부분 결과, 값 비노출 변경 요약, 로컬 백업 되돌리기와 파일별 checksum/revision/dirty/retry UI도 자동 검증했다. 종료 시 창·트레이를 먼저 숨기는 단일 finalizer, 최대 3초 drain, 파일별 recovery marker, 응답 유실 후 다음 실행 재확인, 두 번째 quit 차단, WAL checkpoint와 Windows 세션 종료 fast path까지 자동 검증했다. 실계정 2-PC 및 실제 Windows 종료·로그오프 실기 검증은 남아 있다. 미배포 기능이므로 개발 중 단일 파일은 마이그레이션 대상이 아니다.
 
@@ -528,7 +529,7 @@
 
 **잔여 P3·renderer injection 완료 감사(2026-08-26):** `isVisible` 없는 레거시 숙제의 보임 해석, DB 초기화 실패 뒤 `getStmt()` 오류 전달·마이그레이션 롤백, 채팅 로그 파일명 날짜 왕복 검사는 각각 실행 fixture가 현재 코드를 직접 통과하는지 재확인했다. 모험일지 로그, 갤러리 감시 키·제목, 커스텀 사운드 option에는 태그·속성 종료 악성 문자열을 실제 Electron DOM에 주입해 텍스트는 보존되면서 새 요소가 생성되지 않고 검증된 숫자 ID만 이벤트에 전달되는지 확인했다.
 
-**전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 자동 감사 커밋 `d202343`까지는 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 이후 격리 실행에서 D-11~D-20, E-06, E-10, E-11과 F-09, 교차 숙제 payload의 operation/data 비수렴을 추가 확인·수정해 확정 결함은 89개가 되었으며 Windows 실기 재검증 항목은 실제 증거가 확보된 범위만 개별 승격한다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
+**전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 자동 감사 커밋 `d202343`까지는 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 이후 격리 실행에서 D-11~D-21, E-06, E-10, E-11과 F-09, 교차 숙제 payload의 operation/data 비수렴을 추가 확인·수정해 확정 결함은 90개가 되었으며 Windows 실기 재검증 항목은 실제 증거가 확보된 범위만 개별 승격한다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
 
 **후속 자동 범위 감사(2026-08-26, `3437723`):** 현재 `origin/beta/v2.7.0`의 `93d2922` 이후는 12개 파일, 2,059줄 추가, 50줄 삭제다. 제품 파일은 교차 operation canonical 수렴을 고친 `src/modules/cloudSyncManager.ts`와 854×464 잘림을 고친 `src/coefficient-calculator.html` 두 개이며 나머지는 런타임 probe·회귀 검사·검증 문서다. 생성 산출물 추적과 미완료 TODO/FIXME는 없고, 계산기에서 검색되는 `HACK` 두 건은 게임 능력치 표 제목이다. working tree는 clean이며 원격 push·버전·태그·배포는 수행하지 않았다.
 
@@ -551,6 +552,8 @@
 **OAuth callback 응답 보안 수정 후 범위 감사(2026-08-26, `fe6e7d9`):** 같은 원격 기준 범위는 16개 파일, 2,671줄 추가, 149줄 삭제다. 악성 `error` 쿼리가 실제 callback HTML의 `<img onerror>` 요소로 삽입되는 것을 먼저 재현한 뒤 동적 값 escape와 요청별 OAuth `state` 검증을 추가했다. 정상 state는 기존 token/profile 흐름으로 진행하고 변조 state는 token 요청 없이 HTTP 400으로 끝나는 실제 loopback fixture를 통과했다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
 
 **로컬 클라우드 상태 손상 복구 수정 후 범위 감사(2026-08-26, `c908f19`, `1789baf`):** 같은 원격 기준 범위는 18개 파일, 2,839줄 추가, 192줄 삭제다. 숫자 Drive file ID, 배열 revision, 비허용 dirty key, `null` mutation, 손상 recovery 필드와 빈 installation/generation ID가 있는 상태 파일을 실제 로더에 주입해 손상 값이 그대로 남는 결함을 재현했다. 필드별 정규화와 공통 operation 검증 후 정상 checklist file ID·revision·dirty 시각·operation/recovery만 보존되고 기존 프로필이 `fresh`로 오인되지 않는지 확인했으며 전체 자동 게이트를 통과했다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
+
+**중단된 로컬 상태 원자 저장 복구 수정 후 범위 감사(2026-08-26, `6753832`):** 같은 원격 기준 범위는 18개 파일, 2,898줄 추가, 196줄 삭제다. 정식 상태 파일 없이 유효한 `.tmp`만 남은 재시작 fixture에서 기존 구현이 새 UUID와 빈 outbox로 대체되는 결함을 재현했다. 수정 후 임시 상태의 installation ID·settings dirty·숙제 operation·recovery marker가 보존된 채 정식 파일로 승격되고, 완전히 새 상태도 `load()` 시점에 즉시 디스크에 기록되는지 확인했다. 전체 자동 게이트를 통과했으며 생성 산출물·원격 push·버전·태그·배포는 없다.
 
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 설치 파일 SHA-256, 설정 UI의 파일별 checksum/revision/pending, 원격 operation ID와 민감·사용자 값을 제외한 로컬 상태 추출 절차도 추가했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
