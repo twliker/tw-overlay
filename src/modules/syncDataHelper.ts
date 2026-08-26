@@ -361,12 +361,32 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+export type SyncPayloadCompatibilityIssue = 'schema-version' | 'file-kind' | 'unknown-field';
+
+/** 손상된 JSON과 현재 앱이 의도적으로 적용하지 않는 미래/다른 종류 payload를 구분한다. */
+export function getSyncPayloadCompatibilityIssue(
+  value: unknown,
+  expectedKind: 'settings' | 'checklist',
+): SyncPayloadCompatibilityIssue | null {
+  if (!isPlainObject(value)) return null;
+  if (value.schemaVersion !== undefined && value.schemaVersion !== 1) return 'schema-version';
+  if (value.kind !== undefined && value.kind !== expectedKind) return 'file-kind';
+  if (isPlainObject(value.data)) {
+    const allowedKeys = new Set<string>(expectedKind === 'settings'
+      ? SETTINGS_SYNCABLE_KEYS
+      : CHECKLIST_SYNCABLE_KEYS);
+    if (Object.keys(value.data).some(key => !allowedKeys.has(key))) return 'unknown-field';
+  }
+  return null;
+}
+
 /** Drive에서 받은 JSON을 config에 적용하기 전 형식·종류·체크섬을 검증한다. */
 export function validateSyncPayload(
   value: unknown,
   expectedKind: 'settings' | 'checklist',
 ): value is GoogleSyncPayload {
   if (!isPlainObject(value)
+    || getSyncPayloadCompatibilityIssue(value, expectedKind) !== null
     || value.schemaVersion !== 1
     || value.kind !== expectedKind
     || typeof value.appVersion !== 'string'

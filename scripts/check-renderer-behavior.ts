@@ -1062,6 +1062,13 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const statusVisible = !document.getElementById('google-restore-status')?.classList.contains('hidden');
       const summaryText = document.getElementById('google-change-summary')?.textContent || '';
       const summaryVisible = !document.getElementById('google-change-summary')?.classList.contains('hidden');
+      renderGoogleRestoreStatus([{
+        kind: 'settings',
+        selected: true,
+        status: 'incompatible',
+        error: '현재 버전에서 동기화할 수 없습니다. TW-Overlay를 최신 버전으로 업데이트해 주세요.'
+      }], true, 'needs-confirmation');
+      const incompatibleStatusText = document.getElementById('google-restore-status')?.textContent || '';
       updateGoogleSyncUI({
         isLinked: true,
         localBackupAvailable: true,
@@ -1159,6 +1166,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         technicalControlsInsideAdvanced,
         statusText,
         statusVisible,
+        incompatibleStatusText,
         summaryText,
         summaryVisible,
         rollbackVisible,
@@ -1199,6 +1207,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     technicalControlsInsideAdvanced: boolean;
     statusText: string;
     statusVisible: boolean;
+    incompatibleStatusText: string;
     summaryText: string;
     summaryVisible: boolean;
     rollbackVisible: boolean;
@@ -1238,6 +1247,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.statusText, /일부 파일만 복원되었습니다/);
   assert.match(result.statusText, /일반 설정복원 완료/);
   assert.match(result.statusText, /숙제 체크리스트선택하지 않음/);
+  assert.match(result.incompatibleStatusText, /일반 설정현재 버전에서 동기화할 수 없음/);
   assert.equal(result.summaryVisible, true);
   assert.match(result.summaryText, /userServer/);
   assert.match(result.summaryText, /showTodaySummaryHud/);

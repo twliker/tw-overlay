@@ -5509,6 +5509,23 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   }, 'settings'), false, '내용이 바뀐 클라우드 payload의 checksum 검증이 실패하지 않았습니다.');
   assert.equal(syncDataHelper.validateSyncPayload(settingsPayload, 'checklist'), false,
     '설정 파일을 숙제 파일로 잘못 허용했습니다.');
+  assert.equal(syncDataHelper.getSyncPayloadCompatibilityIssue({
+    ...settingsPayload,
+    schemaVersion: 2,
+  }, 'settings'), 'schema-version');
+  assert.equal(syncDataHelper.getSyncPayloadCompatibilityIssue({
+    ...settingsPayload,
+    kind: 'checklist',
+  }, 'settings'), 'file-kind');
+  assert.equal(syncDataHelper.getSyncPayloadCompatibilityIssue({
+    ...settingsPayload,
+    data: { ...settingsPayload.data, futureSetting: true },
+  }, 'settings'), 'unknown-field');
+  assert.equal(syncDataHelper.getSyncPayloadCompatibilityIssue({
+    ...settingsPayload,
+    checksum: 'broken',
+  }, 'settings'), null,
+  '현재 버전 비호환과 일반 체크섬 손상을 구분하지 못합니다.');
 
   // 3. mergeSyncData: 숙제 타임스탬프 기반 병합 및 설정 병합 검증
   const cloudPayload = {
@@ -5999,6 +6016,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const settingsSource = read('src/settings.html');
   assert.doesNotMatch(settingsSource, /tw_overlay_sync\.json/,
     'Google 동기화 UI가 개발 중 단일 파일명을 표시합니다.');
+  assert.match(settingsSource, /일반 설정과 숙제 체크리스트만 동기화합니다\.[\s\S]*?모험일지·채팅 로그 원본·알림 이력/,
+    '설정 화면에 클라우드 동기화 제외 사용자 데이터 안내가 없습니다.');
   assert.match(settingsSource, /GOOGLE_SYNC_FILE_LABEL = 'tw_overlay_settings\.json, tw_overlay_checklist\.json'/,
     'Google 동기화 UI의 정식 분리 파일 fallback이 없습니다.');
   assert.match(settingsSource, /id="btn-google-logout"[\s\S]*?연결 해제/,
@@ -6036,6 +6055,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const cloudManagerSource = read('src/modules/cloudSyncManager.ts');
   assert.match(cloudManagerSource, /reauthRequired:\s*!isLinked[\s\S]*?googleSyncEnabled === true/,
     '토큰 만료와 사용자의 명시적 연결 해제를 구분하는 상태가 없습니다.');
+  assert.match(cloudManagerSource, /SyncFileCompatibilityError[\s\S]*?status:\s*'incompatible'/,
+    '현재 버전 비호환 파일을 일반 손상과 다른 파일별 상태로 기록하지 않습니다.');
   const authInvalidatedHandler = cloudManagerSource.match(
     /googleAuth\.setOnAuthInvalidated\(\(\) => \{([\s\S]*?)\n\}\);/,
   )?.[1] || '';
@@ -6494,6 +6515,13 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       },
     ],
     confirmedChecklistOperations: [],
+    restoreResults: [{
+      kind: 'settings',
+      selected: true,
+      status: 'incompatible',
+      error: '현재 버전에서 동기화할 수 없습니다.',
+    }],
+    restorePartial: true,
     shutdownRecovery: {
       createdAt: 1000,
       settings: {
@@ -6520,6 +6548,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '제거된 dirty key의 시각 정보가 로컬 동기화 상태에 남았습니다.');
   assert.deepEqual(normalizedCorruptState.checklistOutbox, [validPersistedOperation],
     '손상된 mutation을 가진 숙제 operation이 outbox에 남았습니다.');
+  assert.equal(normalizedCorruptState.restoreResults?.[0]?.status, 'incompatible',
+    '호환되지 않는 파일의 복원 결과가 재시작 뒤 사라졌습니다.');
+  assert.equal(normalizedCorruptState.restorePartial, true,
+    '파일별 부분 복원 상태가 재시작 뒤 사라졌습니다.');
   assert.deepEqual(normalizedCorruptState.shutdownRecovery?.settings, {
     dirtyKeys: ['userServer'],
     checksum: 'a'.repeat(64),
@@ -6845,7 +6877,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(convergedLocalState.shutdownRecovery, undefined,
     '재시작 후 원격 operation을 확인했는데 recovery marker가 남았습니다.');
 
-  // fresh 프로필의 파일별 독립 복원: 손상된 설정 때문에 정상 숙제 복원이 막히지 않아야 한다.
+  // fresh 프로필의 파일별 독립 복원: 지원하지 않는 설정 때문에 정상 숙제 복원이 막히지 않아야 한다.
   memoryFiles.clear();
   const partialGeneration = 'generation-partial-restore';
   const remoteFreshChecklist = syncDataHelper.buildChecklistSyncPayload({
@@ -6854,11 +6886,11 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     contentsCheckerItems: sampleLocalConfig.contentsCheckerItems,
     pendingHomeworks: sampleLocalConfig.pendingHomeworks,
   }, 'remote-pc', partialGeneration, []);
-  memoryFiles.set('corrupt-settings', {
-    id: 'corrupt-settings',
+  memoryFiles.set('incompatible-settings', {
+    id: 'incompatible-settings',
     name: 'tw_overlay_settings.json',
     modifiedTime: '2026-08-25T10:00:00.000Z',
-    payload: { schemaVersion: 1, kind: 'settings', data: { userServer: 16 } },
+    payload: { schemaVersion: 2, kind: 'settings', data: { userServer: 16 } },
   });
   memoryFiles.set('valid-checklist', {
     id: 'valid-checklist',
@@ -6913,13 +6945,13 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const partialRestore = await cloudManager.syncFromCloud(false);
   assert.equal(partialRestore.success, true);
   assert.equal(partialRestore.partial, true);
-  assert.equal(partialRestore.restoreResults.find((result: any) => result.kind === 'settings').status, 'invalid');
+  assert.equal(partialRestore.restoreResults.find((result: any) => result.kind === 'settings').status, 'incompatible');
   assert.equal(partialRestore.restoreResults.find((result: any) => result.kind === 'checklist').status, 'restored');
   assert.deepEqual(configModule.load().characterPresets, [{ id: 'remote-character', name: '원격 캐릭터' }],
     'fresh 복원이 로컬 기본 캐릭터를 원격 체크리스트에 합쳐 남겼습니다.');
   assert.equal(cloudSyncState.load().profileState, 'needs-confirmation');
   configModule.saveImmediate({ userServer: 7 });
-  memoryFiles.get('corrupt-settings')!.payload = syncDataHelper.buildSettingsSyncPayload({
+  memoryFiles.get('incompatible-settings')!.payload = syncDataHelper.buildSettingsSyncPayload({
     ...configModule.load(), userServer: 16,
   }, 'remote-pc', partialGeneration);
   const blockedAutomaticRestore = await cloudManager.syncFromCloud(false);

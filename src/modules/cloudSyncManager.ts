@@ -243,6 +243,17 @@ async function downloadValidated(
     throw new Error(`${file.name} 파일이 허용 크기를 초과했습니다.`);
   }
   const value = await googleDriveSync.downloadJsonPayload<unknown>(file.id);
+  const compatibilityIssue = syncDataHelper.getSyncPayloadCompatibilityIssue(value, kind);
+  if (compatibilityIssue) {
+    const details: Record<typeof compatibilityIssue, string> = {
+      'schema-version': '지원하지 않는 동기화 파일 버전입니다.',
+      'file-kind': '파일 종류가 현재 동기화 항목과 일치하지 않습니다.',
+      'unknown-field': '현재 버전이 지원하지 않는 설정 항목이 포함되어 있습니다.',
+    };
+    throw new SyncFileCompatibilityError(
+      `${file.name} 파일은 현재 버전에서 동기화할 수 없습니다. ${details[compatibilityIssue]} TW-Overlay를 최신 버전으로 업데이트하거나 파일을 만든 PC의 버전을 확인해 주세요.`,
+    );
+  }
   if (!syncDataHelper.validateSyncPayload(value, kind)) {
     throw new Error(`${file.name} 파일의 형식 또는 체크섬이 올바르지 않습니다.`);
   }
@@ -257,11 +268,23 @@ interface ValidatedRestoreCandidate {
   payload: GoogleSyncPayload;
 }
 
+class SyncFileCompatibilityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SyncFileCompatibilityError';
+  }
+}
+
+interface RestoreInspectionError {
+  status: 'invalid' | 'incompatible';
+  message: string;
+}
+
 interface RestoreCandidateInspection {
   kind: SyncKind;
   candidates: googleDriveSync.DriveFileMeta[];
   valid: ValidatedRestoreCandidate[];
-  errors: string[];
+  errors: RestoreInspectionError[];
 }
 
 async function inspectRestoreCandidates(kind: SyncKind, files: SyncFiles): Promise<RestoreCandidateInspection> {
@@ -271,14 +294,17 @@ async function inspectRestoreCandidates(kind: SyncKind, files: SyncFiles): Promi
     ...files.candidates[kind],
   ].filter((file, index, values) => values.findIndex(candidate => candidate.id === file.id) === index);
   const valid: ValidatedRestoreCandidate[] = [];
-  const errors: string[] = [];
+  const errors: RestoreInspectionError[] = [];
 
   for (const file of candidates) {
     try {
       const payload = await downloadValidated(kind, file);
       if (payload) valid.push({ file, payload });
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+      errors.push({
+        status: error instanceof SyncFileCompatibilityError ? 'incompatible' : 'invalid',
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -325,11 +351,20 @@ function buildRestoreFailure(
       error: '선택된 클라우드 생성 세대와 일치하는 유효 파일이 없습니다.',
     };
   }
+  const compatibilityError = inspection.errors.find(error => error.status === 'incompatible');
+  if (compatibilityError) {
+    return {
+      kind: inspection.kind,
+      selected: true,
+      status: 'incompatible',
+      error: compatibilityError.message,
+    };
+  }
   return {
     kind: inspection.kind,
     selected: true,
     status: 'invalid',
-    error: inspection.errors[0] || '파일 형식 또는 체크섬이 올바르지 않습니다.',
+    error: inspection.errors[0]?.message || '파일 형식 또는 체크섬이 올바르지 않습니다.',
   };
 }
 
@@ -846,7 +881,7 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
       results.push({
         kind,
         selected: true,
-        status: 'invalid',
+        status: error instanceof SyncFileCompatibilityError ? 'incompatible' : 'invalid',
         fileName: file?.name,
         error: message,
       });
@@ -865,7 +900,7 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
   const pendingState = cloudState.load();
   if (!manualRestore && pendingState.settingsDirtyKeys.length > 0) scheduleUpload('settings', true);
   if (pendingState.checklistOutbox.length > 0) scheduleUpload('checklist', true);
-  const failed = results.filter(result => result.status === 'invalid');
+  const failed = results.filter(result => result.status === 'invalid' || result.status === 'incompatible');
   const succeeded = results.filter(result => result.status === 'restored' || result.status === 'unchanged');
   const partial = failed.length > 0 && succeeded.length > 0;
   const success = failed.length === 0 || succeeded.length > 0;

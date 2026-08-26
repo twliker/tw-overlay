@@ -147,7 +147,9 @@ function normalizeOperations(value: unknown): GoogleChecklistSyncOperation[] {
 
 function normalizeRestoreResults(value: unknown): GoogleSyncFileRestoreResult[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const allowedStatuses = new Set(['available', 'restored', 'unchanged', 'missing', 'invalid', 'generation-mismatch', 'skipped']);
+  const allowedStatuses = new Set([
+    'available', 'restored', 'unchanged', 'missing', 'invalid', 'incompatible', 'generation-mismatch', 'skipped',
+  ]);
   return value.filter((entry): entry is GoogleSyncFileRestoreResult => !!entry
     && typeof entry === 'object'
     && !Array.isArray(entry)

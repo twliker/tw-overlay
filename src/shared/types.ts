@@ -577,7 +577,7 @@ export type GoogleSyncDataKind = 'settings' | 'checklist';
 export interface GoogleSyncFileRestoreResult {
     kind: GoogleSyncDataKind;
     selected: boolean;
-    status: 'available' | 'restored' | 'unchanged' | 'missing' | 'invalid' | 'generation-mismatch' | 'skipped';
+    status: 'available' | 'restored' | 'unchanged' | 'missing' | 'invalid' | 'incompatible' | 'generation-mismatch' | 'skipped';
     fileName?: string;
     revision?: string;
     lastSyncedAt?: number;
