@@ -89,8 +89,19 @@
       transition: all 0.2s;
     }
 
+    .dock-item .dock-menu-image {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+      transition: all 0.2s;
+    }
+
     .dock-item:hover i {
       color: var(--theme-color) !important;
+      filter: drop-shadow(0 0 6px var(--theme-color));
+    }
+
+    .dock-item:hover .dock-menu-image {
       filter: drop-shadow(0 0 6px var(--theme-color));
     }
 
@@ -481,7 +492,14 @@
         if (hiddenMenuIds.includes(menu.id)) return;
 
         const item = document.createElement('div');
-        const colorClass = menu.color ? `color-${menu.color}` : 'color-slate-400';
+        const category = window.sidebarCategories.find(cat => cat.id === menu.category);
+        const sidebarIcon = menu.category === 'homework' && category
+          ? `<i data-lucide="${category.icon}"></i>`
+          : menu.image
+            ? `<img src="${menu.image}" class="dock-menu-image" alt="${menu.label}">`
+            : `<i data-lucide="${menu.icon}"></i>`;
+        const sidebarColor = menu.category === 'homework' && category ? category.color : menu.color;
+        const colorClass = sidebarColor ? `color-${sidebarColor}` : 'color-slate-400';
         item.className = `dock-item ${colorClass}`;
         item.id = `dock-${menu.id}`;
 
@@ -490,7 +508,7 @@
         item.dataset.winKey = camelKey;
 
         item.innerHTML = `
-          <i data-lucide="${menu.icon}"></i>
+          ${sidebarIcon}
           <span class="indicator-dot"></span>
           <span class="dock-tooltip">${menu.label}</span>
         `;

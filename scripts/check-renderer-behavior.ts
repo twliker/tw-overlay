@@ -978,6 +978,20 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
           pullRetryCount: 1
         })
       };
+      const advanced = document.getElementById('google-sync-advanced');
+      const advancedDefaultClosed = advanced instanceof HTMLDetailsElement && !advanced.open;
+      const basicActionLabels = [
+        document.getElementById('btn-google-backup')?.textContent?.trim(),
+        document.getElementById('btn-google-restore')?.textContent?.trim(),
+      ];
+      const simpleGuideText = document.getElementById('google-sync-linked-view')?.textContent || '';
+      const technicalControlsInsideAdvanced = [
+        document.getElementById('google-file-sync-status'),
+        document.getElementById('google-restore-settings'),
+        document.getElementById('btn-google-preview'),
+        document.getElementById('google-sync-file-name'),
+      ].every(element => element?.closest('#google-sync-advanced') === advanced);
+      if (advanced instanceof HTMLDetailsElement) advanced.open = true;
       document.getElementById('google-restore-settings').checked = true;
       document.getElementById('google-restore-checklist').checked = false;
       await handleGoogleRestoreNow();
@@ -998,6 +1012,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const rollbackVisible = !document.getElementById('btn-google-rollback')?.classList.contains('hidden');
       const fileStatusText = document.getElementById('google-file-sync-status')?.textContent || '';
       const fileNameText = document.getElementById('google-sync-file-name')?.textContent || '';
+      const syncBadgeText = document.getElementById('google-sync-badge')?.textContent || '';
       const previewButtons = Array.from(document.querySelectorAll('[data-google-preview-kind]'));
       previewButtons[0]?.click();
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -1036,6 +1051,10 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         rollbackCalls,
         confirms,
         alerts,
+        advancedDefaultClosed,
+        basicActionLabels,
+        simpleGuideText,
+        technicalControlsInsideAdvanced,
         statusText,
         statusVisible,
         summaryText,
@@ -1043,6 +1062,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         rollbackVisible,
         fileStatusText,
         fileNameText,
+        syncBadgeText,
         previewButtonKinds,
         previewButtonLabels,
         settingsPreviewTitle,
@@ -1062,6 +1082,10 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     rollbackCalls: number;
     confirms: string[];
     alerts: string[];
+    advancedDefaultClosed: boolean;
+    basicActionLabels: Array<string | undefined>;
+    simpleGuideText: string;
+    technicalControlsInsideAdvanced: boolean;
     statusText: string;
     statusVisible: boolean;
     summaryText: string;
@@ -1069,6 +1093,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     rollbackVisible: boolean;
     fileStatusText: string;
     fileNameText: string;
+    syncBadgeText: string;
     previewButtonKinds: string[];
     previewButtonLabels: string[];
     settingsPreviewTitle: string;
@@ -1085,6 +1110,10 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.equal(result.previewCalls, 3);
   assert.deepEqual(result.previewKinds, [undefined, 'settings', 'checklist']);
   assert.equal(result.rollbackCalls, 1);
+  assert.equal(result.advancedDefaultClosed, true, '고급 동기화 정보가 기본 화면에 펼쳐져 있습니다.');
+  assert.deepEqual(result.basicActionLabels, ['지금 저장', '불러오기']);
+  assert.match(result.simpleGuideText, /설정이나 숙제가 바뀌면 자동으로 저장하고, 다른 PC의 변경 내용도 가져옵니다/);
+  assert.equal(result.technicalControlsInsideAdvanced, true, '파일·복원 진단 제어가 기본 화면에 노출됩니다.');
   assert.equal(result.statusVisible, true);
   assert.match(result.statusText, /일부 파일만 복원되었습니다/);
   assert.match(result.statusText, /일반 설정복원 완료/);
@@ -1099,6 +1128,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.fileStatusText, /숙제 체크리스트전송 완료/);
   assert.match(result.fileStatusText, /원격 확인 재시도 1회/);
   assert.match(result.fileNameText, /tw_overlay_settings\.json, tw_overlay_checklist\.json \(Drive AppData\)/);
+  assert.match(result.syncBadgeText, /자동 동기화 켜짐/);
   assert.deepEqual(result.previewButtonKinds, ['settings', 'checklist']);
   assert.deepEqual(result.previewButtonLabels, ['데이터 확인', '데이터 확인']);
   assert.match(result.settingsPreviewTitle, /일반 설정 데이터 확인/);
@@ -3277,6 +3307,8 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       const visibleResult = {
         homeworkLabel: homework?.querySelector('.dock-tooltip')?.textContent,
         swordEnhanceLabel: swordEnhance?.querySelector('.dock-tooltip')?.textContent,
+        homeworkIcon: homework?.querySelector('[data-lucide]')?.getAttribute('data-lucide'),
+        swordEnhanceImage: swordEnhance?.querySelector('img')?.getAttribute('src'),
         homeworkActive: homework?.classList.contains('active'),
         swordEnhanceActive: swordEnhance?.classList.contains('active'),
       };
@@ -3300,6 +3332,8 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
     hasBody: boolean;
     homeworkLabel?: string;
     swordEnhanceLabel?: string;
+    homeworkIcon?: string;
+    swordEnhanceImage?: string;
     homeworkActive?: boolean;
     swordEnhanceActive?: boolean;
     calls: string[];
@@ -3312,6 +3346,8 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.hasBody, true, '사이드바 독 바디가 렌더링되지 않았습니다.');
   assert.equal(result.homeworkLabel, '숙제 체크 리스트', '독에 숙제 체크리스트 메뉴가 표시되지 않았습니다.');
   assert.equal(result.swordEnhanceLabel, '테일즈위버 무기 강화하기', '독에 검 강화하기 메뉴가 표시되지 않았습니다.');
+  assert.equal(result.homeworkIcon, 'check-square', '독 숙제 아이콘이 사이드바 카테고리 아이콘과 다릅니다.');
+  assert.equal(result.swordEnhanceImage, 'assets/img/검강화하기.png', '독 검 강화 아이콘이 사이드바 전용 이미지와 다릅니다.');
   assert.deepEqual(result.calls, ['contentsChecker', 'swordEnhance'], '독 1단 메뉴 동작이 연결되지 않았습니다.');
   assert.deepEqual(result.mousePassThroughCalls, [
     { ignore: true, forward: true },
