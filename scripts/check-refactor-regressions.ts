@@ -168,6 +168,100 @@ function checkManualEvidenceCollector(): void {
   }
 }
 
+function checkManualEvidenceComparator(): void {
+  const fixtureRoot = path.join(isolatedUserData, 'manual-evidence-comparator');
+  fs.mkdirSync(fixtureRoot, { recursive: true });
+  const comparatorPath = path.join(projectRoot, 'scripts', 'compare-v3-manual-evidence.ps1');
+  const makeEvidence = (deviceLabel: 'PC-A' | 'PC-B', overrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 1,
+    collectedAtUtc: '2026-08-26T00:00:00.000Z',
+    deviceLabel,
+    installerSha256: 'A'.repeat(64),
+    profileState: 'established',
+    generationId: 'shared-generation',
+    remoteRevisions: { settings: 'settings-r10', checklist: 'checklist-r20' },
+    settingsDirtyKeys: [],
+    checklistOutboxIds: [],
+    confirmedOperationIds: ['operation-a', 'operation-b'],
+    restoreResults: [],
+    restorePartial: false,
+    shutdownRecovery: null,
+    lastPullAt: 1000,
+    ...overrides,
+  });
+  const writeEvidence = (name: string, evidence: unknown): string => {
+    const target = path.join(fixtureRoot, name);
+    fs.writeFileSync(target, JSON.stringify(evidence), 'utf8');
+    return target;
+  };
+  const pcAPath = writeEvidence('pc-a.json', makeEvidence('PC-A'));
+  const pcBPath = path.join(fixtureRoot, 'pc-b.json');
+  fs.writeFileSync(pcBPath, Buffer.concat([
+    Buffer.from([0xFF, 0xFE]),
+    Buffer.from(JSON.stringify(makeEvidence('PC-B')), 'utf16le'),
+  ]));
+  const laterAPath = writeEvidence('later-pc-a.json', makeEvidence('PC-A', { lastPullAt: 2000 }));
+  const laterBPath = writeEvidence('later-pc-b.json', makeEvidence('PC-B', { lastPullAt: 2000 }));
+  const runComparator = (args: string[]) => childProcess.spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', comparatorPath,
+    ...args,
+  ], { cwd: projectRoot, encoding: 'utf8', timeout: 10_000, windowsHide: true });
+
+  const success = runComparator([
+    '-PcAPath', pcAPath,
+    '-PcBPath', pcBPath,
+    '-LaterPcAPath', laterAPath,
+    '-LaterPcBPath', laterBPath,
+    '-ExpectedOperationIds', 'operation-a,operation-b',
+  ]);
+  assert.equal(success.error, undefined, `실기 증거 비교기 실행 실패: ${success.error?.message || ''}`);
+  assert.equal(success.status, 0, `실기 증거 비교기 비정상 종료:\n${success.stdout}\n${success.stderr}`);
+  const passed = JSON.parse(success.stdout) as any;
+  assert.equal(passed.passed, true);
+  assert.equal(passed.laterSnapshotChecked, true);
+  assert.deepEqual(passed.expectedOperationIds, ['operation-a', 'operation-b']);
+  assert.deepEqual(passed.issues, []);
+
+  const badBPath = writeEvidence('bad-pc-b.json', makeEvidence('PC-B', {
+    generationId: 'different-generation',
+    remoteRevisions: { settings: 'settings-r10', checklist: 'checklist-r21' },
+    checklistOutboxIds: ['operation-b'],
+    confirmedOperationIds: ['operation-a'],
+  }));
+  const failure = runComparator([
+    '-PcAPath', pcAPath,
+    '-PcBPath', badBPath,
+    '-ExpectedOperationIds', 'operation-a,operation-b',
+  ]);
+  assert.equal(failure.error, undefined, `실패 증거 비교기 실행 실패: ${failure.error?.message || ''}`);
+  assert.equal(failure.status, 1, `불일치 증거가 성공 처리됐습니다:\n${failure.stdout}\n${failure.stderr}`);
+  const failed = JSON.parse(failure.stdout) as any;
+  assert.equal(failed.passed, false);
+  const issueCodes = failed.issues.map((issue: any) => issue.code);
+  assert.ok(issueCodes.includes('generation-mismatch'));
+  assert.ok(issueCodes.includes('checklist-revision-mismatch'));
+  assert.ok(issueCodes.includes('checklist-outbox-pending'));
+  assert.ok(issueCodes.includes('operation-not-confirmed'));
+
+  const echoAPath = writeEvidence('echo-pc-a.json', makeEvidence('PC-A', {
+    remoteRevisions: { settings: 'settings-r11', checklist: 'checklist-r20' },
+  }));
+  const echoBPath = writeEvidence('echo-pc-b.json', makeEvidence('PC-B', {
+    remoteRevisions: { settings: 'settings-r11', checklist: 'checklist-r20' },
+  }));
+  const echoFailure = runComparator([
+    '-PcAPath', pcAPath,
+    '-PcBPath', pcBPath,
+    '-LaterPcAPath', echoAPath,
+    '-LaterPcBPath', echoBPath,
+  ]);
+  assert.equal(echoFailure.status, 1, '대기 중 revision 변화가 성공 처리됐습니다.');
+  const echoResult = JSON.parse(echoFailure.stdout) as any;
+  assert.ok(echoResult.issues.some((issue: any) => issue.code === 'unexpected-revision-change'));
+}
+
 function checkShutdownRecoveryAcrossProcessRestarts(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-shutdown-recovery-probe.js');
   const scenarios = ['settings', 'checklist', 'both'] as const;
@@ -7331,6 +7425,7 @@ checkHomeworkSourceEventIdContracts();
 checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
 checkManualEvidenceCollector();
+checkManualEvidenceComparator();
 checkShutdownRecoveryAcrossProcessRestarts();
 checkMainQuitRecoveryScenarios();
 checkMainResponseLossRestartReconciliation();
