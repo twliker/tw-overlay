@@ -90,6 +90,9 @@ function verifyManifest(manifest: string): void {
     'AppX runFullTrust capability가 누락되었습니다.');
   assertManifestValue(manifest, /<rescap:Capability\s+Name=["']allowElevation["']\s*\/>/i,
     '관리자 권한 실행에 필요한 AppX allowElevation capability가 누락되었습니다.');
+  assertManifestValue(manifest,
+    /<PackageDependency\s[^>]*Name=["']Microsoft\.VCLibs\.140\.00\.UWPDesktop["'][^>]*MinVersion=["']14\.0\.24217\.0["'][^>]*Publisher=["']CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US["'][^>]*\/>/i,
+    'Koffi 실행에 필요한 Microsoft.VCLibs.140.00.UWPDesktop 의존성이 누락되었습니다.');
   assertManifestValue(manifest, new RegExp(`MinVersion=["']${appx.minVersion.replace(/\\./g, '\\.')}["']`, 'i'),
     'AppX 최소 Windows 버전이 package.json과 다릅니다.');
   if (appx.maxVersionTested) {
@@ -107,10 +110,17 @@ function verifyPackagedApplication(entries: Map<string, AdmZip.IZipEntry>): void
   requireEntry(entries, `app/${packageMetadata.build.productName}.exe`);
   const asarEntry = requireEntry(entries, 'app/resources/app.asar');
   const entryNames = [...entries.keys()];
-  assert.ok(entryNames.some(name => /app\/resources\/app\.asar\.unpacked\/node_modules\/(?:%40|@)koromix\/koffi-win32-x64\/win32_x64\/koffi\.node$/i.test(name)),
+  const koffiEntryName = entryNames.find(name => /app\/resources\/app\.asar\.unpacked\/node_modules\/(?:%40|@)koromix\/koffi-win32-x64\/win32_x64\/koffi\.node$/i.test(name));
+  assert.ok(koffiEntryName,
     'AppX에 Windows x64 Koffi 네이티브 모듈이 없습니다.');
   assert.ok(entryNames.some(name => /app\/resources\/app\.asar\.unpacked\/node_modules\/better-sqlite3\/prebuilds\/win32-x64\.node$/i.test(name)),
     'AppX에 Windows x64 better-sqlite3 네이티브 모듈이 없습니다.');
+
+  const koffiBinary = entries.get(koffiEntryName)!.getData();
+  for (const runtimeDll of ['MSVCP140.dll', 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll']) {
+    assert.ok(koffiBinary.includes(Buffer.from(runtimeDll, 'ascii')),
+      `Koffi 네이티브 모듈의 예상 Visual C++ 의존성을 확인할 수 없습니다: ${runtimeDll}`);
+  }
 
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-appx-verify-'));
   const asarPath = path.join(temporaryDirectory, 'app.asar');
@@ -157,6 +167,7 @@ function main(): void {
     identity: packageMetadata.build.appx.identityName,
     version: packageMetadata.version,
     capabilities: ['runFullTrust', 'allowElevation'],
+    frameworkDependencies: ['Microsoft.VCLibs.140.00.UWPDesktop >= 14.0.24217.0'],
     verifiedAssets: [...expectedAssets.keys()],
     verifiedNativeModules: ['koffi-win32-x64', 'better-sqlite3-win32-x64'],
   }, null, 2)}\n`);

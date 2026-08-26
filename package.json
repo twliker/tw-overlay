@@ -54,6 +54,7 @@
       "displayName": "TW-Overlay",
       "backgroundColor": "#0b0f19",
       "minVersion": "10.0.17763.0",
+      "customManifestPath": "appx/appxmanifest.xml",
       "capabilities": [
         "runFullTrust",
         "allowElevation"

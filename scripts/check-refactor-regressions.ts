@@ -1891,6 +1891,15 @@ function checkDependencyOverrideContracts(): void {
     'Microsoft Store 패키지의 전체 신뢰 및 승격 capability가 유지되지 않습니다.');
   assert.equal(packageData.build?.appx?.minVersion, '10.0.17763.0',
     'allowElevation을 지원하는 Windows 10 1809 이상으로 AppX 최소 버전을 제한해야 합니다.');
+  assert.equal(packageData.build?.appx?.customManifestPath, 'appx/appxmanifest.xml',
+    'Microsoft Store용 Visual C++ 런타임 의존성을 선언한 AppX manifest를 사용하지 않습니다.');
+
+  const appxManifestPath = path.join(projectRoot, 'build', 'appx', 'appxmanifest.xml');
+  assert.ok(fs.existsSync(appxManifestPath), 'Microsoft Store AppX manifest 원본이 누락되었습니다.');
+  const appxManifest = fs.readFileSync(appxManifestPath, 'utf8');
+  assert.match(appxManifest,
+    /<PackageDependency\s[^>]*Name="Microsoft\.VCLibs\.140\.00\.UWPDesktop"[^>]*MinVersion="14\.0\.24217\.0"[^>]*Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"[^>]*\/>/i,
+    'Koffi의 MSVCP140/VCRUNTIME140 종속성을 제공할 Store VCLibs framework 선언이 없습니다.');
 
   const appxAssets: Array<[string, number, number]> = [
     ['StoreLogo.png', 50, 50],
