@@ -5517,6 +5517,59 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(replacementAuthPreserved, true,
     '이전 세대 토큰 갱신 실패가 새 로그인 인증 상태를 삭제했습니다.');
 
+  const { shell } = require('electron') as typeof import('electron');
+  const originalOpenExternal = shell.openExternal;
+  const originalExistsSync = fs.existsSync;
+  const originalReadFileSync = fs.readFileSync;
+  let profileFailureResult: { success: boolean; profile?: unknown; error?: string } | undefined;
+  let profileFailureTokenStored = false;
+  let callbackRequest: Promise<Response> | undefined;
+  try {
+    fs.existsSync = ((candidate: fs.PathLike) => path.basename(String(candidate)) === 'env.json'
+      || originalExistsSync(candidate)) as typeof fs.existsSync;
+    fs.readFileSync = ((candidate: fs.PathOrFileDescriptor, ...args: any[]) => {
+      if (typeof candidate !== 'number' && path.basename(String(candidate)) === 'env.json') {
+        return JSON.stringify({ GOOGLE_CLIENT_ID: 'regression-client-id' });
+      }
+      return (originalReadFileSync as any)(candidate, ...args);
+    }) as typeof fs.readFileSync;
+    global.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({
+          access_token: 'profile-failure-access-token',
+          refresh_token: 'profile-failure-refresh-token',
+          expires_in: 3600,
+          token_type: 'Bearer',
+          scope: 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('www.googleapis.com/oauth2/v2/userinfo')) {
+        return new Response('profile unavailable', { status: 503 });
+      }
+      throw new Error(`예상하지 못한 OAuth fetch: ${url}`);
+    }) as typeof fetch;
+    shell.openExternal = (async (url: string) => {
+      const redirectUri = new URL(url).searchParams.get('redirect_uri');
+      assert.ok(redirectUri, 'OAuth 회귀 검사 redirect URI가 없습니다.');
+      callbackRequest = originalFetch(`${redirectUri}?code=profile-failure-code`);
+      await callbackRequest;
+    }) as typeof shell.openExternal;
+    profileFailureResult = await googleAuth.startLogin();
+    if (callbackRequest) await callbackRequest;
+    profileFailureTokenStored = googleAuth.isLoggedIn() || fs.existsSync(authTokenPath);
+  } finally {
+    shell.openExternal = originalOpenExternal;
+    global.fetch = originalFetch;
+    fs.existsSync = originalExistsSync;
+    fs.readFileSync = originalReadFileSync;
+    googleAuth.logout();
+  }
+  assert.equal(profileFailureResult?.success, false,
+    'Google 프로필 조회 실패를 OAuth 로그인 성공으로 처리했습니다.');
+  assert.equal(profileFailureTokenStored, false,
+    'Google 프로필 조회 실패 뒤 사용하지 못하는 OAuth 토큰이 저장됐습니다.');
+
   const googleDrive = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js'));
   const originalGetValidAccessToken = googleAuth.getValidAccessToken;
   const listRequestUrls: string[] = [];

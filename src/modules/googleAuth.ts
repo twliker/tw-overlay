@@ -510,6 +510,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
         if (!isCurrentLogin()) throw new Error('취소되었거나 만료된 로그인 응답입니다.');
         const profile = await fetchUserProfile(tokens.access_token, isCurrentLogin);
         if (!isCurrentLogin()) throw new Error('취소되었거나 만료된 로그인 응답입니다.');
+        if (!profile) throw new Error('Google 계정 정보를 확인하지 못했습니다. 다시 시도해 주세요.');
         saveTokens(tokens);
 
         // 4. 브라우저 성공 화면 응답
@@ -549,14 +550,14 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
             <body>
               <div class="card">
                 <h2>🎉 구글 계정 연동 완료!</h2>
-                <p><span class="email">${profile?.email || '계정'}</span> 연동이 성공적으로 완료되었습니다.</p>
+                <p><span class="email">${profile.email}</span> 연동이 성공적으로 완료되었습니다.</p>
                 <p>이제 이 브라우저 창을 닫고 <strong>TW-Overlay</strong>로 돌아가시면 됩니다.</p>
               </div>
             </body>
           </html>
         `);
 
-        safeResolve({ success: true, profile: profile || undefined });
+        safeResolve({ success: true, profile });
       } catch (err: any) {
         log(`[GoogleAuth] 인증 처리 실패: ${err.message || err}`);
         res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
