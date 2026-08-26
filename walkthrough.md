@@ -97,3 +97,5 @@ git diff --check
 - 배포 빌드, 태그, 푸시
 
 위 항목은 사용자의 명시적 승인과 실기 증거가 있기 전에는 완료로 표시하지 않는다.
+
+실기 증거는 `docs/v3-manual-validation.md`의 공통 수집 절차에 따라 설치 파일 SHA-256, 파일별 checksum/revision/pending, 필요한 operation ID와 시각만 기록한다. OAuth token·Google 이메일·Webhook URL·절대경로·캐릭터 이름이 포함될 수 있는 원본 파일과 전체 JSON은 공유하지 않는다.
