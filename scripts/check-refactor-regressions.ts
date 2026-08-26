@@ -2100,7 +2100,7 @@ function checkWindowedFullscreenFocusContracts(): void {
   assert.doesNotMatch(zOrderController, /setWindowAfter\((?:input\.)?gameHwnd|setWindowAfter\(gameHwnd/,
     '중앙 Z-order 관리자가 테일즈위버 창을 직접 이동합니다.');
   assert.match(zOrderController, /return rectsOverlap\(input\.foregroundRect, input\.gameRect\)[\s\S]*?'external-game-monitor'[\s\S]*?'external-other-monitor'/,
-    '외부 창이 게임 화면과 실제로 겹칠 때만 게임 묶음을 강등하는 경계가 없습니다.');
+    '진단과 실기 증거를 위한 외부 창의 게임 영역 겹침 상태 분류가 없습니다.');
   assert.match(zOrderController, /first\.left < second\.right[\s\S]*?first\.bottom > second\.top/,
     '듀얼 모니터 창 겹침 판정이 네 방향 경계를 모두 검사하지 않습니다.');
   assert.match(tracker, /SetWinEventHook\([\s\S]*?EVENT_OBJECT_LOCATIONCHANGE,[\s\S]*?EVENT_OBJECT_LOCATIONCHANGE/,
@@ -2109,8 +2109,12 @@ function checkWindowedFullscreenFocusContracts(): void {
     '전경 외부 창의 모니터 진입을 폴링 전에 즉시 Z-order 재판정하지 않습니다.');
   assert.match(tracker, /if \(hLocationEventHook\)[\s\S]*?UnhookWinEvent\(hLocationEventHook\)/,
     '앱 종료 시 위치 이벤트 훅을 해제하지 않습니다.');
-  assert.match(zOrderController, /isGameOrAppFocused[\s\S]*?desiredTopmost[\s\S]*?allWindowsMatchDesiredBand/,
-    '게임·TW-Overlay 전경에서 우리 창만 승격하고 외부 전경에서 복귀하는 계층 검사가 없습니다.');
+  assert.match(zOrderController, /desiredTopmost\s*=\s*isGameOrAppFocused \|\| gameIsTopmost[\s\S]*?allWindowsMatchDesiredBand[\s\S]*?isWindowStackIntact/,
+    '게임 foreground에서는 우리 창만 승격하고 외부 foreground에서는 샌드위치로 복귀하는 검사가 없습니다.');
+  assert.doesNotMatch(zOrderController, /keepElevatedForSeparateMonitor|splitForSeparateExternal/,
+    '외부 창의 모니터 위치 또는 우리 창의 rect에 따라 Topmost를 유지하는 정책이 남아 있습니다.');
+  assert.match(zOrderController, /const placementAnchor = this\.findOverlayPlacementAnchor\([\s\S]*?const bandAnchor = desiredTopmost/,
+    'Topmost 강등 전에 기존 외부 창 anchor를 보존하지 않습니다.');
   assert.match(zOrderController, /if \(!this\.native\.isVisible\(current\)\)[\s\S]*?continue/,
     '숨은 Electron·시스템 보조 HWND를 보이는 외부 창으로 오인합니다.');
   assert.match(tracker, /export function releaseGameZOrder\(\): void[\s\S]*?gameOverlayZOrderController\.release\(\)/,
@@ -2193,150 +2197,126 @@ function checkWindowedFullscreenFocusContracts(): void {
       release(): void;
     };
   };
-  const gameHwnd = 10n;
-  const firstOverlayHwnd = 20n;
-  const secondOverlayHwnd = 21n;
-  const hiddenHelperHwnd = 22n;
-  const externalHwnd = 30n;
-  let foregroundHwnd = gameHwnd;
-  let setWindowCallCount = 0;
-  const otherExternalHwnd = 31n;
-  const topmostHwnds = new Set<bigint>();
-  const setWindowCalls: Array<{ hwnd: bigint; insertAfter: bigint }> = [];
-  const windowAbove = new Map<bigint, bigint>([
-    [firstOverlayHwnd, 0n],
-    [secondOverlayHwnd, firstOverlayHwnd],
-    [hiddenHelperHwnd, secondOverlayHwnd],
-    [gameHwnd, hiddenHelperHwnd],
-  ]);
-  const rects = new Map<bigint, { left: number; top: number; right: number; bottom: number }>([
-    [gameHwnd, { left: 0, top: 0, right: 100, bottom: 100 }],
-    [externalHwnd, { left: 200, top: 0, right: 300, bottom: 100 }],
-  ]);
-  const fakeNative = {
-    top: 0n,
-    topmost: -1n,
-    notTopmost: -2n,
-    getForegroundWindow: (): bigint => foregroundHwnd,
-    getWindowRect: (hwnd: bigint) => rects.get(hwnd) ?? null,
-    getWindowAbove: (hwnd: bigint): bigint => windowAbove.get(hwnd) ?? 0n,
-    isTopmost: (hwnd: bigint): boolean => topmostHwnds.has(hwnd),
-    isVisible: (hwnd: bigint): boolean => hwnd !== hiddenHelperHwnd,
-    setWindowAfter: (hwnd: bigint, insertAfter: bigint): boolean => {
-      setWindowCallCount++;
-      setWindowCalls.push({ hwnd, insertAfter });
-      if (insertAfter === -2n) {
-        topmostHwnds.delete(hwnd);
-      } else if (insertAfter === -1n || topmostHwnds.has(insertAfter)) {
-        topmostHwnds.add(hwnd);
-      }
-      windowAbove.set(hwnd, insertAfter > 0n ? insertAfter : 0n);
-      return true;
-    },
-  };
-  const zOrder = new zOrderRuntime.GameOverlayZOrderController(fakeNative, () => undefined);
-  const zOrderInput = { gameHwnd, overlayHwnds: [firstOverlayHwnd, secondOverlayHwnd] };
+  for (const mode of ['windowed', 'borderless'] as const) {
+    const base = mode === 'windowed' ? 100n : 200n;
+    const gameHwnd = base;
+    const firstOverlayHwnd = base + 1n;
+    const secondOverlayHwnd = base + 2n;
+    const hiddenHelperHwnd = base + 3n;
+    const externalAHwnd = base + 4n;
+    const externalBHwnd = base + 5n;
+    const taskbarHwnd = base + 6n;
+    let foregroundHwnd = gameHwnd;
+    const topmostHwnds = new Set<bigint>();
+    const setWindowCalls: Array<{ hwnd: bigint; insertAfter: bigint }> = [];
+    const windowAbove = new Map<bigint, bigint>([
+      [gameHwnd, hiddenHelperHwnd],
+      [hiddenHelperHwnd, secondOverlayHwnd],
+      [secondOverlayHwnd, firstOverlayHwnd],
+      [firstOverlayHwnd, 0n],
+    ]);
+    const rects = new Map<bigint, { left: number; top: number; right: number; bottom: number }>([
+      [gameHwnd, { left: 0, top: 0, right: 100, bottom: 100 }],
+      [externalAHwnd, { left: 10, top: 0, right: 90, bottom: 100 }],
+      [externalBHwnd, { left: 20, top: 0, right: 80, bottom: 100 }],
+      [taskbarHwnd, { left: 0, top: 90, right: 100, bottom: 100 }],
+    ]);
+    const fakeNative = {
+      top: 0n,
+      topmost: -1n,
+      notTopmost: -2n,
+      getForegroundWindow: (): bigint => foregroundHwnd,
+      getWindowRect: (hwnd: bigint) => rects.get(hwnd) ?? null,
+      getWindowAbove: (hwnd: bigint): bigint => windowAbove.get(hwnd) ?? 0n,
+      isTopmost: (hwnd: bigint): boolean => topmostHwnds.has(hwnd),
+      isVisible: (hwnd: bigint): boolean => hwnd !== hiddenHelperHwnd,
+      setWindowAfter: (hwnd: bigint, insertAfter: bigint): boolean => {
+        setWindowCalls.push({ hwnd, insertAfter });
+        if (insertAfter === -2n) topmostHwnds.delete(hwnd);
+        else if (insertAfter === -1n || topmostHwnds.has(insertAfter)) topmostHwnds.add(hwnd);
+        windowAbove.set(hwnd, insertAfter > 0n ? insertAfter : 0n);
+        return true;
+      },
+    };
+    const zOrder = new zOrderRuntime.GameOverlayZOrderController(fakeNative, () => undefined);
+    const zOrderInput = { gameHwnd, overlayHwnds: [firstOverlayHwnd, secondOverlayHwnd] };
 
-  assert.equal(zOrder.reconcile(zOrderInput).state, 'game-active');
-  const callsAfterGamePromotion = setWindowCallCount;
-  assert.ok(callsAfterGamePromotion > 0,
-    '비활성 일반 창을 foreground 게임 위로 올리기 위한 overlay-only 승격이 없습니다.');
-  assert.equal(topmostHwnds.has(firstOverlayHwnd) && topmostHwnds.has(secondOverlayHwnd), true,
-    '게임 foreground에서 TW-Overlay 창만 Topmost 계층으로 올라가지 않습니다.');
-  assert.equal(setWindowCalls.some(call => call.hwnd === gameHwnd), false,
-    'TW-Overlay 승격 중 테일즈위버 HWND를 직접 변경합니다.');
-  assert.equal(zOrder.reconcile(zOrderInput).state, 'game-active');
-  assert.equal(setWindowCallCount, callsAfterGamePromotion,
-    '동일 상태 재평가가 멱등적이지 않습니다.');
+    // 일반 HWND_TOP만으로 foreground 게임 위에 남지 못하므로 게임 활성 동안 우리 창만 승격한다.
+    assert.equal(zOrder.reconcile(zOrderInput).state, 'game-active');
+    assert.equal(topmostHwnds.has(firstOverlayHwnd) && topmostHwnds.has(secondOverlayHwnd), true,
+      `${mode}: foreground 게임 위로 TW-Overlay만 승격하지 않습니다.`);
+    assert.ok(setWindowCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === -1n),
+      `${mode}: 게임 foreground에서 TW-Overlay를 Topmost 계층에 배치하지 않습니다.`);
+    assert.equal(setWindowCalls.some(call => call.hwnd === gameHwnd), false,
+      `${mode}: 게임 활성 복구 중 테일즈위버 HWND를 직접 변경합니다.`);
 
-  foregroundHwnd = firstOverlayHwnd;
-  assert.equal(zOrder.reconcile(zOrderInput).state, 'overlay-active');
-  assert.equal(setWindowCallCount, callsAfterGamePromotion,
-    '정상적인 TW-Overlay 내부 포커스 전환만으로 불필요한 z-order 쓰기를 수행합니다.');
+    // A와 B가 게임보다 위인 상태에서 우리 창 하나가 A를 뚫고 올라온 실제 회귀를 재현한다.
+    // B의 모니터 위치와 무관하게 A 바로 아래, 게임 바로 위로 우리 묶음만 복원해야 한다.
+    foregroundHwnd = externalBHwnd;
+    windowAbove.set(gameHwnd, secondOverlayHwnd);
+    windowAbove.set(secondOverlayHwnd, hiddenHelperHwnd);
+    windowAbove.set(hiddenHelperHwnd, externalAHwnd);
+    windowAbove.set(externalAHwnd, firstOverlayHwnd);
+    windowAbove.set(firstOverlayHwnd, externalBHwnd);
+    windowAbove.set(externalBHwnd, 0n);
+    const callsBeforeSameMonitorRepair = setWindowCalls.length;
+    assert.equal(zOrder.reconcile(zOrderInput).state, 'external-game-monitor');
+    const sameMonitorRepairCalls = setWindowCalls.slice(callsBeforeSameMonitorRepair);
+    assert.ok(sameMonitorRepairCalls.some(
+      call => call.hwnd === firstOverlayHwnd && call.insertAfter === externalAHwnd,
+    ), `${mode}: TW-Overlay를 기존 외부 A 아래와 게임 위 사이에 삽입하지 않습니다.`);
+    assert.ok(sameMonitorRepairCalls.some(
+      call => call.hwnd === secondOverlayHwnd && call.insertAfter === firstOverlayHwnd,
+    ), `${mode}: TW-Overlay 내부 순서를 복원하지 않습니다.`);
+    assert.equal(sameMonitorRepairCalls.some(
+      call => call.hwnd === gameHwnd || call.hwnd === externalAHwnd || call.hwnd === externalBHwnd,
+    ), false, `${mode}: 샌드위치 복구 중 게임 또는 외부 HWND를 직접 변경합니다.`);
 
-  foregroundHwnd = externalHwnd;
-  assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
-  const callsAfterSeparateMonitor = setWindowCallCount;
-  assert.equal(callsAfterSeparateMonitor, callsAfterGamePromotion,
-    '다른 모니터의 외부 창을 눌렀을 때 TW-Overlay 계층을 바꿔 borderless Shell 상태를 흔듭니다.');
-  assert.equal(topmostHwnds.has(firstOverlayHwnd) && topmostHwnds.has(secondOverlayHwnd), true,
-    '다른 모니터의 외부 전경에서 게임 모니터의 TW-Overlay Topmost 계층을 유지하지 않습니다.');
-  zOrder.reconcile(zOrderInput);
-  assert.equal(setWindowCallCount, callsAfterSeparateMonitor,
-    '다른 모니터 외부 창 foreground의 정상 상태에서 쓰기를 반복합니다.');
+    // 복구된 순서를 반영한 뒤 B를 다른 모니터로 이동하거나 C를 선택해도 순서는 바뀌지 않는다.
+    windowAbove.set(gameHwnd, secondOverlayHwnd);
+    windowAbove.set(secondOverlayHwnd, firstOverlayHwnd);
+    windowAbove.set(firstOverlayHwnd, externalAHwnd);
+    windowAbove.set(externalAHwnd, externalBHwnd);
+    windowAbove.set(externalBHwnd, 0n);
+    rects.set(externalBHwnd, { left: 200, top: 0, right: 300, bottom: 100 });
+    const callsBeforeOtherMonitor = setWindowCalls.length;
+    assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
+    assert.equal(setWindowCalls.length, callsBeforeOtherMonitor,
+      `${mode}: 외부 B의 모니터 이동만으로 정상 샌드위치 순서를 변경합니다.`);
+    assert.equal(topmostHwnds.has(firstOverlayHwnd) || topmostHwnds.has(secondOverlayHwnd), false,
+      `${mode}: 다른 모니터 외부 전경에서 TW-Overlay를 Topmost로 승격합니다.`);
 
-  rects.set(externalHwnd, { left: 50, top: 0, right: 150, bottom: 100 });
-  // 사용자가 외부 창들을 쌓아 둔 순서에서 TW-Overlay 한 개만 위로 흩어진 상황을 재현한다.
-  // 외부 창들은 그대로 두고 우리 창 묶음만 게임 바로 위로 되돌려야 한다.
-  windowAbove.set(gameHwnd, secondOverlayHwnd);
-  windowAbove.set(secondOverlayHwnd, hiddenHelperHwnd);
-  windowAbove.set(hiddenHelperHwnd, otherExternalHwnd);
-  windowAbove.set(otherExternalHwnd, firstOverlayHwnd);
-  windowAbove.set(firstOverlayHwnd, externalHwnd);
-  windowAbove.set(externalHwnd, 0n);
-  assert.equal(zOrder.reconcile(zOrderInput).state, 'external-game-monitor');
-  const callsAfterDemotion = setWindowCallCount;
-  assert.ok(callsAfterDemotion > callsAfterSeparateMonitor,
-    '게임 모니터의 외부 창이 foreground인데 TW-Overlay를 Non-Topmost로 복귀하지 않습니다.');
-  assert.equal(topmostHwnds.has(firstOverlayHwnd) || topmostHwnds.has(secondOverlayHwnd), false,
-    '게임 모니터 외부 창 foreground에서 TW-Overlay Topmost가 남아 있습니다.');
-  assert.equal(setWindowCalls.some(call => call.hwnd === gameHwnd), false,
-    '외부 앱을 누를 때 테일즈위버 창을 직접 이동합니다.');
-  assert.ok(setWindowCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === otherExternalHwnd),
-    '기존 외부 창들을 건너뛰고 TW-Overlay를 전경 앱 바로 뒤로 끌어올립니다.');
-  zOrder.reconcile(zOrderInput);
-  assert.equal(setWindowCallCount, callsAfterDemotion,
-    '게임 모니터의 동일 외부 창 상태에서 오버레이 정렬 쓰기를 반복합니다.');
+    // Topmost Shell은 anchor로 삼지 않고 우리 창을 일반 계층에 유지한다.
+    foregroundHwnd = taskbarHwnd;
+    topmostHwnds.add(taskbarHwnd);
+    topmostHwnds.add(firstOverlayHwnd);
+    windowAbove.set(gameHwnd, taskbarHwnd);
+    windowAbove.set(taskbarHwnd, firstOverlayHwnd);
+    const callsBeforeTaskbarRepair = setWindowCalls.length;
+    zOrder.reconcile(zOrderInput);
+    const taskbarRepairCalls = setWindowCalls.slice(callsBeforeTaskbarRepair);
+    assert.ok(taskbarRepairCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === -2n),
+      `${mode}: Topmost Shell 전경에서 오버레이를 Non-Topmost로 복구하지 않습니다.`);
+    assert.ok(taskbarRepairCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === 0n),
+      `${mode}: Topmost Shell HWND를 anchor로 삼아 오버레이에 Topmost를 전염시킵니다.`);
 
-  rects.set(externalHwnd, { left: 200, top: 0, right: 300, bottom: 100 });
-  assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
-  const callsAfterPromotion = setWindowCallCount;
-  assert.ok(callsAfterPromotion > callsAfterDemotion,
-    '외부 창이 다른 모니터로 이동했을 때 TW-Overlay의 게임 모니터 계층을 복원하지 않습니다.');
-  assert.equal(topmostHwnds.has(firstOverlayHwnd) && topmostHwnds.has(secondOverlayHwnd), true,
-    '다른 모니터 외부 창 전환 뒤 TW-Overlay가 Topmost 계층으로 복귀하지 않습니다.');
-  assert.equal(setWindowCalls.slice(callsAfterDemotion).some(call => call.hwnd === gameHwnd), false,
-    '다른 모니터 외부 창 전환에서 테일즈위버 HWND를 직접 변경합니다.');
-  zOrder.reconcile(zOrderInput);
-  assert.equal(setWindowCallCount, callsAfterPromotion,
-    '정상 오버레이 순서에서 불필요한 쓰기를 반복합니다.');
+    // 게임 자체가 Topmost인 특수 상태에서만 우리 창을 같은 계층에 둔다.
+    foregroundHwnd = gameHwnd;
+    topmostHwnds.add(gameHwnd);
+    topmostHwnds.delete(firstOverlayHwnd);
+    topmostHwnds.delete(secondOverlayHwnd);
+    windowAbove.set(gameHwnd, 0n);
+    const callsBeforeTopmostGameRepair = setWindowCalls.length;
+    zOrder.reconcile(zOrderInput);
+    const topmostGameRepairCalls = setWindowCalls.slice(callsBeforeTopmostGameRepair);
+    assert.ok(topmostGameRepairCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === -1n),
+      `${mode}: Topmost 게임 위로 TW-Overlay 계층을 맞추지 않습니다.`);
+    assert.equal(topmostGameRepairCalls.some(call => call.hwnd === gameHwnd), false,
+      `${mode}: Topmost 게임 처리 중 게임 HWND를 직접 변경합니다.`);
 
-  // 창모드 전체화면에서 작업표시줄·시작 메뉴가 Topmost여도
-  // 일반 창인 게임과 TW-Overlay는 Non-Topmost 영역에 남아야 한다.
-  const taskbarHwnd = 40n;
-  foregroundHwnd = taskbarHwnd;
-  rects.set(taskbarHwnd, { left: 0, top: 90, right: 100, bottom: 100 });
-  topmostHwnds.add(taskbarHwnd);
-  topmostHwnds.add(firstOverlayHwnd);
-  windowAbove.set(gameHwnd, taskbarHwnd);
-  windowAbove.set(taskbarHwnd, firstOverlayHwnd);
-  const callsBeforeTaskbarRepair = setWindowCallCount;
-  zOrder.reconcile(zOrderInput);
-  const taskbarRepairCalls = setWindowCalls.slice(callsBeforeTaskbarRepair);
-  assert.ok(taskbarRepairCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === -2n),
-    'Topmost Shell 전경에서 일반 게임의 오버레이를 Non-Topmost로 복구하지 않습니다.');
-  assert.ok(taskbarRepairCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === 0n),
-    'Topmost Shell HWND를 anchor로 삼아 일반 오버레이에 Topmost를 전염시킵니다.');
-  assert.equal(taskbarRepairCalls.some(call => call.hwnd === gameHwnd), false,
-    '창모드 전체화면 작업표시줄 복구 중 테일즈위버를 직접 이동합니다.');
-
-  // 테일즈위버가 스스로 Topmost인 특수 상태에서도 게임은 건드리지 않고
-  // TW-Overlay만 같은 계층으로 올려 항상 게임 위에 남겨야 한다.
-  foregroundHwnd = gameHwnd;
-  topmostHwnds.add(gameHwnd);
-  topmostHwnds.delete(firstOverlayHwnd);
-  topmostHwnds.delete(secondOverlayHwnd);
-  windowAbove.set(gameHwnd, 0n);
-  const callsBeforeTopmostGameRepair = setWindowCallCount;
-  zOrder.reconcile(zOrderInput);
-  const topmostGameRepairCalls = setWindowCalls.slice(callsBeforeTopmostGameRepair);
-  assert.ok(topmostGameRepairCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === -1n),
-    'Topmost 테일즈위버 위로 TW-Overlay 계층을 맞추지 않습니다.');
-  assert.equal(topmostGameRepairCalls.some(call => call.hwnd === gameHwnd), false,
-    'Topmost 테일즈위버 처리 중 게임 HWND를 직접 변경합니다.');
-
-  zOrder.release();
-  assert.equal(zOrder.getState(), 'inactive');
+    zOrder.release();
+    assert.equal(zOrder.getState(), 'inactive');
+  }
 }
 
 function checkEmbeddedWebWindowContracts(): void {

@@ -38,9 +38,10 @@ interface ScenarioResult {
   gameTopmost: boolean;
   foregroundPreservedForGame: boolean;
   foregroundPreservedForExternal: boolean;
+  overlayTopmostWhileGameActive: boolean;
   externalOverlapsGame: boolean;
   externalOrderingPolicyPreserved: boolean;
-  overlayTopmostForSeparateExternal: boolean;
+  overlayBandsMatchGame: boolean;
   overlayStackRepaired: boolean;
 }
 
@@ -462,7 +463,9 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
   await waitFor(
     () => isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd)
       && isAbove(win32, firstOverlayHwnd, gameHwnd)
-      && isAbove(win32, secondOverlayHwnd, gameHwnd),
+      && isAbove(win32, secondOverlayHwnd, gameHwnd)
+      && isTopmost(win32, firstOverlayHwnd)
+      && isTopmost(win32, secondOverlayHwnd),
     `${mode} game overlay stack`,
   );
   const foregroundAfterReconcile = parseNativeHwnd(win32.GetForegroundWindow());
@@ -482,6 +485,9 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
   );
   assert.deepEqual(readWindowRect(win32, gameHwnd), gameRectBeforeReconcile, `${mode} reconcile moved/resized game`);
   assert.equal(isTopmost(win32, gameHwnd), gameTopmostBeforeReconcile, `${mode} reconcile changed game Topmost`);
+  const overlayTopmostWhileGameActive = isTopmost(win32, firstOverlayHwnd)
+    && isTopmost(win32, secondOverlayHwnd);
+  assert.equal(overlayTopmostWhileGameActive, true, `${mode} game-active overlays were not promoted`);
 
   await activateBrowserWindowForTest(win32, externalWindow, externalHwnd);
   // 실제 회귀처럼 우리 창 하나를 외부 전경 창보다 위로 흩뜨린 뒤 중앙 정책으로 복구한다.
@@ -498,33 +504,34 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
   tracker.reconcileGameZOrder(detectedHwndText, [firstOverlayHwnd.toString(), secondOverlayHwnd.toString()]);
   const externalOverlapsGame = rectsOverlap(readWindowRect(win32, externalHwnd), gameRectBefore);
   await waitFor(
-    () => isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd)
-      && (externalOverlapsGame
-        ? isAbove(win32, externalHwnd, firstOverlayHwnd)
-        : isTopmost(win32, firstOverlayHwnd) && isTopmost(win32, secondOverlayHwnd)),
+    () => isTopmost(win32, firstOverlayHwnd) === gameTopmostBefore
+      && isTopmost(win32, secondOverlayHwnd) === gameTopmostBefore
+      && getVisibleWindowAbove(win32, gameHwnd) === secondOverlayHwnd
+      && isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd)
+      && isAbove(win32, externalHwnd, firstOverlayHwnd)
+      && isAbove(win32, externalHwnd, secondOverlayHwnd)
+      && isAbove(win32, externalHwnd, gameHwnd),
     `${mode} external order repair`,
   );
   const foregroundPreservedForExternal = parseNativeHwnd(win32.GetForegroundWindow()) === externalHwnd;
-  const overlayTopmostForSeparateExternal = !externalOverlapsGame
-    && isTopmost(win32, firstOverlayHwnd)
-    && isTopmost(win32, secondOverlayHwnd);
-  const externalOrderingPolicyPreserved = externalOverlapsGame
-    ? isAbove(win32, externalHwnd, firstOverlayHwnd)
-      && isAbove(win32, externalHwnd, secondOverlayHwnd)
-      && isAbove(win32, externalHwnd, gameHwnd)
-    : overlayTopmostForSeparateExternal;
+  const overlayBandsMatchGame = isTopmost(win32, firstOverlayHwnd) === gameTopmostBefore
+    && isTopmost(win32, secondOverlayHwnd) === gameTopmostBefore;
+  const externalOrderingPolicyPreserved = isAbove(win32, externalHwnd, firstOverlayHwnd)
+    && isAbove(win32, externalHwnd, secondOverlayHwnd)
+    && isAbove(win32, externalHwnd, gameHwnd);
   assert.equal(foregroundPreservedForExternal, true, `${mode} reconcile stole external foreground`);
   assert.equal(externalOrderingPolicyPreserved, true, `${mode} external ordering policy was not preserved`);
+  assert.equal(overlayBandsMatchGame, true, `${mode} overlay band diverged from the game`);
   assert.deepEqual(readWindowRect(win32, gameHwnd), gameRectBefore, `${mode} scenario changed game bounds`);
   assert.equal(isTopmost(win32, gameHwnd), gameTopmostBefore, `${mode} scenario changed game Topmost`);
   assert.equal(
     isTopmost(win32, firstOverlayHwnd),
-    externalOverlapsGame ? gameTopmostBefore : true,
+    gameTopmostBefore,
     `${mode} overlay A band mismatch`,
   );
   assert.equal(
     isTopmost(win32, secondOverlayHwnd),
-    externalOverlapsGame ? gameTopmostBefore : true,
+    gameTopmostBefore,
     `${mode} overlay B band mismatch`,
   );
 
@@ -536,10 +543,12 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
     gameTopmost: gameTopmostBefore,
     foregroundPreservedForGame,
     foregroundPreservedForExternal,
+    overlayTopmostWhileGameActive,
     externalOverlapsGame,
     externalOrderingPolicyPreserved,
-    overlayTopmostForSeparateExternal,
-    overlayStackRepaired: isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd),
+    overlayBandsMatchGame,
+    overlayStackRepaired: getVisibleWindowAbove(win32, gameHwnd) === secondOverlayHwnd
+      && isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd),
   };
 
   await Promise.all([firstOverlay, secondOverlay, externalWindow].map(closeWindow));
