@@ -131,6 +131,7 @@ export function start(): void {
         // 3. 게임 실행 중 (보이는 상태)
         consecutiveNotRunning = 0;
         consecutiveMinimized = 0;
+        const isNewGameSession = !gameWasEverFound;
         gameWasEverFound = true;
         const gameProcessId = tracker.getGameProcessId();
         if (gameProcessId && processBoostRetry.tryStart(gameProcessId, Date.now())) {
@@ -152,6 +153,10 @@ export function start(): void {
 
         if (isStateChanged) {
             const gameJustStarted = _currentStatus !== 'running';
+            if (isNewGameSession) {
+                const { abandonedTracker } = await import('./abandonedTracker');
+                abandonedTracker.beginGameSession();
+            }
             wm.syncOverlay(currentRect as GameRect);
             lastRect = currentRect;
             _currentStatus = 'running';

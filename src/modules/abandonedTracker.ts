@@ -31,6 +31,9 @@ class AbandonedTracker {
   };
 
   private _abandonedHideTimer: NodeJS.Timeout | null = null;
+  // 사용자가 단축키/UI로 숨긴 상태는 자동 숨김과 다르다. 활동 이벤트는 통계를 계속
+  // 갱신하지만 이 억제를 해제할 수 없으며, 명시적 표시 또는 다음 게임 세션만 해제한다.
+  private _manualVisibilitySuppressed = false;
   private _pendingAbandonedFee: { amount: number; detectedAt: number } | null = null;
 
   private _lastEntryRegion: string | null = null;
@@ -70,9 +73,8 @@ class AbandonedTracker {
         // 입장료는 감지 즉시 전체 수익에 반영하고, 지역 귀속만 시간 범위로 결정한다.
         this._abandonedState.profit -= data.amount;
         this._abandonedState.totalFee += data.amount;
-        this._abandonedState.isActive = true;
         log(`[ABANDONED] 입장료(후도착 귀속): ${region} -${data.amount}, 총입장료: ${this._abandonedState.totalFee}, 현재 수익: ${this._abandonedState.profit}`);
-        this.refreshAbandonedActivity();
+        this.activateFromActivity();
         return;
       }
 
@@ -81,10 +83,9 @@ class AbandonedTracker {
       this._abandonedState.profit -= data.amount;
       this._abandonedState.totalFee += data.amount;
       this._abandonedState.unassignedFee = (this._abandonedState.unassignedFee || 0) + data.amount;
-      this._abandonedState.isActive = true;
       this._pendingAbandonedFee = { amount: data.amount, detectedAt: now };
       log(`[ABANDONED] 입장료(미귀속 대기): -${data.amount}, 미귀속: ${this._abandonedState.unassignedFee}`);
-      this.refreshAbandonedActivity();
+      this.activateFromActivity();
     });
 
     // 도전 횟수 감지
@@ -126,8 +127,7 @@ class AbandonedTracker {
           broadcastToAllWindows('abandoned-alert', { region: data.region, count: data.count });
         }
       }
-      this._abandonedState.isActive = true;
-      this.refreshAbandonedActivity();
+      this.activateFromActivity();
     });
 
     // 마정석 획득
@@ -146,8 +146,7 @@ class AbandonedTracker {
         const rds = this._abandonedState.regionDetails[region].stoneGains;
         rds[gradeKey] = (rds[gradeKey] ?? 0) + data.count;
       }
-      this._abandonedState.isActive = true;
-      this.refreshAbandonedActivity();
+      this.activateFromActivity();
       log(`[ABANDONED] 마정석 획득: ${gradeKey} x${data.count}, 수익 추가: +${unitValue * data.count}, 현재 수익: ${this._abandonedState.profit}`);
     });
 
@@ -167,10 +166,14 @@ class AbandonedTracker {
         const rdl = this._abandonedState.regionDetails[region].stoneLosses;
         rdl[gradeKey] = (rdl[gradeKey] ?? 0) + data.count;
       }
-      this._abandonedState.isActive = true;
-      this.refreshAbandonedActivity();
+      this.activateFromActivity();
       log(`[ABANDONED] 마정석 소실: ${gradeKey} x${data.count}, 수익 차감: -${unitValue * data.count}, 현재 수익: ${this._abandonedState.profit}`);
     });
+  }
+
+  private activateFromActivity(): void {
+    this._abandonedState.isActive = !this._manualVisibilitySuppressed;
+    this.refreshAbandonedActivity();
   }
 
   private refreshAbandonedActivity(): void {
@@ -195,11 +198,14 @@ class AbandonedTracker {
   }
 
   public forceVisible(visible: boolean): void {
+    this._manualVisibilitySuppressed = !visible;
     this._abandonedState.isActive = visible;
-    if (!visible && this._abandonedHideTimer) {
-      clearTimeout(this._abandonedHideTimer);
-      this._abandonedHideTimer = null;
+    if (visible) {
+      this.refreshAbandonedActivity();
+      return;
     }
+    if (this._abandonedHideTimer) clearTimeout(this._abandonedHideTimer);
+    this._abandonedHideTimer = null;
     this.notifyAbandonedUpdate();
   }
 
@@ -211,13 +217,20 @@ class AbandonedTracker {
     this._abandonedState.isEnabled = enabled;
     config.save({ abandonedEnabled: enabled });
     if (!enabled) {
-      this.forceVisible(false);
+      this._manualVisibilitySuppressed = false;
+      this._abandonedState.isActive = false;
+      if (this._abandonedHideTimer) clearTimeout(this._abandonedHideTimer);
+      this._abandonedHideTimer = null;
       this._pendingAbandonedFee = null;
       this._lastEntryRegion = null;
       this._lastEntryTime = 0;
-    } else {
-      this.notifyAbandonedUpdate();
     }
+    this.notifyAbandonedUpdate();
+  }
+
+  /** 새 게임 프로세스 세션은 이전 세션의 사용자 숨김 의도를 상속하지 않는다. */
+  public beginGameSession(): void {
+    this._manualVisibilitySuppressed = false;
   }
 
   public reset(): void {
@@ -228,6 +241,7 @@ class AbandonedTracker {
       currentRegion: '', regionDetails: {},
     };
     this._pendingAbandonedFee = null;
+    this._manualVisibilitySuppressed = false;
     this._lastEntryRegion = null;
     this._lastEntryTime = 0;
     if (this._abandonedHideTimer) clearTimeout(this._abandonedHideTimer);

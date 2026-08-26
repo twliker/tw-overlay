@@ -29,6 +29,7 @@ import * as scam from './scamMonitor';
 import * as noticeManager from './noticeManager';
 import { discordNotifier } from './discordNotifier';
 import { chatParser } from './chatParser';
+import { abandonedTracker } from './abandonedTracker';
 import { buildTodaySummary, getLocalDateKey } from './todaySummary';
 import {
   broadcastToAllWindows,
@@ -916,8 +917,9 @@ export function register(): void {
     abandonedTracker.setEnabled(enabled);
   });
 
-  // 어벤던로드 즉시 숨김 (isActive 유지, 다음 입장 로그 시 재표시)
+  // 어벤던로드 수동 숨김: 현재 게임 세션 동안 자동 활동으로 다시 표시하지 않는다.
   ipcMain.on('abandoned-hide-now', () => {
+    abandonedTracker.forceVisible(false);
     broadcastToAllWindows('abandoned-hide-now');
   });
 

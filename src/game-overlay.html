@@ -2528,7 +2528,7 @@
       updateAbandonedUI(state);
     });
 
-    // 어벤던로드 즉시 숨김 (isActive 유지)
+    // 메인 추적기도 수동 숨김 억제를 보존하며, 이 이벤트는 renderer를 즉시 숨긴다.
     if (window.electronAPI.onAbandonedHideNow) {
       window.electronAPI.onAbandonedHideNow(() => {
         document.getElementById('abandoned-widget')?.classList.add('hidden');
