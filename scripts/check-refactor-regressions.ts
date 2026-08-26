@@ -6462,6 +6462,26 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     assert.ok(privacyPolicyHtml.includes(term),
       `HTML 개인정보처리방침에 클라우드 정책 항목이 누락됐습니다: ${term}`);
   }
+  const googleSyncGuide = read('docs/google-drive-sync.md');
+  for (const requiredGuideText of [
+    '설정 ⚙️ → 시스템 & 관리 → 데이터 관리',
+    'Google Drive의 앱 전용 데이터 보기 및 관리',
+    '체크박스 없이 요청 권한 목록',
+    '`지금 저장`', '`불러오기`', '`연결 해제`',
+    '숨겨진 앱 데이터 삭제',
+  ]) {
+    assert.ok(googleSyncGuide.includes(requiredGuideText),
+      `Google 로그인 사용자 가이드에 필수 안내가 누락됐습니다: ${requiredGuideText}`);
+  }
+  for (const guideImage of [
+    'google-sync-login-guide.svg',
+    'google-sync-permission-guide.svg',
+  ]) {
+    assert.ok(googleSyncGuide.includes(`./screenshot/${guideImage}`),
+      `Google 로그인 가이드에 이미지가 연결되지 않았습니다: ${guideImage}`);
+    assert.equal(fs.existsSync(path.join(projectRoot, 'docs', 'screenshot', guideImage)), true,
+      `Google 로그인 가이드 이미지 파일이 없습니다: ${guideImage}`);
+  }
 
   const cloudSyncState = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncState.js'));
   const profileFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-profile-state-'));

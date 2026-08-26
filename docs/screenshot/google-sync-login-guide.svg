@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">TW-Overlay Google 계정 로그인 버튼 위치</title>
+  <desc id="desc">설정의 시스템 및 관리, 데이터 관리 화면에서 Google 계정으로 로그인 버튼을 찾는 방법을 보여주는 예시 화면</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#171c31"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000" flood-opacity=".45"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="720" rx="30" fill="url(#bg)"/>
+  <rect x="38" y="34" width="1204" height="652" rx="24" fill="#111625" stroke="#313951" filter="url(#shadow)"/>
+
+  <rect x="38" y="34" width="250" height="652" rx="24" fill="#0d1220"/>
+  <path d="M288 34v652" stroke="#2a3145"/>
+  <text x="78" y="92" fill="#f8fafc" font-family="Segoe UI, sans-serif" font-size="25" font-weight="700">TW-Overlay 설정</text>
+  <text x="78" y="148" fill="#7f8aa5" font-family="Segoe UI, sans-serif" font-size="17">일반</text>
+  <text x="78" y="198" fill="#7f8aa5" font-family="Segoe UI, sans-serif" font-size="17">오버레이</text>
+  <rect x="58" y="226" width="210" height="52" rx="12" fill="#6d4aff" fill-opacity=".18" stroke="#8b72ff"/>
+  <text x="78" y="259" fill="#c9bdff" font-family="Segoe UI, sans-serif" font-size="18" font-weight="700">시스템 &amp; 관리</text>
+  <rect x="78" y="300" width="190" height="44" rx="10" fill="#ffffff" fill-opacity=".06"/>
+  <text x="98" y="328" fill="#f1f5f9" font-family="Segoe UI, sans-serif" font-size="17" font-weight="700">데이터 관리</text>
+
+  <text x="336" y="92" fill="#f8fafc" font-family="Segoe UI, sans-serif" font-size="27" font-weight="800">데이터 관리</text>
+  <text x="336" y="126" fill="#8792aa" font-family="Segoe UI, sans-serif" font-size="16">설정과 숙제를 다른 PC에서도 이어서 사용합니다.</text>
+
+  <rect x="330" y="162" width="858" height="392" rx="22" fill="#171c2a" stroke="#30384e"/>
+  <rect x="366" y="198" width="56" height="56" rx="16" fill="#2563eb" fill-opacity=".16" stroke="#3b82f6"/>
+  <path d="M382 235c-7 0-12-5-12-11 0-6 5-11 11-11 2-7 8-11 15-11 9 0 16 7 17 16 5 1 9 5 9 10 0 6-5 11-12 11h-28" fill="none" stroke="#60a5fa" stroke-width="3" stroke-linecap="round"/>
+  <text x="446" y="220" fill="#f8fafc" font-family="Segoe UI, sans-serif" font-size="23" font-weight="800">클라우드 동기화</text>
+  <text x="446" y="249" fill="#94a3b8" font-family="Segoe UI, sans-serif" font-size="16">Google Drive 앱 전용 공간에 일반 설정과 숙제를 저장합니다.</text>
+
+  <rect x="366" y="292" width="786" height="164" rx="18" fill="#0d1220" stroke="#262d40"/>
+  <text x="398" y="334" fill="#e2e8f0" font-family="Segoe UI, sans-serif" font-size="19" font-weight="700">Google 계정으로 동기화 시작하기</text>
+  <text x="398" y="368" fill="#8490a8" font-family="Segoe UI, sans-serif" font-size="15">로그인하면 집과 회사 PC의 설정·숙제를 안전하게 이어서 사용할 수 있습니다.</text>
+  <rect x="398" y="394" width="250" height="46" rx="12" fill="#7248f5"/>
+  <text x="523" y="423" text-anchor="middle" fill="#fff" font-family="Segoe UI, sans-serif" font-size="16" font-weight="800">Google 계정으로 로그인</text>
+
+  <path d="M700 418h118" stroke="#fb7185" stroke-width="5" stroke-linecap="round"/>
+  <path d="M700 418l20-13v26z" fill="#fb7185"/>
+  <rect x="820" y="374" width="286" height="88" rx="16" fill="#361c2d" stroke="#fb7185" stroke-width="2"/>
+  <text x="846" y="408" fill="#fecdd3" font-family="Segoe UI, sans-serif" font-size="18" font-weight="800">1. 이 버튼을 누르세요</text>
+  <text x="846" y="436" fill="#fda4af" font-family="Segoe UI, sans-serif" font-size="14">기본 브라우저에서 로그인이 열립니다.</text>
+
+  <rect x="330" y="590" width="858" height="58" rx="14" fill="#0d1220" stroke="#272f44"/>
+  <text x="759" y="626" text-anchor="middle" fill="#94a3b8" font-family="Segoe UI, sans-serif" font-size="15">경로: 설정 ⚙️ → 시스템 &amp; 관리 → 데이터 관리</text>
+</svg>

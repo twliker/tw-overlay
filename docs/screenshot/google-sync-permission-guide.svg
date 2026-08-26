@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Google Drive 앱 데이터 권한 확인 예시</title>
+  <desc id="desc">Google 로그인 중 TW-Overlay가 만든 앱 데이터 보기와 관리 권한을 확인하고 계속하는 예시 화면</desc>
+  <rect width="1280" height="720" rx="30" fill="#e9edf5"/>
+  <rect x="94" y="42" width="1092" height="636" rx="22" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+  <rect x="94" y="42" width="1092" height="64" rx="22" fill="#f8fafc"/>
+  <circle cx="132" cy="74" r="8" fill="#fb7185"/>
+  <circle cx="158" cy="74" r="8" fill="#fbbf24"/>
+  <circle cx="184" cy="74" r="8" fill="#34d399"/>
+  <rect x="230" y="59" width="780" height="30" rx="15" fill="#e9eef6"/>
+  <text x="620" y="80" text-anchor="middle" fill="#64748b" font-family="Segoe UI, sans-serif" font-size="14">accounts.google.com</text>
+
+  <text x="182" y="165" fill="#1f2937" font-family="Segoe UI, sans-serif" font-size="30" font-weight="750">TW-Overlay에서 Google 계정 액세스를 요청합니다</text>
+  <text x="182" y="203" fill="#64748b" font-family="Segoe UI, sans-serif" font-size="16">사용할 계정과 요청된 권한을 확인하세요.</text>
+
+  <rect x="182" y="242" width="916" height="170" rx="18" fill="#f8fafc" stroke="#d7deea"/>
+  <rect x="218" y="281" width="34" height="34" rx="7" fill="#2563eb"/>
+  <path d="M226 298l7 7 13-15" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="276" y="287" fill="#1f2937" font-family="Segoe UI, sans-serif" font-size="18" font-weight="750">Google Drive의 앱 전용 데이터 보기 및 관리</text>
+  <text x="276" y="319" fill="#64748b" font-family="Segoe UI, sans-serif" font-size="15">TW-Overlay가 만든 설정·숙제 파일에만 접근합니다.</text>
+  <text x="276" y="350" fill="#64748b" font-family="Segoe UI, sans-serif" font-size="15">일반 문서, 사진, 다른 앱의 파일에는 접근하지 않습니다.</text>
+  <rect x="213" y="270" width="820" height="101" rx="14" fill="none" stroke="#7c3aed" stroke-width="4"/>
+
+  <rect x="182" y="438" width="916" height="76" rx="14" fill="#f5f3ff" stroke="#c4b5fd"/>
+  <text x="212" y="470" fill="#5b21b6" font-family="Segoe UI, sans-serif" font-size="16" font-weight="800">2. 이 권한을 확인하세요</text>
+  <text x="212" y="496" fill="#6d28d9" font-family="Segoe UI, sans-serif" font-size="14">체크박스가 보이면 선택합니다. 체크박스 없이 권한 목록만 보일 수도 있습니다.</text>
+
+  <rect x="874" y="548" width="224" height="52" rx="26" fill="#2563eb"/>
+  <text x="986" y="581" text-anchor="middle" fill="#fff" font-family="Segoe UI, sans-serif" font-size="17" font-weight="800">허용 또는 계속</text>
+  <path d="M838 574h-88" stroke="#7c3aed" stroke-width="4" stroke-linecap="round"/>
+  <path d="M838 574l-17-11v22z" fill="#7c3aed"/>
+
+  <text x="640" y="646" text-anchor="middle" fill="#64748b" font-family="Segoe UI, sans-serif" font-size="14">예시 화면 · Google 정책과 계정 상태에 따라 문구와 배치는 달라질 수 있습니다.</text>
+</svg>

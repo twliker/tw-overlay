@@ -4,6 +4,26 @@
 
 TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에만 Google Drive의 앱 전용 숨김 영역(`appDataFolder`)에 설정과 숙제 체크리스트를 저장합니다. 개발자 서버를 경유하지 않으며 사용자의 일반 Google Drive 파일에는 접근하지 않습니다.
 
+## 빠른 연결 방법
+
+클라우드 로그인 메뉴가 표시되는 정식 버전에서 **설정 ⚙️ → 시스템 & 관리 → 데이터 관리**로 이동한 뒤 `Google 계정으로 로그인`을 누릅니다. 로그인은 TW-Overlay 안에서 비밀번호를 받지 않고 Windows의 기본 브라우저에서 진행됩니다.
+
+![Google 계정 로그인 버튼 위치](./screenshot/google-sync-login-guide.svg)
+
+브라우저에서 동기화에 사용할 계정을 선택하고 요청 권한을 확인합니다. 권한 선택 체크박스가 표시되면 **Google Drive의 앱 전용 데이터 보기 및 관리** 항목을 선택한 뒤 `허용` 또는 `계속`을 누릅니다. 계정 상태에 따라 체크박스 없이 요청 권한 목록과 `허용/계속` 버튼만 표시될 수도 있습니다.
+
+![Google Drive 앱 데이터 권한 확인 예시](./screenshot/google-sync-permission-guide.svg)
+
+> Google의 문구와 화면 배치는 바뀔 수 있습니다. 중요한 것은 TW-Overlay가 만든 앱 전용 설정 데이터를 보고 관리하는 Drive 권한인지 확인하는 것입니다. 일반 Drive 문서 전체 권한은 요청하지 않습니다. 자세한 범위는 [Google의 AppData 공식 설명](https://developers.google.com/workspace/drive/api/guides/appdata)에서 확인할 수 있습니다.
+
+로그인이 끝나면 앱의 계정 영역에서 선택한 이메일과 `연동 완료`를 확인합니다. 자동 동기화를 켜면 이후 변경을 자동으로 저장하고 다른 PC의 변경도 주기적으로 가져옵니다.
+
+- `지금 저장`: 현재 PC의 일반 설정과 숙제를 Google Drive에 바로 저장합니다.
+- `불러오기`: Google Drive의 일반 설정과 숙제를 선택해서 이 PC로 가져옵니다.
+- `연결 해제`: 이 PC의 Google 토큰만 삭제합니다. 이 PC의 로컬 설정·숙제와 Drive에 이미 저장된 데이터는 지우지 않습니다.
+
+앱 전용 데이터는 일반 Google Drive 파일 목록에 보이지 않는 것이 정상입니다. 완전히 삭제하려면 Google Drive 웹의 **설정 → 앱 관리 → TW-Overlay → 숨겨진 앱 데이터 삭제**를 사용합니다. 계정 권한만 철회하려면 [Google 계정의 연결된 앱 관리](https://myaccount.google.com/connections)에서 TW-Overlay의 액세스를 삭제할 수 있습니다.
+
 ## 1. 저장 파일과 갱신 시점
 
 | 파일 | 저장 내용 | 자동 갱신 |
