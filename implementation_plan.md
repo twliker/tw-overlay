@@ -515,6 +515,8 @@
 
 **전체 diff·산출물 및 최종 자동 게이트 감사(2026-08-26):** `origin/beta/v2.7.0`의 `82a5387`부터 자동 감사 커밋 `d202343`까지는 56개 파일, 6,978줄 추가, 799줄 삭제다. Microsoft Store용 `build/appx` PNG 4개는 병합된 패키징 원본 자산으로 확인했고 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성물은 변경 범위에 없다. 이후 격리 실행에서 D-11, E-06, E-10, E-11과 F-09, 교차 숙제 payload의 operation/data 비수렴을 추가 확인·수정해 확정 결함은 80개가 되었으며 Windows 실기 재검증 항목은 실제 증거가 확보된 범위만 개별 승격한다. `npm run typecheck`, `npm test`, `git diff --check`가 통과했고 Electron renderer behavior 검사는 40개다.
 
+**후속 자동 범위 감사(2026-08-26, `3437723`):** 현재 `origin/beta/v2.7.0`의 `93d2922` 이후는 12개 파일, 2,059줄 추가, 50줄 삭제다. 제품 파일은 교차 operation canonical 수렴을 고친 `src/modules/cloudSyncManager.ts`와 854×464 잘림을 고친 `src/coefficient-calculator.html` 두 개이며 나머지는 런타임 probe·회귀 검사·검증 문서다. 생성 산출물 추적과 미완료 TODO/FIXME는 없고, 계산기에서 검색되는 `HACK` 두 건은 게임 능력치 표 제목이다. working tree는 clean이며 원격 push·버전·태그·배포는 수행하지 않았다.
+
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 설치 파일 SHA-256, 설정 UI의 파일별 checksum/revision/pending, 원격 operation ID와 민감·사용자 값을 제외한 로컬 상태 추출 절차도 추가했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
 최종 릴리즈 게이트:

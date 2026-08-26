@@ -78,6 +78,8 @@ git diff --check
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
+후속 감사 커밋 `3437723` 기준 `origin/beta/v2.7.0`의 `93d2922` 이후는 12개 파일, 2,059줄 추가, 50줄 삭제다. 실제 제품 변경은 `cloudSyncManager.ts`의 canonical operation 수렴과 `coefficient-calculator.html`의 소형 화면 overflow 수정 두 파일이며, 나머지는 런타임 probe·회귀 검사·문서다. 생성 산출물이나 미완료 TODO/FIXME는 추가되지 않았다.
+
 ## 4. 릴리즈 전 남은 실기 검증
 
 실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail, 일반 종료, 강제 DPI 렌더링의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
