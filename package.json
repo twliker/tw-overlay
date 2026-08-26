@@ -19,9 +19,10 @@
     "test:renderer": "electron dist-tools/check-renderer-behavior.js",
     "test:guide": "electron dist-tools/check-guide-behavior.js",
     "test:diary-calendar": "electron dist-tools/check-diary-calendar-behavior.js",
+    "test:buffs": "electron dist-tools/check-buffs-behavior.js",
     "build:zorder-fixture": "dotnet build scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj --configuration Release --nologo",
     "test:zorder:windows": "npm run build && npm run build:zorder-fixture && electron dist-tools/runtime-zorder-windows-probe.js",
-    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar"
+    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs"
   },
   "build": {
     "appId": "com.filbertlab.twoverlay",

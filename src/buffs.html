@@ -40,6 +40,8 @@
     }
 
     .buff-card {
+      width: 100%;
+      text-align: left;
       background: rgba(30, 35, 60, 0.4);
       border: 1px solid rgba(255, 255, 255, 0.05);
       border-radius: 16px;
@@ -67,10 +69,14 @@
       color: #fbbf24;
     }
 
-    .buff-card.disabled {
-      opacity: 0.2;
-      pointer-events: none;
-      filter: grayscale(1);
+    .buff-card.conflicting:not(.selected) {
+      border-style: dashed;
+      border-color: rgba(245, 158, 11, 0.25);
+    }
+
+    .buff-card:focus-visible {
+      outline: 2px solid rgba(251, 191, 36, 0.9);
+      outline-offset: 2px;
     }
 
     .buff-tag {
@@ -87,6 +93,23 @@
       opacity: 0.5;
       pointer-events: none;
       filter: grayscale(0.5);
+    }
+
+    .summary-panel {
+      position: relative;
+      z-index: 20;
+      flex-shrink: 0;
+      background: rgba(2, 6, 23, 0.96);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 16px 20px;
+      backdrop-filter: blur(20px);
+    }
+
+    @media (max-width: 860px) {
+      .preset-column { width: 250px; }
+      #buff-list { grid-template-columns: minmax(0, 1fr); }
+      .buff-toolbar { align-items: stretch; flex-direction: column; }
+      #category-container { width: 100%; }
     }
 
     .no-drag {
@@ -138,9 +161,10 @@
     </div>
 
     <!-- Source Info Bar (드래그 불가 영역) -->
-    <div class="no-drag px-5 py-2 bg-amber-500/5 border-b border-white/5 flex justify-between items-center shrink-0">
+    <div class="no-drag px-5 py-2 bg-amber-500/5 border-b border-white/5 flex justify-between items-center gap-4 shrink-0">
       <div class="flex items-center gap-1.5">
-        <span class="text-xs text-slate-500 font-medium">최종 업데이트: 2021.11.26</span>
+        <i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5 text-amber-400"></i>
+        <span class="text-xs text-slate-400 font-medium">버프를 선택하면 함께 적용되는 효과를 바로 합산합니다.</span>
       </div>
       <button onclick="window.electronAPI.openExternal('https://tales.nexon.com/News/Notice/131192')"
         class="text-xs text-amber-500/70 hover:text-amber-400 transition-colors flex items-center gap-1.5">
@@ -152,9 +176,12 @@
     <div class="flex-1 flex overflow-hidden no-drag">
 
       <!-- Left Column: Presets -->
-      <div class="w-[340px] border-r border-white/5 flex flex-col bg-black/20">
+      <div class="preset-column w-[300px] border-r border-white/5 flex flex-col bg-black/20 shrink-0">
         <div class="p-5 space-y-5 overflow-y-auto custom-scroll flex-1">
-          <h2 class="text-xs font-black text-slate-500 uppercase tracking-widest px-1">도핑 프리셋</h2>
+          <div class="px-1">
+            <h2 class="text-sm font-black text-slate-200">빠른 선택</h2>
+            <p class="mt-1 text-[11px] leading-relaxed text-slate-500">자주 쓰는 조합을 불러오거나 현재 선택을 저장하세요.</p>
+          </div>
 
           <!-- Standard Set -->
           <div id="standard-preset-card" onclick="selectPreset('standard')"
@@ -189,7 +216,7 @@
       <!-- Right Column: Buff List -->
       <div class="flex-1 flex flex-col bg-black/10">
         <div class="p-5 border-b border-white/5 space-y-4">
-          <div class="flex gap-4">
+          <div class="buff-toolbar flex gap-4">
             <div class="relative group flex-1">
               <i data-lucide="search"
                 class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-amber-400 transition-colors"></i>
@@ -198,27 +225,30 @@
                 placeholder="버프 이름 또는 효과 검색..." oninput="handleSearch()">
             </div>
             <div id="category-container" class="flex gap-2 items-center overflow-x-auto custom-scroll shrink-0 pb-1">
-              <button class="cat-chip active" onclick="filterCategory('ALL')">전체</button>
-              <button class="cat-chip" onclick="filterCategory('Experience')">경험치</button>
-              <button class="cat-chip" onclick="filterCategory('DropRate')">레어</button>
-              <button class="cat-chip" onclick="filterCategory('Stats')">능력치</button>
-              <button class="cat-chip" onclick="filterCategory('Damage')">대미지</button>
-              <button class="cat-chip" onclick="filterCategory('Utility')">유틸</button>
+              <button class="cat-chip active" data-category="ALL" aria-pressed="true" onclick="filterCategory('ALL')">전체</button>
+              <button class="cat-chip" data-category="Experience" aria-pressed="false" onclick="filterCategory('Experience')">경험치</button>
+              <button class="cat-chip" data-category="DropRate" aria-pressed="false" onclick="filterCategory('DropRate')">레어</button>
+              <button class="cat-chip" data-category="Stats" aria-pressed="false" onclick="filterCategory('Stats')">능력치</button>
+              <button class="cat-chip" data-category="Damage" aria-pressed="false" onclick="filterCategory('Damage')">대미지</button>
+              <button class="cat-chip" data-category="Utility" aria-pressed="false" onclick="filterCategory('Utility')">유틸</button>
             </div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] font-bold text-slate-500 px-1">
+            <span id="result-count" aria-live="polite">0개 버프</span>
+            <span id="selection-count" class="text-amber-400" aria-live="polite">0개 선택</span>
           </div>
         </div>
         <div id="buff-list"
-          class="flex-1 custom-scroll overflow-y-auto p-5 grid grid-cols-2 xl:grid-cols-3 gap-3 content-start pb-40">
+          class="flex-1 custom-scroll overflow-y-auto p-5 grid grid-cols-2 xl:grid-cols-3 gap-3 content-start">
         </div>
       </div>
     </div>
 
     <!-- Summary Panel -->
-    <div
-      class="no-drag absolute bottom-0 left-0 right-0 bg-slate-950/95 border-t border-white/10 p-5 backdrop-blur-xl z-20">
+    <div class="summary-panel no-drag">
       <div class="max-w-screen-2xl mx-auto flex justify-between items-center">
         <div class="flex-1">
-          <h3 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">적용된 총 효과 합계</h3>
+          <h3 class="text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">선택한 버프의 합산 결과</h3>
           <div id="total-stats" class="text-lg font-black text-white">선택된 버프 없음</div>
         </div>
         <div class="flex items-center gap-5">
@@ -248,10 +278,16 @@
       lucide.createIcons();
     };
 
+    const escapeHtml = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
     async function loadData() { try { const response = await fetch('assets/data/buffs.json'); allBuffs = await response.json(); renderList(); } catch (e) { console.error('Failed to load buffs:', e); } }
     function saveCurrentSelection() { localStorage.setItem('buff_current_selection', JSON.stringify(Array.from(selectedBuffIds))); localStorage.setItem('buff_active_preset_id', JSON.stringify(activePresetId)); }
     function loadCurrentSelection() { const savedIds = localStorage.getItem('buff_current_selection'); const savedPresetId = localStorage.getItem('buff_active_preset_id'); if (savedIds) selectedBuffIds = new Set(JSON.parse(savedIds)); if (savedPresetId) activePresetId = JSON.parse(savedPresetId); renderList(); }
-    function getPresets() { const saved = localStorage.getItem('buff_presets'); return saved ? JSON.parse(saved) : []; }
+    function getPresets() { const saved = localStorage.getItem('buff_presets'); if (!saved) return []; try { const parsed = JSON.parse(saved); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
     function handleInputFocus() { if (activePresetId !== null) deselectPreset(); }
     function saveCurrentPreset() { if (selectedBuffIds.size === 0) return alert('선택된 버프가 없습니다.'); const nameInput = document.getElementById('preset-name'); const name = nameInput.value.trim() || `프리셋 ${getPresets().length + 1}`; const newPreset = { id: Date.now(), name: name, buffIds: Array.from(selectedBuffIds) }; const presets = getPresets(); presets.push(newPreset); localStorage.setItem('buff_presets', JSON.stringify(presets)); nameInput.value = ''; activePresetId = newPreset.id; saveCurrentSelection(); renderPresets(); }
     function updatePreset(presetId) { const presets = getPresets(); const idx = presets.findIndex(p => p.id === presetId); if (idx === -1) return; presets[idx].buffIds = Array.from(selectedBuffIds); localStorage.setItem('buff_presets', JSON.stringify(presets)); renderPresets(); }
@@ -268,8 +304,9 @@
       if (presets.length === 0) { container.innerHTML = '<div class="text-xs text-slate-600 py-2 px-1">저장된 프리셋이 없습니다.</div>'; return; }
       container.innerHTML = presets.map(p => {
         const isActive = activePresetId === p.id;
-        const isModified = isActive && (JSON.stringify(p.buffIds.sort()) !== JSON.stringify(Array.from(selectedBuffIds).sort()));
-        return `<div onclick="selectPreset(${p.id})" class="group relative bg-slate-800/40 border ${isActive ? 'ring-2 ring-amber-500 border-amber-400 bg-amber-900/20' : 'border-white/10'} hover:bg-slate-800/60 rounded-xl p-4 cursor-pointer transition-all active:scale-[0.98]"><div class="flex justify-between items-start mb-1.5"><span class="text-xs font-black ${isActive ? 'text-amber-300' : 'text-slate-300'}">${p.name}</span><div class="flex gap-2">${isModified ? `<button onclick="event.stopPropagation(); updatePreset(${p.id})" class="text-green-400 hover:text-green-300 transition-colors"><i data-lucide="save" class="w-4 h-4"></i></button>` : ''}${isActive ? `<button onclick="event.stopPropagation(); deselectPreset()" class="text-amber-400 hover:text-white transition-colors"><i data-lucide="x-circle" class="w-4 h-4"></i></button>` : ''}<button onclick="deletePreset(event, ${p.id})" class="text-slate-600 hover:text-red-400 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div></div><p class="text-[11px] text-slate-500 font-medium">${isActive ? selectedBuffIds.size : p.buffIds.length}개의 버프 ${isModified ? '<span class="text-amber-400/70 ml-1">(수정됨)</span>' : ''}</p></div>`;
+        const presetBuffIds = Array.isArray(p.buffIds) ? p.buffIds : [];
+        const isModified = isActive && (JSON.stringify([...presetBuffIds].sort()) !== JSON.stringify(Array.from(selectedBuffIds).sort()));
+        return `<div onclick="selectPreset(${Number(p.id)})" class="group relative bg-slate-800/40 border ${isActive ? 'ring-2 ring-amber-500 border-amber-400 bg-amber-900/20' : 'border-white/10'} hover:bg-slate-800/60 rounded-xl p-4 cursor-pointer transition-all active:scale-[0.98]"><div class="flex justify-between items-start mb-1.5"><span class="text-xs font-black ${isActive ? 'text-amber-300' : 'text-slate-300'}">${escapeHtml(p.name)}</span><div class="flex gap-2">${isModified ? `<button title="현재 선택으로 프리셋 갱신" onclick="event.stopPropagation(); updatePreset(${Number(p.id)})" class="text-green-400 hover:text-green-300 transition-colors"><i data-lucide="save" class="w-4 h-4"></i></button>` : ''}${isActive ? `<button title="프리셋 선택 해제" onclick="event.stopPropagation(); deselectPreset()" class="text-amber-400 hover:text-white transition-colors"><i data-lucide="x-circle" class="w-4 h-4"></i></button>` : ''}<button title="프리셋 삭제" onclick="deletePreset(event, ${Number(p.id)})" class="text-slate-600 hover:text-red-400 transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div></div><p class="text-[11px] text-slate-500 font-medium">${isActive ? selectedBuffIds.size : presetBuffIds.length}개의 버프 ${isModified ? '<span class="text-amber-400/70 ml-1">(수정됨)</span>' : ''}</p></div>`;
       }).join('');
       lucide.createIcons();
     }
@@ -286,25 +323,31 @@
       selectedBuffIds.forEach(id => { const buff = allBuffs.find(b => b.id === id); if (buff && buff.group && buff.group !== 'none') activeGroups.add(buff.group); });
       filtered.forEach(buff => {
         const isSelected = selectedBuffIds.has(buff.id);
-        const isDisabled = !isSelected && buff.group !== 'none' && activeGroups.has(buff.group);
-        const card = document.createElement('div');
-        card.className = `buff-card ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`;
+        const isConflicting = !isSelected && buff.group !== 'none' && activeGroups.has(buff.group);
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `buff-card ${isSelected ? 'selected' : ''} ${isConflicting ? 'conflicting' : ''}`;
+        card.setAttribute('aria-pressed', String(isSelected));
+        if (activePresetId === 'standard') card.setAttribute('aria-disabled', 'true');
+        if (isConflicting) card.title = '선택하면 같은 종류의 기존 버프를 교체합니다.';
         card.onclick = () => toggleSelection(buff.id);
         let tags = [];
         if (buff.removeOnExit) tags.push('<span class="buff-tag">종료 시 삭제</span>');
         if (buff.removeOnDeath) tags.push('<span class="buff-tag">사망 시 삭제</span>');
         card.innerHTML = `
           <div class="flex justify-between items-start mb-2">
-            <span class="buff-name text-sm font-black text-slate-200 pr-2">${buff.name}</span>
-            <span class="shrink-0 text-[11px] text-yellow-400 font-black bg-yellow-400/10 px-2 py-0.5 rounded-lg">${buff.duration}</span>
+            <span class="buff-name text-sm font-black text-slate-200 pr-2">${escapeHtml(buff.name)}</span>
+            <span class="shrink-0 text-[11px] text-yellow-400 font-black bg-yellow-400/10 px-2 py-0.5 rounded-lg">${escapeHtml(buff.duration)}</span>
           </div>
-          <div class="text-xs text-white font-bold mb-3 leading-snug">${buff.effect}</div>
+          <div class="text-xs text-white font-bold mb-3 leading-snug">${escapeHtml(buff.effect)}</div>
           <div class="flex flex-wrap gap-1.5 mb-3">${tags.join('')}</div>
-          <p class="text-[11px] text-slate-500 leading-normal font-medium mt-auto line-clamp-3">${buff.description}</p>
+          <p class="text-[11px] text-slate-500 leading-normal font-medium mt-auto line-clamp-3">${escapeHtml(buff.description)}</p>
+          <span class="mt-3 text-[10px] font-black ${isSelected ? 'text-amber-300' : isConflicting ? 'text-amber-500/70' : 'text-slate-600'}">${isSelected ? '선택됨' : isConflicting ? '선택 시 같은 종류 교체' : '선택하기'}</span>
         `;
         list.appendChild(card);
       });
       if (filtered.length === 0) list.innerHTML = `<div class="col-span-full text-center py-20 text-slate-600 text-sm font-bold">검색 결과가 없습니다.</div>`;
+      document.getElementById('result-count').textContent = `${filtered.length}개 버프`;
       updateSummary();
       lucide.createIcons();
     }
@@ -325,7 +368,8 @@
       const summaryEl = document.getElementById('total-stats');
       const warningEl = document.getElementById('warnings');
       const warningText = document.getElementById('warning-text');
-      if (selectedBuffIds.size === 0) { summaryEl.textContent = "선택된 버프 없음"; summaryEl.className = "text-sm font-bold text-slate-500 mt-1"; warningEl.classList.add('hidden'); return; }
+      document.getElementById('selection-count').textContent = `${selectedBuffIds.size}개 선택`;
+      if (selectedBuffIds.size === 0) { summaryEl.textContent = "버프를 선택하면 합산 결과가 표시됩니다."; summaryEl.className = "text-sm font-bold text-slate-500 mt-1"; warningEl.classList.add('hidden'); return; }
       summaryEl.className = "text-base font-black leading-tight mt-1 flex flex-wrap gap-y-1";
       let stats = { dmg: { pct: 0 }, stat: { pct: 0, fix: 0 }, exp: { pct: 0 }, rare: { pct: 0 }, crit: { pct: 0 }, speed: { fix: 0 }, attr: { fix: 0 } };
       let hasDeathRisk = false, hasExitRisk = false;
@@ -354,12 +398,14 @@
       if (stats.rare.pct > 0) html.push(`<span class="text-purple-400 font-black">레어 +${stats.rare.pct}%</span>`);
       if (stats.speed.fix > 0) html.push(`<span class="text-slate-300">이속 +${stats.speed.fix}</span>`);
       if (stats.attr.fix > 0) html.push(`<span class="text-slate-300">속성 +${stats.attr.fix}</span>`);
-      summaryEl.innerHTML = html.join(' <span class="text-slate-700 mx-2">|</span> ');
+      summaryEl.innerHTML = html.length > 0
+        ? html.join(' <span class="text-slate-700 mx-2">|</span> ')
+        : `<span class="text-slate-400">${selectedBuffIds.size}개 선택됨 · 합산 가능한 수치 없음</span>`;
       if (hasDeathRisk || hasExitRisk) { let wrns = []; if (hasDeathRisk) wrns.push("사망 시 삭제"); if (hasExitRisk) wrns.push("재접속 시 삭제"); warningEl.classList.remove('hidden'); warningText.textContent = "주의: " + wrns.join(', '); } else warningEl.classList.add('hidden');
     }
     function resetSelection() { if (!confirm('현재 선택된 프리셋과 버프 선택을 모두 해제할까요?')) return; deselectPreset(); }
     function handleSearch() { renderList(document.getElementById('search-input').value); }
-    function filterCategory(cat) { currentCategory = cat; const chips = document.querySelectorAll('.cat-chip'); chips.forEach(chip => { if (chip.innerText === getCategoryLabel(cat)) chip.classList.add('active'); else chip.classList.remove('active'); }); handleSearch(); }
+    function filterCategory(cat) { currentCategory = cat; const chips = document.querySelectorAll('.cat-chip'); chips.forEach(chip => { const active = chip.dataset.category === cat; chip.classList.toggle('active', active); chip.setAttribute('aria-pressed', String(active)); }); handleSearch(); }
     function getCategoryLabel(cat) { const map = { 'ALL': '전체', 'Experience': '경험치', 'DropRate': '레어', 'Stats': '능력치', 'Damage': '대미지', 'Utility': '유틸' }; return map[cat] || cat; }
     window.bindEscapeClose();
 
