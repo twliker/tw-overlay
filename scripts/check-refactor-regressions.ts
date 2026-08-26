@@ -5518,6 +5518,106 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       `교차 stress ${index}의 최종 payload에 두 operation ID가 남지 않았습니다.`);
   }
 
+  // 캐릭터 선택 전 같은 숙제/리셋 주기를 두 PC가 동시에 감지하면 하나의 pending 키가 충돌한다.
+  // 이 단계에서는 어느 캐릭터의 플레이인지 판단할 수 없으므로 operation의 결정적 순서에서
+  // 마지막 값을 선택한다. 입력 배열 순서와 무관하게 같은 값으로 수렴하고 두 operation은 보존한다.
+  const pendingCollisionBase = JSON.parse(JSON.stringify(baseChecklist));
+  pendingCollisionBase.pendingHomeworks = [];
+  const companyPending = JSON.parse(JSON.stringify(pendingCollisionBase));
+  companyPending.pendingHomeworks = [{
+    id: 'daily-abyss', count: 1, isIncrement: true, timestamp: 30_000,
+    sourceEventIds: ['pending-company-event'], resetCycleKey: 'daily:2026-08-26',
+  }];
+  const homePending = JSON.parse(JSON.stringify(pendingCollisionBase));
+  homePending.pendingHomeworks = [{
+    id: 'daily-abyss', count: 1, isIncrement: true, timestamp: 30_001,
+    sourceEventIds: ['pending-home-event'], resetCycleKey: 'daily:2026-08-26',
+  }];
+  const companyPendingOperation = {
+    id: 'pending-company-detected',
+    deviceId: 'company-pc',
+    createdAt: 30_000,
+    keys: ['pendingHomeworks'],
+    mutations: syncDataHelper.createChecklistOperationMutations(pendingCollisionBase, companyPending),
+  };
+  const homePendingOperation = {
+    id: 'pending-home-detected',
+    deviceId: 'home-pc',
+    createdAt: 30_001,
+    keys: ['pendingHomeworks'],
+    mutations: syncDataHelper.createChecklistOperationMutations(pendingCollisionBase, homePending),
+  };
+  const pendingCompanyFirst = syncDataHelper.replayChecklistOperations(
+    pendingCollisionBase, [companyPendingOperation, homePendingOperation],
+  );
+  const pendingHomeFirst = syncDataHelper.replayChecklistOperations(
+    pendingCollisionBase, [homePendingOperation, companyPendingOperation],
+  );
+  assert.deepEqual(pendingCompanyFirst, pendingHomeFirst,
+    '동일 숙제 pending 충돌이 operation 입력 순서에 따라 다른 값으로 수렴했습니다.');
+  assert.deepEqual(pendingCompanyFirst.pendingHomeworks, homePending.pendingHomeworks,
+    '동일 숙제 pending 충돌에서 결정적 operation 순서의 마지막 값이 선택되지 않았습니다.');
+  const pendingCollisionPayload = syncDataHelper.buildChecklistSyncPayload({
+    ...sampleLocalConfig,
+    ...pendingCompanyFirst,
+  }, 'pending-policy-pc', 'generation-pending-policy', [
+    homePendingOperation, companyPendingOperation,
+  ]);
+  assert.equal(syncDataHelper.validateSyncPayload(pendingCollisionPayload, 'checklist'), true,
+    '동일 숙제 pending 충돌의 최종 payload가 검증을 통과하지 못했습니다.');
+  assert.deepEqual(new Set(pendingCollisionPayload.operations.map((operation: any) => operation.id)),
+    new Set([companyPendingOperation.id, homePendingOperation.id]),
+    '동일 숙제 pending 충돌의 최종 payload에 두 operation ID가 남지 않았습니다.');
+
+  // 각 PC에서 팝업의 캐릭터를 선택한 뒤에는 완료 상태가 서로 다른 characterId 경로가 된다.
+  // 감지/선택 operation 네 개가 교차해도 양쪽 캐릭터 완료와 pending 제거를 모두 보존한다.
+  const companySelected = JSON.parse(JSON.stringify(companyPending));
+  companySelected.pendingHomeworks = [];
+  companySelected.contentsCheckerItems[0].completedState['char-1'] = {
+    isCompleted: true, currentCount: 1, lastCompletedAt: 30_002,
+  };
+  const homeSelected = JSON.parse(JSON.stringify(homePending));
+  homeSelected.pendingHomeworks = [];
+  homeSelected.contentsCheckerItems[0].completedState['char-2'] = {
+    isCompleted: true, currentCount: 1, lastCompletedAt: 30_003,
+  };
+  const companySelectionOperation = {
+    id: 'pending-company-selected-char-1',
+    deviceId: 'company-pc',
+    createdAt: 30_002,
+    keys: ['contentsCheckerItems', 'pendingHomeworks'],
+    mutations: syncDataHelper.createChecklistOperationMutations(companyPending, companySelected),
+  };
+  const homeSelectionOperation = {
+    id: 'pending-home-selected-char-2',
+    deviceId: 'home-pc',
+    createdAt: 30_003,
+    keys: ['contentsCheckerItems', 'pendingHomeworks'],
+    mutations: syncDataHelper.createChecklistOperationMutations(homePending, homeSelected),
+  };
+  const selectionOperations = [
+    homeSelectionOperation,
+    companyPendingOperation,
+    companySelectionOperation,
+    homePendingOperation,
+  ];
+  const selectedResult = syncDataHelper.replayChecklistOperations(
+    pendingCollisionBase, selectionOperations,
+  );
+  const selectedItem = selectedResult.contentsCheckerItems
+    .find((item: any) => item.id === 'daily-abyss');
+  assert.equal(selectedItem.completedState['char-1'].isCompleted, true,
+    '회사 PC에서 선택한 캐릭터의 숙제 완료가 교차 pending 병합에서 사라졌습니다.');
+  assert.equal(selectedItem.completedState['char-2'].isCompleted, true,
+    '집 PC에서 선택한 캐릭터의 숙제 완료가 교차 pending 병합에서 사라졌습니다.');
+  assert.deepEqual(selectedResult.pendingHomeworks, [],
+    '양쪽 캐릭터 선택이 끝난 뒤 pending 항목이 다시 나타났습니다.');
+  const selectedResultReversed = syncDataHelper.replayChecklistOperations(
+    pendingCollisionBase, [...selectionOperations].reverse(),
+  );
+  assert.deepEqual(selectedResult, selectedResultReversed,
+    '캐릭터 선택 operation 교차 결과가 입력 순서에 따라 달라졌습니다.');
+
   const dirtySettingsMerged = syncDataHelper.mergeSettingsSnapshot(sampleLocalConfig, settingsPayload, ['userServer']);
   assert.equal(dirtySettingsMerged.userServer, sampleLocalConfig.userServer,
     '아직 업로드하지 않은 로컬 설정이 원격 pull에 의해 사라졌습니다.');
