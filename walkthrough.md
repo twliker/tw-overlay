@@ -24,7 +24,7 @@
 - 설정, 숙제, 메타를 각각 `tw_overlay_settings.json`, `tw_overlay_checklist.json`, `tw_overlay_sync_meta.json`으로 분리했다.
 - 설정과 숙제의 dirty/debounce를 분리하고 모든 Drive 요청을 single-flight 큐로 직렬화했다.
 - 숙제는 base/local/remote 3방향 병합과 안정 operation/mutation을 사용한다. 업로드 뒤 revision·operation을 재확인하며 overwrite나 응답 유실 뒤에도 outbox를 유지해 재수렴한다.
-- fresh/established/needs-confirmation 판정, 중복 파일 선택, generation 불일치, 파일별 선택·독립 복원, 부분 성공 상태와 로컬 되돌리기를 구현했다.
+- fresh/established/needs-confirmation 판정, 중복 파일 선택, generation 불일치, 파일별 선택·독립 복원, 부분 성공 상태와 로컬 되돌리기를 구현했다. `c726061`에서 Drive 목록의 모든 페이지를 수집해 페이지 경계 뒤의 유효 중복 후보도 검사하도록 보강했다.
 - fresh 프로필의 기본 숙제 초기화는 outbox로 기록하지 않는다. 원격이 없으면 최초 로그인에서 현재 전체 숙제를 업로드하고, established 프로필의 오프라인 변경은 계속 outbox에 보존한다.
 - 종료 시 창·트레이를 먼저 숨기고 최대 3초 안에서 config/outbox/Drive queue를 정리한다. 미확인 파일은 recovery marker를 보존하고 다음 실행에서 revision/checksum/operation을 재확인한다.
 - 미배포된 구 단일 파일 `tw_overlay_sync.json`은 읽거나 마이그레이션하지 않는다. `5b7fd7e`에서 남아 있던 구 파일용 공개 Drive API와 설정 UI fallback도 제거했다.
@@ -62,7 +62,7 @@ git diff --check
 - TypeScript 앱·스크립트 검사 통과
 - 전체 빌드 및 정적 회귀 검사 통과
 - Electron renderer behavior 검사 40개 통과
-- 확정 결함 82개 모두 코드·자동 검증 상태를 대조했으며, Windows 실기 항목은 실제 증거가 확보된 범위만 개별 완료 처리한다.
+- 확정 결함 83개 모두 코드·자동 검증 상태를 대조했으며, Windows 실기 항목은 실제 증거가 확보된 범위만 개별 완료 처리한다.
 - 채팅 20,000건 + 과거 150건 prepend + live 1,000건에서 실제 DOM 300개 미만, anchor 오차 2px 이내를 확인했다.
 - 교차 숙제 변경, 동일 필드 충돌, 응답 유실, overwrite, 재시작 재수렴, 부분 복원과 종료 recovery fixture를 통과했다. `8f643f1`에서는 완료·해제·횟수·operation 순서를 바꾼 256개 결정론적 교차 조합으로 원격/양쪽 로컬 수렴과 두 operation ID 보존을 추가 검증했다. `9974c5a`에서는 독립 userData의 실제 `main.js` 두 개가 같은 원격 revision에서 교차 업로드하도록 강제해 최초 overwrite 뒤 operation 재게시, 최종 원격·양쪽 로컬 수렴과 outbox 정리까지 확인했다. `ab443e9`는 수렴한 양쪽 프로세스를 각각 재시작해 확인 operation·숙제 상태 유지와 무 echo upload를 검증했다. `2fe2491`은 같은 숙제·캐릭터의 횟수 1 대 2 충돌을 실제 두 프로세스에서 필드별로 결합·수렴하고 재시작 후 유지되는 것을 고정했다. `5043162`에서 기준 캐릭터 기록을 비운 fixture는 앱 초기화가 정상 기본값과 파생 operation으로 보정하는 비정상 전제로 판명돼 되돌렸고, Windows 테스트 잠금의 일시 `EPERM` 재시도만 유지했다. 정상 기준으로 반복하자 두 ID가 모두 있어도 마지막 업로더와 로컬 우선 병합 순서에 따라 원격·로컬 횟수가 1/2로 갈리는 결함이 재현됐다. `8695630`은 업로드 전과 수신 병합 후 전체 operation을 결정적으로 재생해 canonical data를 사용하도록 수정했으며, 전체 게이트 연속 두 번에서 최종 완료·횟수 2·시각 20000, 두 ID, 빈 outbox와 양쪽 재시작 무 echo가 일치했다.
 - `fb49591`은 실제 `cloudSyncManager` scheduler가 게임 실행 시 27~33초, 유휴 시 270~330초의 installation jitter 범위로 각각 다음 pull 하나를 예약하고 중지 시 정리하는 것을 런타임으로 확인했다. `055dfbd`는 게임 실행 중 첫 Drive 조회 실패 후 재시도가 54~66초로 증가하고 다음 성공 뒤 27~33초로 초기화되는 backoff 경계를 고정했다. `54f9320`은 즉시 pull이 기존 장기 타이머를 취소하고 Drive 목록을 바로 조회한 뒤 정상 후속 타이머 하나를 재예약하는 것을 확인했다. `4021977`은 앱 시작·절전 복귀·잠금 해제·네트워크 복구·게임 시작·자동 동기화 활성화가 즉시 pull에 연결된 계약을 고정했고, `fc25244`는 로그인 성공 직후 scheduler 시작과 최초 pull 연결을 추가했다. pull 중 생긴 dirty를 정리하는 후속 업로드 조회는 별개이며 실제 Windows 이벤트·계정 로그인과 두 PC 도착 시간은 실기로 남겼다.
@@ -84,6 +84,8 @@ git diff --check
 구형 클라우드 계약 제거 커밋 `5b7fd7e` 기준 같은 범위는 14개 파일, 2,081줄 추가, 74줄 삭제다. 제품 변경은 위 두 파일과 `googleDriveSync.ts`, `settings.html`까지 네 파일이며, 마지막 두 파일은 미배포 구 단일 파일 API 제거와 정식 분리 파일 UI 표시 수정이다. 생성 산출물은 추가되지 않았다.
 
 OAuth 갱신 경쟁 수정 커밋 `1ca8cbb` 기준 같은 범위는 15개 파일, 2,187줄 추가, 78줄 삭제다. 제품 변경은 `googleAuth.ts`까지 다섯 파일이며, 늦은 갱신 응답의 인증 상태 역전을 막는 세대 검사와 실행 회귀 검사가 추가됐다. 생성 산출물은 추가되지 않았다.
+
+Drive 목록 pagination 수정 커밋 `c726061` 기준 같은 범위는 16개 파일, 2,254줄 추가, 90줄 삭제다. 제품 파일은 같은 다섯 파일이며, `googleDriveSync.ts`의 전체 AppData 후보 수집과 2페이지 실행 fixture가 추가됐다. 생성 산출물은 추가되지 않았다.
 
 ## 4. 릴리즈 전 남은 실기 검증
 
