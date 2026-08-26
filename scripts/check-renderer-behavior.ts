@@ -2,7 +2,7 @@ import assert = require('node:assert/strict');
 import fs = require('node:fs');
 import os = require('node:os');
 import path = require('node:path');
-import { app, BrowserWindow, powerMonitor } from 'electron';
+import { app, BrowserWindow, ipcMain, powerMonitor } from 'electron';
 
 const projectRoot = path.resolve(__dirname, '..');
 const testUserDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-renderer-test-'));
@@ -34,6 +34,21 @@ async function waitForSelector(
     await new Promise(resolve => setTimeout(resolve, 50));
   }
   throw new Error(`렌더러 요소 대기 시간 초과: ${selector}`);
+}
+
+async function waitForRendererCondition(
+  window: BrowserWindow,
+  expression: string,
+  errorMessage: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const matched = await window.webContents.executeJavaScript(`Boolean(${expression})`) as boolean;
+    if (matched) return;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  throw new Error(errorMessage);
 }
 
 async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
@@ -191,6 +206,152 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
   assert.equal(result.legacyVisible, true, 'isVisible 없는 레거시 숙제가 화면에서 숨겨졌습니다.');
   assert.equal(result.injectedElementCount, 0);
   assert.equal(result.displayText, '을 것이오!');
+}
+
+async function checkPendingHomeworkCloudUi(): Promise<void> {
+  const pendingWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      preload: path.join(projectRoot, 'dist', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+  const applyCalls: string[] = [];
+  let clearCalls = 0;
+  const onApplyPending = (_event: Electron.IpcMainEvent, characterId: string) => {
+    applyCalls.push(characterId);
+  };
+  const onClearPending = () => {
+    clearCalls++;
+  };
+  const onDefaultConfig = (event: Electron.IpcMainEvent) => {
+    event.returnValue = {};
+  };
+  ipcMain.on('get-default-config-sync', onDefaultConfig);
+  ipcMain.handle('check-chat-log-status', async () => false);
+  ipcMain.on('contents-apply-pending', onApplyPending);
+  ipcMain.on('contents-clear-pending', onClearPending);
+
+  const makeConfig = (characterCount: number, hasPending: boolean) => ({
+    characterPresets: [
+      { id: 'char-company', name: '회사 캐릭터' },
+      { id: 'char-home', name: '집 캐릭터' },
+    ].slice(0, characterCount),
+    selectedCharacterId: 'char-company',
+    contentsCheckerItems: [{
+      id: 'weekly-cloud-pending',
+      name: '클라우드 보류 숙제',
+      category: '주간 숙제',
+      isVisible: true,
+      resetRule: { type: 'weekly', dayOfWeek: 1, hour: 0 },
+      maxCount: 1,
+      completedState: {
+        'char-company': { isCompleted: false, currentCount: 0 },
+        'char-home': { isCompleted: false, currentCount: 0 },
+      },
+    }],
+    pendingHomeworks: hasPending ? [{
+      id: 'weekly-cloud-pending',
+      count: 1,
+      isIncrement: true,
+      timestamp: Date.now(),
+      sourceEventIds: ['cloud-pending-event'],
+      resetCycleKey: 'weekly:2026-08-24',
+    }] : [],
+  });
+
+  try {
+    await pendingWindow.loadFile(path.join(projectRoot, 'dist', 'contents-checker.html'));
+    await waitForSelector(pendingWindow, '#pending-modal');
+
+    // 닫혀 있던 체크리스트를 나중에 연 경우와 동일하게, 첫 config-data에 원격 pending을 전달한다.
+    pendingWindow.webContents.send('config-data', makeConfig(2, true));
+    await waitForRendererCondition(
+      pendingWindow,
+      "!document.getElementById('pending-modal').classList.contains('hidden')",
+      '클라우드 pending을 받은 체크리스트에 캐릭터 선택 팝업이 표시되지 않았습니다.',
+    );
+    const firstRender = await pendingWindow.webContents.executeJavaScript(`({
+      itemText: document.getElementById('pending-items-list').textContent,
+      characterButtons: Array.from(document.querySelectorAll('#pending-chars-list button'))
+        .map(button => button.textContent),
+    })`) as { itemText: string; characterButtons: string[] };
+    assert.match(firstRender.itemText, /클라우드 보류 숙제/);
+    assert.match(firstRender.itemText, /\+1회/);
+    assert.equal(firstRender.characterButtons.length, 2);
+    assert.match(firstRender.characterButtons[0], /회사 캐릭터/);
+    assert.match(firstRender.characterButtons[1], /집 캐릭터/);
+
+    // 나중에 하기는 로컬 모달만 닫으므로 동일 pending을 다시 수신하면 팝업이 재표시된다.
+    await pendingWindow.webContents.executeJavaScript(`
+      Array.from(document.querySelectorAll('#pending-modal button'))
+        .find(button => button.textContent.includes('나중에 하기'))?.click()
+    `);
+    assert.equal(await pendingWindow.webContents.executeJavaScript(
+      "document.getElementById('pending-modal').classList.contains('hidden')",
+    ), true);
+    pendingWindow.webContents.send('config-data', makeConfig(2, true));
+    await waitForRendererCondition(
+      pendingWindow,
+      "!document.getElementById('pending-modal').classList.contains('hidden')",
+      '나중에 하기로 닫은 pending 팝업이 다음 config-data에서 다시 표시되지 않았습니다.',
+    );
+
+    // 캐릭터 선택은 해당 ID를 메인 프로세스에 보내고 즉시 모달을 닫는다.
+    await pendingWindow.webContents.executeJavaScript(
+      "document.querySelectorAll('#pending-chars-list button')[1].click()",
+    );
+    const applyStartedAt = Date.now();
+    while (applyCalls.length === 0 && Date.now() - applyStartedAt < 2_000) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.deepEqual(applyCalls, ['char-home']);
+    assert.equal(await pendingWindow.webContents.executeJavaScript(
+      "document.getElementById('pending-modal').classList.contains('hidden')",
+    ), true);
+
+    // 캐릭터가 한 명뿐이거나 pending이 비어 있으면 선택 팝업을 표시하지 않는다.
+    pendingWindow.webContents.send('config-data', makeConfig(1, true));
+    await waitForRendererCondition(
+      pendingWindow,
+      "document.getElementById('pending-modal').classList.contains('hidden')",
+      '캐릭터가 한 명인데 pending 선택 팝업이 표시됐습니다.',
+    );
+    pendingWindow.webContents.send('config-data', makeConfig(2, false));
+    await waitForRendererCondition(
+      pendingWindow,
+      "document.getElementById('pending-modal').classList.contains('hidden')",
+      'pending이 비어 있는데 캐릭터 선택 팝업이 표시됐습니다.',
+    );
+
+    // 보류 내역 삭제는 확인 뒤 삭제 IPC를 보내고 모달을 닫는다.
+    pendingWindow.webContents.send('config-data', makeConfig(2, true));
+    await waitForRendererCondition(
+      pendingWindow,
+      "!document.getElementById('pending-modal').classList.contains('hidden')",
+      '삭제 검증을 위한 pending 팝업이 표시되지 않았습니다.',
+    );
+    await pendingWindow.webContents.executeJavaScript(`
+      window.confirm = () => true;
+      document.getElementById('btn-clear-pending').click();
+    `);
+    const clearStartedAt = Date.now();
+    while (clearCalls === 0 && Date.now() - clearStartedAt < 2_000) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.equal(clearCalls, 1);
+    assert.equal(await pendingWindow.webContents.executeJavaScript(
+      "document.getElementById('pending-modal').classList.contains('hidden')",
+    ), true);
+  } finally {
+    ipcMain.removeListener('get-default-config-sync', onDefaultConfig);
+    ipcMain.removeHandler('check-chat-log-status');
+    ipcMain.removeListener('contents-apply-pending', onApplyPending);
+    ipcMain.removeListener('contents-clear-pending', onClearPending);
+    if (!pendingWindow.isDestroyed()) pendingWindow.destroy();
+  }
 }
 
 async function checkLifecycleStartIsIdempotent(): Promise<void> {
@@ -3209,6 +3370,8 @@ async function main(): Promise<void> {
   try {
     console.log('[TEST] checkContentsChecklist');
     await checkContentsChecklist(window);
+    console.log('[TEST] checkPendingHomeworkCloudUi');
+    await checkPendingHomeworkCloudUi();
     console.log('[TEST] checkRendererHelpers');
     await checkRendererHelpers(window);
     console.log('[TEST] checkTodaySummaryRenderer');
