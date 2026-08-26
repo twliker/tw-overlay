@@ -5021,6 +5021,7 @@
         config,
         window.electronAPI.DEFAULT_CONFIG,
       );
+      window.settingsConfigBinding.trackChatOverlaySizeInputs();
 
       validateSettingsChatLogPath(config.chatLogPath);
 
@@ -5558,8 +5559,14 @@
       content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
     }
 
-    function saveSettings() {
+    async function saveSettings() {
       try {
+        try {
+          const latestConfig = await window.electronAPI.getConfig();
+          window.settingsConfigBinding.refreshUntouchedChatOverlaySizes(latestConfig);
+        } catch (error) {
+          console.warn('최신 채팅 오버레이 크기를 불러오지 못했습니다:', error);
+        }
         const validSlots = currentSlots.filter(s => s && s.url && s.url.trim().length > 0);
         validSlots.forEach(s => { if (!s.url.startsWith('http')) s.url = 'https://' + s.url.trim(); });
 
@@ -5628,8 +5635,14 @@
       } catch (e) { console.error(e); }
     }
 
-    function applyChatOverlaySettingsOnly() {
+    async function applyChatOverlaySettingsOnly() {
       try {
+        try {
+          const latestConfig = await window.electronAPI.getConfig();
+          window.settingsConfigBinding.refreshUntouchedChatOverlaySizes(latestConfig);
+        } catch (error) {
+          console.warn('최신 채팅 오버레이 크기를 불러오지 못했습니다:', error);
+        }
         const chatSettings = {
           ...window.settingsFormCollection.collectChatOverlayDisplaySettings(chatOverlayFilterList, customTabsList),
           ...window.settingsFormCollection.collectChatAlertSettings(lootKeywordsList, shoutKeywordsList),

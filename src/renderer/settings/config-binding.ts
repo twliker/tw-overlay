@@ -65,6 +65,15 @@
   const select = (id: string): HTMLSelectElement | null =>
     document.getElementById(id) as HTMLSelectElement | null;
 
+  const CHAT_OVERLAY_SIZE_FIELDS = [
+    ['chat-overlay-width-input', 'chatOverlayWidth'],
+    ['chat-overlay-height-input', 'chatOverlayHeight'],
+    ['chat-overlay-sub-width-input', 'chatOverlaySubWidth'],
+    ['chat-overlay-sub-height-input', 'chatOverlaySubHeight'],
+    ['chat-overlay-sub2-width-input', 'chatOverlaySub2Width'],
+    ['chat-overlay-sub2-height-input', 'chatOverlaySub2Height'],
+  ] as const;
+
   function setValue(id: string, value: string | number): void {
     const element = input(id) || select(id);
     if (element) element.value = String(value);
@@ -217,10 +226,33 @@
     setChecked('show-sidebar-toast-on-overlay-input', config.showSidebarToastOnOverlay ?? defaults.showSidebarToastOnOverlay ?? false);
   }
 
+  function trackChatOverlaySizeInputs(): void {
+    for (const [inputId] of CHAT_OVERLAY_SIZE_FIELDS) {
+      const element = input(inputId);
+      if (!element || element.dataset.liveSizeTrackingBound === 'true') continue;
+      element.dataset.liveSizeTrackingBound = 'true';
+      element.addEventListener('input', () => {
+        element.dataset.userEditedSinceLoad = 'true';
+      });
+    }
+  }
+
+  function refreshUntouchedChatOverlaySizes(configValue: unknown): void {
+    const config = configValue as SettingsBindingConfig;
+    for (const [inputId, configKey] of CHAT_OVERLAY_SIZE_FIELDS) {
+      const element = input(inputId);
+      const latestValue = config[configKey];
+      if (!element || element.dataset.userEditedSinceLoad === 'true' || latestValue === undefined) continue;
+      element.value = String(latestValue);
+    }
+  }
+
   window.settingsConfigBinding = Object.freeze({
     applyGeneralSettings,
     applyChatAndAlertSettings,
     applyOverlayDisplayOptions,
     applyRadioSettings,
+    trackChatOverlaySizeInputs,
+    refreshUntouchedChatOverlaySizes,
   });
 })();

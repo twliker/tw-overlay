@@ -20,7 +20,7 @@ import { getStandardOptions, isValidCoordinate } from './windowOptions';
 import { createManagedWindowRegistry } from './managedWindowRegistry';
 import type { ManagedWindow } from './managedWindowRegistry';
 import { centerWindowInWorkArea, isWindowVisibleOnDisplays } from './windowPlacement';
-import { applyManagedWindowSize, resolveManagedWindowSizing } from './managedWindowSizing';
+import { createManagedWindowSizePatch, resolveManagedWindowSizing } from './managedWindowSizing';
 import { WindowFocusController } from './windowFocusController';
 import { ProgrammaticMoveTracker } from './programmaticMoveTracker';
 import { EmbeddedWebTool } from './embeddedWebTool';
@@ -810,8 +810,8 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   win.on('resize', () => {
     if (isClosing) return;
     const b = win.getBounds();
-    const cfg = config.load();
-    if (applyManagedWindowSize(key, cfg, b.width, b.height)) config.save(cfg);
+    const sizePatch = createManagedWindowSizePatch(key, b.width, b.height);
+    if (sizePatch) config.save(sizePatch);
   });
 
   // 최초 렌더링 뒤 한 번만 배치·표시합니다. reload/DevTools 연결 등으로

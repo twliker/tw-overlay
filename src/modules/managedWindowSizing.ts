@@ -102,9 +102,22 @@ export function applyManagedWindowSize(
   width: number,
   height: number,
 ): boolean {
-  const fields = RESIZABLE_WINDOW_FIELDS[key];
-  if (!fields) return false;
-  config[fields.width] = width;
-  config[fields.height] = height;
+  const patch = createManagedWindowSizePatch(key, width, height);
+  if (!patch) return false;
+  Object.assign(config, patch);
   return true;
+}
+
+/** 크기 저장 대상 창의 변경 필드만 반환해 다른 설정을 변경으로 오인하지 않게 합니다. */
+export function createManagedWindowSizePatch(
+  key: WindowPositionKey,
+  width: number,
+  height: number,
+): Partial<AppConfig> | null {
+  const fields = RESIZABLE_WINDOW_FIELDS[key];
+  if (!fields) return null;
+  return {
+    [fields.width]: width,
+    [fields.height]: height,
+  } as Partial<AppConfig>;
 }

@@ -1198,6 +1198,11 @@ function checkRendererResources() {
   assert.match(settingsPage, /settingsConfigBinding\.applyChatAndAlertSettings\(/);
   assert.match(settingsPage, /settingsConfigBinding\.applyOverlayDisplayOptions\(/);
   assert.match(settingsPage, /settingsConfigBinding\.applyRadioSettings\(config, window\.electronAPI\.DEFAULT_CONFIG\)/);
+  assert.equal(
+    (settingsPage.match(/settingsConfigBinding\.refreshUntouchedChatOverlaySizes\(latestConfig\)/g) || []).length,
+    2,
+    '설정 저장 또는 채팅 오버레이 즉시 적용이 열린 뒤 변경된 실제 창 크기를 보존하지 않습니다.',
+  );
   const guideCount = (
     read('src/renderer/game-overlay/devtools.ts').match(/\[TW-Overlay 테스트 가이드\]/g)
     || []
@@ -1703,6 +1708,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     resolveManagedWindowSizing: (key: string, width: number, height: number, config: Record<string, unknown>, workAreaSize: { width: number; height: number }) => Record<string, unknown>;
     getManagedWindowSizePolicy: (key: string) => string;
     applyManagedWindowSize: (key: string, config: Record<string, unknown>, width: number, height: number) => boolean;
+    createManagedWindowSizePatch: (key: string, width: number, height: number) => Record<string, unknown> | null;
   };
   assert.deepEqual(
     sizing.resolveManagedWindowSizing('focusedChat', 460, 720, { focusedChatWidth: 520, focusedChatHeight: 760 }, { width: 1280, height: 700 }),
@@ -1749,6 +1755,12 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   assert.equal(sizing.applyManagedWindowSize('chatOverlaySub2', sizeConfig, 510, 430), true);
   assert.deepEqual(sizeConfig, { chatOverlaySub2Width: 510, chatOverlaySub2Height: 430 });
   assert.equal(sizing.applyManagedWindowSize('settings', sizeConfig, 800, 600), false);
+  assert.deepEqual(
+    sizing.createManagedWindowSizePatch('chatOverlay', 640, 480),
+    { chatOverlayWidth: 640, chatOverlayHeight: 480 },
+    '창 크기 저장이 변경된 크기 필드 외의 설정까지 포함합니다.',
+  );
+  assert.equal(sizing.createManagedWindowSizePatch('settings', 800, 600), null);
 
   const moveModule = require(path.join(projectRoot, 'dist', 'modules', 'programmaticMoveTracker.js')) as {
     ProgrammaticMoveTracker: new (threshold: number, windowMs: number, now: () => number) => {
@@ -2394,8 +2406,8 @@ function checkFocusedChatContracts(): void {
     '집중 대화방에서 조절한 창 크기가 저장되지 않습니다.');
   assert.match(sizingSource, /key === 'focusedChat' \? 360/,
     '집중 대화방의 최소 너비 제한이 없습니다.');
-  assert.match(windowManager, /applyManagedWindowSize\(key, cfg, b\.width, b\.height\)/,
-    '일반 창 리사이즈 이벤트가 공통 크기 저장 정책과 연결되지 않았습니다.');
+  assert.match(windowManager, /const sizePatch = createManagedWindowSizePatch\(key, b\.width, b\.height\);[\s\S]*?config\.save\(sizePatch\)/,
+    '일반 창 리사이즈가 변경된 크기 필드만 저장하지 않습니다.');
   assert.match(renderer, /setFocusedChatTargets\(\[\.\.\.targets\]\)/,
     '집중 대화방의 상대 닉네임이 임시 세션 상태로 전달되지 않습니다.');
   assert.doesNotMatch(renderer, /applySettings|onConfigData/,

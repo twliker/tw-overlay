@@ -1525,6 +1525,11 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         return element;
       };
       addInput('chat-overlay-width-input', '512');
+      addInput('chat-overlay-height-input', '400');
+      addInput('chat-overlay-sub-width-input', '450');
+      addInput('chat-overlay-sub-height-input', '400');
+      addInput('chat-overlay-sub2-width-input', '450');
+      addInput('chat-overlay-sub2-height-input', '400');
       addInput('chat-overlay-opacity-input', '0.75');
       addInput('chat-overlay-channel-general', '', true);
       addInput('chat-overlay-channel-whisper', '', false);
@@ -1753,6 +1758,29 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         updatedWaveLabel: waveVolumeLabel.innerText,
         updatedOpacityLabel: opacityLabel.innerText
       };
+      window.settingsConfigBinding.trackChatOverlaySizeInputs();
+      window.settingsConfigBinding.refreshUntouchedChatOverlaySizes({
+        chatOverlayWidth: 700,
+        chatOverlayHeight: 500,
+        chatOverlaySubWidth: 460,
+        chatOverlaySubHeight: 410,
+        chatOverlaySub2Width: 470,
+        chatOverlaySub2Height: 420
+      });
+      const refreshedUntouchedWidth = document.getElementById('chat-overlay-width-input').value;
+      const refreshedUntouchedHeight = document.getElementById('chat-overlay-height-input').value;
+      document.getElementById('chat-overlay-width-input').value = '777';
+      document.getElementById('chat-overlay-width-input').dispatchEvent(new Event('input'));
+      window.settingsConfigBinding.refreshUntouchedChatOverlaySizes({
+        chatOverlayWidth: 888,
+        chatOverlayHeight: 555
+      });
+      const liveSizeRefresh = {
+        untouchedWidth: refreshedUntouchedWidth,
+        untouchedHeight: refreshedUntouchedHeight,
+        editedWidth: document.getElementById('chat-overlay-width-input').value,
+        latestUntouchedHeight: document.getElementById('chat-overlay-height-input').value
+      };
 
       addInput('chat-overlay-channel-team');
       addInput('chat-overlay-channel-club');
@@ -1888,7 +1916,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         configBinding: {
           generalBinding,
           chatAndAlertBinding,
-          overlayAndRadioBinding
+          overlayAndRadioBinding,
+          liveSizeRefresh
         },
         toastRegistry: {
           counts: toastInteractionCounts,
@@ -2060,6 +2089,12 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       tradeServer: 'TestServer',
       sidebarPosition: 'left',
       showSidebarToast: true,
+    },
+    liveSizeRefresh: {
+      untouchedWidth: '700',
+      untouchedHeight: '500',
+      editedWidth: '777',
+      latestUntouchedHeight: '555',
     },
   });
 }

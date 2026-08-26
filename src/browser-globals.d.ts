@@ -184,6 +184,8 @@ interface SettingsConfigBinding {
     defaultConfig: unknown,
   ): void;
   applyRadioSettings(config: unknown, defaultConfig: unknown): void;
+  trackChatOverlaySizeInputs(): void;
+  refreshUntouchedChatOverlaySizes(config: unknown): void;
 }
 
 interface ContentsAudioFeedback {
