@@ -42,6 +42,16 @@ export function isSafeOAuthLoopbackPort(port: number): boolean {
     && (port < 6665 || port > 6669);
 }
 
+/** OAuth callback 페이지에 외부 문자열을 표시할 때 HTML 요소로 해석되지 않게 한다. */
+export function escapeOAuthHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /** 토큰 무효화(만료/철회) 시 실행될 콜백 등록 */
 export function setOnAuthInvalidated(callback: () => void): void {
   _onAuthInvalidated = callback;
@@ -428,7 +438,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
     // 1. 임시 로컬 루프백 서버 생성
     server = http.createServer(async (req, res) => {
       try {
-        const reqUrl = new URL(req.url || '', `http://${req.headers.host}`);
+        const reqUrl = new URL(req.url || '', 'http://127.0.0.1');
         if (reqUrl.pathname !== '/callback') {
           res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
           res.end('Not Found');
@@ -437,6 +447,15 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
 
         const authCode = reqUrl.searchParams.get('code');
         const error = reqUrl.searchParams.get('error');
+        const callbackState = reqUrl.searchParams.get('state');
+
+        if (callbackState !== oauthState) {
+          log('[GoogleAuth] state가 일치하지 않는 OAuth 콜백을 거부합니다.');
+          res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Invalid OAuth state');
+          safeResolve({ success: false, error: '유효하지 않은 Google 로그인 응답입니다.' });
+          return;
+        }
 
         if (error) {
           log(`[GoogleAuth] 인증 에러 수신: ${error}`);
@@ -445,7 +464,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
             <html>
               <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #0f172a; color: #f87171;">
                 <h2>❌ Google 연동이 취소되었거나 실패했습니다.</h2>
-                <p>오류 내용: ${error}</p>
+                <p>오류 내용: ${escapeOAuthHtml(error)}</p>
                 <p>이 창을 닫고 TW-Overlay에서 다시 시도해 주세요.</p>
               </body>
             </html>
@@ -567,7 +586,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
             <body>
               <div class="card">
                 <h2>🎉 구글 계정 연동 완료!</h2>
-                <p><span class="email">${profile.email}</span> 연동이 성공적으로 완료되었습니다.</p>
+                <p><span class="email">${escapeOAuthHtml(profile.email)}</span> 연동이 성공적으로 완료되었습니다.</p>
                 <p>이제 이 브라우저 창을 닫고 <strong>TW-Overlay</strong>로 돌아가시면 됩니다.</p>
               </div>
             </body>
@@ -576,17 +595,18 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
 
         safeResolve({ success: true, profile });
       } catch (err: any) {
-        log(`[GoogleAuth] 인증 처리 실패: ${err.message || err}`);
+        const errorMessage = err?.message || String(err);
+        log(`[GoogleAuth] 인증 처리 실패: ${errorMessage}`);
         res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(`
           <html>
             <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #0f172a; color: #f87171;">
               <h2>❌ 인증 처리 중 오류가 발생했습니다.</h2>
-              <p>${err.message || err}</p>
+              <p>${escapeOAuthHtml(errorMessage)}</p>
             </body>
           </html>
         `);
-        safeResolve({ success: false, error: err.message || String(err) });
+        safeResolve({ success: false, error: errorMessage });
       }
     });
 
@@ -598,6 +618,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
 
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
+    const oauthState = crypto.randomBytes(32).toString('base64url');
     let redirectUri = '';
     let bindAttempts = 0;
 
@@ -634,6 +655,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
         authUrl.searchParams.set('scope', SCOPES);
         authUrl.searchParams.set('code_challenge', codeChallenge);
         authUrl.searchParams.set('code_challenge_method', 'S256');
+        authUrl.searchParams.set('state', oauthState);
         authUrl.searchParams.set('access_type', 'offline');
         authUrl.searchParams.set('prompt', 'consent');
 

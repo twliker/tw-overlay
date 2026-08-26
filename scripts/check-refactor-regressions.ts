@@ -5536,6 +5536,13 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   let profileFailureResult: { success: boolean; profile?: unknown; error?: string } | undefined;
   let profileFailureTokenStored = false;
   let browserOpenFailureResult: { success: boolean; profile?: unknown; error?: string } | undefined;
+  let oauthErrorResult: { success: boolean; profile?: unknown; error?: string } | undefined;
+  let oauthErrorCallbackBody = '';
+  let oauthErrorCallbackRequest: Promise<void> | undefined;
+  let invalidStateResult: { success: boolean; profile?: unknown; error?: string } | undefined;
+  let invalidStateCallbackStatus = 0;
+  let invalidStateCallbackRequest: Promise<void> | undefined;
+  let tokenRequestCount = 0;
   let callbackRequest: Promise<Response> | undefined;
   try {
     fs.existsSync = ((candidate: fs.PathLike) => path.basename(String(candidate)) === 'env.json'
@@ -5549,6 +5556,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     global.fetch = (async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes('oauth2.googleapis.com/token')) {
+        tokenRequestCount++;
         return new Response(JSON.stringify({
           access_token: 'profile-failure-access-token',
           refresh_token: 'profile-failure-refresh-token',
@@ -5563,11 +5571,16 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       throw new Error(`예상하지 못한 OAuth fetch: ${url}`);
     }) as typeof fetch;
     shell.openExternal = (async (url: string) => {
-      const redirectUri = new URL(url).searchParams.get('redirect_uri');
+      const authUrl = new URL(url);
+      const redirectUri = authUrl.searchParams.get('redirect_uri');
+      const state = authUrl.searchParams.get('state');
       assert.ok(redirectUri, 'OAuth 회귀 검사 redirect URI가 없습니다.');
+      assert.ok(state, 'OAuth 회귀 검사 state가 없습니다.');
       assert.equal(googleAuth.isSafeOAuthLoopbackPort(Number(new URL(redirectUri).port)), true,
         'OAuth 로그인이 브라우저 제한 루프백 포트를 선택했습니다.');
-      callbackRequest = originalFetch(`${redirectUri}?code=profile-failure-code`);
+      callbackRequest = originalFetch(
+        `${redirectUri}?code=profile-failure-code&state=${encodeURIComponent(state)}`,
+      );
       await callbackRequest;
     }) as typeof shell.openExternal;
     profileFailureResult = await googleAuth.startLogin();
@@ -5577,6 +5590,38 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       throw new Error('forced browser open failure');
     }) as typeof shell.openExternal;
     browserOpenFailureResult = await googleAuth.startLogin();
+    const injectedOAuthError = '<img src=x onerror="window.oauthInjected=true">';
+    shell.openExternal = ((url: string) => {
+      oauthErrorCallbackRequest = (async () => {
+        const authUrl = new URL(url);
+        const redirectUri = authUrl.searchParams.get('redirect_uri');
+        const state = authUrl.searchParams.get('state');
+        assert.ok(redirectUri, 'OAuth 오류 응답 검사 redirect URI가 없습니다.');
+        assert.ok(state, 'OAuth 오류 응답 검사 state가 없습니다.');
+        const response = await originalFetch(
+          `${redirectUri}?error=${encodeURIComponent(injectedOAuthError)}&state=${encodeURIComponent(state)}`,
+        );
+        oauthErrorCallbackBody = await response.text();
+      })();
+      return oauthErrorCallbackRequest;
+    }) as typeof shell.openExternal;
+    oauthErrorResult = await googleAuth.startLogin();
+    if (oauthErrorCallbackRequest) await oauthErrorCallbackRequest;
+    const tokenRequestsBeforeInvalidState = tokenRequestCount;
+    shell.openExternal = ((url: string) => {
+      invalidStateCallbackRequest = (async () => {
+        const redirectUri = new URL(url).searchParams.get('redirect_uri');
+        assert.ok(redirectUri, 'OAuth state 변조 검사 redirect URI가 없습니다.');
+        const response = await originalFetch(`${redirectUri}?code=forged-code&state=forged-state`);
+        invalidStateCallbackStatus = response.status;
+        await response.text();
+      })();
+      return invalidStateCallbackRequest;
+    }) as typeof shell.openExternal;
+    invalidStateResult = await googleAuth.startLogin();
+    if (invalidStateCallbackRequest) await invalidStateCallbackRequest;
+    assert.equal(tokenRequestCount, tokenRequestsBeforeInvalidState,
+      'state가 변조된 OAuth 콜백이 토큰 교환 요청까지 진행했습니다.');
   } finally {
     shell.openExternal = originalOpenExternal;
     global.fetch = originalFetch;
@@ -5591,6 +5636,18 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(browserOpenFailureResult?.success, false,
     '기본 브라우저 실행 실패를 OAuth 로그인 성공으로 처리했습니다.');
   assert.equal(browserOpenFailureResult?.error, 'Google 로그인 브라우저를 열지 못했습니다.');
+  assert.equal(oauthErrorResult?.success, false);
+  assert.doesNotMatch(oauthErrorCallbackBody, /<img\b/i,
+    'OAuth 오류 쿼리가 callback HTML 요소로 주입되었습니다.');
+  assert.match(oauthErrorCallbackBody, /&lt;img\b/i,
+    'OAuth 오류 쿼리의 사용자 표시 텍스트가 HTML escape되지 않았습니다.');
+  assert.equal(invalidStateResult?.success, false,
+    'state가 변조된 OAuth 콜백을 로그인 성공으로 처리했습니다.');
+  assert.equal(invalidStateResult?.error, '유효하지 않은 Google 로그인 응답입니다.');
+  assert.equal(invalidStateCallbackStatus, 400,
+    'state가 변조된 OAuth 콜백에 HTTP 400을 반환하지 않았습니다.');
+  assert.equal(googleAuth.escapeOAuthHtml(`<tag a="b">Tom & Jerry's</tag>`),
+    '&lt;tag a=&quot;b&quot;&gt;Tom &amp; Jerry&#39;s&lt;/tag&gt;');
 
   const googleDrive = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js'));
   const originalGetValidAccessToken = googleAuth.getValidAccessToken;
