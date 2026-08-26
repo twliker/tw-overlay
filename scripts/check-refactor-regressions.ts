@@ -6483,6 +6483,61 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       `Google 로그인 가이드 이미지 파일이 없습니다: ${guideImage}`);
   }
 
+  const guideCoverage = JSON.parse(read('.agents/development/guide-coverage.json')) as {
+    menuCoverage: Array<{ id: string; doc?: string; status: string; reason?: string }>;
+    managedWindowCoverage: Array<{ key: string; doc?: string; status: string; reason?: string }>;
+    settingsSearchCoverage: { doc: string; status: string; expectedSearchEntryCount: number; reason: string };
+  };
+  const sidebarMenus = JSON.parse(read('src/assets/data/sidebar_menus.json')) as Array<{ id: string }>;
+  assert.deepEqual(
+    guideCoverage.menuCoverage.map(entry => entry.id).sort(),
+    sidebarMenus.map(entry => entry.id).sort(),
+    '사이드바·독 메뉴와 사용자 가이드 감사 대응표가 일치하지 않습니다.',
+  );
+  const guideIndexSource = read('docs/guide/index.html');
+  const guideNavDocs = new Set(Array.from(guideIndexSource.matchAll(/data-doc="([^"]+)"/g), match => match[1]));
+  for (const docName of guideNavDocs) {
+    assert.equal(fs.existsSync(path.join(projectRoot, 'docs', `${docName}.md`)), true,
+      `가이드 탐색이 존재하지 않는 문서를 가리킵니다: ${docName}`);
+  }
+  for (const entry of guideCoverage.menuCoverage) {
+    if (entry.status === 'missing') {
+      assert.ok(entry.reason, `문서 누락 메뉴에 감사 사유가 없습니다: ${entry.id}`);
+      continue;
+    }
+    assert.ok(entry.doc && fs.existsSync(path.join(projectRoot, 'docs', `${entry.doc}.md`)),
+      `메뉴 대응 사용자 문서가 없습니다: ${entry.id}`);
+    if (entry.status === 'documented-nav-missing') {
+      assert.equal(guideNavDocs.has(entry.doc!), false,
+        `탐색에 추가된 문서의 감사 상태를 갱신하지 않았습니다: ${entry.doc}`);
+    } else {
+      assert.equal(guideNavDocs.has(entry.doc!), true,
+        `사용자 문서가 가이드 탐색에 연결되지 않았습니다: ${entry.id} -> ${entry.doc}`);
+    }
+  }
+  const managedWindowKeys = Array.from(
+    read('src/modules/managedWindowRegistry.ts').matchAll(/\{ key: '([^']+)', html:/g),
+    match => match[1],
+  );
+  assert.deepEqual(
+    guideCoverage.managedWindowCoverage.map(entry => entry.key).sort(),
+    managedWindowKeys.sort(),
+    '관리 창 registry와 사용자 가이드 감사 대응표가 일치하지 않습니다.',
+  );
+  for (const entry of guideCoverage.managedWindowCoverage) {
+    if (entry.status === 'missing') {
+      assert.ok(entry.reason, `문서 누락 관리 창에 감사 사유가 없습니다: ${entry.key}`);
+    } else {
+      assert.ok(entry.doc && fs.existsSync(path.join(projectRoot, 'docs', `${entry.doc}.md`)),
+        `관리 창 대응 사용자 문서가 없습니다: ${entry.key}`);
+    }
+  }
+  const settingsSearchEntryCount = Array.from(settingsSource.matchAll(/\btitle:\s*['"][^'"]+['"]/g)).length;
+  assert.equal(settingsSearchEntryCount, guideCoverage.settingsSearchCoverage.expectedSearchEntryCount,
+    '설정 검색 인덱스가 바뀌었지만 사용자 가이드 감사를 갱신하지 않았습니다.');
+  assert.equal(guideNavDocs.has(guideCoverage.settingsSearchCoverage.doc), true,
+    '설정 검색 인덱스의 사용자 가이드가 탐색에 연결되지 않았습니다.');
+
   const cloudSyncState = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncState.js'));
   const profileFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-profile-state-'));
   try {
