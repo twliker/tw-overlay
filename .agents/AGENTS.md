@@ -43,7 +43,8 @@
 
 ## 릴리즈
 
-- 태그를 생성하기 전에 `npm run typecheck`, `npm test`, `npm run dist`를 순서대로 실행합니다.
+- 태그를 생성하기 전에 `.agents/release_workflow.md`의 일반 자동 게이트, 관리자 권한 `npm run test:zorder:windows`, 사용자 실기 체크리스트와 최종 설치 파일 검증을 모두 통과해야 합니다.
+- 미실행·실패·릴리즈 차단 코멘트가 남은 테스트를 GitHub Actions 성공이나 조건부 skip으로 대체하지 않습니다.
 - `scripts`와 `dist-tools`는 빌드·테스트 도구이며 사용자 설치 패키지에는 포함하지 않습니다.
 - 릴리즈 관련 명령, 문서, CI 흐름을 변경했다면 같은 작업에서 `release_workflow.md`도 갱신합니다.
 - 기술 스택, 디렉터리 역할 또는 핵심 데이터 흐름을 변경했다면 같은 작업에서 `PROJECT_GUIDE.md`도 갱신합니다.

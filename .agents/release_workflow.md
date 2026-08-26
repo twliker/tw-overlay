@@ -2,6 +2,8 @@
 
 이 문서는 새 버전의 검증, Windows 설치 파일 생성, 태그 및 GitHub Release 배포 절차를 정의합니다.
 
+> **릴리즈 절대 조건:** 일반 자동 검사, 관리자 권한 Windows 통합 검사, 사용자 실기 체크리스트와 설치 파일 검증이 모두 통과하기 전에는 태그 생성, 원격 태그 푸시, GitHub Release 게시 또는 Microsoft Store 제출을 진행하지 않습니다. 미실행 항목은 통과로 간주하지 않습니다.
+
 ## 1. 버전 결정
 
 Semantic Versioning 형식 `X.Y.Z`를 사용합니다.
@@ -29,13 +31,16 @@ Semantic Versioning 형식 `X.Y.Z`를 사용합니다.
 
 ## 3. 의존성 및 검증
 
-PowerShell에서는 아래 명령을 각각 한 줄씩 순서대로 실행합니다.
+### 3.1 일반 자동 게이트
+
+PowerShell에서는 아래 명령을 각각 한 줄씩 순서대로 실행합니다. 버전·문서 갱신을 모두 반영한 최종 릴리즈 후보 커밋에서 다시 실행해야 합니다.
 
 ```powershell
 npm ci
 npm run typecheck
 npm test
-npm audit --omit=dev
+git diff --check
+npm audit --omit=dev --audit-level=critical
 ```
 
 검증 범위:
@@ -49,8 +54,51 @@ npm audit --omit=dev
   3. `check-renderer-behavior.ts` Electron DOM 통합 검사
 - `npm audit --omit=dev`
   - 실제 설치 패키지에 포함되는 프로덕션 의존성의 알려진 취약점 검사
+- `git diff --check`
+  - 공백 오류, conflict marker와 잘못된 patch 형식 검사
 
-태그를 생성하기 전에 모든 검사가 통과해야 합니다.
+### 3.2 관리자 권한 Windows Z-order 통합 게이트
+
+관리자 권한으로 실행한 Codex 또는 PowerShell에서 다음 검사를 실행합니다.
+
+```powershell
+npm run test:zorder:windows
+```
+
+합격 조건:
+
+- [ ] 명령이 종료 코드 0으로 끝남
+- [ ] 최종 JSON의 `passed`가 `true`
+- [ ] 최종 JSON의 `elevated`가 `true`
+- [ ] `windowed`와 `borderless` 결과가 모두 존재함
+- [ ] 두 모드 모두 게임 foreground 보존, 외부 창 우선과 오버레이 순서 복구가 `true`
+
+이 검사는 실제 tracker가 관리자 권한 가짜 테일즈위버를 탐지하고 실제 HWND를 사용해 창모드·창모드 전체화면 Z-order를 검증합니다. 일반 권한의 `--allow-unelevated` 실행은 테스트 도구 개발용이며 릴리즈 통과 증거가 아닙니다.
+
+현재 `.github/workflows/build.yml`은 `npm test`만 실행하고 `npm run test:zorder:windows`는 실행하지 않습니다. 따라서 GitHub Actions 성공은 이 관리자 통합 게이트를 대체하지 않습니다. 향후 Actions에 추가하더라도 GitHub 호스팅 runner에서 실제 foreground/Z-order 안정성이 확인되기 전까지는 로컬 관리자 결과를 함께 유지합니다.
+
+### 3.3 사용자 실기 게이트
+
+[`docs/v3-release-manual-test-checklist.md`](../docs/v3-release-manual-test-checklist.md)를 실제 릴리즈 후보 설치 파일로 수행합니다.
+
+- [ ] 필수 실기 항목이 모두 체크됨
+- [ ] 실패하거나 애매한 항목은 수정 후 같은 시나리오를 재검증함
+- [ ] 필수 항목에 미수행 상태가 없음
+- [ ] `릴리즈 차단 결함`이 비어 있음
+- [ ] 최종 결과가 `통과`임
+
+자동 테스트로 정책을 고정해 실기에서 제외한 물리적 동시 충돌과 `선택적 고위험 복원 경계`는 필수 체크 대상이 아닙니다. 그 외 필수 항목은 미실행 상태로 태그를 생성하지 않습니다. 환경상 수행할 수 없는 항목을 필수 범위에서 제외하려면 태그 작업 전에 사용자의 명시적 승인과 제외 사유를 체크리스트 및 릴리즈 기록에 반영해야 합니다.
+
+### 3.4 태그 전 검증 판정
+
+아래 네 묶음이 모두 통과해야 Section 6의 커밋·병합·태그 단계로 진행합니다.
+
+- [ ] 일반 자동 게이트 통과
+- [ ] 관리자 권한 Windows Z-order 통합 게이트 통과
+- [ ] 사용자 실기 게이트 통과
+- [ ] Section 5의 실제 설치 파일 검증 통과
+
+하나라도 실패하거나 결과를 확인할 수 없으면 릴리즈를 보류합니다. 테스트 실패를 `continue-on-error`, 조건부 skip, 임의 재실행 성공 한 번 또는 구두 확인만으로 우회하지 않습니다.
 
 ## 4. 빌드 구조
 
@@ -91,7 +139,11 @@ npm run dist
 - [ ] 주요 오버레이, 숙제 체크리스트, 채팅 감지와 계산기 화면 확인
 - [ ] 앱 종료 및 자동 업데이트 재시작 확인
 
+위 항목은 소스 개발 실행이 아닌 최종 `twOverlay-Setup-X.Y.Z.exe` 설치본으로 확인합니다. Microsoft Store를 함께 배포하는 릴리즈는 Section 9의 AppX/MSIX도 별도로 설치·실행 검증해야 합니다.
+
 ## 6. 커밋, 병합 및 태그
+
+Section 3.4와 Section 5의 모든 체크가 완료되고 working tree가 clean인지 확인한 뒤에만 아래 명령을 수행합니다.
 
 ```powershell
 git status
@@ -115,7 +167,7 @@ git push origin vX.Y.Z
 1. Windows runner에서 저장소 체크아웃
 2. Node.js 24 설치
 3. `npm ci`로 잠금 파일 기준 의존성 설치
-4. `npm run typecheck`, `npm test`, `npm audit --omit=dev` 검증
+4. `npm run typecheck`, `npm test`, `npm audit --omit=dev --audit-level=critical` 검증
 5. GitHub Secrets의 Analytics 값을 `dist/env.json`에 주입
 6. `electron-builder --publish never`로 Windows 설치 파일만 생성
 7. `softprops/action-gh-release`를 한 번 실행하여 Draft Release 하나를 생성
@@ -132,7 +184,7 @@ Electron Builder의 GitHub Publisher를 직접 사용하지 않습니다. 설치
 - `GA_API_SECRET`
 - `GITHUB_TOKEN`은 Actions에서 자동 제공
 
-Actions가 성공한 뒤 Draft Release가 하나만 생성됐는지, 위 세 파일과 릴리즈 노트가 모두 포함됐는지 확인하고 게시합니다.
+Actions가 성공한 뒤 Draft Release가 하나만 생성됐는지, 위 세 파일과 릴리즈 노트가 모두 포함됐는지 확인합니다. 로컬 관리자 통합 검사와 사용자 실기 게이트의 통과 기록도 다시 확인한 뒤 게시합니다.
 
 ## 8. 업데이트 정책 및 동작 방식
 
