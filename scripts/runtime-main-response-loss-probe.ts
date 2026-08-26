@@ -119,6 +119,16 @@ googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, exist
   return id;
 };
 
+const logger = require(path.join(projectRoot, 'dist', 'modules', 'logger.js')) as {
+  log(message: string, forceInProd?: boolean): void;
+};
+const originalLog = logger.log;
+let shutdownTimeoutObserved = false;
+logger.log = (message: string, forceInProd?: boolean) => {
+  if (message.includes('[SHUTDOWN] 클라우드 flush timeout')) shutdownTimeoutObserved = true;
+  originalLog(message, forceInProd);
+};
+
 let quitRequestedAt = 0;
 let probeError: string | null = null;
 let convergenceObservation: Record<string, unknown> | null = null;
@@ -131,7 +141,8 @@ app.on('quit', () => {
     probeError,
     quitElapsedMs: quitRequestedAt > 0 ? Date.now() - quitRequestedAt : null,
     cancelledRequestCount,
-    shutdownTimeoutLogged: logText.includes('[SHUTDOWN] 클라우드 flush timeout'),
+    shutdownTimeoutLogged: shutdownTimeoutObserved
+      || logText.includes('[SHUTDOWN] 클라우드 flush timeout'),
     settingsDirtyKeys: state.settingsDirtyKeys,
     checklistOperationIds: state.checklistOutbox.map((operation: any) => operation.id),
     confirmedChecklistOperationIds: state.confirmedChecklistOperations.map((operation: any) => operation.id),
