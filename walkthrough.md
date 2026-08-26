@@ -115,6 +115,10 @@ Phase 3 후속 자동 범위 최종 감사 커밋 `1f310a9` 기준 `origin/beta/
 
 두 PC 실기 증거 비교기 커밋 `633a5f2`는 수렴 직후와 2분 뒤의 PC-A/PC-B 수집 결과를 실제 Windows PowerShell로 대조한다. 동일 설치 hash·profile/generation·파일별 revision, 빈 dirty/outbox/recovery, 기대 operation의 양쪽 보존과 무 echo 조건을 한 번에 판정한다. 정상 UTF-8/UTF-16 BOM 조합은 종료 코드 0으로 통과했고 generation·checklist revision·outbox·operation 및 대기 중 revision 변화 fixture는 종료 코드 1로 실패했다. 제품 코드는 변경하지 않았으며 실제 계정 결과는 여전히 대기한다.
 
+새 PC·부분 복원 자동 경계 역감사에서는 `fresh / needs-confirmation / established`의 정상·손상 파일 판정, 손상된 최신 중복 후보 대신 이전 유효 메타 참조 선택, generation 불일치 파일만 격리, 설정만·숙제만 존재하는 양방향 부분 복원이 모두 기존 실행 단정에 포함돼 있음을 확인했다. 새 결함은 재현되지 않아 제품 코드는 변경하지 않았다.
+
+실기 도구 반영 후 `aac0973` 기준으로 원격을 다시 fetch했다. `origin/beta/v2.7.0`은 `93d2922`, 로컬은 86개 커밋 앞선 clean 상태이며 범위는 20개 파일, 3,440줄 추가, 202줄 삭제다. 생성 산출물·신규 TODO/FIXME·HEAD tag는 없다. `package.json`의 `2.7.0-beta.1`과 lockfile 루트의 기존 `2.4.0`은 최종 v3 버전 승인 시 함께 변경할 보류 항목이며 push·버전·태그·배포는 수행하지 않았다.
+
 ## 4. 릴리즈 전 남은 실기 검증
 
 실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail, 일반 종료, 강제 DPI 렌더링의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.

@@ -561,6 +561,10 @@
 
 **두 PC 실기 증거 비교기 검증(2026-08-26, `633a5f2`):** `scripts/compare-v3-manual-evidence.ps1`은 두 PC의 수집 JSON과 선택적인 2분 뒤 JSON을 읽어 동일 설치 hash·established profile·공유 generation·설정/숙제 revision 수렴·빈 dirty/outbox/recovery·기대 operation의 양쪽 보존·대기 중 무 revision 변경을 자동 판정한다. 정상 fixture는 종료 코드 0, generation/revision/outbox/operation/echo 불일치 fixture는 종료 코드 1을 반환했다. 실제 Windows PowerShell 프로세스에서 UTF-8과 기본 리다이렉션의 UTF-16 BOM 증거 파일을 모두 확인했으며 원본 경로와 사용자 데이터는 결과에 포함하지 않는다. 제품 코드는 변경하지 않았고 실계정 결과가 없는 체크 항목은 대기로 유지한다.
 
+**새 PC·부분 복원 자동 경계 역감사(2026-08-26):** `4ef6153`의 profile fixture가 빈 폴더, 임시 config, 정상 config, 손상 DB, SQLite header를 각각 `fresh / needs-confirmation / established`로 판정하는지 다시 확인했다. 같은 커밋의 메모리 Drive 통합 검사는 손상된 최신 중복 설정·메타보다 이전 유효 메타 참조를 채택하고, 메타 없는 generation 불일치에서는 해당 파일만 `generation-mismatch`로 격리하며, 설정만·숙제만 존재하는 양방향 부분 복원을 독립 성공으로 처리한다. `6f8558c`의 established 자동 pull도 손상 설정과 정상 숙제를 분리한다. 빠진 조합이나 재현 결함이 없어 제품 코드는 변경하지 않았다.
+
+**실기 도구 반영 후 전체 범위 감사(2026-08-26, `aac0973`):** `git fetch origin --prune` 후 `origin/beta/v2.7.0`은 `93d2922`로 유지됐고 로컬 브랜치는 86개 커밋 앞선 clean 상태였다. 전체 범위는 20개 파일, 3,440줄 추가, 202줄 삭제이며 생성 산출물 추적과 소스·스크립트의 신규 TODO/FIXME, HEAD tag가 없다. `package.json`은 `2.7.0-beta.1`, lockfile 루트 버전은 기존 `2.4.0`이므로 최종 v3 버전 승인 때 함께 정합성을 맞출 보류 항목으로 유지한다. 원격 push·버전 변경·태그·배포는 수행하지 않았다.
+
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 설치 파일 SHA-256, 설정 UI의 파일별 checksum/revision/pending, 원격 operation ID와 민감·사용자 값을 제외한 로컬 상태 추출 절차도 추가했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
 최종 릴리즈 게이트:
