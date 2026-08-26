@@ -33,7 +33,7 @@
 - `fae83a2`에서 OAuth token 교환 뒤 Google 프로필 조회가 실패하면 로그인 성공이나 토큰 저장으로 남기지 않도록 고정했다.
 - `8681d5c`, `aa6383c`에서 OS가 실제 할당한 브라우저 차단 포트 `1723` 때문에 OAuth callback이 `bad port`로 거부되고 60초 타임아웃되던 결함을 수정했다. 공식 WHATWG Fetch Standard의 차단 포트만 다시 배정받으며 허용되는 낮은 포트는 유지하고, 기본 브라우저 실행 실패는 즉시 반환한다.
 - `fe6e7d9`에서 악성 OAuth `error`가 callback HTML 요소로 삽입되는 결함을 실제 loopback 요청으로 재현했다. 오류·이메일·내부 오류 표시를 escape하고 요청별 `state`가 일치하지 않는 callback은 token 교환 전에 거부한다.
-- `c908f19`에서 부분 손상된 `cloud-sync-state.json`의 잘못된 Drive file ID·revision·dirty key·숙제 mutation이 정상 항목과 함께 로드되는 결함을 재현했다. 공통 operation 검증과 필드별 정규화로 손상 값만 버리고 정상 dirty/outbox는 보존한다.
+- `c908f19`, `1789baf`에서 부분 손상된 `cloud-sync-state.json`의 잘못된 Drive file ID·revision·dirty key·숙제 mutation·종료 recovery 필드와 빈 installation/generation ID가 정상 항목과 함께 로드되는 결함을 재현했다. 공통 operation 검증과 필드별 정규화로 손상 값만 버리고 정상 dirty/outbox/recovery는 보존하며 기존 프로필을 `fresh`로 오인하지 않는다.
 - Discord Webhook URL, OAuth token, 로그 경로, 절대 커스텀 사운드 경로, 창 좌표·크기, 설치 정보, DB·채팅·알람 이력은 동기화하지 않는다. Google 이메일은 로컬 계정 표시에만 사용한다.
 
 ### 채팅·렌더러·알림·창 관리
@@ -104,7 +104,7 @@ OAuth 루프백 포트 수정 커밋 `8681d5c`, `aa6383c` 기준 같은 범위�
 
 OAuth callback 응답 보안 수정 커밋 `fe6e7d9` 기준 같은 범위는 16개 파일, 2,671줄 추가, 149줄 삭제다. 제품 파일은 같은 다섯 개이며, `googleAuth.ts`의 callback HTML escape, OAuth `state` 검증과 실제 loopback 공격 fixture를 추가했다. 변조된 state에서는 token 요청이 발생하지 않았고 생성 산출물도 추가되지 않았다.
 
-로컬 클라우드 상태 손상 복구 수정 커밋 `c908f19` 기준 같은 범위는 18개 파일, 2,782줄 추가, 186줄 삭제다. `cloudSyncState.ts`와 `syncDataHelper.ts`가 잘못된 file ID·revision·dirty key·operation을 필드별로 제거하고 정상 항목을 보존하도록 공통 검증을 적용했다. 생성 산출물은 추가되지 않았다.
+로컬 클라우드 상태 손상 복구 수정 커밋 `c908f19`, `1789baf` 기준 같은 범위는 18개 파일, 2,839줄 추가, 192줄 삭제다. `cloudSyncState.ts`와 `syncDataHelper.ts`가 잘못된 installation/generation ID, file ID·revision·dirty key·operation·recovery 필드를 제거하고 정상 항목을 보존하도록 공통 검증을 적용했다. 생성 산출물은 추가되지 않았다.
 
 ## 4. 릴리즈 전 남은 실기 검증
 

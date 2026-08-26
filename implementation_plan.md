@@ -159,7 +159,7 @@
 - **D-17 [P1, 코드 수정·자동 검증 완료]** `established` 프로필의 자동 pull은 설정→숙제 순차 루프에서 한 파일의 검증·적용 오류가 발생하면 전체 Promise를 중단해, 같은 generation의 다른 정상 파일 변경도 계속 수신하지 못했다. 파일별 오류를 `invalid` 결과로 격리하고 정상 파일은 계속 적용하며, 일부 성공은 partial 결과로 반환한다.
 - **D-18 [P1, 코드 수정·자동 검증 완료]** OS가 OAuth 루프백 callback에 브라우저 차단 포트(실제 재현 `1723`)를 할당하면 로컬 서버는 열리지만 Chromium/Fetch가 `bad port`로 접근을 거부해 로그인이 60초 뒤 실패했다. WHATWG 차단 포트만 다시 배정받고 허용되는 낮은 포트는 유지하며, 기본 브라우저 실행 Promise가 거부되면 타임아웃 대신 즉시 실패로 정리한다.
 - **D-19 [P1, 코드 수정·자동 검증 완료]** OAuth callback의 `error`, 계정 이메일, 내부 오류 문자열을 HTML 응답에 그대로 삽입해 로컬 callback 페이지에서 임의 태그가 실행될 수 있었고, 요청별 `state`도 검증하지 않아 다른 로그인 응답과의 결합을 차단하지 못했다. 모든 동적 응답 값을 HTML escape하고 로그인마다 생성한 `state`가 일치하지 않으면 token 교환 전에 HTTP 400으로 거부한다. URL 파싱 기준도 요청 `Host`가 아닌 고정 loopback origin으로 제한한다.
-- **D-20 [P1, 코드 수정·자동 검증 완료]** 로컬 `cloud-sync-state.json`의 최상위 버전만 확인하고 중첩 file ID·revision·dirty key와 숙제 operation mutation을 그대로 신뢰해, 부분 손상 뒤 잘못된 Drive 조회나 영구적인 숙제 업로드 실패가 발생할 수 있었다. 필드별 허용 타입·길이·allowlist를 적용하고 Drive payload와 동일한 operation/mutation 검증으로 손상 항목만 제거하면서 정상 dirty/outbox는 보존한다.
+- **D-20 [P1, 코드 수정·자동 검증 완료]** 로컬 `cloud-sync-state.json`의 최상위 버전만 확인하고 installation/generation ID, 중첩 file ID·revision·dirty key, 숙제 operation mutation과 종료 recovery 필드를 그대로 신뢰해, 부분 손상 뒤 잘못된 Drive 조회나 영구적인 숙제 업로드 실패가 발생할 수 있었다. 필드별 허용 타입·길이·allowlist를 적용하고 Drive payload와 동일한 operation/mutation 검증으로 손상 항목만 제거하면서 정상 dirty/outbox/recovery는 보존한다. 핵심 식별자가 손상된 기존 프로필은 새 ID를 만들되 `fresh`로 오인하지 않는다.
 
 ### E. 채팅·파일 I/O·모니터
 
@@ -550,7 +550,7 @@
 
 **OAuth callback 응답 보안 수정 후 범위 감사(2026-08-26, `fe6e7d9`):** 같은 원격 기준 범위는 16개 파일, 2,671줄 추가, 149줄 삭제다. 악성 `error` 쿼리가 실제 callback HTML의 `<img onerror>` 요소로 삽입되는 것을 먼저 재현한 뒤 동적 값 escape와 요청별 OAuth `state` 검증을 추가했다. 정상 state는 기존 token/profile 흐름으로 진행하고 변조 state는 token 요청 없이 HTTP 400으로 끝나는 실제 loopback fixture를 통과했다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
 
-**로컬 클라우드 상태 손상 복구 수정 후 범위 감사(2026-08-26, `c908f19`):** 같은 원격 기준 범위는 18개 파일, 2,782줄 추가, 186줄 삭제다. 숫자 Drive file ID, 배열 revision, 비허용 dirty key와 `null` mutation이 있는 상태 파일을 실제 로더에 주입해 손상 값이 그대로 남는 결함을 재현했다. 필드별 정규화와 공통 operation 검증 후 정상 checklist file ID·revision·dirty 시각·operation만 보존되는지 확인했고 전체 자동 게이트를 통과했다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
+**로컬 클라우드 상태 손상 복구 수정 후 범위 감사(2026-08-26, `c908f19`, `1789baf`):** 같은 원격 기준 범위는 18개 파일, 2,839줄 추가, 192줄 삭제다. 숫자 Drive file ID, 배열 revision, 비허용 dirty key, `null` mutation, 손상 recovery 필드와 빈 installation/generation ID가 있는 상태 파일을 실제 로더에 주입해 손상 값이 그대로 남는 결함을 재현했다. 필드별 정규화와 공통 operation 검증 후 정상 checklist file ID·revision·dirty 시각·operation/recovery만 보존되고 기존 프로필이 `fresh`로 오인되지 않는지 확인했으며 전체 자동 게이트를 통과했다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
 
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 설치 파일 SHA-256, 설정 UI의 파일별 checksum/revision/pending, 원격 operation ID와 민감·사용자 값을 제외한 로컬 상태 추출 절차도 추가했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
