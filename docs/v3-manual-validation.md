@@ -16,7 +16,23 @@
 1. 두 PC에서 같은 설치 파일을 사용하고 `Get-FileHash -Algorithm SHA256 <설치파일>` 결과의 `Hash`만 기록한다.
 2. 설정 > 백업 & 복구 > Google Drive 클라우드 동기화에서 파일별 `로컬` checksum, `클라우드` revision, `대기 N개/전송 완료`를 시나리오 전후에 기록한다. 계정 이메일이 보이는 영역은 캡처하지 않는다.
 3. 원격 숙제 operation은 같은 화면의 `데이터 확인`에서 `tw_overlay_checklist.json`의 `revision`, `checksum`, `operations[].id`만 확인한다. `data` 전체에는 캐릭터 이름과 사용자 설정이 있으므로 원본 JSON 전체를 공유하지 않는다.
-4. 데스크톱 설치판의 로컬 상태는 기본적으로 `%APPDATA%\twOverlay\cloud-sync-state.json`에 있다. 다음 PowerShell은 값이 포함된 base snapshot과 Drive file ID를 제외하고 판정에 필요한 필드만 출력한다. Microsoft Store 빌드에서 경로가 다르면 `debug.log`의 `[BOOT] UserData path`를 기준으로 같은 파일을 찾는다.
+4. 데스크톱 설치판의 로컬 상태는 기본적으로 `%APPDATA%\twOverlay\cloud-sync-state.json`에 있다. 저장소 루트에서 다음 수집기를 실행하면 설치 파일은 SHA-256만, 로컬 상태는 판정에 필요한 generation/revision/dirty/operation/recovery만 JSON으로 출력한다. 실제 경로, device ID, Drive file ID, base snapshot, Webhook, 캐릭터 이름과 원문 오류는 출력하지 않는다. `-InstallerPath`는 생략할 수 있으며 PC-B에서는 `-DeviceLabel PC-B`를 사용한다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\collect-v3-manual-evidence.ps1 `
+  -DeviceLabel PC-A `
+  -InstallerPath 'C:\검증빌드\twOverlay-Setup.exe'
+```
+
+Microsoft Store 빌드처럼 userData 경로가 다르면 `debug.log`의 `[BOOT] UserData path`를 로컬에서 확인하고 `-StatePath`로 지정한다. 경로 자체는 결과 JSON에 포함되지 않는다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\collect-v3-manual-evidence.ps1 `
+  -DeviceLabel PC-B `
+  -StatePath 'C:\실제 userData\cloud-sync-state.json'
+```
+
+수집기를 사용할 수 없는 경우에만 다음 최소 PowerShell을 사용한다. 값이 포함된 base snapshot과 Drive file ID는 출력하지 않는다.
 
 ```powershell
 $twStatePath = Join-Path $env:APPDATA 'twOverlay\cloud-sync-state.json'
@@ -35,6 +51,8 @@ $twState = Get-Content -LiteralPath $twStatePath -Raw | ConvertFrom-Json
 
 5. `google_auth.enc`, `google_user.json`, `config.json`, `cloud-sync-state.json` 원본은 공유하지 않는다. `debug.log`는 `[CloudSyncManager]`, `[SHUTDOWN]`, `[DiaryDB]` 관련 줄만 복사하고 이메일·절대경로가 섞였는지 다시 확인한다.
 6. echo upload 검증은 파일별 revision과 마지막 동기화 시각을 수렴 직후 기록하고 2분 뒤 다시 기록한다. 사용자 조작이 없었는데 revision이 바뀌면 두 PC 시각과 관련 로그 줄을 함께 남긴다.
+
+자동 수집기 검증 기록(2026-08-26, `97a9ff8`): 비밀 device/file ID, Webhook, 캐릭터 이름, 원문 오류의 로컬 경로를 포함한 상태 fixture와 임의 설치 파일을 입력했다. 결과에는 허용한 generation/revision/dirty/operation/recovery와 정확한 설치 SHA-256만 남았으며 모든 비밀 표식과 입력 파일 경로가 제외됐다. Windows PowerShell에서 `Get-FileHash` 모듈이 없는 환경도 동작하도록 SHA-256은 .NET 스트림으로 계산한다.
 
 ## 2. 실제 두 PC 클라우드 교차 동기화
 
