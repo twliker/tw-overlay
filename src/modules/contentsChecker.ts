@@ -352,6 +352,21 @@ export function resolvePendingHomeworkCount(current: number, pending: PendingHom
   return Math.max(0, Math.min(max, target));
 }
 
+/** 보류 숙제를 실제로 반영할 수 있는 미완료 캐릭터 ID를 찾는다. */
+export function getPendingHomeworkCandidateIds(
+  presets: NonNullable<AppConfig['characterPresets']>,
+  items: ContentsCheckerItem[],
+  pendingList: PendingHomework[],
+): string[] {
+  return presets.filter(character => pendingList.some(pending => {
+    const item = items.find(candidate => candidate.id === pending.id);
+    if (!item) return false;
+    const state = item.completedState?.[character.id];
+    const max = item.maxCount || 1;
+    return !state?.isExcluded && !state?.isCompleted && getStateCount(state, max) < max;
+  })).map(character => character.id);
+}
+
 /** 보류 이벤트 발생 뒤 해당 숙제의 리셋 경계를 지났는지 판정한다. */
 export function isPendingHomeworkExpired(
   pending: PendingHomework,
@@ -1501,6 +1516,18 @@ export function queuePendingHomework(
     pendingList.length = maxPendingItems;
     pendingList.sort((a, b) => a.timestamp - b.timestamp);
     log(`[Contents Checker] 비정상적으로 큰 보류 대기열을 최근 ${maxPendingItems}개로 제한했습니다.`);
+  }
+
+  // 완료·제외 캐릭터를 빼고 실제 반영 가능한 캐릭터가 하나뿐이면 선택 팝업을 생략한다.
+  // 이 정책은 본캐가 같은 숙제를 끝낸 뒤 부캐로 플레이하는 기존 자동 귀속 UX를 보존한다.
+  const candidateCharacterIds = getPendingHomeworkCandidateIds(presets, items, pendingList);
+  if (candidateCharacterIds.length === 1) {
+    const targetCharId = candidateCharacterIds[0];
+    const targetCharacter = presets.find(character => character.id === targetCharId);
+    log(`[Contents Checker] 자동 반영 - 미완료 후보가 '${targetCharacter?.name || targetCharId}' (${targetCharId}) 한 명뿐입니다.`);
+    config.saveImmediate({ pendingHomeworks: pendingList });
+    applyPendingHomeworks(targetCharId);
+    return;
   }
 
   config.saveImmediate({ pendingHomeworks: pendingList });

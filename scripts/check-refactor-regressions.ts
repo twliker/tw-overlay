@@ -4554,6 +4554,7 @@ function checkPendingHomeworkOrdering(): void {
     resolvePendingHomeworkCount,
     isPendingHomeworkExpired,
     getHomeworkResetCycleKey,
+    getPendingHomeworkCandidateIds,
   } = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as {
     mergePendingHomeworkEvent(
       existing: { id: string; count: number; isIncrement: boolean; timestamp: number } | undefined,
@@ -4585,6 +4586,19 @@ function checkPendingHomeworkOrdering(): void {
       rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number },
       timestamp: number,
     ): string;
+    getPendingHomeworkCandidateIds(
+      presets: Array<{ id: string; name: string }>,
+      items: Array<{
+        id: string;
+        maxCount?: number;
+        completedState: Record<string, {
+          isCompleted: boolean;
+          isExcluded?: boolean;
+          currentCount?: number;
+        }>;
+      }>,
+      pendingList: Array<{ id: string; count: number; isIncrement: boolean; timestamp: number }>,
+    ): string[];
   };
 
   const incrementFirst = mergePendingHomeworkEvent(undefined, 'weekly-test', 1, true, 100);
@@ -4630,6 +4644,31 @@ function checkPendingHomeworkOrdering(): void {
   assert.strictEqual(deduplicatedTwice, deduplicatedOnce,
     '같은 채팅 이벤트 ID를 다시 처리하면 보류 횟수가 변경되지 않아야 합니다.');
   assert.equal(deduplicatedTwice.count, 1);
+
+  const candidatePresets = [
+    { id: 'char-main', name: '본캐' },
+    { id: 'char-alt', name: '부캐' },
+  ];
+  const candidatePending = [{ id: 'weekly-a', count: 1, isIncrement: true, timestamp: afterCurrentReset }];
+  const candidateItems = [{
+    id: 'weekly-a',
+    maxCount: 1,
+    completedState: {
+      'char-main': { isCompleted: true, currentCount: 1 },
+      'char-alt': { isCompleted: false, currentCount: 0 },
+    },
+  }];
+  assert.deepEqual(
+    getPendingHomeworkCandidateIds(candidatePresets, candidateItems, candidatePending),
+    ['char-alt'],
+    '본캐가 완료한 숙제는 미완료 부캐 한 명에게 자동 귀속되어야 합니다.',
+  );
+  candidateItems[0].completedState['char-main'] = { isCompleted: false, currentCount: 0 };
+  assert.deepEqual(
+    getPendingHomeworkCandidateIds(candidatePresets, candidateItems, candidatePending),
+    ['char-main', 'char-alt'],
+    '같은 숙제를 할 수 있는 미완료 캐릭터가 둘이면 선택 팝업을 유지해야 합니다.',
+  );
 
   const nextCycleTimestamp = new Date(2026, 7, 25, 6, 1, 0).getTime();
   const nextCycleKey = getHomeworkResetCycleKey({ type: 'daily', hour: 6 }, nextCycleTimestamp);
