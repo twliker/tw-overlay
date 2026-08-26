@@ -160,7 +160,7 @@ $twState = Get-Content -LiteralPath $twStatePath -Raw | ConvertFrom-Json
 
 부분 실기 기록(2026-08-25, `1291779`): 사용자 실게임 환경에서 독 메뉴 클릭·숨김/표시, 같은/다른 모니터의 외부 프로그램 전환, 작업표시줄 복구와 게임 위 오버레이 유지가 정상임을 확인했다. 독은 재생성하지 않고 숨긴 창을 재사용하며 상단/하단 위치와 퀵링크 변경도 즉시 반영됐다.
 
-자동 검증 기록(2026-08-26, `ef4cfde`, `d562c17`): `v2.7.1` 실사용 피드백으로 기존 동적 Topmost 묶음을 폐기했다. 게임 HWND 쓰기 0회, 외부 다중 창 순서 보존, 일반 게임+Topmost Shell의 Non-Topmost 오버레이, Topmost 게임의 오버레이 계층 일치, 반복 판정 멱등성을 검증했다. HUD 효과·HUD 편집·사냥 동선 오버레이의 직접 `screen-saver` Topmost와 업데이트 공지의 고정 Topmost도 중앙 정책으로 통합했다. 새 코드의 실게임·듀얼 모니터·창모드 전체화면 재검증과 30~60분 무조작 소크는 대기로 둔다.
+자동 검증 기록(2026-08-26, `ef4cfde`, `d562c17`, `452f9c3`): `v2.7.1` 실사용 피드백으로 게임을 포함한 동적 Topmost 묶음을 폐기했다. 이후 실제 HWND probe에서 일반 Electron 오버레이에 `HWND_TOP`만 적용하면 foreground 게임 아래에 남는 결함과 숨은 Electron 보조 HWND가 보이는 순서 검사를 깨는 현상을 재현했다. 게임·TW-Overlay 전경에서는 우리 창만 임시 Topmost로 올리고, 외부 전경에서는 즉시 Non-Topmost로 내리도록 보강했다. 게임 HWND 쓰기 0회, 외부 다중 창 순서 보존, 반복 판정 멱등성과 숨은 HWND 건너뛰기를 회귀 테스트로 고정했다. 관리자 권한이 기본인 가짜 테일즈위버를 실제 tracker가 탐지하는 Windows probe는 일반 권한 개발 모드에서 창모드·창모드 전체화면 모두 통과했다. 관리자 PowerShell의 동일 권한 실행, 실게임·듀얼 모니터와 30~60분 무조작 소크는 대기로 둔다. 실행법은 [`fake-talesweaver-fixture.md`](fake-talesweaver-fixture.md)에 기록했다.
 
 ## 6. 실제 대형 로그·Tail 복구
 
@@ -182,7 +182,7 @@ $twState = Get-Content -LiteralPath $twStatePath -Raw | ConvertFrom-Json
 | 새 PC·부분 복원 | `b1fbef7`, `e7f7b57`, `26d95c2`, `0c5d6f0` | 실제 `main.js` / 지속형 모의 Drive / 동일 userData 재시작 | 2026-08-26 07:10~07:56 KST | 부분 통과 | 설정·숙제 양방향 독립 복원, 손상 파일 분리, `needs-confirmation` 재시작 무전송·양쪽 설정 보존, 설정 선택 복원 뒤 자동 전송 재개, 설정·숙제 복원 전 백업 되돌리기 및 후속 원격 수렴 확인. 실제 Google 계정 UI 조작 대기 |
 | 종료·로그오프 | `93d2922`, `0884202`, `65ea23d`, `431c2a9`, `62dd7a6`, `35f3dab`, `bb2e782`, `4257b5b`, `013e4ba`, `0a9c412` | 격리 source Electron / Windows `Alt+F4` / 별도 Electron 재시작·main finalizer·Drive timeout·session-end 이벤트·지속형 모의 Drive | 2026-08-26 06:15~09:31 KST | 부분 통과 | 일반 종료, 세 dirty 조합, 3초 timeout 취소, 반복 quit 차단, session-end marker·WAL fast path, 설정/숙제별 원격 commit 후 응답 유실·재시작 무중복 수렴, 응답 유실 종료 20/20회 operation/recovery 보존, 일반 10회·timeout 5회 창 숨김/종료 계측 확인. 실제 Google Drive 응답 유실과 실제 로그오프·시스템 종료 대기 |
 | DPI·모니터·RDP | `750ec60` | 격리 source Electron / 강제 100·125·150%·2×·3× | 2026-08-26 06:18~06:27 KST | 부분 통과 | DPR·창 clamp 확인, 854×464 계수 계산기 잘림 수정 및 scroll 검증. 실제 OS 배율 전환·게임 정렬·모니터/RDP 대기 |
-| Z-order 소크 | `1291779`, `ef4cfde`, `d562c17` | 사용자 실게임 이력 / 격리 자동 회귀 | 2026-08-25~26 | 부분 통과 | 기존 독 재사용·작업표시줄 복구 이력 보존. 새 정책은 게임 HWND 무수정, 외부 창 순서, Shell/Topmost 계층, 멱등성, game-attached 직접 Topmost 부재 자동 통과. 실게임·듀얼 모니터·창모드 전체화면·30~60분 소크 재검증 대기 |
+| Z-order 소크 | `1291779`, `ef4cfde`, `d562c17`, `452f9c3` | 사용자 실게임 이력 / 단위 회귀 / 가짜 게임 실제 HWND probe | 2026-08-25~26 | 부분 통과 | 기존 독 재사용·작업표시줄 복구 이력 보존. 게임 HWND 무수정, 활성 시 오버레이만 승격, 외부 전경 즉시 강등, 숨은 HWND 제외, 창모드·창모드 전체화면의 위치·크기·Topmost·foreground 불변을 일반 권한 개발 probe에서 통과. 관리자 동일 권한, 실게임·듀얼 모니터·30~60분 소크 대기 |
 | 대형 로그 소크 | `be3c13b`, `85533d9`, `e034f88` | 격리 Electron / UTF-8·BOM·EUC-KR / Windows 독점 잠금 | 2026-08-26 | 부분 통과 | 8.05MB 전체 검색, 40→42.05MB 2분·14,400줄·메모리 trim, Tail 1/2/4/8/16초 복원, 잠긴 1/2 파일 부분 성공·해제 후 재수렴, 256KB 경계, 실제 프로세스 재시작·지정 폴더 이동 복구. 장시간 게임 로그 대기 |
 
 모든 행이 실제 증거와 함께 통과한 뒤에만 `implementation_plan.md`와 `walkthrough.md`의 실기 대기 상태를 완료로 갱신한다.
