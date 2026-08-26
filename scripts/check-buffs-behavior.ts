@@ -18,7 +18,7 @@ async function waitFor(window: BrowserWindow, expression: string, message: strin
 
 function buildTestHtml(): string {
   const fixtureBuffs = [
-    { id: 'exp-a', name: '경험 버프 A', category: 'Experience', effect: '경험치 +100%', duration: '30분', group: 'potato', description: '첫 경험 버프' },
+    { id: 'exp-a', name: '경험 버프 A', category: 'Experience', effect: '경험치 +100%', duration: '30분', group: 'potato', description: '첫 경험 버프', image: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', removeOnExit: true },
     { id: 'exp-b', name: '경험 버프 B', category: 'Experience', effect: '경험치 +200%', duration: '20분', group: 'potato', description: '선택하면 A를 교체' },
     { id: 'utility-a', name: '이동 버프', category: 'Utility', effect: '이속 +5', duration: '10분', group: 'none', description: '이동 속도 증가' },
   ];
@@ -57,6 +57,14 @@ async function main(): Promise<void> {
         cardTag: first.tagName,
         cardType: first.type,
         ariaPressed: first.getAttribute('aria-pressed'),
+        cardText: first.textContent.replace(/\\s+/g, ' ').trim(),
+        imageShells: first.querySelectorAll('.buff-image-shell').length,
+        images: first.querySelectorAll('.buff-image').length,
+        names: first.querySelectorAll('.buff-name').length,
+        effects: first.querySelectorAll('.buff-effect').length,
+        durations: first.querySelectorAll('.buff-duration').length,
+        legacyDetails: first.querySelectorAll('.buff-tag, .selection-check, p').length,
+        nativeTitle: first.getAttribute('title'),
         workspacePanes: document.querySelectorAll('.buff-workspace > .workspace-pane').length,
         selectedPanelVisible: Boolean(document.getElementById('selected-buff-list')),
         emptySelectionMessage: document.getElementById('selected-buff-list').textContent.replace(/\\s+/g, ' ').trim(),
@@ -68,12 +76,43 @@ async function main(): Promise<void> {
       cardTag: 'BUTTON',
       cardType: 'button',
       ariaPressed: 'false',
+      cardText: '경험 버프 A 경험치 +100% 30분',
+      imageShells: 1,
+      images: 1,
+      names: 1,
+      effects: 1,
+      durations: 1,
+      legacyDetails: 0,
+      nativeTitle: null,
       workspacePanes: 3,
       selectedPanelVisible: true,
       emptySelectionMessage: '아직 고른 버프가 없습니다.가운데 카드나 왼쪽 프리셋을 선택해 주세요.',
       resultCount: '3개 표시 · 전체 3개',
       selectionCount: '0개',
     }, '버프 선택 흐름의 초기 UI가 올바르지 않습니다.');
+
+    const customTooltip = await window.webContents.executeJavaScript(`(() => {
+      const first = document.querySelector('#buff-list .buff-card');
+      first.dispatchEvent(new MouseEvent('mouseenter'));
+      const tooltip = document.getElementById('buff-detail-tooltip');
+      const rect = tooltip.getBoundingClientRect();
+      const shown = {
+        visible: tooltip.classList.contains('visible'),
+        ariaHidden: tooltip.getAttribute('aria-hidden'),
+        text: tooltip.textContent.replace(/\\s+/g, ' ').trim(),
+        insideViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+      };
+      first.dispatchEvent(new MouseEvent('mouseleave'));
+      return { ...shown, hiddenAfterLeave: tooltip.getAttribute('aria-hidden') };
+    })()`);
+    assert.equal(customTooltip.visible, true, '버프 상세 정보가 커스텀 툴팁으로 열리지 않습니다.');
+    assert.equal(customTooltip.ariaHidden, 'false', '열린 버프 툴팁의 접근성 상태가 올바르지 않습니다.');
+    assert.match(customTooltip.text, /첫 경험 버프/);
+    assert.match(customTooltip.text, /분류 경험치/);
+    assert.match(customTooltip.text, /중첩 같은 종류의 다른 버프와 동시에 적용되지 않습니다/);
+    assert.match(customTooltip.text, /주의 재접속 시 삭제/);
+    assert.equal(customTooltip.insideViewport, true, '버프 툴팁이 창 영역을 벗어납니다.');
+    assert.equal(customTooltip.hiddenAfterLeave, 'true', '버프에서 벗어난 뒤 툴팁이 닫히지 않습니다.');
 
     const replacement = await window.webContents.executeJavaScript(`(() => {
       const cards = Array.from(document.querySelectorAll('#buff-list .buff-card'));
@@ -178,6 +217,12 @@ async function main(): Promise<void> {
         descriptionFontSize: Number.parseFloat(getComputedStyle(document.querySelector('.pane-description')).fontSize),
         selectedPanelVisible: document.getElementById('selected-buff-list').getBoundingClientRect().width > 0,
         cardCount: document.querySelectorAll('#buff-list .buff-card').length,
+        listLayout: getComputedStyle(document.getElementById('buff-list')).display,
+        cardLayout: getComputedStyle(document.querySelector('#buff-list .buff-card')).display,
+        imageShellCount: document.querySelectorAll('#buff-list .buff-card .buff-image-shell').length,
+        compactFieldCount: document.querySelectorAll('#buff-list .buff-card:first-child .buff-name, #buff-list .buff-card:first-child .buff-effect, #buff-list .buff-card:first-child .buff-duration').length,
+        exposedDetailCount: document.querySelectorAll('#buff-list .buff-card .buff-tag, #buff-list .buff-card .selection-check, #buff-list .buff-card p').length,
+        effectFontSize: Number.parseFloat(getComputedStyle(document.querySelector('.buff-effect')).fontSize),
         resultCount: document.getElementById('result-count').textContent,
       };
     })()`);
@@ -189,6 +234,12 @@ async function main(): Promise<void> {
     assert.equal(visualLayout.scrollWidth, visualLayout.viewportWidth, '버프 화면 전체에 가로 잘림이 발생합니다.');
     assert.ok(visualLayout.descriptionFontSize >= 12, '버프 화면 설명 글자가 디자인 최소 크기보다 작습니다.');
     assert.equal(visualLayout.selectedPanelVisible, true, '현재 조합 패널이 실제 화면에서 보이지 않습니다.');
+    assert.equal(visualLayout.listLayout, 'flex', '버프가 세로 목록 형태로 표시되지 않습니다.');
+    assert.equal(visualLayout.cardLayout, 'grid', '버프 행의 이미지·텍스트·지속시간 정렬이 깨졌습니다.');
+    assert.equal(visualLayout.imageShellCount, visualLayout.cardCount, '모든 버프 행에 이미지 영역이 표시되지 않습니다.');
+    assert.equal(visualLayout.compactFieldCount, 3, '버프 행에 이름·효과·지속시간이 모두 표시되지 않습니다.');
+    assert.equal(visualLayout.exposedDetailCount, 0, '상세 설명이 간결한 버프 목록에 노출됩니다.');
+    assert.ok(visualLayout.effectFontSize >= 12, '버프 효과 글자가 디자인 최소 크기보다 작습니다.');
     assert.ok(visualLayout.cardCount > 10 && /전체 \d+개/.test(visualLayout.resultCount),
       `실제 버프 목록이 화면에 렌더링되지 않습니다: ${visualLayout.cardCount}/${visualLayout.resultCount}`);
 
@@ -196,6 +247,9 @@ async function main(): Promise<void> {
       await previewWindow.webContents.executeJavaScript(`(() => {
         localStorage.removeItem('buff_presets');
         selectPreset('standard');
+        if (${JSON.stringify(process.env.TW_OVERLAY_BUFFS_PREVIEW_TOOLTIP === '1')}) {
+          document.querySelector('#buff-list .buff-card')?.dispatchEvent(new MouseEvent('mouseenter'));
+        }
       })()`);
       previewWindow.showInactive();
       await new Promise(resolve => setTimeout(resolve, 300));
