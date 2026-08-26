@@ -914,8 +914,14 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
               lastSyncedAt: 1_722_150_000_000,
               updatedBy: '',
               data: kind === 'checklist'
-                ? { characterPresets: [{ id: 'char-main', name: '숙제 캐릭터' }] }
-                : { userServer: 16 }
+                ? {
+                    characterPresets: [{ id: 'char-main', name: '숙제 캐릭터' }],
+                    testRows: Array.from({ length: 80 }, (_, index) => ({ index }))
+                  }
+                : {
+                    userServer: 16,
+                    testRows: Array.from({ length: 80 }, (_, index) => ({ index }))
+                  }
             },
             fileMeta: {
               id: kind === 'checklist' ? 'checklist-file' : 'settings-file',
@@ -997,6 +1003,9 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       await new Promise(resolve => setTimeout(resolve, 20));
       const settingsPreviewTitle = document.getElementById('google-sync-preview-title')?.textContent || '';
       const settingsPreviewJson = document.getElementById('google-sync-preview-code')?.textContent || '';
+      const previewCodeScroll = document.getElementById('google-sync-preview-code-scroll');
+      if (previewCodeScroll) previewCodeScroll.scrollTop = 120;
+      const previewScrollMoved = (previewCodeScroll?.scrollTop || 0) > 0;
       previewButtons[1]?.click();
       await new Promise(resolve => setTimeout(resolve, 20));
       const checklistPreviewTitle = document.getElementById('google-sync-preview-title')?.textContent || '';
@@ -1008,6 +1017,17 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const copyButtonNoWrap = copyButton ? getComputedStyle(copyButton).whiteSpace === 'nowrap' : false;
       const closeButtonNoWrap = closeButton ? getComputedStyle(closeButton).whiteSpace === 'nowrap' : false;
       const globalPreviewLabel = document.getElementById('btn-google-preview')?.textContent?.trim() || '';
+      const previewSummary = document.getElementById('google-sync-preview-summary');
+      const previewCode = document.getElementById('google-sync-preview-code');
+      const summaryRect = previewSummary?.getBoundingClientRect();
+      const codeScrollRect = previewCodeScroll?.getBoundingClientRect();
+      const previewLayout = {
+        codeNestedInScrollViewport: previewCode?.parentElement === previewCodeScroll,
+        summaryDoesNotShrink: previewSummary ? getComputedStyle(previewSummary).flexShrink === '0' : false,
+        summaryEndsBeforeCode: Boolean(summaryRect && codeScrollRect && summaryRect.bottom <= codeScrollRect.top),
+        scrollMovedBeforeFileChange: previewScrollMoved,
+        scrollResetAfterFileChange: (previewCodeScroll?.scrollTop || 0) === 0
+      };
       await handleGoogleRollback();
       return {
         restoreCalls,
@@ -1032,6 +1052,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         copyButtonNoWrap,
         closeButtonNoWrap,
         globalPreviewLabel,
+        previewLayout,
       };
     })()
   `) as {
@@ -1057,6 +1078,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     copyButtonNoWrap: boolean;
     closeButtonNoWrap: boolean;
     globalPreviewLabel: string;
+    previewLayout: Record<string, boolean>;
   };
 
   assert.deepEqual(result.restoreCalls, [['settings']]);
@@ -1088,6 +1110,13 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.equal(result.copyButtonNoWrap, true);
   assert.equal(result.closeButtonNoWrap, true);
   assert.match(result.globalPreviewLabel, /전체 데이터 확인/);
+  assert.deepEqual(result.previewLayout, {
+    codeNestedInScrollViewport: true,
+    summaryDoesNotShrink: true,
+    summaryEndsBeforeCode: true,
+    scrollMovedBeforeFileChange: true,
+    scrollResetAfterFileChange: true,
+  });
   assert.equal(result.alerts.length, 2);
 }
 
