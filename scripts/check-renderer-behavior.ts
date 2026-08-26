@@ -888,7 +888,7 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
 }
 
 async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void> {
-  window.setContentSize(1100, 720);
+  window.setContentSize(800, 600);
   await window.loadFile(path.join(projectRoot, 'dist', 'settings.html'));
   await waitForSelector(window, '#google-restore-settings');
   const result = await window.webContents.executeJavaScript(`
@@ -896,16 +896,39 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const restoreCalls = [];
       const confirms = [];
       const alerts = [];
+      const previewKinds = [];
       let previewCalls = 0;
       let rollbackCalls = 0;
       window.confirm = message => { confirms.push(message); return true; };
       window.alert = message => alerts.push(message);
       window.electronAPI = {
-        googleSyncPreview: async () => {
+        googleSyncPreview: async kind => {
           previewCalls++;
+          previewKinds.push(kind);
           return {
             success: true,
             partial: false,
+            payload: {
+              schemaVersion: 1,
+              appVersion: '3.0.0-test',
+              lastSyncedAt: 1_722_150_000_000,
+              updatedBy: '',
+              data: kind === 'checklist'
+                ? { characterPresets: [{ id: 'char-main', name: '숙제 캐릭터' }] }
+                : { userServer: 16 }
+            },
+            fileMeta: {
+              id: kind === 'checklist' ? 'checklist-file' : 'settings-file',
+              name: kind === 'checklist' ? 'tw_overlay_checklist.json' : 'tw_overlay_settings.json'
+            },
+            fileCount: kind ? 1 : 3,
+            files: kind
+              ? [{ id: kind + '-file', name: kind === 'checklist' ? 'tw_overlay_checklist.json' : 'tw_overlay_settings.json' }]
+              : [
+                  { id: 'settings-file', name: 'tw_overlay_settings.json' },
+                  { id: 'checklist-file', name: 'tw_overlay_checklist.json' },
+                  { id: 'meta-file', name: 'tw_overlay_sync_meta.json' }
+                ],
             restoreResults: [
               { kind: 'settings', selected: true, status: 'available' },
               { kind: 'checklist', selected: true, status: 'available' }
@@ -969,10 +992,27 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const rollbackVisible = !document.getElementById('btn-google-rollback')?.classList.contains('hidden');
       const fileStatusText = document.getElementById('google-file-sync-status')?.textContent || '';
       const fileNameText = document.getElementById('google-sync-file-name')?.textContent || '';
+      const previewButtons = Array.from(document.querySelectorAll('[data-google-preview-kind]'));
+      previewButtons[0]?.click();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const settingsPreviewTitle = document.getElementById('google-sync-preview-title')?.textContent || '';
+      const settingsPreviewJson = document.getElementById('google-sync-preview-code')?.textContent || '';
+      previewButtons[1]?.click();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      const checklistPreviewTitle = document.getElementById('google-sync-preview-title')?.textContent || '';
+      const checklistPreviewJson = document.getElementById('google-sync-preview-code')?.textContent || '';
+      const previewButtonKinds = previewButtons.map(button => button.dataset.googlePreviewKind);
+      const previewButtonLabels = previewButtons.map(button => button.textContent?.trim());
+      const copyButton = document.getElementById('btn-google-preview-copy');
+      const closeButton = document.getElementById('btn-google-preview-close');
+      const copyButtonNoWrap = copyButton ? getComputedStyle(copyButton).whiteSpace === 'nowrap' : false;
+      const closeButtonNoWrap = closeButton ? getComputedStyle(closeButton).whiteSpace === 'nowrap' : false;
+      const globalPreviewLabel = document.getElementById('btn-google-preview')?.textContent?.trim() || '';
       await handleGoogleRollback();
       return {
         restoreCalls,
         previewCalls,
+        previewKinds,
         rollbackCalls,
         confirms,
         alerts,
@@ -983,11 +1023,21 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         rollbackVisible,
         fileStatusText,
         fileNameText,
+        previewButtonKinds,
+        previewButtonLabels,
+        settingsPreviewTitle,
+        settingsPreviewJson,
+        checklistPreviewTitle,
+        checklistPreviewJson,
+        copyButtonNoWrap,
+        closeButtonNoWrap,
+        globalPreviewLabel,
       };
     })()
   `) as {
     restoreCalls: string[][];
     previewCalls: number;
+    previewKinds: Array<string | undefined>;
     rollbackCalls: number;
     confirms: string[];
     alerts: string[];
@@ -998,10 +1048,20 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     rollbackVisible: boolean;
     fileStatusText: string;
     fileNameText: string;
+    previewButtonKinds: string[];
+    previewButtonLabels: string[];
+    settingsPreviewTitle: string;
+    settingsPreviewJson: string;
+    checklistPreviewTitle: string;
+    checklistPreviewJson: string;
+    copyButtonNoWrap: boolean;
+    closeButtonNoWrap: boolean;
+    globalPreviewLabel: string;
   };
 
   assert.deepEqual(result.restoreCalls, [['settings']]);
-  assert.equal(result.previewCalls, 1);
+  assert.equal(result.previewCalls, 3);
+  assert.deepEqual(result.previewKinds, [undefined, 'settings', 'checklist']);
   assert.equal(result.rollbackCalls, 1);
   assert.equal(result.statusVisible, true);
   assert.match(result.statusText, /일부 파일만 복원되었습니다/);
@@ -1017,6 +1077,17 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.fileStatusText, /숙제 체크리스트전송 완료/);
   assert.match(result.fileStatusText, /원격 확인 재시도 1회/);
   assert.match(result.fileNameText, /tw_overlay_settings\.json, tw_overlay_checklist\.json \(Drive AppData\)/);
+  assert.deepEqual(result.previewButtonKinds, ['settings', 'checklist']);
+  assert.deepEqual(result.previewButtonLabels, ['데이터 확인', '데이터 확인']);
+  assert.match(result.settingsPreviewTitle, /일반 설정 데이터 확인/);
+  assert.match(result.settingsPreviewJson, /"userServer": 16/);
+  assert.doesNotMatch(result.settingsPreviewJson, /characterPresets/);
+  assert.match(result.checklistPreviewTitle, /숙제 체크리스트 데이터 확인/);
+  assert.match(result.checklistPreviewJson, /characterPresets/);
+  assert.doesNotMatch(result.checklistPreviewJson, /userServer/);
+  assert.equal(result.copyButtonNoWrap, true);
+  assert.equal(result.closeButtonNoWrap, true);
+  assert.match(result.globalPreviewLabel, /전체 데이터 확인/);
   assert.equal(result.alerts.length, 2);
 }
 

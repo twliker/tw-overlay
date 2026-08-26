@@ -187,7 +187,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('google-sync-restore', selectedKinds),
   googleSyncRollback: (): Promise<GoogleSyncResult> =>
     ipcRenderer.invoke('google-sync-rollback'),
-  googleSyncPreview: (): Promise<{
+  googleSyncPreview: (kind?: GoogleSyncDataKind): Promise<{
     success: boolean;
     payload?: GoogleSyncPayload;
     fileMeta?: GoogleDriveFileMeta;
@@ -198,7 +198,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     partial?: boolean;
     error?: string;
   }> =>
-    ipcRenderer.invoke('google-sync-preview'),
+    ipcRenderer.invoke('google-sync-preview', kind),
   googleSyncToggleAuto: (enabled: boolean): Promise<GoogleSyncStatus> =>
     ipcRenderer.invoke('google-sync-toggle-auto', enabled),
 

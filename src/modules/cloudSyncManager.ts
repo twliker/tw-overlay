@@ -996,8 +996,8 @@ export async function rollbackLastRestore(): Promise<GoogleSyncResult> {
   }
 }
 
-/** 설정 화면용 미리보기: 두 데이터 파일을 하나의 읽기 전용 payload로 합쳐 반환한다. */
-export async function getCloudDataPreview(): Promise<{
+/** 설정 화면용 미리보기: 공유 generation을 검증한 뒤 요청한 데이터 파일만 읽기 전용으로 반환한다. */
+export async function getCloudDataPreview(selectedKind?: GoogleSyncDataKind): Promise<{
   success: boolean;
   payload?: GoogleSyncPayload;
   fileMeta?: googleDriveSync.DriveFileMeta;
@@ -1012,9 +1012,12 @@ export async function getCloudDataPreview(): Promise<{
   try {
     return await enqueueTransfer('미리보기', async () => {
       const files = await discoverFiles();
-      const inspections = await Promise.all((['settings', 'checklist'] as const)
+      const allInspections = await Promise.all((['settings', 'checklist'] as const)
         .map(kind => inspectRestoreCandidates(kind, files)));
-      const generationId = selectRestoreGeneration(files, inspections);
+      const generationId = selectRestoreGeneration(files, allInspections);
+      const inspections = selectedKind
+        ? allInspections.filter(inspection => inspection.kind === selectedKind)
+        : allInspections;
       const selectedCandidates = new Map<SyncKind, ValidatedRestoreCandidate>();
       const restoreResults = inspections.map(inspection => {
         const candidate = selectRestoreCandidate(inspection, generationId);
@@ -1034,11 +1037,14 @@ export async function getCloudDataPreview(): Promise<{
       const failedCount = restoreResults.filter(result => result.status !== 'available').length;
       const partial = selectedCandidates.size > 0 && failedCount > 0;
       if (!settings && !checklist) {
+        const previewFiles = selectedKind
+          ? files.candidates[selectedKind]
+          : files.all;
         return {
           success: false,
           error: restoreResults[0]?.error || '구글 드라이브에 유효한 동기화 파일이 없습니다.',
-          files: files.all,
-          fileCount: files.all.length,
+          files: previewFiles,
+          fileCount: previewFiles.length,
           restoreResults,
           partial: false,
         };
@@ -1052,6 +1058,11 @@ export async function getCloudDataPreview(): Promise<{
           localCfg,
           candidate.payload.data,
         ));
+      const previewFiles = selectedKind
+        ? [settings?.file, checklist?.file].filter(
+          (file): file is googleDriveSync.DriveFileMeta => file !== undefined,
+        )
+        : files.all;
       return {
         success: true,
         payload: {
@@ -1062,8 +1073,8 @@ export async function getCloudDataPreview(): Promise<{
           data: { ...(settings?.payload.data || {}), ...(checklist?.payload.data || {}) },
         },
         fileMeta: settings?.file || checklist?.file,
-        fileCount: files.all.length,
-        files: files.all,
+        fileCount: previewFiles.length,
+        files: previewFiles,
         restoreResults,
         changeSummaries,
         partial,

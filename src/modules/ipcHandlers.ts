@@ -866,7 +866,10 @@ export function register(): void {
     return cloudSync.syncFromCloud(true, [...normalizedKinds]);
   });
   ipcMain.handle('google-sync-rollback', async () => cloudSync.rollbackLastRestore());
-  ipcMain.handle('google-sync-preview', async () => cloudSync.getCloudDataPreview());
+  ipcMain.handle('google-sync-preview', async (_event, kind: unknown) => {
+    const normalizedKind = kind === 'settings' || kind === 'checklist' ? kind : undefined;
+    return cloudSync.getCloudDataPreview(normalizedKind);
+  });
   ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
     if (!isBoolean(enabled)) return cloudSync.getSyncStatus();
     config.saveImmediate({ googleSyncAutoSync: enabled });

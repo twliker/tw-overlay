@@ -6818,6 +6818,19 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'generation 불일치 설정 때문에 정상 숙제 미리보기가 누락되었습니다.');
   assert.equal(mismatchPreview.restoreResults.find((result: any) => result.kind === 'settings').status,
     'generation-mismatch');
+  const checklistPreview = await cloudManager.getCloudDataPreview('checklist');
+  assert.equal(checklistPreview.success, true);
+  assert.equal(checklistPreview.fileMeta.name, 'tw_overlay_checklist.json');
+  assert.equal(checklistPreview.fileCount, 1);
+  assert.deepEqual(checklistPreview.restoreResults.map((result: any) => result.kind), ['checklist']);
+  assert.equal(checklistPreview.payload.data.characterPresets !== undefined, true);
+  assert.equal(checklistPreview.payload.data.userServer, undefined,
+    '숙제 카드 미리보기에 일반 설정 데이터가 섞였습니다.');
+  const settingsPreview = await cloudManager.getCloudDataPreview('settings');
+  assert.equal(settingsPreview.success, false,
+    '공유 generation과 불일치하는 설정 파일을 카드 미리보기에서 정상 처리했습니다.');
+  assert.deepEqual(settingsPreview.restoreResults.map((result: any) => result.kind), ['settings']);
+  assert.equal(settingsPreview.restoreResults[0].status, 'generation-mismatch');
   const mismatchRestore = await cloudManager.syncFromCloud(true, ['settings', 'checklist']);
   assert.equal(mismatchRestore.success, true);
   assert.equal(mismatchRestore.partial, true);
