@@ -226,16 +226,118 @@
     }
     .markdown-body img {
       max-width: 100%;
-      height: auto;
+      width: auto;
+      height: min(360px, 45vh);
+      object-fit: contain;
       border-radius: 14px;
       border: 1px solid var(--card-border);
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
       margin: 20px 0;
       display: block;
       transition: transform 0.2s;
+      cursor: zoom-in;
     }
     .markdown-body img:hover {
       transform: scale(1.01);
+    }
+    .markdown-body img:focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 4px;
+    }
+    .image-viewer {
+      position: fixed;
+      inset: 0 0 0 var(--sidebar-width);
+      z-index: 100;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      padding: 24px;
+      background: rgba(3, 7, 18, 0.92);
+      backdrop-filter: blur(8px);
+    }
+    .image-viewer[hidden] { display: none; }
+    .image-viewer-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .image-viewer-title {
+      min-width: 0;
+      color: #e2e8f0;
+      font-size: 14px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .image-viewer-button {
+      flex: 0 0 auto;
+      min-width: 42px;
+      min-height: 42px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 10px;
+      background: rgba(30, 41, 59, 0.9);
+      color: #f8fafc;
+      cursor: pointer;
+      font-size: 18px;
+    }
+    .image-viewer-button:hover,
+    .image-viewer-button:focus-visible {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.16);
+      outline: none;
+    }
+    .image-viewer-stage {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      overscroll-behavior: contain;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.72);
+      cursor: zoom-out;
+    }
+    .image-viewer-image {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      cursor: zoom-in;
+      user-select: none;
+    }
+    .image-viewer-image.is-zoomed {
+      max-width: none;
+      max-height: none;
+      cursor: zoom-out;
+    }
+    .image-viewer-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      min-width: 0;
+      color: var(--text-muted);
+    }
+    .image-viewer-caption {
+      max-width: min(70vw, 760px);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      text-align: center;
+    }
+    .image-viewer-position {
+      flex: 0 0 auto;
+      font-size: 12px;
+      color: #7dd3fc;
     }
     .markdown-body blockquote {
       background: rgba(56, 189, 248, 0.08);
@@ -293,6 +395,13 @@
       }
       main {
         padding: 20px;
+      }
+      .image-viewer {
+        inset: 0;
+        padding: 14px;
+      }
+      .image-viewer-caption {
+        max-width: 58vw;
       }
       .mobile-menu-btn {
         display: block;
@@ -398,10 +507,95 @@
         <div class="loading-state">문서를 불러오는 중입니다...</div>
       </article>
     </div>
+    <div id="image-viewer" class="image-viewer" role="dialog" aria-modal="true" aria-labelledby="image-viewer-title" hidden>
+      <div class="image-viewer-toolbar">
+        <div id="image-viewer-title" class="image-viewer-title">가이드 이미지</div>
+        <button id="image-viewer-close" class="image-viewer-button" type="button" aria-label="이미지 닫기">×</button>
+      </div>
+      <div id="image-viewer-stage" class="image-viewer-stage">
+        <img id="image-viewer-image" class="image-viewer-image" alt="">
+      </div>
+      <div class="image-viewer-footer">
+        <button id="image-viewer-prev" class="image-viewer-button" type="button" aria-label="이전 이미지">←</button>
+        <div id="image-viewer-caption" class="image-viewer-caption"></div>
+        <span id="image-viewer-position" class="image-viewer-position"></span>
+        <button id="image-viewer-next" class="image-viewer-button" type="button" aria-label="다음 이미지">→</button>
+      </div>
+    </div>
   </main>
 
   <script>
     const DEFAULT_DOC = 'quickstart';
+    let docLoadGeneration = 0;
+    let guideImages = [];
+    let activeImageIndex = 0;
+    let imageViewerReturnFocus = null;
+
+    function isImageViewerOpen() {
+      return !document.getElementById('image-viewer').hidden;
+    }
+
+    function renderImageViewer() {
+      const item = guideImages[activeImageIndex];
+      if (!item) return;
+      const viewerImage = document.getElementById('image-viewer-image');
+      const caption = item.alt || `가이드 이미지 ${activeImageIndex + 1}`;
+      viewerImage.classList.remove('is-zoomed');
+      viewerImage.src = item.src;
+      viewerImage.alt = caption;
+      document.getElementById('image-viewer-title').textContent = caption;
+      document.getElementById('image-viewer-caption').textContent = caption;
+      document.getElementById('image-viewer-position').textContent = `${activeImageIndex + 1} / ${guideImages.length}`;
+      const hasMultipleImages = guideImages.length > 1;
+      document.getElementById('image-viewer-prev').hidden = !hasMultipleImages;
+      document.getElementById('image-viewer-next').hidden = !hasMultipleImages;
+    }
+
+    function openImageViewer(index, trigger) {
+      if (!guideImages[index]) return;
+      activeImageIndex = index;
+      imageViewerReturnFocus = trigger || document.activeElement;
+      renderImageViewer();
+      document.getElementById('image-viewer').hidden = false;
+      document.getElementById('main-content').style.overflow = 'hidden';
+      document.getElementById('image-viewer-close').focus();
+    }
+
+    function closeImageViewer(restoreFocus = true) {
+      const viewer = document.getElementById('image-viewer');
+      if (viewer.hidden) return;
+      viewer.hidden = true;
+      document.getElementById('main-content').style.overflow = '';
+      document.getElementById('image-viewer-image').classList.remove('is-zoomed');
+      if (restoreFocus && imageViewerReturnFocus && imageViewerReturnFocus.isConnected) {
+        imageViewerReturnFocus.focus();
+      }
+      imageViewerReturnFocus = null;
+    }
+
+    function showAdjacentImage(offset) {
+      if (guideImages.length < 2) return;
+      activeImageIndex = (activeImageIndex + offset + guideImages.length) % guideImages.length;
+      renderImageViewer();
+    }
+
+    function initializeImageGallery() {
+      const images = Array.from(document.querySelectorAll('#doc-content img'));
+      guideImages = images.map(image => ({ src: image.src, alt: image.alt }));
+      activeImageIndex = 0;
+      images.forEach((image, index) => {
+        image.tabIndex = 0;
+        image.setAttribute('role', 'button');
+        image.setAttribute('aria-label', `${image.alt || `가이드 이미지 ${index + 1}`} 확대`);
+        image.addEventListener('click', () => openImageViewer(index, image));
+        image.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openImageViewer(index, image);
+          }
+        });
+      });
+    }
 
     function getDocFromUrl() {
       const params = new URLSearchParams(window.location.search);
@@ -409,6 +603,10 @@
     }
 
     async function loadDoc(docName) {
+      const generation = ++docLoadGeneration;
+      closeImageViewer(false);
+      guideImages = [];
+      activeImageIndex = 0;
       const contentEl = document.getElementById('doc-content');
       contentEl.innerHTML = '<div class="loading-state">문서를 불러오는 중입니다...</div>';
 
@@ -433,11 +631,14 @@
         const res = await fetch(`../${docName}.md`);
         if (!res.ok) throw new Error(`문서를 찾을 수 없습니다 (${res.status})`);
         let mdText = await res.text();
+        if (generation !== docLoadGeneration) return;
         // 이미지 경로 정규화: ../screenshot/ 또는 ./screenshot/ 모두 올바르게 렌더링되도록 보정
         mdText = mdText.replace(/!\[(.*?)\]\((?:\.\/|\.\.\/)?screenshot\/(.*?)\)/g, '![$1](../screenshot/$2)');
         contentEl.innerHTML = marked.parse(mdText);
+        initializeImageGallery();
         document.getElementById('main-content').scrollTop = 0;
       } catch (err) {
+        if (generation !== docLoadGeneration) return;
         contentEl.innerHTML = `
           <h1>문서를 불러올 수 없습니다</h1>
           <p>요청하신 가이드 문서(<code>${docName}.md</code>)를 불러오는 중 오류가 발생했습니다.</p>
@@ -446,6 +647,23 @@
         `;
       }
     }
+
+    document.getElementById('image-viewer-close').addEventListener('click', () => closeImageViewer());
+    document.getElementById('image-viewer-prev').addEventListener('click', () => showAdjacentImage(-1));
+    document.getElementById('image-viewer-next').addEventListener('click', () => showAdjacentImage(1));
+    document.getElementById('image-viewer-stage').addEventListener('click', event => {
+      if (event.target === event.currentTarget) closeImageViewer();
+    });
+    document.getElementById('image-viewer-image').addEventListener('click', event => {
+      event.stopPropagation();
+      event.currentTarget.classList.toggle('is-zoomed');
+    });
+    document.addEventListener('keydown', event => {
+      if (!isImageViewerOpen()) return;
+      if (event.key === 'Escape') closeImageViewer();
+      if (event.key === 'ArrowLeft') showAdjacentImage(-1);
+      if (event.key === 'ArrowRight') showAdjacentImage(1);
+    });
 
     function filterNav(keyword) {
       const q = keyword.trim().toLowerCase();
