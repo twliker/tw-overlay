@@ -25,7 +25,7 @@ const STATIC_WINDOW_DEFINITIONS: readonly StaticWindowDefinition[] = [
   { key: 'equipmentDic', html: 'equipment-dic.html', width: 1120, height: 800 },
   { key: 'buffs', html: 'buffs.html', width: 1080, height: 740 },
   { key: 'bossSettings', html: 'boss-settings.html', width: 460, height: 780 },
-  { key: 'etaRanking', html: 'eta-ranking.html', width: 400, height: 600 },
+  { key: 'etaRanking', html: 'eta-ranking.html', width: 680, height: 720 },
   { key: 'trade', html: 'trade.html', width: 450, height: 600 },
   { key: 'coefficientCalculator', html: 'coefficient-calculator.html', width: 1420, height: 860 },
   { key: 'contentsChecker', html: 'contents-checker.html', width: 400, height: 1200 },

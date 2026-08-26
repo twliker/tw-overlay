@@ -22,6 +22,7 @@
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             background: rgba(255, 255, 255, 0.02);
             border: 1px solid rgba(255, 255, 255, 0.05);
+            min-width: 0;
         }
 
         .post-item:hover {
@@ -31,6 +32,17 @@
 
         .no-drag {
             -webkit-app-region: no-drag;
+        }
+
+        @media (max-width: 600px), (max-height: 640px) {
+            .eta-content {
+                padding: 16px;
+                gap: 14px;
+            }
+
+            .eta-safety-note {
+                padding: 10px;
+            }
         }
     </style>
 
@@ -61,7 +73,7 @@
         </div>
     </div>
 
-    <div class="flex-1 overflow-hidden flex flex-col p-6 space-y-5 no-drag">
+    <div class="eta-content flex-1 min-h-0 overflow-hidden flex flex-col p-6 gap-5 no-drag">
         <!-- 검색 영역 -->
         <div class="flex flex-col gap-2.5">
             <div class="flex gap-3 bg-black/40 px-4 py-2.5 rounded-xl border border-white/5 items-center">
@@ -88,7 +100,7 @@
                     id="search-btn">검색</button>
             </div>
 
-            <div class="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex flex-col gap-1 mt-1">
+            <div class="eta-safety-note bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex flex-col gap-1 mt-1">
                 <div class="flex items-center gap-1.5 text-red-400 font-bold text-xs">
                     <i data-lucide="alert-triangle" class="w-4 h-4"></i>
                     <span>사기 거래 주의!</span>
@@ -121,7 +133,7 @@
                         <i data-lucide="users" class="w-3.5 h-3.5"></i> 최상위 랭킹 (전체)
                     </h3>
                 </div>
-                <div id="ranking-list" class="space-y-2">
+                <div id="ranking-list" class="space-y-2" aria-live="polite">
                     <!-- 랭킹 아이템들이 여기에 추가됨 -->
                 </div>
             </div>
@@ -129,6 +141,13 @@
     </div>
 
     <script>
+        const escapeHtml = (value) => String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
         function renderList(entries) {
             const list = document.getElementById('ranking-list');
             list.innerHTML = '';
@@ -149,16 +168,16 @@
 
                 div.innerHTML = `
           <div class="w-10 text-sm ${rankClass} font-black tracking-tighter text-center">
-            ${e.rank}
-          </div>
-          <div class="flex-1 flex flex-col truncate ml-1">
-            <span class="text-sm text-slate-200 font-bold truncate">${e.nickname}</span>
-            <span class="text-xs text-slate-500 font-bold">${e.character}</span>
-          </div>
-          <div class="flex flex-col items-end">
-            <div class="text-xs text-yellow-400 font-black"><span class="text-xs text-slate-500 mr-1">Lv.</span>${e.level}</div>
-            <div class="text-xs text-slate-500 font-bold mt-0.5">${e.point.toLocaleString()} 정수</div>
-          </div>
+                            ${escapeHtml(e.rank)}
+                        </div>
+                        <div class="flex-1 flex flex-col truncate ml-1">
+                            <span class="text-sm text-slate-200 font-bold truncate">${escapeHtml(e.nickname)}</span>
+                            <span class="text-xs text-slate-500 font-bold truncate">${escapeHtml(e.character)}</span>
+                        </div>
+                        <div class="flex flex-col items-end">
+                            <div class="text-xs text-yellow-400 font-black"><span class="text-xs text-slate-500 mr-1">Lv.</span>${escapeHtml(e.level)}</div>
+                            <div class="text-xs text-slate-500 font-bold mt-0.5">${escapeHtml(Number(e.point).toLocaleString())} 정수</div>
+                        </div>
         `;
                 list.appendChild(div);
             });
@@ -208,7 +227,7 @@
 
             } catch (err) {
                 console.error(err);
-                list.innerHTML = `<div class="text-xs font-bold text-red-400 text-center py-6">조회 실패: ${err.message}</div>`;
+                list.innerHTML = `<div class="text-xs font-bold text-red-400 text-center py-6">조회 실패: ${escapeHtml(err?.message || '잠시 후 다시 시도해 주세요.')}</div>`;
             } finally {
                 input.disabled = false;
                 document.querySelectorAll('input[name="server"]').forEach(el => el.disabled = false);

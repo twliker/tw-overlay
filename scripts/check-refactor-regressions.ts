@@ -1684,7 +1684,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       settings: ['settings.html', 1100, 720, false], gallery: ['gallery.html', 450, 600, false],
       abbreviation: ['abbreviation.html', 540, 720, false], equipmentDic: ['equipment-dic.html', 1120, 800, false],
       buffs: ['buffs.html', 1080, 740, false], bossSettings: ['boss-settings.html', 460, 780, false],
-      etaRanking: ['eta-ranking.html', 400, 600, false], trade: ['trade.html', 450, 600, false],
+      etaRanking: ['eta-ranking.html', 680, 720, false], trade: ['trade.html', 450, 600, false],
       coefficientCalculator: ['coefficient-calculator.html', 1420, 860, false], contentsChecker: ['contents-checker.html', 400, 1200, false],
       focusedChat: ['focused-chat.html', 460, 720, false], evolutionCalculator: ['evolution-calculator.html', 600, 720, false],
       thesisCoreCalculator: ['thesis-core-calculator.html', 850, 880, false], magicStoneCalculator: ['magic-stone-calculator.html', 400, 800, false],

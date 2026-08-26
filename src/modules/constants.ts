@@ -233,6 +233,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   chatOverlayHeight: 400,
   focusedChatWidth: 460,
   focusedChatHeight: 720,
+  etaRankingWidth: 680,
+  etaRankingHeight: 720,
   chatOverlaySelectedChannels: [...chatChannels.OVERLAY_CHANNELS],
   chatOverlaySubWidth: 450,
   chatOverlaySubHeight: 400,

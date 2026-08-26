@@ -3,9 +3,9 @@ import type { WindowPositionKey } from '../shared/types';
 
 interface WindowSizeFields {
   width: keyof Pick<AppConfig,
-    'chatOverlayWidth' | 'chatOverlaySubWidth' | 'chatOverlaySub2Width' | 'focusedChatWidth' | 'contentsCheckerWidth'>;
+    'chatOverlayWidth' | 'chatOverlaySubWidth' | 'chatOverlaySub2Width' | 'focusedChatWidth' | 'etaRankingWidth' | 'contentsCheckerWidth'>;
   height: keyof Pick<AppConfig,
-    'chatOverlayHeight' | 'chatOverlaySubHeight' | 'chatOverlaySub2Height' | 'focusedChatHeight' | 'contentsCheckerHeight'>;
+    'chatOverlayHeight' | 'chatOverlaySubHeight' | 'chatOverlaySub2Height' | 'focusedChatHeight' | 'etaRankingHeight' | 'contentsCheckerHeight'>;
 }
 
 export type ManagedWindowSizePolicy = 'fit-work-area' | 'user-resizable' | 'game-fixed';
@@ -20,6 +20,7 @@ const RESIZABLE_WINDOW_FIELDS: Partial<Record<WindowPositionKey, WindowSizeField
   chatOverlaySub: { width: 'chatOverlaySubWidth', height: 'chatOverlaySubHeight' },
   chatOverlaySub2: { width: 'chatOverlaySub2Width', height: 'chatOverlaySub2Height' },
   focusedChat: { width: 'focusedChatWidth', height: 'focusedChatHeight' },
+  etaRanking: { width: 'etaRankingWidth', height: 'etaRankingHeight' },
   contentsChecker: { width: 'contentsCheckerWidth', height: 'contentsCheckerHeight' },
 };
 
@@ -69,8 +70,8 @@ export function resolveManagedWindowSizing(
   const policy = getManagedWindowSizePolicy(key);
   const isResizable = policy === 'user-resizable';
   const isChatOverlay = key === 'chatOverlay' || key === 'chatOverlaySub' || key === 'chatOverlaySub2';
-  const requestedMinWidth = key === 'focusedChat' ? 360 : (key === 'diary' ? 900 : (isChatOverlay ? 300 : (fields ? 200 : undefined)));
-  const requestedMinHeight = key === 'focusedChat' ? 360 : (key === 'diary' ? 650 : (isChatOverlay ? 80 : (fields ? 200 : undefined)));
+  const requestedMinWidth = key === 'focusedChat' ? 360 : (key === 'etaRanking' ? 520 : (key === 'diary' ? 900 : (isChatOverlay ? 300 : (fields ? 200 : undefined))));
+  const requestedMinHeight = key === 'focusedChat' ? 360 : (key === 'etaRanking' ? 560 : (key === 'diary' ? 650 : (isChatOverlay ? 80 : (fields ? 200 : undefined))));
   const requestedWidth = storedWidth ? storedWidth : defaultWidth;
   const requestedHeight = storedHeight ? storedHeight : defaultHeight;
   const maxWidth = Math.max(1, Math.floor(workAreaSize.width) - WORK_AREA_MARGIN);

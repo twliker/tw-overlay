@@ -509,6 +509,8 @@ export interface AppConfig {
     chatOverlayHeight?: number;
     focusedChatWidth?: number;
     focusedChatHeight?: number;
+    etaRankingWidth?: number;
+    etaRankingHeight?: number;
     contentsCheckerWidth?: number;
     contentsCheckerHeight?: number;
     followGameWindow?: boolean;
