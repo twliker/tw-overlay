@@ -5836,6 +5836,12 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '불러오기 버튼에 클라우드 복원 설명이 없습니다.');
   assert.match(settingsSource, /id="settings-custom-tooltip"[^>]+role="tooltip"/,
     'Google 동기화 버튼의 커스텀 툴팁 컨테이너가 없습니다.');
+  assert.match(settingsSource, /previewButton[\s\S]*?setSettingsCustomTooltip\(previewButton/,
+    '파일별 데이터 확인 버튼이 커스텀 툴팁을 사용하지 않습니다.');
+  assert.match(settingsSource, /setSettingsCustomTooltip\(rollbackBtn/,
+    '마지막 불러오기 되돌리기 버튼이 커스텀 툴팁을 사용하지 않습니다.');
+  assert.doesNotMatch(settingsSource, /btn-google-preview[^>]+title=|previewButton\.title|rollbackBtn\.title|local\.title|cloud\.title|retry\.title/,
+    'Google 동기화 영역에 브라우저 기본 title 툴팁이 남아 있습니다.');
 
   const shutdownCoordinator = require(path.join(projectRoot, 'dist', 'modules', 'shutdownCoordinator.js'));
   const shutdownGate = shutdownCoordinator.createShutdownGate();

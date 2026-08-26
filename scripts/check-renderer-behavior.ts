@@ -1010,6 +1010,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         pullRetryCount: 1
       });
       const rollbackVisible = !document.getElementById('btn-google-rollback')?.classList.contains('hidden');
+      const rollbackTooltip = document.getElementById('btn-google-rollback')?.getAttribute('data-settings-tooltip') || '';
       const fileStatusText = document.getElementById('google-file-sync-status')?.textContent || '';
       const fileNameText = document.getElementById('google-sync-file-name')?.textContent || '';
       const syncBadgeText = document.getElementById('google-sync-badge')?.textContent || '';
@@ -1031,6 +1032,12 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         && customTooltip?.getAttribute('aria-hidden') === 'true';
       const nativeTitlesRemoved = ['btn-google-backup', 'btn-google-restore', 'btn-google-logout']
         .every(id => !document.getElementById(id)?.hasAttribute('title'));
+      const cloudTooltipElements = Array.from(document.querySelectorAll(
+        '#google-sync-advanced [data-settings-tooltip], #btn-google-logout, #btn-google-backup, #btn-google-restore'
+      ));
+      const cloudTooltipsUnified = cloudTooltipElements.length >= 10
+        && cloudTooltipElements.every(element => !element.hasAttribute('title')
+          && element.getAttribute('aria-describedby') === 'settings-custom-tooltip');
       const previewButtons = Array.from(document.querySelectorAll('[data-google-preview-kind]'));
       previewButtons[0]?.click();
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -1083,6 +1090,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         summaryText,
         summaryVisible,
         rollbackVisible,
+        rollbackTooltip,
         fileStatusText,
         fileNameText,
         syncBadgeText,
@@ -1091,6 +1099,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         customTooltipShown,
         customTooltipHidden,
         nativeTitlesRemoved,
+        cloudTooltipsUnified,
         syncActivityTexts,
         previewButtonKinds,
         previewButtonLabels,
@@ -1120,6 +1129,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     summaryText: string;
     summaryVisible: boolean;
     rollbackVisible: boolean;
+    rollbackTooltip: string;
     fileStatusText: string;
     fileNameText: string;
     syncBadgeText: string;
@@ -1128,6 +1138,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     customTooltipShown: boolean;
     customTooltipHidden: boolean;
     nativeTitlesRemoved: boolean;
+    cloudTooltipsUnified: boolean;
     syncActivityTexts: Record<string, string>;
     previewButtonKinds: string[];
     previewButtonLabels: string[];
@@ -1158,6 +1169,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.summaryText, /showTodaySummaryHud/);
   assert.match(result.confirms[0], /변경 1개, 현재 PC 유지 1개/);
   assert.equal(result.rollbackVisible, true);
+  assert.match(result.rollbackTooltip, /마지막 불러오기 전.*백업 시각/);
   assert.match(result.fileStatusText, /일반 설정대기 2개/);
   assert.match(result.fileStatusText, /업로드 재시도 1회/);
   assert.match(result.fileStatusText, /숙제 체크리스트전송 완료/);
@@ -1171,6 +1183,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.equal(result.customTooltipShown, true, 'Google 동기화 버튼의 커스텀 툴팁이 표시되지 않습니다.');
   assert.equal(result.customTooltipHidden, true, 'Google 동기화 버튼에서 벗어난 뒤 커스텀 툴팁이 닫히지 않습니다.');
   assert.equal(result.nativeTitlesRemoved, true, 'Google 동기화 버튼에 브라우저 기본 title 툴팁이 남아 있습니다.');
+  assert.equal(result.cloudTooltipsUnified, true, 'Google 동기화 영역에 기본 title 또는 비통일 툴팁이 남아 있습니다.');
   assert.match(result.syncActivityTexts.upload, /클라우드에 저장 중/);
   assert.match(result.syncActivityTexts.download, /클라우드에서 불러오는 중/);
   assert.match(result.syncActivityTexts.checking, /새 변경 확인 중/);

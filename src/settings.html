@@ -2755,7 +2755,7 @@
 
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <div class="flex flex-wrap items-center gap-2">
-                      <button id="btn-google-preview" onclick="handleGooglePreviewNow()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-blue-400 text-xs font-bold rounded-xl transition-all flex items-center gap-1 border border-white/10 whitespace-nowrap flex-shrink-0" title="클라우드에 저장된 설정과 숙제 JSON 원본 보기">
+                      <button id="btn-google-preview" onclick="handleGooglePreviewNow()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-blue-400 text-xs font-bold rounded-xl transition-all flex items-center gap-1 border border-white/10 whitespace-nowrap flex-shrink-0" data-settings-tooltip="클라우드에 저장된 일반 설정과 숙제 체크리스트의 JSON 원본을 확인합니다." aria-describedby="settings-custom-tooltip">
                         <i data-lucide="files" class="w-3.5 h-3.5"></i> 전체 데이터 확인
                       </button>
                       <button id="btn-google-rollback" onclick="handleGoogleRollback()" class="hidden px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 transition flex items-center gap-1.5">
@@ -3050,6 +3050,18 @@
       settingsCustomTooltip.style.visibility = 'hidden';
       settingsCustomTooltip.setAttribute('aria-hidden', 'true');
       activeSettingsTooltipTarget = null;
+    }
+
+    function setSettingsCustomTooltip(target, text) {
+      if (!target) return;
+      if (text) {
+        target.setAttribute('data-settings-tooltip', text);
+        target.setAttribute('aria-describedby', 'settings-custom-tooltip');
+      } else {
+        target.removeAttribute('data-settings-tooltip');
+        target.removeAttribute('aria-describedby');
+      }
+      target.removeAttribute('title');
     }
 
     document.addEventListener('mouseover', event => {
@@ -3612,7 +3624,10 @@
         const failed = ['missing', 'invalid', 'generation-mismatch'].includes(result.status);
         detail.className = failed ? 'text-amber-300 text-right' : 'text-slate-300 text-right';
         detail.textContent = statusLabels[result.status] || result.status;
-        if (result.error) detail.title = result.error;
+        if (result.error) {
+          detail.classList.add('cursor-help');
+          setSettingsCustomTooltip(detail, result.error);
+        }
         row.append(name, detail);
         container.appendChild(row);
       }
@@ -3679,6 +3694,9 @@
     function renderGoogleFileStatuses(fileStatuses, pullRetryCount = 0) {
       const container = document.getElementById('google-file-sync-status');
       if (!container) return;
+      if (activeSettingsTooltipTarget && container.contains(activeSettingsTooltipTarget)) {
+        hideSettingsCustomTooltip();
+      }
       container.replaceChildren();
       const labels = { settings: '일반 설정', checklist: '숙제 체크리스트' };
       for (const status of Array.isArray(fileStatuses) ? fileStatuses : []) {
@@ -3698,7 +3716,7 @@
         previewButton.type = 'button';
         previewButton.dataset.googlePreviewKind = status.kind;
         previewButton.className = 'px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-400 text-xs font-bold rounded-xl transition-all inline-flex items-center gap-1 border border-white/10 whitespace-nowrap flex-shrink-0';
-        previewButton.title = `${labels[status.kind] || status.kind} 클라우드 JSON 원본 보기`;
+        setSettingsCustomTooltip(previewButton, `${labels[status.kind] || status.kind}의 클라우드 JSON 원본을 확인합니다.`);
         const previewIcon = document.createElement('i');
         previewIcon.dataset.lucide = 'file-json';
         previewIcon.className = 'w-3.5 h-3.5 flex-shrink-0';
@@ -3711,20 +3729,23 @@
         card.appendChild(top);
 
         const local = document.createElement('div');
-        local.className = 'text-[11px] text-slate-400 font-mono truncate';
+        local.className = 'text-[11px] text-slate-400 font-mono truncate cursor-help';
         local.textContent = `로컬 ${String(status.localChecksum || '-').slice(0, 12)}`;
-        local.title = status.localChecksum || '';
+        setSettingsCustomTooltip(local, status.localChecksum ? `로컬 체크섬: ${status.localChecksum}` : '로컬 체크섬이 아직 없습니다.');
         const cloud = document.createElement('div');
-        cloud.className = 'text-[11px] text-slate-400 font-mono truncate';
+        cloud.className = 'text-[11px] text-slate-400 font-mono truncate cursor-help';
         cloud.textContent = `클라우드 ${String(status.cloudRevision || '확인 전').slice(0, 20)}`;
-        cloud.title = status.cloudRevision || '';
+        setSettingsCustomTooltip(cloud, status.cloudRevision ? `클라우드 revision: ${status.cloudRevision}` : '클라우드 revision을 아직 확인하지 않았습니다.');
         card.append(local, cloud);
 
         if (status.retryCount > 0 || status.lastError) {
           const retry = document.createElement('div');
           retry.className = 'text-[11px] text-rose-300';
           retry.textContent = `업로드 재시도 ${status.retryCount || 0}회${status.lastError ? ' · 최근 실패' : ''}`;
-          if (status.lastError) retry.title = status.lastError;
+          if (status.lastError) {
+            retry.classList.add('cursor-help');
+            setSettingsCustomTooltip(retry, status.lastError);
+          }
           card.appendChild(retry);
         }
         container.appendChild(card);
@@ -3796,9 +3817,9 @@
       if (rollbackBtn) {
         rollbackBtn.classList.toggle('hidden', status.localBackupAvailable !== true);
         rollbackBtn.disabled = !!status.isSyncing;
-        rollbackBtn.title = status.localBackupCreatedAt
-          ? `복원 전 백업: ${formatSyncTime(status.localBackupCreatedAt)}`
-          : '마지막 클라우드 복원 전 로컬 설정으로 되돌립니다.';
+        setSettingsCustomTooltip(rollbackBtn, status.localBackupCreatedAt
+          ? `마지막 불러오기 전 이 PC의 상태로 되돌립니다. 백업 시각: ${formatSyncTime(status.localBackupCreatedAt)}`
+          : '마지막 불러오기 전 이 PC의 상태로 되돌립니다.');
       }
       renderGoogleRestoreStatus(status.restoreResults, status.restorePartial, status.profileState);
       renderGoogleFileStatuses(status.fileStatuses, status.pullRetryCount);
