@@ -310,7 +310,34 @@ npm run test:zorder:windows
   - 코멘트:
   - 증거/로그:
 
-## 9. 선택적 고위험 복원 경계
+## 9. Microsoft Store 패키지
+
+- [ ] **MST-01 — 제출할 AppX 내부 검증을 통과한다.**
+  - 실행: `npm run verify:appx -- dist_electron/twOverlay-3.0.0.appx`
+  - 합격: `passed: true`이며 TW-Overlay 타일 4개, `runFullTrust`·`allowElevation`, `Microsoft.VCLibs.140.00.UWPDesktop`, 앱 진입점과 Windows x64 네이티브 모듈이 모두 확인된다.
+  - AppX SHA-256:
+  - 코멘트:
+
+- [ ] **MST-02 — 서명된 Store 패키지의 타일이 제품을 올바르게 나타낸다.**
+  - 사전 조건: Partner Center 서명본·비공개 flight 또는 제출본 복사본의 테스트 서명 패키지를 사용한다.
+  - 합격: 설치 화면과 시작 메뉴의 정사각형·와이드 타일 어디에도 Electron 기본 이미지가 없고 TW-Overlay 전용 이미지가 표시된다.
+  - Windows 빌드:
+  - 코멘트:
+  - 증거:
+
+- [ ] **MST-03 — Store 설치본을 처음 실행하고 다시 실행해도 시작 크래시가 없다.**
+  - 합격: 두 실행 모두 UAC 승인 뒤 사이드바가 열리고 `koffi.node` 또는 `A JavaScript error occurred in the main process` 대화상자가 나타나지 않는다. 설치된 package dependency에 `Microsoft.VCLibs.140.00.UWPDesktop` x64가 존재한다.
+  - 첫 실행 결과:
+  - 두 번째 실행 결과:
+  - 코멘트:
+  - 증거/로그:
+
+- [ ] **MST-04 — Store 런타임 기본 기능과 업데이트 분기가 정상이다.**
+  - 합격: 주요 오버레이 하나와 숙제 체크리스트를 열고 정상 종료할 수 있으며 GitHub 자체 업데이트 다운로드가 시작되지 않는다.
+  - 코멘트:
+  - 증거/로그:
+
+## 10. 선택적 고위험 복원 경계
 
 자동 테스트로 이미 검증한 항목이다. 실제 Google Drive AppData나 정상 사용자 데이터를 직접 손상시켜야 한다면 수행하지 않아도 된다. 전용 테스트 계정과 백업이 있을 때만 진행한다.
 
@@ -329,7 +356,7 @@ npm run test:zorder:windows
 - [ ] **OPT-05 — generation 불일치 파일만 격리**
   - 코멘트:
 
-## 10. 최종 판정
+## 11. 최종 판정
 
 - [ ] 필수 항목의 모든 실패가 수정되고 같은 시나리오를 재검증했다.
 - [ ] 미수행 항목의 사유와 릴리즈 영향이 코멘트에 기록돼 있다.
@@ -337,6 +364,7 @@ npm run test:zorder:windows
 - [ ] 수렴 후 2분 동안 echo upload가 없다.
 - [ ] 실게임 Z-order 30~60분 소크가 통과했다.
 - [ ] Windows 종료·재부팅 뒤 데이터가 보존됐다.
+- [ ] Microsoft Store AppX 내부 검증과 서명 설치본 2회 실행이 통과했다.
 - [ ] 민감 정보가 문서·화면 캡처·공유 로그에 포함되지 않았다.
 - [ ] 최종 `npm run typecheck`, `npm test`, `git diff --check`가 통과했다.
 

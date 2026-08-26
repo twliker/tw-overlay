@@ -87,6 +87,8 @@ git diff --check
 
 자동 감사 커밋 `d202343` 기준 검토 범위는 56개 파일, 6,978줄 추가, 799줄 삭제다. `dist`, `dist-tools`, `dist_electron`, `release`, `out` 생성 산출물은 Git 변경 범위에 포함되지 않았다. `build/appx` PNG 4개는 Microsoft Store 패키징용 원본 자산이며 생성 결과물이 아니다.
 
+`fa99ad6`, `609ba41`에서 Microsoft Store 인증에 제출된 2.7.0 AppX의 Electron 기본 타일, `allowElevation` 누락과 Koffi 시작 크래시를 분석했다. `koffi.node`는 패키지에 있었지만 `MSVCP140.dll`·`VCRUNTIME140.dll`·`VCRUNTIME140_1.dll`을 제공할 Desktop Bridge framework 선언이 없어 Windows loader가 실패했다. 전용 manifest에 `Microsoft.VCLibs.140.00.UWPDesktop` 의존성을 추가했고, `npm run dist:appx`는 생성 archive의 manifest·VCLibs, 승인된 제품 타일 SHA-256, ASAR 진입점·Store 업데이트 분기, Windows x64 네이티브 모듈과 Koffi의 VC DLL import까지 자동 검증한다. 수정된 beta AppX는 통과하고 과거 제출본은 실패하는 것을 확인했으며, Partner Center 서명본의 Windows 11 framework 자동 설치와 첫 실행·재실행은 필수 실기로 남겼다.
+
 후속 감사 커밋 `3437723` 기준 `origin/beta/v2.7.0`의 `93d2922` 이후는 12개 파일, 2,059줄 추가, 50줄 삭제다. 실제 제품 변경은 `cloudSyncManager.ts`의 canonical operation 수렴과 `coefficient-calculator.html`의 소형 화면 overflow 수정 두 파일이며, 나머지는 런타임 probe·회귀 검사·문서다. 생성 산출물이나 미완료 TODO/FIXME는 추가되지 않았다.
 
 구형 클라우드 계약 제거 커밋 `5b7fd7e` 기준 같은 범위는 14개 파일, 2,081줄 추가, 74줄 삭제다. 제품 변경은 위 두 파일과 `googleDriveSync.ts`, `settings.html`까지 네 파일이며, 마지막 두 파일은 미배포 구 단일 파일 API 제거와 정식 분리 파일 UI 표시 수정이다. 생성 산출물은 추가되지 않았다.

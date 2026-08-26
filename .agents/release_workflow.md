@@ -229,11 +229,44 @@ npm run dist:appx
 ```
 
 * **빌드 결과**: `dist_electron/twOverlay-X.Y.Z.appx`
+* `npm run dist:appx`는 패키지 생성 직후 `scripts/verify-appx-package.ts`를 자동 실행합니다. 다음 항목 중 하나라도 다르면 명령 전체가 실패하므로 해당 파일을 제출하지 않습니다.
+  - manifest의 Identity·Publisher·버전·실행 진입점
+  - `runFullTrust`, `allowElevation`, 최소 Windows 버전
+  - Koffi의 `MSVCP140.dll`·`VCRUNTIME140.dll`·`VCRUNTIME140_1.dll`을 제공하는 `Microsoft.VCLibs.140.00.UWPDesktop` framework 의존성
+  - TW-Overlay 전용 타일 이미지 4개의 승인된 SHA-256과 패키지 내부 원본 일치
+  - ASAR의 앱 버전·main 진입점·Windows Store 업데이트 차단 분기
+  - Windows x64용 Koffi·better-sqlite3 네이티브 모듈
+* 이미 생성된 특정 파일은 다음과 같이 독립 검증합니다.
+
+```powershell
+npm run verify:appx -- dist_electron/twOverlay-X.Y.Z.appx
+```
+
 * **패키지 식별자**: `package.json`의 `appx` 설정(`applicationId: twOverlay`, `identityName: FilbertLab.TW-Overlay`, `publisher: CN=6BAF7511-7890-43A4-8630-498F620A5370`)을 참조합니다.
 * **Store 아이콘**: `build/appx/` 폴더의 `StoreLogo.png`, `Square44x44Logo.png`, `Square150x150Logo.png`, `Wide310x150Logo.png`를 사용합니다. 파일이 누락되면 Electron 기본 AppX 자산으로 대체되므로 빌드 후 패키지 내부 자산을 확인합니다.
 * **관리자 권한**: EXE의 `requireAdministrator`와 AppX의 `runFullTrust`, `allowElevation` capability를 함께 유지합니다. `allowElevation`은 Microsoft Store의 제한 capability이므로 제출 메모에 게임 창 추적·Win32 오버레이 및 네트워크 최적화 기능에 승격이 필요한 이유와 테스트 방법을 명시합니다.
 
-### 2. Microsoft Partner Center 등록 및 제출
+### 2. 실제 Store 패키지 설치·실행 게이트
+
+Store 제출용 AppX는 로컬에서 의도적으로 서명하지 않으며 Microsoft Store가 제출 뒤 서명합니다. 따라서 `-AllowUnsigned` 설치 실패를 제품 실행 실패로 판정하지 않습니다. 실제 실행 검증은 다음 중 하나로 수행합니다.
+
+- Partner Center에서 서명된 패키지 또는 비공개 flight를 내려받아 설치한다.
+- 제출 파일의 복사본만 Publisher가 일치하는 테스트 인증서로 서명해 격리된 테스트 PC에 설치한다. 테스트 서명본 자체는 제출하지 않는다.
+
+설치 뒤 다음 항목을 모두 확인합니다.
+
+- [ ] Windows 11 최신 일반 사용자 환경에서 설치가 완료된다.
+- [ ] 설치된 package dependency에 `Microsoft.VCLibs.140.00.UWPDesktop` x64가 존재한다.
+- [ ] 시작 메뉴의 정사각형·와이드 타일이 Electron 기본 이미지가 아니라 TW-Overlay 전용 이미지다.
+- [ ] 앱을 실행하면 UAC가 한 번 표시되고 승인 뒤 사이드바가 열린다.
+- [ ] 첫 실행과 완전 종료 후 두 번째 실행 모두 `A JavaScript error occurred in the main process` 대화상자가 없다.
+- [ ] 주요 오버레이 하나와 숙제 체크리스트를 열고 종료할 수 있다.
+- [ ] Store 빌드에서 GitHub 자체 업데이트 다운로드가 시작되지 않는다.
+- [ ] AppX SHA-256, Windows 빌드, 설치 시각과 실행 결과를 릴리즈 체크리스트에 기록한다.
+
+위 실행 게이트는 정적 AppX 검증으로 대체하지 않습니다. 서명된 설치본을 실제로 실행하지 못했으면 Microsoft Store 제출 준비 완료로 표시하지 않습니다.
+
+### 3. Microsoft Partner Center 등록 및 제출
 
 1. **[Microsoft Partner Center 대시보드](https://partner.microsoft.com/dashboard)** 에 로그인합니다.
 2. **TW-Overlay** 앱을 선택하고 **[새 제출 시작 (Start submission)]** 을 클릭합니다.
@@ -246,7 +279,7 @@ npm run dist:appx
    * **스크린샷**: `screenshot/` 폴더의 대표 기능 스크린샷 이미지 업로드
 5. 검토 완료 후 **[스토어에 제출 (Submit to the Store)]** 을 클릭합니다.
 
-### 3. MS Store 업데이트 동작 특이사항
+### 4. MS Store 업데이트 동작 특이사항
 
 * MS Store를 통해 설치한 사용자는 **Windows OS의 Microsoft Store 서비스가 백그라운드에서 자동으로 최신 버전 패키지를 갱신**합니다.
 * 앱 내부의 자체 GitHub 업데이터는 MS Store 환경(`process.windowsStore === true`)에서 안전하게 비활성화되어 스토어 샌드박스 충돌 및 앱 중복 설치를 원천 방지합니다.
