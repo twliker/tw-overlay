@@ -576,6 +576,8 @@
 
 **개발·자동 테스트 GA 전송 차단(2026-08-26, `899bb12`):** 패키징되지 않은 Electron 실행은 실제 `env.json`의 GA 자격 증명을 읽지 않고 분석 세션·하트비트·이벤트 전송을 시작하지 않는다. 따라서 `npm test`, `npm run test:zorder:windows`, `npm run dev`가 운영 GA 수치를 올리지 않으며, 정식 패키지는 기존 전송 동작을 유지한다. 패키지 설치본을 별도 시험할 때는 `TW_OVERLAY_DISABLE_ANALYTICS=1`로 명시 차단할 수 있다. 운영 패키지 허용, 비패키지 차단, 명시 차단 정책을 회귀 검사로 고정했고 환경 변수 우회 없이 전체 자동 게이트를 통과했으며 기존 `[Analytics] 시작됨` 테스트 로그가 발생하지 않는 것도 확인했다.
 
+**관리자 Windows Z-order probe 안정화 및 통과(2026-08-26, `a9e3805`):** 첫 관리자 실행의 창모드 전체화면 시나리오에서 제품 reconcile 로그는 게임 foreground와 `SWP_NOACTIVATE` 성공을 기록했지만 100ms 뒤 단일 boolean 검사가 실패했다. 테스트 BrowserWindow의 비동기 로딩 완료를 기다리고, 테스트 전용 입력 스레드 연결로 가짜 게임 foreground가 200ms 안정된 뒤 reconcile하도록 fixture를 수정했으며, 실패 시 reconcile 직전·직후·100ms 뒤 실제 foreground HWND 역할을 출력하도록 보강했다. 동일 관리자 명령 재실행에서 창모드와 창모드 전체화면 모두 게임·외부 앱 foreground 보존, 외부 창 우선, 오버레이 스택 복구, 게임 bounds·Topmost 불변이 통과했다. 제품 Z-order 코드는 변경하지 않았다.
+
 최종 릴리즈 게이트:
 
 - TypeScript 검사 100% 통과
