@@ -1,5 +1,10 @@
 # 환경 설정
 
+![앱 동작과 시작 방식을 정하는 일반 설정](../screenshot/settings-general.png)
+![게임 HUD와 알림을 정하는 게임 설정](../screenshot/settings-game.png)
+![채팅 오버레이의 표시 방식을 정하는 설정](../screenshot/settings-chat-overlay.png)
+![백업과 클라우드 동기화를 관리하는 데이터 설정](../screenshot/settings-data.png)
+
 ## 언제 쓰는 기능인가요?
 
 알림, 소리, 오버레이, 단축키, 메뉴 구성, 데이터 보관과 업데이트 방식을 바꿀 때 사용합니다.

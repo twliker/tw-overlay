@@ -6512,7 +6512,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       `가이드 탐색이 존재하지 않는 문서를 가리킵니다: ${docName}`);
     const userDoc = fs.readFileSync(userDocPath, 'utf8');
     const imageCount = Array.from(userDoc.matchAll(/^!\[[^\]]*\]\([^)]+\)$/gm)).length;
-    assert.ok(imageCount <= 2, `사용자 가이드 본문 이미지가 2개를 초과합니다: ${docName}`);
+    assert.ok(imageCount >= 1, `사용자 가이드 본문에 기능 이미지가 없습니다: ${docName}`);
     if (!['quickstart', 'google-drive-sync', 'experience-hud'].includes(docName)) {
       for (const heading of ['언제 쓰는 기능인가요?', '어디에서 켜나요?', '기본 사용법', '자주 혼동하는 점', '문제 해결']) {
         assert.ok(userDoc.includes(`## ${heading}`),

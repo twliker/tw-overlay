@@ -1,5 +1,8 @@
 # 빠른 시작
 
+![처음 실행 시 시작 마법사](../screenshot/quickstart-setup.png)
+![주요 게임 오버레이 기능 안내](../screenshot/quickstart-features.png)
+
 ## 설치하기
 
 TW-Overlay는 [공식 GitHub Releases](https://github.com/twliker/tw-overlay/releases)에서 Windows 설치 파일을 받을 수 있습니다. Assets에서 `twOverlay-Setup-x.x.x.exe` 형식의 파일을 내려받아 실행하세요.

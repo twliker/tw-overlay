@@ -1,6 +1,6 @@
 # 외치기 검색 & 히스토리
 
-![외치기 히스토리](../screenshot/shout-history.png)
+![지난 외치기를 검색하는 외치기 히스토리](../screenshot/shout-history.png)
 
 ## 언제 쓰는 기능인가요?
 

@@ -1,6 +1,8 @@
 # 웹 오버레이와 사이드바·독
 
-![웹 오버레이](../screenshot/overlay.png)
+![게임 화면 위에 배치되는 HUD](../screenshot/game-overlay.png)
+![기능을 여는 세로 사이드바](../screenshot/main-sidebar.png)
+![화면 아래에 배치한 독 메뉴](../screenshot/main-dock.png)
 
 ## 언제 쓰는 기능인가요?
 

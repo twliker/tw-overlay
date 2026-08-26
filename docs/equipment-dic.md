@@ -1,7 +1,7 @@
 # 장비 & 옵션 사전
 
-![장비 사전](../screenshot/equipment-dic-1.png)
-![장비 비교](../screenshot/equipment-dic-2.png)
+![이름과 종류로 찾는 장비 목록](../screenshot/equipment-dictionary.png)
+![선택한 장비의 능력치와 비교 기능](../screenshot/equipment-dictionary-detail.png)
 
 ## 언제 쓰는 기능인가요?
 

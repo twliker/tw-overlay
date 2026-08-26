@@ -1,6 +1,6 @@
 # 지능형 버프 타이머
 
-![버프 타이머](../screenshot/buff-timer.png)
+![감지할 버프와 알림 시점을 정하는 버프 타이머 설정](../screenshot/buff-timer-settings.png)
 
 ## 언제 쓰는 기능인가요?
 

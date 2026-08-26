@@ -1,6 +1,6 @@
 # 집중 대화방
 
-![집중 대화방](../screenshot/focused-chat.png)
+![선택한 상대의 대화만 모아보는 집중 대화방](../screenshot/focused-chat.png)
 
 ## 언제 쓰는 기능인가요?
 

@@ -1,6 +1,6 @@
 # 거래 게시판 모니터링
 
-![거래 게시판 모니터](../screenshot/trade.png)
+![서버별 새 거래 글을 확인하는 게시판 모니터](../screenshot/trade.png)
 
 ## 언제 쓰는 기능인가요?
 

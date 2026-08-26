@@ -7,6 +7,39 @@ import { app, BrowserWindow } from 'electron';
 const projectRoot = path.resolve(__dirname, '..');
 const testUserDataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-guide-test-'));
 
+function validateGuideScreenshotCoverage(): void {
+  const guideHtml = fs.readFileSync(path.join(projectRoot, 'docs', 'guide', 'index.html'), 'utf8');
+  const docNames = [...guideHtml.matchAll(/data-doc="([^"]+)"/g)].map(match => match[1]);
+  assert.ok(docNames.length > 0, '가이드 메뉴에서 문서를 찾지 못했습니다.');
+
+  const multiScreenDocs = new Set([
+    'quickstart', 'contents-checker', 'google-drive-sync', 'overlay',
+    'diary', 'equipment-dic', 'buffs', 'settings',
+  ]);
+
+  for (const docName of docNames) {
+    const markdownPath = path.join(projectRoot, 'docs', `${docName}.md`);
+    assert.ok(fs.existsSync(markdownPath), `${docName}.md 가이드 문서가 없습니다.`);
+    const markdown = fs.readFileSync(markdownPath, 'utf8');
+    const lines = markdown.split(/\r?\n/);
+    const titleIndex = lines.findIndex(line => /^#\s+/.test(line));
+    assert.notEqual(titleIndex, -1, `${docName}.md에 제목이 없습니다.`);
+    const firstContent = lines.slice(titleIndex + 1).find(line => line.trim().length > 0) || '';
+    assert.match(firstContent, /^!\[[^\]]+\]\([^)]+\)$/, `${docName}.md의 대표 이미지는 제목 바로 아래에 있어야 합니다.`);
+
+    const images = [...markdown.matchAll(/!\[[^\]]*\]\((?:\.\/|\.\.\/)?screenshot\/([^)]+)\)/g)]
+      .map(match => match[1]);
+    assert.ok(images.length >= 1, `${docName}.md에 기능 이미지가 없습니다.`);
+    if (multiScreenDocs.has(docName)) {
+      assert.ok(images.length >= 2, `${docName}.md는 주요 상태를 보여주는 이미지가 두 장 이상 필요합니다.`);
+    }
+    for (const imageName of images) {
+      assert.ok(fs.existsSync(path.join(projectRoot, 'docs', 'screenshot', imageName)),
+        `${docName}.md에서 참조한 ${imageName} 파일이 없습니다.`);
+    }
+  }
+}
+
 async function waitFor(window: BrowserWindow, expression: string, message: string): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < 5_000) {
@@ -39,6 +72,7 @@ function buildTestHtml(): string {
 }
 
 async function main(): Promise<void> {
+  validateGuideScreenshotCoverage();
   app.setPath('userData', testUserDataDirectory);
   await app.whenReady();
   const window = new BrowserWindow({ show: false, width: 1200, height: 800 });

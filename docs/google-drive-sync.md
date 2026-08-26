@@ -1,5 +1,8 @@
 # Google Drive 클라우드 동기화
 
+![Google 계정 연결 전 클라우드 동기화 화면](../screenshot/google-sync-login.png)
+![Google 계정 연결 후 자동 동기화 화면](../screenshot/google-sync-connected.png)
+
 ## 언제 쓰는 기능인가요?
 
 집과 회사처럼 여러 PC에서 같은 일반 설정과 숙제 체크리스트를 이어서 사용할 때 선택적으로 연결합니다. Google 로그인을 하지 않아도 TW-Overlay의 로컬 기능은 모두 사용할 수 있습니다.

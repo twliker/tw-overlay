@@ -1,6 +1,6 @@
 # 경험치 HUD
 
-![경험치 HUD](../screenshot/exp-hud.png)
+![획득 경험치와 분당 경험치를 보여주는 경험치 HUD](../screenshot/experience-hud.png)
 
 ## 언제 쓰는 기능인가요?
 

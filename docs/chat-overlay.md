@@ -1,6 +1,6 @@
 # 채팅 오버레이
 
-![채팅 오버레이](../screenshot/chat-overlay.png)
+![게임 위에 표시되는 채팅 오버레이](../screenshot/chat-overlay.png)
 
 ## 언제 쓰는 기능인가요?
 

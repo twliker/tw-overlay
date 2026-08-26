@@ -1,6 +1,6 @@
 # 갤러리 실시간 모니터링
 
-![갤러리 모니터](../screenshot/gallery.png)
+![새 글과 지정한 게시글을 확인하는 갤러리 모니터](../screenshot/gallery.png)
 
 ## 언제 쓰는 기능인가요?
 

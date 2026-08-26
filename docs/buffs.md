@@ -1,6 +1,7 @@
 # 버프 백과 & 계산기
 
-![버프 백과](../screenshot/buffs.png)
+![이미지·이름·효과·지속시간 중심의 버프 목록](../screenshot/buffs-overview.png)
+![버프의 상세 설명을 보여주는 툴팁](../screenshot/buffs-tooltip.png)
 
 ## 언제 쓰는 기능인가요?
 
