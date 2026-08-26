@@ -32,6 +32,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\collect-v3-manual-
   -StatePath 'C:\실제 userData\cloud-sync-state.json'
 ```
 
+수렴 직후 두 PC의 출력을 각각 `evidence-pc-a.json`, `evidence-pc-b.json`으로 저장하고, 사용자 조작 없이 2분 기다린 뒤 `evidence-later-pc-a.json`, `evidence-later-pc-b.json`을 같은 방식으로 저장한다. Windows PowerShell에서는 다음처럼 `Set-Content -Encoding UTF8`을 사용한다. 비교기는 Windows PowerShell의 기본 리다이렉션으로 만들어진 UTF-16 BOM 파일도 읽는다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\collect-v3-manual-evidence.ps1 `
+  -DeviceLabel PC-A `
+  -InstallerPath 'C:\검증빌드\twOverlay-Setup.exe' |
+  Set-Content -LiteralPath .\evidence-pc-a.json -Encoding UTF8
+```
+
+두 PC가 수렴한 뒤 다음 비교기를 실행한다. 교차 변경에서 기록한 operation ID는 쉼표로 연결한다. `passed: true`와 종료 코드 0이면 generation, 설정·숙제 revision, 설치 파일 hash, 빈 dirty/outbox/recovery, 양쪽 operation 보존과 2분 무 echo 조건이 모두 일치한다. 종료 코드 1은 검증 불일치, 2는 입력 파일·인수 오류다. 설치 hash를 수집하지 않은 경우에는 실패 대신 warning을 출력한다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\compare-v3-manual-evidence.ps1 `
+  -PcAPath .\evidence-pc-a.json `
+  -PcBPath .\evidence-pc-b.json `
+  -LaterPcAPath .\evidence-later-pc-a.json `
+  -LaterPcBPath .\evidence-later-pc-b.json `
+  -ExpectedOperationIds 'pc-a-operation-id,pc-b-operation-id'
+```
+
 수집기를 사용할 수 없는 경우에만 다음 최소 PowerShell을 사용한다. 값이 포함된 base snapshot과 Drive file ID는 출력하지 않는다.
 
 ```powershell
@@ -53,6 +73,8 @@ $twState = Get-Content -LiteralPath $twStatePath -Raw | ConvertFrom-Json
 6. echo upload 검증은 파일별 revision과 마지막 동기화 시각을 수렴 직후 기록하고 2분 뒤 다시 기록한다. 사용자 조작이 없었는데 revision이 바뀌면 두 PC 시각과 관련 로그 줄을 함께 남긴다.
 
 자동 수집기 검증 기록(2026-08-26, `97a9ff8`): 비밀 device/file ID, Webhook, 캐릭터 이름, 원문 오류의 로컬 경로를 포함한 상태 fixture와 임의 설치 파일을 입력했다. 결과에는 허용한 generation/revision/dirty/operation/recovery와 정확한 설치 SHA-256만 남았으며 모든 비밀 표식과 입력 파일 경로가 제외됐다. Windows PowerShell에서 `Get-FileHash` 모듈이 없는 환경도 동작하도록 SHA-256은 .NET 스트림으로 계산한다.
+
+자동 비교기 검증 기록(2026-08-26, `633a5f2`): UTF-8 PC-A 증거와 Windows PowerShell 리다이렉션 형식의 UTF-16 BOM PC-B 증거를 실제 `powershell.exe`로 비교했다. 정상 수렴과 2분 revision 유지가 통과했고 generation/checklist revision 불일치, 남은 outbox, operation 누락과 대기 중 revision 변화는 각각 실패 코드로 검출됐다. 비교 결과에는 원본 경로나 사용자 데이터가 포함되지 않는다.
 
 ## 2. 실제 두 PC 클라우드 교차 동기화
 

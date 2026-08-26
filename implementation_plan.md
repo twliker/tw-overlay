@@ -559,6 +559,8 @@
 
 **실기 증거 수집기 검증(2026-08-26, `97a9ff8`):** `scripts/collect-v3-manual-evidence.ps1`은 PC-A/PC-B label, 선택적 설치 파일 SHA-256, profile/generation/revision/dirty/operation/recovery와 파일별 복원 상태만 JSON으로 출력한다. 비밀 device ID·Drive file ID·base snapshot·Webhook·캐릭터 이름·원문 오류·입력 경로가 섞인 fixture에서 허용 정보만 남는 것을 실제 Windows PowerShell 프로세스로 확인했다. 상태와 설치 파일은 읽기 전용이며 `Get-FileHash` 모듈이 없는 환경도 .NET SHA-256으로 동작한다.
 
+**두 PC 실기 증거 비교기 검증(2026-08-26, `633a5f2`):** `scripts/compare-v3-manual-evidence.ps1`은 두 PC의 수집 JSON과 선택적인 2분 뒤 JSON을 읽어 동일 설치 hash·established profile·공유 generation·설정/숙제 revision 수렴·빈 dirty/outbox/recovery·기대 operation의 양쪽 보존·대기 중 무 revision 변경을 자동 판정한다. 정상 fixture는 종료 코드 0, generation/revision/outbox/operation/echo 불일치 fixture는 종료 코드 1을 반환했다. 실제 Windows PowerShell 프로세스에서 UTF-8과 기본 리다이렉션의 UTF-16 BOM 증거 파일을 모두 확인했으며 원본 경로와 사용자 데이터는 결과에 포함하지 않는다. 제품 코드는 변경하지 않았고 실계정 결과가 없는 체크 항목은 대기로 유지한다.
+
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 설치 파일 SHA-256, 설정 UI의 파일별 checksum/revision/pending, 원격 operation ID와 민감·사용자 값을 제외한 로컬 상태 추출 절차도 추가했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
 최종 릴리즈 게이트:
