@@ -55,18 +55,38 @@ export interface DriveFileMeta {
 
 /** Google Drive appDataFolder의 모든 파일 목록 조회 (최신 수정순) */
 export async function listSyncFiles(): Promise<DriveFileMeta[]> {
-  const query = encodeURIComponent(`trashed = false`);
-  const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,size)`;
+  const files: DriveFileMeta[] = [];
+  const seenPageTokens = new Set<string>();
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      spaces: 'appDataFolder',
+      q: 'trashed = false',
+      orderBy: 'modifiedTime desc',
+      fields: 'nextPageToken,files(id,name,modifiedTime,size)',
+      pageSize: '1000',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
+    const res = await driveFetch(url);
 
-  const res = await driveFetch(url);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`구글 드라이브 파일 목록 조회 실패 (HTTP ${res.status}): ${errText}`);
+    }
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`구글 드라이브 파일 목록 조회 실패 (HTTP ${res.status}): ${errText}`);
-  }
+    const data = (await res.json()) as { files?: DriveFileMeta[]; nextPageToken?: string };
+    files.push(...(data.files || []));
+    const nextPageToken = typeof data.nextPageToken === 'string' && data.nextPageToken.length > 0
+      ? data.nextPageToken : undefined;
+    if (nextPageToken && seenPageTokens.has(nextPageToken)) {
+      throw new Error('구글 드라이브 파일 목록이 같은 페이지 토큰을 반복했습니다.');
+    }
+    if (nextPageToken) seenPageTokens.add(nextPageToken);
+    pageToken = nextPageToken;
+  } while (pageToken);
 
-  const data = (await res.json()) as { files?: DriveFileMeta[] };
-  return data.files || [];
+  return files;
 }
 
 function escapeDriveQueryLiteral(value: string): string {

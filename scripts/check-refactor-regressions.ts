@@ -5517,6 +5517,35 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(replacementAuthPreserved, true,
     '이전 세대 토큰 갱신 실패가 새 로그인 인증 상태를 삭제했습니다.');
 
+  const googleDrive = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js'));
+  const originalGetValidAccessToken = googleAuth.getValidAccessToken;
+  const listRequestUrls: string[] = [];
+  let paginatedFiles: Array<{ id: string; name: string }> = [];
+  try {
+    googleAuth.getValidAccessToken = async () => 'regression-drive-token';
+    global.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      listRequestUrls.push(url);
+      if (url.includes('pageToken=second-page')) {
+        return new Response(JSON.stringify({
+          files: [{ id: 'older-valid-meta', name: 'tw_overlay_sync_meta.json' }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        files: [{ id: 'newer-corrupt-meta', name: 'tw_overlay_sync_meta.json' }],
+        nextPageToken: 'second-page',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    paginatedFiles = await googleDrive.listSyncFiles();
+  } finally {
+    global.fetch = originalFetch;
+    googleAuth.getValidAccessToken = originalGetValidAccessToken;
+  }
+  assert.equal(listRequestUrls.length, 2,
+    'Drive AppData 파일 목록의 nextPageToken을 따라가지 않았습니다.');
+  assert.deepEqual(paginatedFiles.map(file => file.id), ['newer-corrupt-meta', 'older-valid-meta'],
+    '두 번째 Drive 목록 페이지의 중복 파일 후보가 복원 검사에서 누락됐습니다.');
+
   const driveRequestSource = read('src/modules/googleDriveSync.ts');
   assert.match(driveRequestSource, /cancelPendingRequests/);
   assert.match(driveRequestSource, /response\.status !== 401[\s\S]*?refreshAfterUnauthorized/,
@@ -5709,7 +5738,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   googleAuth.isLoggedIn = () => true;
   googleAuth.loadStoredProfile = () => ({ email: 'integration@example.com' });
 
-  const googleDrive = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js'));
   const memoryFiles = new Map<string, { id: string; name: string; modifiedTime: string; payload: any }>();
   const downloadedFileIds: string[] = [];
   let nextFileId = 1;
