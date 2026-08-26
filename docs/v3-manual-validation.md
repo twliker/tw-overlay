@@ -2,6 +2,8 @@
 
 이 문서는 자동 fixture로 대체할 수 없는 실제 Google 계정·두 PC·Windows 세션·게임 환경 검증 절차다. 실행하지 않은 항목은 통과로 표시하지 않는다. 실패하면 시각, PC, 직전 동작, `debug.log`의 관련 구간과 화면 캡처를 남기고 릴리즈를 보류한다.
 
+실제 테스트를 수행하면서 항목별 코멘트를 기록할 때는 사용자용 [`v3-release-manual-test-checklist.md`](v3-release-manual-test-checklist.md)를 사용한다. 이 문서는 상세 합격 기준과 증거 수집 절차를 제공하는 기술 참고 문서로 유지한다.
+
 ## 1. 테스트 준비
 
 - [ ] 회사/집 역할의 서로 다른 Windows PC 두 대를 준비한다.
