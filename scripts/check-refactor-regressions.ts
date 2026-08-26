@@ -2827,6 +2827,7 @@ function checkPreloadDefaultConfigCompatibility() {
     assert.equal(exposedApi.DEFAULT_CONFIG.shortcuts.toggleTimer, 'CommandOrControl+Shift+S');
     assert.equal(typeof exposedApi.onPlaySound, 'function');
     assert.equal(typeof exposedApi.onSpecialMonsterAlert, 'function');
+    assert.equal(typeof exposedApi.onAbyssTreasureCompleteAlert, 'function');
   }
 
   const directListenerCount = (preloadSource.match(/ipcRenderer\.on\(/g) || []).length;
@@ -2846,7 +2847,7 @@ function checkPreloadDefaultConfigCompatibility() {
     'trade-connection-status', 'open-settings-tab', 'highlight-alarm-settings',
     'toolbar-hover', 'reminder-message', 'incomplete-contents', 'diary-updated',
     'xp-update', 'shout-history-updated', 'buff-timer-update', 'buff-timer-warning',
-    'xp-reset-done', 'essence-alert', 'pitta-alert', 'special-monster-alert',
+    'xp-reset-done', 'essence-alert', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert',
     'ethos-alert', 'abyss-apostle-alert', 'wave-warning-alert', 'lokagos-alert',
     'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
     'scam-alert', 'scam-analysis-result', 'scam-progress', 'scam-session-update',
@@ -2883,6 +2884,7 @@ function checkRequestedFeatureContracts() {
     'ORLY_DEFENSE_CLEAR',
     'CONTENT_SHINJO_NEST_CLEAR',
     'VESTIGE_CLEAR',
+    'ABYSS_TREASURE_COMPLETE',
     '성난\\s*빅테디의\\s*별사탕',
     '이번\\s*주\\s*신조\\s*보상을',
     '남은\\s*공격\\s*횟수',
@@ -2901,9 +2903,13 @@ function checkRequestedFeatureContracts() {
     assert.ok(processor.includes(mapping), `숙제 카운팅 매핑 누락: ${mapping}`);
   });
   assert.match(processor, /sendGameOverlayEvent\('special-monster-alert', data\)/);
+  assert.match(processor, /ABYSS_TREASURE_COMPLETE[\s\S]*?sendGameOverlayEvent\('abyss-treasure-complete-alert', data\)/);
+  assert.doesNotMatch(processor, /queue(?:Count|Fixed)Homework\('ABYSS_TREASURE_COMPLETE'/,
+    '심연의 보물창고 완료 알림이 기존 숙제 횟수를 중복 반영합니다.');
 
   const gameOverlay = read('src/game-overlay.html');
   assert.match(gameOverlay, /onSpecialMonsterAlert/);
+  assert.match(gameOverlay, /onAbyssTreasureCompleteAlert[\s\S]*?showContentComplete/);
   assert.match(read('src/renderer/game-overlay/devtools.ts'), /testSpecialMonsterAlert/);
 }
 
@@ -2920,6 +2926,10 @@ function checkRequestedChatSamples(): void {
     [
       'SPECIAL_MONSTER_SPAWN',
       '<font size="2" color="white"> [17시 11분  8초] </font><font>맵 어딘가에 특별 몬스터가 출현하였습니다.</font></br>',
+    ],
+    [
+      'ABYSS_TREASURE_COMPLETE',
+      '<font size="2" color="white"> [ 0시 38분 23초] </font> <font size="2" color="#ff64ff">3분 후 심연의 보물창고 밖으로 자동 이동합니다.</font></br>',
     ],
     [
       'ETERNAL_FLOOR_CLEAR',

@@ -97,6 +97,11 @@ interface GameOverlayAlerts {
     target: number;
     iconName: string;
   }): void;
+  showContentComplete(options: {
+    title: string;
+    badge: string;
+    iconName: string;
+  }): void;
 }
 
 interface GameOverlayEditMode {

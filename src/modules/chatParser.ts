@@ -317,6 +317,14 @@ export class ChatParser extends EventEmitter {
       });
       return;
     }
+    if (cleanMsg.includes('3분 후 심연의 보물창고 밖으로 자동 이동합니다.')) {
+      this.emit('ABYSS_TREASURE_COMPLETE', {
+        date: this._currentDate,
+        timestamp,
+        message: cleanMsg
+      });
+      return;
+    }
 
     // 7. 보급품 탈환
     const suppliesMatch = cleanMsg.match(/보급품 탈환 클리어 횟수: \[(\d+)회\/7회\]/);

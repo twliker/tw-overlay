@@ -1618,6 +1618,22 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       document.body.appendChild(alert);
       window.gameOverlayAlerts.showSpecialMonsterAlert();
 
+      const questAlert = document.createElement('div');
+      questAlert.id = 'quest-alert';
+      const questIcon = document.createElement('i');
+      questIcon.id = 'quest-alert-icon';
+      const questTitle = document.createElement('div');
+      questTitle.id = 'quest-alert-title';
+      const questBadge = document.createElement('div');
+      questBadge.id = 'quest-alert-badge';
+      questAlert.append(questIcon, questTitle, questBadge);
+      document.body.appendChild(questAlert);
+      window.gameOverlayAlerts.showContentComplete({
+        title: '심연의 보물창고 완료',
+        badge: '3분 후 보물창고 밖으로 이동합니다',
+        iconName: 'gem'
+      });
+
       let removeCount = 0;
       const tag = window.settingsListRendering.createKeywordTag(
         '<img id="injected-keyword">키워드',
@@ -1962,6 +1978,12 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
 
       return {
         alertShown: alert.classList.contains('show'),
+        contentCompleteAlert: {
+          shown: questAlert.classList.contains('show'),
+          title: questTitle.textContent,
+          badge: questBadge.textContent,
+          icon: questIcon.getAttribute('data-lucide')
+        },
         keywordText: tag.firstChild?.textContent,
         removeCount,
         soundName: soundRow.querySelector('input')?.value,
@@ -2046,6 +2068,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     })()
   `) as {
     alertShown: boolean;
+    contentCompleteAlert: { shown: boolean; title: string; badge: string; icon: string };
     keywordText: string;
     removeCount: number;
     soundName: string;
@@ -2061,6 +2084,12 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
   };
 
   assert.equal(result.alertShown, true);
+  assert.deepEqual(result.contentCompleteAlert, {
+    shown: true,
+    title: '심연의 보물창고 완료',
+    badge: '3분 후 보물창고 밖으로 이동합니다',
+    icon: 'gem',
+  });
   assert.equal(result.keywordText, '<img id="injected-keyword">키워드 ');
   assert.equal(result.removeCount, 1);
   assert.equal(result.soundName, '<img id="injected-sound">알림음');

@@ -331,6 +331,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('pitta-alert', callback),
   onSpecialMonsterAlert: (callback: (data: { message: string }) => void) =>
     bindIpcListener('special-monster-alert', callback),
+  onAbyssTreasureCompleteAlert: (callback: (data: { message: string }) => void) =>
+    bindIpcListener('abyss-treasure-complete-alert', callback),
   onEthosAlert: (callback: (data: { password: string; message: string }) => void) =>
     bindIpcListener('ethos-alert', callback),
   onAbyssApostleAlert: (callback: (data: { message: string }) => void) =>
@@ -436,7 +438,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'boss-times-data', 'play-sound', 'trade-posts', 'trade-new-activity',
       'trade-connection-status', 'open-settings-tab', 'toolbar-hover', 'reminder-message',
       'incomplete-contents', 'diary-updated', 'xp-update', 'shout-history-updated',
-      'buff-timer-update', 'buff-timer-warning', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'pitta-alert', 'special-monster-alert', 'ethos-alert', 'abyss-apostle-alert',
+      'buff-timer-update', 'buff-timer-warning', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
       'scam-alert', 'scam-progress', 'scam-session-update', 'scam-analysis-token', 'scam-analysis-result', 'wave-warning-alert', 'lokagos-alert', 'chat-updated', 'chat-overlay-mode', 'chat-history-cleared',
       'auto-select-equipment', 'auto-select-evolution',
       'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',

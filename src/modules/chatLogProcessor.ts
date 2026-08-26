@@ -404,7 +404,22 @@ class ChatLogProcessor {
       this.sendGameOverlayEvent('special-monster-alert', data);
     });
 
-    // 0-1. 이터널 플로어 보상 상자 획득 처리
+    // 0-1. 심연의 보물창고 종료 안내. 기존 입장 횟수 기반 숙제 반영과는 독립된 실시간 알림입니다.
+    chatParser.on('ABYSS_TREASURE_COMPLETE', (data) => {
+      const cfg = config.load();
+      if (cfg.questCompleteAlertEnabled === false) return;
+
+      this.sendGameOverlayEvent('abyss-treasure-complete-alert', data);
+      this.playAlertSound({
+        label: '심연의 보물창고 완료',
+        soundFile: cfg.essenceAlertSound || 'orb.mp3',
+        volume: cfg.essenceAlertVolume,
+        defaultVolume: 70,
+        logMessage: `[콘텐츠 완료] ${data.message}`
+      });
+    });
+
+    // 0-2. 이터널 플로어 보상 상자 획득 처리
     queueFixedHomework('ETERNAL_FLOOR_CLEAR', 'weekly-eternal-floor');
 
     // 1. SEED 획득 처리

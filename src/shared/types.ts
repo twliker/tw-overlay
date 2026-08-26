@@ -39,6 +39,7 @@ export interface ChatParserEventMap {
     TESIS_CORE_CLEAR: { date: string; timestamp: string; message: string };
     POWER_ROOT_CLEAR: { date: string; timestamp: string; count: number; message: string };
     ABYSS_TREASURE_ENTRY: { date: string; timestamp: string; count: number; message: string };
+    ABYSS_TREASURE_COMPLETE: { date: string; timestamp: string; message: string };
     FORTRESS_GHOST_CLEAR: { date: string; timestamp: string; count: number; message: string };
     DIGSITE_ENTRY: { date: string; timestamp: string; count?: number; message: string };
     CONTENT_SHINJO_NEST_CLEAR: { date: string; timestamp: string; count: number; message: string };

@@ -53,11 +53,36 @@
     replayAnimation(alert);
   }
 
+  function showContentComplete({
+    title: titleText,
+    badge: badgeText,
+    iconName,
+  }: {
+    title: string;
+    badge: string;
+    iconName: string;
+  }): void {
+    const alert = byId('quest-alert');
+    const icon = byId('quest-alert-icon');
+    const title = byId('quest-alert-title');
+    const badge = byId('quest-alert-badge');
+    if (!alert) return;
+
+    if (icon) {
+      icon.setAttribute('data-lucide', iconName);
+      if (window.lucide) window.lucide.createIcons();
+    }
+    if (title) title.textContent = titleText;
+    if (badge) badge.textContent = badgeText;
+    replayAnimation(alert);
+  }
+
   window.gameOverlayAlerts = Object.freeze({
     showAbandonedAlert,
     showEssenceAlert,
     showPittaAlert,
     showSpecialMonsterAlert,
-    showQuestComplete
+    showQuestComplete,
+    showContentComplete
   });
 })();

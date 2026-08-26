@@ -2641,6 +2641,15 @@
       gameOverlayAlerts.showSpecialMonsterAlert();
     });
 
+    window.electronAPI.onAbyssTreasureCompleteAlert(() => {
+      if (currentConfig && currentConfig.questCompleteAlertEnabled === false) return;
+      gameOverlayAlerts.showContentComplete({
+        title: '심연의 보물창고 완료',
+        badge: '3분 후 보물창고 밖으로 이동합니다',
+        iconName: 'gem'
+      });
+    });
+
     // 에토스 기믹 알림
     let ethosTimeout = null;
     const ETHOS_DIRECTION_BY_PASSWORD = {
