@@ -767,6 +767,10 @@ function checkAnalyticsProtocol(): void {
     normalizeGaEventParams(
       params: Record<string, unknown>,
     ): Record<string, unknown>;
+    shouldTransmitAnalytics(
+      isPackaged: boolean,
+      explicitlyDisabled?: boolean,
+    ): boolean;
     normalizeGaClientId(
       value: unknown,
       now?: number,
@@ -777,6 +781,21 @@ function checkAnalyticsProtocol(): void {
   assert.equal(analyticsProtocol.isValidGaClientId('123456789.1722150000'), true);
   assert.equal(analyticsProtocol.isValidGaClientId('123456789'), false);
   assert.equal(analyticsProtocol.isValidGaClientId(crypto.randomUUID()), false);
+  assert.equal(
+    analyticsProtocol.shouldTransmitAnalytics(true),
+    true,
+    '정식 패키지의 GA 전송이 비활성화되었습니다.',
+  );
+  assert.equal(
+    analyticsProtocol.shouldTransmitAnalytics(false),
+    false,
+    '개발·자동 테스트 실행에서 GA 전송이 허용되었습니다.',
+  );
+  assert.equal(
+    analyticsProtocol.shouldTransmitAnalytics(true, true),
+    false,
+    '명시적으로 비활성화한 패키지 테스트에서 GA 전송이 허용되었습니다.',
+  );
   assert.equal(
     analyticsProtocol.createGaClientId(1_722_150_000_000, 123_456_789),
     '123456789.1722150000',

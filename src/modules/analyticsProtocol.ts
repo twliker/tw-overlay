@@ -10,6 +10,13 @@ export interface NormalizedGaClientId {
   migrated: boolean;
 }
 
+export function shouldTransmitAnalytics(
+  isPackaged: boolean,
+  explicitlyDisabled: boolean = false,
+): boolean {
+  return isPackaged && !explicitlyDisabled;
+}
+
 export function isValidGaClientId(value: unknown): value is string {
   return typeof value === 'string' && GA_CLIENT_ID_PATTERN.test(value);
 }

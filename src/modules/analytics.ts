@@ -9,27 +9,34 @@ import {
   normalizeGaClientId,
   normalizeGaEventName,
   normalizeGaEventParams,
+  shouldTransmitAnalytics,
 } from './analyticsProtocol';
 
 // ========== GA4 SETTINGS ==========
+const ANALYTICS_TRANSMISSION_ENABLED = shouldTransmitAnalytics(
+  app.isPackaged,
+  process.env.TW_OVERLAY_DISABLE_ANALYTICS === '1',
+);
 let MEASUREMENT_ID = '';
 let API_SECRET = '';
 
 try {
-  const candidatePaths = [
-    path.join(app.getAppPath(), 'env.json'),
-    path.join(__dirname, '..', 'env.json'),
-    path.join(__dirname, '..', '..', 'env.json'),
-    path.join(app.getAppPath(), 'dist', 'env.json'),
-    path.join(app.getAppPath(), 'src', 'env.json'),
-  ];
-  for (const envPath of candidatePaths) {
-    if (fs.existsSync(envPath)) {
-      const envData = JSON.parse(fs.readFileSync(envPath, 'utf-8'));
-      if (envData.MEASUREMENT_ID || envData.API_SECRET) {
-        MEASUREMENT_ID = envData.MEASUREMENT_ID || '';
-        API_SECRET = envData.API_SECRET || '';
-        break;
+  if (ANALYTICS_TRANSMISSION_ENABLED) {
+    const candidatePaths = [
+      path.join(app.getAppPath(), 'env.json'),
+      path.join(__dirname, '..', 'env.json'),
+      path.join(__dirname, '..', '..', 'env.json'),
+      path.join(app.getAppPath(), 'dist', 'env.json'),
+      path.join(app.getAppPath(), 'src', 'env.json'),
+    ];
+    for (const envPath of candidatePaths) {
+      if (fs.existsSync(envPath)) {
+        const envData = JSON.parse(fs.readFileSync(envPath, 'utf-8'));
+        if (envData.MEASUREMENT_ID || envData.API_SECRET) {
+          MEASUREMENT_ID = envData.MEASUREMENT_ID || '';
+          API_SECRET = envData.API_SECRET || '';
+          break;
+        }
       }
     }
   }
@@ -74,7 +81,7 @@ function getStoredClientId(): string | undefined {
 }
 
 export class Analytics {
-  private clientId: string;
+  private clientId: string = '';
   private sessionId: number = 0;
   private sessionNumber: number = 1;
   
@@ -82,6 +89,10 @@ export class Analytics {
   private lastEngagementTime: number = Date.now();
 
   constructor() {
+    if (!ANALYTICS_TRANSMISSION_ENABLED) {
+      return;
+    }
+
     // 1. Client ID persistence
     const savedClientId = getStoredClientId();
     const normalizedClientId = normalizeGaClientId(savedClientId);
@@ -121,6 +132,10 @@ export class Analytics {
   }
 
   public trackEvent(eventName: string, params: Record<string, unknown> = {}): void {
+    if (!ANALYTICS_TRANSMISSION_ENABLED) {
+      return;
+    }
+
     if (!MEASUREMENT_ID || !API_SECRET || MEASUREMENT_ID === 'G-XXXXXXXXXX' || API_SECRET === 'XXXXXXXXXXXXXXXXXXX') {
       return; // 설정되지 않은 경우 조용히 무시
     }
