@@ -5439,6 +5439,14 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '유효 access token만 있는 세션을 refresh token 검사보다 먼저 허용하지 않습니다.');
 
   const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js'));
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(1723), false,
+    '브라우저가 차단하는 OAuth 루프백 포트 1723을 허용했습니다.');
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(5779), true,
+    '브라우저가 허용하는 낮은 OAuth 루프백 포트를 과도하게 차단했습니다.');
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(6667), false);
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(10_080), false);
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(10_081), true);
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(65_535), true);
   const { safeStorage } = require('electron') as typeof import('electron');
   const authTokenPath = path.join(isolatedUserData, 'google_auth.enc');
   const expiredTokens = {
@@ -5525,6 +5533,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const originalReadFileSync = fs.readFileSync;
   let profileFailureResult: { success: boolean; profile?: unknown; error?: string } | undefined;
   let profileFailureTokenStored = false;
+  let browserOpenFailureResult: { success: boolean; profile?: unknown; error?: string } | undefined;
   let callbackRequest: Promise<Response> | undefined;
   try {
     fs.existsSync = ((candidate: fs.PathLike) => path.basename(String(candidate)) === 'env.json'
@@ -5554,12 +5563,18 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     shell.openExternal = (async (url: string) => {
       const redirectUri = new URL(url).searchParams.get('redirect_uri');
       assert.ok(redirectUri, 'OAuth 회귀 검사 redirect URI가 없습니다.');
+      assert.equal(googleAuth.isSafeOAuthLoopbackPort(Number(new URL(redirectUri).port)), true,
+        'OAuth 로그인이 브라우저 제한 루프백 포트를 선택했습니다.');
       callbackRequest = originalFetch(`${redirectUri}?code=profile-failure-code`);
       await callbackRequest;
     }) as typeof shell.openExternal;
     profileFailureResult = await googleAuth.startLogin();
     if (callbackRequest) await callbackRequest;
     profileFailureTokenStored = googleAuth.isLoggedIn() || fs.existsSync(authTokenPath);
+    shell.openExternal = (async () => {
+      throw new Error('forced browser open failure');
+    }) as typeof shell.openExternal;
+    browserOpenFailureResult = await googleAuth.startLogin();
   } finally {
     shell.openExternal = originalOpenExternal;
     global.fetch = originalFetch;
@@ -5571,6 +5586,9 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Google 프로필 조회 실패를 OAuth 로그인 성공으로 처리했습니다.');
   assert.equal(profileFailureTokenStored, false,
     'Google 프로필 조회 실패 뒤 사용하지 못하는 OAuth 토큰이 저장됐습니다.');
+  assert.equal(browserOpenFailureResult?.success, false,
+    '기본 브라우저 실행 실패를 OAuth 로그인 성공으로 처리했습니다.');
+  assert.equal(browserOpenFailureResult?.error, 'Google 로그인 브라우저를 열지 못했습니다.');
 
   const googleDrive = require(path.join(projectRoot, 'dist', 'modules', 'googleDriveSync.js'));
   const originalGetValidAccessToken = googleAuth.getValidAccessToken;

@@ -17,6 +17,14 @@ const SCOPES = [
 
 const TOKEN_STORAGE_FILE = 'google_auth.enc';
 const USER_PROFILE_FILE = 'google_user.json';
+const MAX_LOOPBACK_BIND_ATTEMPTS = 10;
+const BLOCKED_BROWSER_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95,
+  101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179,
+  389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601,
+  636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 5060, 5061, 6000, 6566,
+  6697, 10_080,
+]);
 
 let _cachedTokens: GoogleAuthTokens | null = null;
 let _cachedProfile: GoogleUserProfile | null = null;
@@ -24,6 +32,15 @@ let _isLoggingIn = false;
 let _cancelCurrentLogin: (() => void) | null = null;
 let _onAuthInvalidated: (() => void) | null = null;
 let _loginGeneration = 0;
+
+/** Chromium/WHATWG가 네트워크 요청에서 차단하는 포트를 OAuth 루프백에 사용하지 않는다. */
+export function isSafeOAuthLoopbackPort(port: number): boolean {
+  return Number.isInteger(port)
+    && port >= 1
+    && port <= 65_535
+    && !BLOCKED_BROWSER_PORTS.has(port)
+    && (port < 6665 || port > 6669);
+}
 
 /** 토큰 무효화(만료/철회) 시 실행될 콜백 등록 */
 export function setOnAuthInvalidated(callback: () => void): void {
@@ -582,31 +599,52 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
     let redirectUri = '';
+    let bindAttempts = 0;
 
-    // OS에 의해 임의 빈 포트 자동 할당
-    server.listen(0, '127.0.0.1', () => {
-      const address = server?.address();
-      if (!address || typeof address === 'string') {
-        safeResolve({ success: false, error: '로컬 루프백 서버 포트 할당 실패' });
-        return;
-      }
+    // OS에 의해 임의 빈 포트를 할당하되 브라우저가 차단하는 낮은 포트는 다시 배정받는다.
+    const listenForSafeLoopbackPort = () => {
+      if (!server || isResolved) return;
+      bindAttempts++;
+      server.listen(0, '127.0.0.1', () => {
+        const listeningServer = server;
+        const address = listeningServer?.address();
+        if (!listeningServer || !address || typeof address === 'string') {
+          safeResolve({ success: false, error: '로컬 루프백 서버 포트 할당 실패' });
+          return;
+        }
 
-      const port = address.port;
-      redirectUri = `http://127.0.0.1:${port}/callback`;
+        const port = address.port;
+        if (!isSafeOAuthLoopbackPort(port)) {
+          log(`[GoogleAuth] 브라우저 제한 포트 ${port}를 피해 루프백 포트를 다시 할당합니다.`);
+          if (bindAttempts >= MAX_LOOPBACK_BIND_ATTEMPTS) {
+            safeResolve({ success: false, error: '안전한 로컬 루프백 서버 포트를 할당하지 못했습니다.' });
+            return;
+          }
+          listeningServer.close(() => {
+            if (server === listeningServer && !isResolved) listenForSafeLoopbackPort();
+          });
+          return;
+        }
+        redirectUri = `http://127.0.0.1:${port}/callback`;
 
-      const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-      authUrl.searchParams.set('client_id', clientId);
-      authUrl.searchParams.set('redirect_uri', redirectUri);
-      authUrl.searchParams.set('response_type', 'code');
-      authUrl.searchParams.set('scope', SCOPES);
-      authUrl.searchParams.set('code_challenge', codeChallenge);
-      authUrl.searchParams.set('code_challenge_method', 'S256');
-      authUrl.searchParams.set('access_type', 'offline');
-      authUrl.searchParams.set('prompt', 'consent');
+        const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        authUrl.searchParams.set('client_id', clientId);
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('response_type', 'code');
+        authUrl.searchParams.set('scope', SCOPES);
+        authUrl.searchParams.set('code_challenge', codeChallenge);
+        authUrl.searchParams.set('code_challenge_method', 'S256');
+        authUrl.searchParams.set('access_type', 'offline');
+        authUrl.searchParams.set('prompt', 'consent');
 
-      log(`[GoogleAuth] 기본 브라우저에서 인증 URL 오픈: ${redirectUri}`);
-      shell.openExternal(authUrl.toString());
-    });
+        log(`[GoogleAuth] 기본 브라우저에서 인증 URL 오픈: ${redirectUri}`);
+        void shell.openExternal(authUrl.toString()).catch((err) => {
+          log(`[GoogleAuth] 기본 브라우저 열기 실패: ${err}`);
+          safeResolve({ success: false, error: 'Google 로그인 브라우저를 열지 못했습니다.' });
+        });
+      });
+    };
+    listenForSafeLoopbackPort();
 
     server.on('error', (err) => {
       log(`[GoogleAuth] 서버 에러: ${err}`);
