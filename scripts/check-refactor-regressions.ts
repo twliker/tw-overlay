@@ -5830,10 +5830,12 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Google 동기화 UI의 정식 분리 파일 fallback이 없습니다.');
   assert.match(settingsSource, /id="btn-google-logout"[\s\S]*?연결 해제/,
     'Google 계정 연결 해제 버튼이 계정 영역에 없습니다.');
-  assert.match(settingsSource, /id="btn-google-backup"[^>]+title="[^"]*Google Drive에 바로 저장/,
+  assert.match(settingsSource, /id="btn-google-backup"[^>]+data-settings-tooltip="[^"]*Google Drive에 바로 저장/,
     '지금 저장 버튼에 클라우드 저장 설명이 없습니다.');
-  assert.match(settingsSource, /id="btn-google-restore"[^>]+title="[^"]*이 PC로 불러옵니다/,
+  assert.match(settingsSource, /id="btn-google-restore"[^>]+data-settings-tooltip="[^"]*이 PC로 불러옵니다/,
     '불러오기 버튼에 클라우드 복원 설명이 없습니다.');
+  assert.match(settingsSource, /id="settings-custom-tooltip"[^>]+role="tooltip"/,
+    'Google 동기화 버튼의 커스텀 툴팁 컨테이너가 없습니다.');
 
   const shutdownCoordinator = require(path.join(projectRoot, 'dist', 'modules', 'shutdownCoordinator.js'));
   const shutdownGate = shutdownCoordinator.createShutdownGate();

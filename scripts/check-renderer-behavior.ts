@@ -1016,9 +1016,21 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const logoutButton = document.getElementById('btn-google-logout');
       const logoutOutsideAdvanced = logoutButton?.closest('#google-sync-advanced') === null;
       const actionTooltips = {
-        backup: document.getElementById('btn-google-backup')?.getAttribute('title') || '',
-        restore: document.getElementById('btn-google-restore')?.getAttribute('title') || '',
+        backup: document.getElementById('btn-google-backup')?.getAttribute('data-settings-tooltip') || '',
+        restore: document.getElementById('btn-google-restore')?.getAttribute('data-settings-tooltip') || '',
+        logout: document.getElementById('btn-google-logout')?.getAttribute('data-settings-tooltip') || '',
       };
+      const backupButton = document.getElementById('btn-google-backup');
+      backupButton?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      const customTooltip = document.getElementById('settings-custom-tooltip');
+      const customTooltipShown = customTooltip?.style.display === 'block'
+        && customTooltip?.getAttribute('aria-hidden') === 'false'
+        && /Google Drive에 바로 저장/.test(customTooltip?.textContent || '');
+      backupButton?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      const customTooltipHidden = customTooltip?.style.display === 'none'
+        && customTooltip?.getAttribute('aria-hidden') === 'true';
+      const nativeTitlesRemoved = ['btn-google-backup', 'btn-google-restore', 'btn-google-logout']
+        .every(id => !document.getElementById(id)?.hasAttribute('title'));
       const previewButtons = Array.from(document.querySelectorAll('[data-google-preview-kind]'));
       previewButtons[0]?.click();
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -1076,6 +1088,9 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         syncBadgeText,
         logoutOutsideAdvanced,
         actionTooltips,
+        customTooltipShown,
+        customTooltipHidden,
+        nativeTitlesRemoved,
         syncActivityTexts,
         previewButtonKinds,
         previewButtonLabels,
@@ -1110,6 +1125,9 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     syncBadgeText: string;
     logoutOutsideAdvanced: boolean;
     actionTooltips: Record<string, string>;
+    customTooltipShown: boolean;
+    customTooltipHidden: boolean;
+    nativeTitlesRemoved: boolean;
     syncActivityTexts: Record<string, string>;
     previewButtonKinds: string[];
     previewButtonLabels: string[];
@@ -1149,6 +1167,10 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.equal(result.logoutOutsideAdvanced, true, 'Google 계정 연결 해제가 고급 설정 안에 숨겨졌습니다.');
   assert.match(result.actionTooltips.backup, /Google Drive에 바로 저장/);
   assert.match(result.actionTooltips.restore, /Google Drive에 저장된.*이 PC로 불러옵니다/);
+  assert.match(result.actionTooltips.logout, /로컬 데이터는 유지/);
+  assert.equal(result.customTooltipShown, true, 'Google 동기화 버튼의 커스텀 툴팁이 표시되지 않습니다.');
+  assert.equal(result.customTooltipHidden, true, 'Google 동기화 버튼에서 벗어난 뒤 커스텀 툴팁이 닫히지 않습니다.');
+  assert.equal(result.nativeTitlesRemoved, true, 'Google 동기화 버튼에 브라우저 기본 title 툴팁이 남아 있습니다.');
   assert.match(result.syncActivityTexts.upload, /클라우드에 저장 중/);
   assert.match(result.syncActivityTexts.download, /클라우드에서 불러오는 중/);
   assert.match(result.syncActivityTexts.checking, /새 변경 확인 중/);

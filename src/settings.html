@@ -318,6 +318,18 @@
       transition: all 0.3s ease;
     }
 
+    /* 설정 화면 공통 커스텀 툴팁: 사이드바 툴팁 디자인을 긴 설명에도 맞게 확장한다. */
+    .settings-custom-tooltip {
+      left: 0;
+      top: 0;
+      max-width: min(320px, calc(100vw - 16px));
+      padding: 7px 10px;
+      white-space: normal;
+      line-height: 1.45;
+      text-align: left;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+    }
+
     /* ─── 빠른 검색 결과 드롭다운 스타일 ─── */
     .search-result-item {
       padding: 8px 12px;
@@ -2674,7 +2686,7 @@
                     <div class="text-[11px] text-slate-400 font-medium">마지막 동기화</div>
                     <div id="google-sync-last-time" class="text-xs font-semibold text-slate-300">-</div>
                   </div>
-                  <button id="btn-google-logout" onclick="handleGoogleLogout()" class="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-all border border-red-500/20 whitespace-nowrap" title="이 PC에서 Google 계정 연결을 해제합니다. 로컬 데이터는 유지됩니다.">
+                  <button id="btn-google-logout" onclick="handleGoogleLogout()" class="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-all border border-red-500/20 whitespace-nowrap" data-settings-tooltip="이 PC에서 Google 계정 연결을 해제합니다. 로컬 데이터는 유지됩니다." aria-describedby="settings-custom-tooltip">
                     연결 해제
                   </button>
                 </div>
@@ -2690,10 +2702,10 @@
                 </label>
 
                 <div class="flex items-center gap-2">
-                  <button id="btn-google-backup" onclick="handleGoogleBackupNow()" class="btn-primary px-4 py-2 flex items-center gap-1.5 text-xs font-bold shadow-sm" title="현재 PC의 일반 설정과 숙제 체크리스트를 Google Drive에 바로 저장합니다.">
+                  <button id="btn-google-backup" onclick="handleGoogleBackupNow()" class="btn-primary px-4 py-2 flex items-center gap-1.5 text-xs font-bold shadow-sm" data-settings-tooltip="현재 PC의 일반 설정과 숙제 체크리스트를 Google Drive에 바로 저장합니다." aria-describedby="settings-custom-tooltip">
                     <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i> 지금 저장
                   </button>
-                  <button id="btn-google-restore" onclick="handleGoogleRestoreNow()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border border-white/10" title="Google Drive에 저장된 일반 설정과 숙제 체크리스트를 선택하여 이 PC로 불러옵니다.">
+                  <button id="btn-google-restore" onclick="handleGoogleRestoreNow()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border border-white/10" data-settings-tooltip="Google Drive에 저장된 일반 설정과 숙제 체크리스트를 선택하여 이 PC로 불러옵니다." aria-describedby="settings-custom-tooltip">
                     <i data-lucide="cloud-download" class="w-3.5 h-3.5"></i> 불러오기
                   </button>
                 </div>
@@ -2971,6 +2983,8 @@
     </div>
   </div>
 
+  <div id="settings-custom-tooltip" class="tw-tooltip settings-custom-tooltip" role="tooltip" aria-hidden="true"></div>
+
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/pickr.min.js"></script>
@@ -3004,6 +3018,58 @@
     let ALL_ICONS = [];
     let dragSrcIndex = -1;
     let lastConfig = null; // 마지막으로 수신된 설정 데이터
+
+    const settingsCustomTooltip = document.getElementById('settings-custom-tooltip');
+    let activeSettingsTooltipTarget = null;
+
+    function showSettingsCustomTooltip(target) {
+      if (!settingsCustomTooltip || !target) return;
+      const text = target.getAttribute('data-settings-tooltip');
+      if (!text) return;
+      activeSettingsTooltipTarget = target;
+      settingsCustomTooltip.textContent = text;
+      settingsCustomTooltip.style.display = 'block';
+      settingsCustomTooltip.style.visibility = 'hidden';
+      settingsCustomTooltip.setAttribute('aria-hidden', 'false');
+
+      const targetRect = target.getBoundingClientRect();
+      const tooltipRect = settingsCustomTooltip.getBoundingClientRect();
+      const margin = 8;
+      let left = targetRect.left + (targetRect.width - tooltipRect.width) / 2;
+      left = Math.max(margin, Math.min(left, window.innerWidth - tooltipRect.width - margin));
+      let top = targetRect.top - tooltipRect.height - margin;
+      if (top < margin) top = targetRect.bottom + margin;
+      settingsCustomTooltip.style.left = `${Math.round(left)}px`;
+      settingsCustomTooltip.style.top = `${Math.round(top)}px`;
+      settingsCustomTooltip.style.visibility = 'visible';
+    }
+
+    function hideSettingsCustomTooltip(target) {
+      if (!settingsCustomTooltip || (target && target !== activeSettingsTooltipTarget)) return;
+      settingsCustomTooltip.style.display = 'none';
+      settingsCustomTooltip.style.visibility = 'hidden';
+      settingsCustomTooltip.setAttribute('aria-hidden', 'true');
+      activeSettingsTooltipTarget = null;
+    }
+
+    document.addEventListener('mouseover', event => {
+      const target = event.target.closest?.('[data-settings-tooltip]');
+      if (target && target !== activeSettingsTooltipTarget) showSettingsCustomTooltip(target);
+    });
+    document.addEventListener('mouseout', event => {
+      const target = event.target.closest?.('[data-settings-tooltip]');
+      if (target && !target.contains(event.relatedTarget)) hideSettingsCustomTooltip(target);
+    });
+    document.addEventListener('focusin', event => {
+      const target = event.target.closest?.('[data-settings-tooltip]');
+      if (target) showSettingsCustomTooltip(target);
+    });
+    document.addEventListener('focusout', event => {
+      const target = event.target.closest?.('[data-settings-tooltip]');
+      if (target) hideSettingsCustomTooltip(target);
+    });
+    window.addEventListener('resize', () => hideSettingsCustomTooltip());
+    document.querySelector('.content-area')?.addEventListener('scroll', () => hideSettingsCustomTooltip(), { passive: true });
 
     function openWelcomeGuide() {
       if (window.electronAPI && window.electronAPI.welcomeGuideOpen) {
