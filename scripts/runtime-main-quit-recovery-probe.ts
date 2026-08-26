@@ -70,6 +70,20 @@ let cancelledRequestCount = 0;
 let firstQuitObserved = false;
 let beforeQuitCount = 0;
 let sessionEndObservation: Record<string, unknown> | null = null;
+let walCheckpointObserved = false;
+let databaseCloseObserved = false;
+let shutdownTimeoutObserved = false;
+
+const logger = require(path.join(projectRoot, 'dist', 'modules', 'logger.js')) as {
+  log(message: string, forceInProd?: boolean): void;
+};
+const originalLog = logger.log;
+logger.log = (message: string, forceInProd?: boolean) => {
+  if (message.includes('[DiaryDB] WAL Checkpoint executed:')) walCheckpointObserved = true;
+  if (message.includes('[DiaryDB] Database connection closed.')) databaseCloseObserved = true;
+  if (message.includes('[SHUTDOWN] 클라우드 flush timeout')) shutdownTimeoutObserved = true;
+  originalLog(message, forceInProd);
+};
 
 if (scenario === 'timeout') {
   const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js')) as any;
@@ -96,6 +110,13 @@ app.on('before-quit', () => {
 
 app.on('quit', () => {
   if (hidePoll) clearInterval(hidePoll);
+  if (hideLatencyMs === null) {
+    const visible = BrowserWindow.getAllWindows()
+      .filter(window => !window.isDestroyed() && window.isVisible());
+    if (visible.length === 0 && quitRequestedAt > 0) {
+      hideLatencyMs = Date.now() - quitRequestedAt;
+    }
+  }
   const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
   const logPath = path.join(userData, 'debug.log');
   const logText = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '';
@@ -107,10 +128,13 @@ app.on('quit', () => {
     checklistOperationIds: state.checklistOutbox.map((operation: any) => operation.id),
     recoverySettingsDirtyKeys: state.shutdownRecovery?.settings?.dirtyKeys || [],
     recoveryChecklistOperationIds: state.shutdownRecovery?.checklist?.operationIds || [],
-    walCheckpointLogged: logText.includes('[DiaryDB] WAL Checkpoint executed:'),
-    databaseCloseLogged: logText.includes('[DiaryDB] Database connection closed.'),
+    walCheckpointLogged: walCheckpointObserved
+      || logText.includes('[DiaryDB] WAL Checkpoint executed:'),
+    databaseCloseLogged: databaseCloseObserved
+      || logText.includes('[DiaryDB] Database connection closed.'),
     cancelledRequestCount,
-    shutdownTimeoutLogged: logText.includes('[SHUTDOWN] 클라우드 flush timeout'),
+    shutdownTimeoutLogged: shutdownTimeoutObserved
+      || logText.includes('[SHUTDOWN] 클라우드 flush timeout'),
     beforeQuitCount,
     sessionEndObservation,
   }), 'utf8');
@@ -132,7 +156,8 @@ void app.whenReady().then(() => {
           prevented,
           recoverySettingsDirtyKeys: state.shutdownRecovery?.settings?.dirtyKeys || [],
           recoveryChecklistOperationIds: state.shutdownRecovery?.checklist?.operationIds || [],
-          walCheckpointLogged: logText.includes('[DiaryDB] WAL Checkpoint executed:'),
+          walCheckpointLogged: walCheckpointObserved
+            || logText.includes('[DiaryDB] WAL Checkpoint executed:'),
         };
         quitRequestedAt = Date.now();
         app.quit();
