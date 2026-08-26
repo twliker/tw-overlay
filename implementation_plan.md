@@ -62,7 +62,7 @@
 - 숙제 업로드 직후 원격 revision·operation ID를 재조회해 확인된 operation만 outbox에서 제거하고, 이후 pull에서 확인 operation이 원격에서 사라졌으면 outbox에 다시 넣어 재게시한다.
 - 숙제 operation은 값 없는 ID가 아니라 안정 ID 경로의 `before/after` mutation을 함께 보존한다. 확인 직후 다른 PC가 payload를 덮어써도 누락 operation의 변경만 최신 원격 상태 위에 재실행해 비충돌 변경을 함께 살린다.
 - 메모리 Drive 통합 검사에서 설정/숙제/메타 분리 업로드와 `회사 숙제 변경 → 집 pull → 로컬 UI 상태 반영 → echo upload 없음` 흐름을 검증한다.
-- 메모리 Drive 교차 업로드 검사에서 서로 다른 숙제 상태 변경, 같은 숙제의 완료/해제/횟수 충돌, 업로드 확인 직후 overwrite, 응답 유실, 로컬 상태 파일 재로드 후 재수렴을 검증했다. 독립 userData의 실제 `main.js` 두 프로세스에서도 정상 기준 상태에서 회사 PC의 완료·횟수 1과 집 PC의 같은 캐릭터 횟수 2·시각 변경을 교차시켜, 전체 operation 로그의 결정적 재생 결과와 두 operation ID가 원격·양쪽 로컬에 수렴하고 재시작 뒤 echo upload가 없음을 확인했다. 원격 적용 뒤 `contentsChecker.init()`에서 파생 echo outbox가 생기지 않도록 origin guard를 전체 적용 구간에 유지한다.
+- 메모리 Drive 교차 업로드 검사에서 서로 다른 숙제 상태 변경, 같은 숙제의 완료/해제/횟수 충돌, 업로드 확인 직후 overwrite, 응답 유실, 로컬 상태 파일 재로드 후 재수렴을 검증했다. 독립 userData의 실제 `main.js` 두 프로세스에서도 정상 기준 상태에서 회사 PC의 완료·횟수 1과 집 PC의 같은 캐릭터 횟수 2·시각 변경을 교차시킨다. 양쪽 첫 숙제 payload가 모두 만들어질 때까지 업로드를 막아 서로의 operation을 모르는 두 payload가 반드시 연속 overwrite하도록 한 뒤, 세 번째 숙제 업로드에서 사라진 operation을 재게시해 전체 operation 로그의 결정적 재생 결과와 두 operation ID가 원격·양쪽 로컬에 수렴하고 재시작 뒤 echo upload가 없는지 확인했다. 원격 적용 뒤 `contentsChecker.init()`에서 파생 echo outbox가 생기지 않도록 origin guard를 전체 적용 구간에 유지한다.
 - pull·업로드에는 installation별 jitter와 429·오프라인을 포함한 지수 백오프를 적용하고, 네트워크 오프라인→온라인 전환은 10초 이내 감지해 즉시 pull한다. 실제 매니저 scheduler 실행 검사에서 게임 실행은 30초 기준 27~33초, 유휴는 5분 기준 270~330초의 installation jitter 범위로 각각 다음 pull 하나를 예약한다.
 - 새 PC 부분 복원 UI와 종료 recovery marker까지 자동 검증했다. 남은 강화 작업은 실계정 2-PC 및 실제 Windows 종료·로그오프 실기 검증이다.
 
@@ -539,6 +539,8 @@
 **OAuth 프로필 실패 수정 후 범위 감사(2026-08-26, `fae83a2`):** 같은 원격 기준 범위는 16개 파일, 2,348줄 추가, 99줄 삭제다. 제품 파일은 동일한 다섯 개이며 `src/modules/googleAuth.ts`의 로그인 완료 조건과 실제 루프백 callback fixture가 보강됐다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
 
 **established 파일별 pull 격리 후 범위 감사(2026-08-26, `6f8558c`):** 같은 원격 기준 범위는 16개 파일, 2,468줄 추가, 120줄 삭제다. 제품 파일은 동일한 다섯 개이며 `src/modules/cloudSyncManager.ts`의 파일별 자동 pull 결과와 손상 설정·정상 숙제 실행 fixture가 보강됐다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
+
+**교차 overwrite 계측 강화(2026-08-26, `d8711d2`):** 기존 두 프로세스 probe의 장치별 `uploadOrder`에는 숙제뿐 아니라 메타 파일 쓰기도 섞여 있어 메타 업로드를 숙제 재게시로 오인할 수 있었고, 첫 다운로드 동기화만으로는 실제 업로드 직전 두 payload의 교차 overwrite를 보장하지 못했다. 숙제 파일 전용 순서를 분리하고 양쪽 첫 숙제 업로드 직전에 barrier를 추가했다. 비충돌·동일 필드 시나리오를 각각 5회 반복해 매번 서로 다른 두 PC의 첫 업로드, 세 번째 숙제 재게시, 최종 원격·양쪽 로컬의 두 operation ID, 재시작 무 echo를 확인했다. 제품 코드는 변경하지 않았으며 `npm run typecheck`, 전체 `npm test`, `git diff --check`가 통과했다.
 
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 설치 파일 SHA-256, 설정 UI의 파일별 checksum/revision/pending, 원격 operation ID와 민감·사용자 값을 제외한 로컬 상태 추출 절차도 추가했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
