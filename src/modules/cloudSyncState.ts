@@ -8,6 +8,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import { AppConfig, GoogleChecklistSyncOperation, GoogleSyncFileRestoreResult, GoogleSyncProfileState } from '../shared/types';
 import { log } from './logger';
+import { isValidChecklistOperation, SETTINGS_SYNCABLE_KEYS } from './syncDataHelper';
 
 const STATE_FILE_NAME = 'cloud-sync-state.json';
 const STATE_SCHEMA_VERSION = 1;
@@ -123,6 +124,27 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === 'string');
 }
 
+function normalizeStringFields<T extends string>(
+  value: unknown,
+  keys: readonly T[],
+  maxLength: number,
+): Partial<Record<T, string>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(keys.flatMap(key => {
+    const candidate = source[key];
+    return typeof candidate === 'string' && candidate.length > 0 && candidate.length <= maxLength
+      ? [[key, candidate]]
+      : [];
+  })) as Partial<Record<T, string>>;
+}
+
+function normalizeOperations(value: unknown): GoogleChecklistSyncOperation[] {
+  return Array.isArray(value)
+    ? value.filter(isValidChecklistOperation).slice(-1_000).map(operation => structuredClone(operation))
+    : [];
+}
+
 function normalizeRestoreResults(value: unknown): GoogleSyncFileRestoreResult[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const allowedStatuses = new Set(['available', 'restored', 'unchanged', 'missing', 'invalid', 'generation-mismatch', 'skipped']);
@@ -169,6 +191,17 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
     || typeof parsed.deviceId !== 'string'
     || typeof parsed.generationId !== 'string') return null;
 
+  const settingsDirtyKeys = isStringArray(parsed.settingsDirtyKeys)
+    ? Array.from(new Set(parsed.settingsDirtyKeys.filter(key => SETTINGS_SYNCABLE_KEYS.includes(key as keyof AppConfig))))
+    : [];
+  const dirtyKeySet = new Set(settingsDirtyKeys);
+  const settingsDirtyAt = parsed.settingsDirtyAt && typeof parsed.settingsDirtyAt === 'object'
+    && !Array.isArray(parsed.settingsDirtyAt)
+    ? Object.fromEntries(Object.entries(parsed.settingsDirtyAt)
+      .filter(([key, timestamp]) => dirtyKeySet.has(key)
+        && typeof timestamp === 'number' && Number.isFinite(timestamp)))
+    : {};
+
   return {
     schemaVersion: STATE_SCHEMA_VERSION,
     deviceId: parsed.deviceId,
@@ -179,32 +212,14 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
       || parsed.profileState === 'needs-confirmation'
       ? parsed.profileState
       : 'needs-confirmation',
-    fileIds: parsed.fileIds && typeof parsed.fileIds === 'object' ? parsed.fileIds : {},
-    remoteRevisions: parsed.remoteRevisions && typeof parsed.remoteRevisions === 'object'
-      ? parsed.remoteRevisions : {},
+    fileIds: normalizeStringFields(parsed.fileIds, ['settings', 'checklist', 'meta'], 200),
+    remoteRevisions: normalizeStringFields(parsed.remoteRevisions, ['settings', 'checklist'], 500),
     baseSettings: parsed.baseSettings,
     baseChecklist: parsed.baseChecklist,
-    settingsDirtyKeys: isStringArray(parsed.settingsDirtyKeys) ? parsed.settingsDirtyKeys : [],
-    settingsDirtyAt: parsed.settingsDirtyAt && typeof parsed.settingsDirtyAt === 'object'
-      ? Object.fromEntries(Object.entries(parsed.settingsDirtyAt)
-        .filter(([key, timestamp]) => typeof key === 'string' && typeof timestamp === 'number'))
-      : {},
-    checklistOutbox: Array.isArray(parsed.checklistOutbox)
-      ? parsed.checklistOutbox.filter(entry => entry
-        && typeof entry.id === 'string'
-        && typeof entry.deviceId === 'string'
-        && typeof entry.createdAt === 'number'
-        && isStringArray(entry.keys)
-        && Array.isArray(entry.mutations)).slice(-1_000)
-      : [],
-    confirmedChecklistOperations: Array.isArray(parsed.confirmedChecklistOperations)
-      ? parsed.confirmedChecklistOperations.filter(entry => entry
-        && typeof entry.id === 'string'
-        && typeof entry.deviceId === 'string'
-        && typeof entry.createdAt === 'number'
-        && isStringArray(entry.keys)
-        && Array.isArray(entry.mutations)).slice(-1_000)
-      : [],
+    settingsDirtyKeys,
+    settingsDirtyAt,
+    checklistOutbox: normalizeOperations(parsed.checklistOutbox),
+    confirmedChecklistOperations: normalizeOperations(parsed.confirmedChecklistOperations),
     restoreResults: normalizeRestoreResults(parsed.restoreResults),
     restorePartial: typeof parsed.restorePartial === 'boolean' ? parsed.restorePartial : undefined,
     shutdownRecovery: normalizeShutdownRecovery(parsed.shutdownRecovery),

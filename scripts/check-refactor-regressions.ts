@@ -5841,6 +5841,55 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   } finally {
     fs.rmSync(profileFixture, { recursive: true, force: true });
   }
+  const cloudStatePath = path.join(isolatedUserData, 'cloud-sync-state.json');
+  const validPersistedOperation = {
+    id: 'valid-persisted-operation',
+    deviceId: 'persisted-device',
+    createdAt: 1000,
+    keys: ['contentsCheckerItems'],
+    mutations: [{
+      path: ['contentsCheckerItems', 'daily-abyss', 'isVisible'],
+      beforeExists: true,
+      afterExists: true,
+      before: true,
+      after: false,
+    }],
+  };
+  fs.writeFileSync(cloudStatePath, JSON.stringify({
+    schemaVersion: 1,
+    deviceId: 'persisted-device',
+    generationId: 'persisted-generation',
+    createdAt: 1000,
+    profileState: 'established',
+    fileIds: { settings: 123, checklist: 'valid-checklist-id', meta: '' },
+    remoteRevisions: { settings: [], checklist: 'valid-checklist-revision' },
+    settingsDirtyKeys: ['userServer', 'not-syncable', 'userServer'],
+    settingsDirtyAt: { userServer: 1000, 'not-syncable': 2000 },
+    checklistOutbox: [
+      validPersistedOperation,
+      {
+        id: 'invalid-persisted-operation',
+        deviceId: 'persisted-device',
+        createdAt: 1001,
+        keys: ['contentsCheckerItems'],
+        mutations: [null],
+      },
+    ],
+    confirmedChecklistOperations: [],
+  }), 'utf8');
+  cloudSyncState.resetCacheForTests();
+  const normalizedCorruptState = cloudSyncState.load();
+  assert.deepEqual(normalizedCorruptState.fileIds, { checklist: 'valid-checklist-id' },
+    '손상된 Drive file ID가 로컬 동기화 상태에 남았습니다.');
+  assert.deepEqual(normalizedCorruptState.remoteRevisions, { checklist: 'valid-checklist-revision' },
+    '손상된 원격 revision이 로컬 동기화 상태에 남았습니다.');
+  assert.deepEqual(normalizedCorruptState.settingsDirtyKeys, ['userServer'],
+    '허용되지 않은 설정 dirty key가 로컬 동기화 상태에 남았습니다.');
+  assert.deepEqual(normalizedCorruptState.settingsDirtyAt, { userServer: 1000 },
+    '제거된 dirty key의 시각 정보가 로컬 동기화 상태에 남았습니다.');
+  assert.deepEqual(normalizedCorruptState.checklistOutbox, [validPersistedOperation],
+    '손상된 mutation을 가진 숙제 operation이 outbox에 남았습니다.');
+  fs.rmSync(cloudStatePath);
   cloudSyncState.resetCacheForTests();
   const initialState = cloudSyncState.load();
   assert.equal(typeof initialState.deviceId, 'string');

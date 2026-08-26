@@ -392,18 +392,7 @@ export function validateSyncPayload(
   if (!sanitizeExternalConfigPatch(value.data)) return false;
   if (expectedKind === 'checklist' && value.operations !== undefined) {
     if (!Array.isArray(value.operations) || value.operations.length > 1_000
-      || value.operations.some(operation => {
-        if (!isPlainObject(operation)
-          || typeof operation.id !== 'string' || operation.id.length > 200
-          || typeof operation.deviceId !== 'string' || operation.deviceId.length > 200
-          || typeof operation.createdAt !== 'number' || !Number.isFinite(operation.createdAt)
-          || !Array.isArray(operation.keys) || operation.keys.length > CHECKLIST_SYNCABLE_KEYS.length
-          || operation.keys.some(key => typeof key !== 'string'
-            || !CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig))
-          || !Array.isArray(operation.mutations) || operation.mutations.length > 10_000) return true;
-        const operationKeys = new Set(operation.keys as string[]);
-        return operation.mutations.some(mutation => !isValidChecklistMutation(mutation, operationKeys));
-      })) return false;
+      || value.operations.some(operation => !isValidChecklistOperation(operation))) return false;
     if (typeof value.operationsChecksum !== 'string'
       || value.operationsChecksum !== calculateValueChecksum(value.operations)) return false;
   }
@@ -520,6 +509,20 @@ function isValidChecklistMutation(value: unknown, operationKeys?: Set<string>): 
   if (value.beforeExists !== Object.prototype.hasOwnProperty.call(value, 'before')) return false;
   if (value.afterExists !== Object.prototype.hasOwnProperty.call(value, 'after')) return false;
   return true;
+}
+
+/** Drive payload와 로컬 outbox가 공유하는 숙제 operation 구조 검증. */
+export function isValidChecklistOperation(value: unknown): value is GoogleChecklistSyncOperation {
+  if (!isPlainObject(value)
+    || typeof value.id !== 'string' || value.id.length === 0 || value.id.length > 200
+    || typeof value.deviceId !== 'string' || value.deviceId.length === 0 || value.deviceId.length > 200
+    || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt)
+    || !Array.isArray(value.keys) || value.keys.length > CHECKLIST_SYNCABLE_KEYS.length
+    || value.keys.some(key => typeof key !== 'string'
+      || !CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig))
+    || !Array.isArray(value.mutations) || value.mutations.length > 10_000) return false;
+  const operationKeys = new Set(value.keys as string[]);
+  return value.mutations.every(mutation => isValidChecklistMutation(mutation, operationKeys));
 }
 
 function readMutationPath(root: Record<string, unknown>, path: string[]): { exists: boolean; value?: unknown } {
