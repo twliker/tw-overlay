@@ -5443,7 +5443,9 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '브라우저가 차단하는 OAuth 루프백 포트 1723을 허용했습니다.');
   assert.equal(googleAuth.isSafeOAuthLoopbackPort(5779), true,
     '브라우저가 허용하는 낮은 OAuth 루프백 포트를 과도하게 차단했습니다.');
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(4190), false);
   assert.equal(googleAuth.isSafeOAuthLoopbackPort(6667), false);
+  assert.equal(googleAuth.isSafeOAuthLoopbackPort(6679), false);
   assert.equal(googleAuth.isSafeOAuthLoopbackPort(10_080), false);
   assert.equal(googleAuth.isSafeOAuthLoopbackPort(10_081), true);
   assert.equal(googleAuth.isSafeOAuthLoopbackPort(65_535), true);
