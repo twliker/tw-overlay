@@ -158,20 +158,35 @@ export class GameOverlayZOrderController {
     ): void {
         const gameIsTopmost = this.native.isTopmost(gameHwnd);
         const isGameOrAppFocused = targetState === 'game-active' || targetState === 'overlay-active';
-        const desiredTopmost = isGameOrAppFocused || gameIsTopmost;
+        // 다른 모니터의 외부 앱은 게임·오버레이와 화면상 겹치지 않는다. 이때 우리 창을
+        // Non-Topmost로 내리면 borderless 게임 위의 독립 창 계층이 바뀌어 Shell이
+        // 작업표시줄을 노출할 수 있으므로 기존 게임 활성 계층을 유지한다.
+        const keepElevatedForSeparateMonitor = targetState === 'external-other-monitor';
+        const shouldLeadGameStack = isGameOrAppFocused || keepElevatedForSeparateMonitor;
+        const desiredTopmost = shouldLeadGameStack || gameIsTopmost;
         const allWindowsMatchDesiredBand = groupHwnds.every(
             hwnd => this.native.isTopmost(hwnd) === desiredTopmost,
         );
         const isWindowStackIntact = this.isWindowStackIntact(
             groupHwnds,
             gameHwnd,
-            isGameOrAppFocused,
+            shouldLeadGameStack,
         );
         if (allWindowsMatchDesiredBand && isWindowStackIntact) return;
 
         // 게임·TW-Overlay가 전경이면 우리 창만 Topmost로 올려 비활성 Electron 창도 게임 위에
-        // 보이게 한다. 외부 프로그램이 전경을 얻는 즉시 게임의 원래 계층으로 복귀한다.
+        // 보이게 한다. 게임 모니터의 외부 프로그램만 우리 창을 게임 계층으로 내리고,
+        // 다른 모니터의 외부 프로그램은 현재 게임 모니터 계층을 유지한다.
         // 어떤 상태에서도 테일즈위버 HWND에는 SetWindowPos를 호출하지 않는다.
+        // Topmost 계층을 내리기 전에 현재 외부 창 순서를 읽어 둬야 band 변경으로 anchor가
+        // 사라져 우리 창이 외부 프로그램 앞으로 튀는 전환 회귀를 막을 수 있다.
+        const placementAnchor = this.findOverlayPlacementAnchor(
+            gameHwnd,
+            groupHwnds,
+            foregroundHwnd,
+            desiredTopmost,
+            keepElevatedForSeparateMonitor,
+        );
         let bandChangeSucceeded = true;
         const bandAnchor = desiredTopmost ? this.native.topmost : this.native.notTopmost;
         for (const hwnd of groupHwnds) {
@@ -180,12 +195,6 @@ export class GameOverlayZOrderController {
                 && bandChangeSucceeded;
         }
 
-        const placementAnchor = this.findOverlayPlacementAnchor(
-            gameHwnd,
-            groupHwnds,
-            foregroundHwnd,
-            desiredTopmost,
-        );
         const placementSucceeded = this.placeWindowStack(placementAnchor, groupHwnds);
         const allWindowsMatchDesiredBandAfter = groupHwnds.every(
             hwnd => this.native.isTopmost(hwnd) === desiredTopmost,
@@ -193,7 +202,7 @@ export class GameOverlayZOrderController {
         const stackIntactAfter = this.isWindowStackIntact(
             groupHwnds,
             gameHwnd,
-            isGameOrAppFocused,
+            shouldLeadGameStack,
         );
         this.writeLog(`[Z_ORDER] Overlay-only ${this.state}->${targetState} ${bandChangeSucceeded && placementSucceeded && allWindowsMatchDesiredBandAfter && stackIntactAfter ? 'succeeded' : 'failed'} foreground=${foregroundHwnd} anchor=${placementAnchor} game=${gameHwnd} gameTopmost=${gameIsTopmost} overlayTopmost=${desiredTopmost}`);
     }
@@ -203,6 +212,7 @@ export class GameOverlayZOrderController {
         groupHwnds: bigint[],
         foregroundHwnd: bigint,
         desiredTopmost: boolean,
+        keepElevatedForSeparateMonitor: boolean,
     ): bigint {
         const overlaySet = new Set(groupHwnds);
 
@@ -211,6 +221,10 @@ export class GameOverlayZOrderController {
         if (foregroundHwnd === gameHwnd || overlaySet.has(foregroundHwnd)) {
             return desiredTopmost ? this.native.topmost : this.native.top;
         }
+
+        // 다른 모니터의 외부 전경 창과는 화면상 겹치지 않으므로 anchor로 사용하지 않는다.
+        // 우리 창만 기존 Topmost 계층에 두어 borderless 게임의 Shell 상태를 보존한다.
+        if (keepElevatedForSeparateMonitor) return this.native.topmost;
 
         // 외부 프로그램 사용 중에는 게임보다 위에 있던 모든 외부 창을 그대로 둔다.
         // 게임 바로 위를 위에서부터 찾지 않고 게임에서 위로 올라가며 찾는 이유는,
@@ -268,7 +282,7 @@ export class GameOverlayZOrderController {
     private isWindowStackIntact(
         groupHwnds: bigint[],
         gameHwnd: bigint,
-        isGameOrAppFocused: boolean,
+        shouldLeadGameStack: boolean,
     ): boolean {
         const overlayHwnds = groupHwnds;
         if (overlayHwnds.length === 0) return false;
@@ -276,7 +290,7 @@ export class GameOverlayZOrderController {
             if (this.getVisibleWindowAbove(overlayHwnds[i]) !== overlayHwnds[i - 1]) return false;
         }
         const lowestOverlayHwnd = overlayHwnds[overlayHwnds.length - 1];
-        return isGameOrAppFocused
+        return shouldLeadGameStack
             ? this.isWindowAbove(lowestOverlayHwnd, gameHwnd)
             : this.getVisibleWindowAbove(gameHwnd) === lowestOverlayHwnd;
     }

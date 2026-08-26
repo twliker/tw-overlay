@@ -2256,14 +2256,14 @@ function checkWindowedFullscreenFocusContracts(): void {
 
   foregroundHwnd = externalHwnd;
   assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
-  const callsAfterExternalDemotion = setWindowCallCount;
-  assert.ok(callsAfterExternalDemotion > callsAfterGamePromotion,
-    '외부 창이 foreground인데 TW-Overlay를 Non-Topmost로 복귀하지 않습니다.');
-  assert.equal(topmostHwnds.has(firstOverlayHwnd) || topmostHwnds.has(secondOverlayHwnd), false,
-    '외부 창 foreground에서 TW-Overlay Topmost가 남아 있습니다.');
+  const callsAfterSeparateMonitor = setWindowCallCount;
+  assert.equal(callsAfterSeparateMonitor, callsAfterGamePromotion,
+    '다른 모니터의 외부 창을 눌렀을 때 TW-Overlay 계층을 바꿔 borderless Shell 상태를 흔듭니다.');
+  assert.equal(topmostHwnds.has(firstOverlayHwnd) && topmostHwnds.has(secondOverlayHwnd), true,
+    '다른 모니터의 외부 전경에서 게임 모니터의 TW-Overlay Topmost 계층을 유지하지 않습니다.');
   zOrder.reconcile(zOrderInput);
-  assert.equal(setWindowCallCount, callsAfterExternalDemotion,
-    '외부 창 foreground의 정상 상태에서 쓰기를 반복합니다.');
+  assert.equal(setWindowCallCount, callsAfterSeparateMonitor,
+    '다른 모니터 외부 창 foreground의 정상 상태에서 쓰기를 반복합니다.');
 
   rects.set(externalHwnd, { left: 50, top: 0, right: 150, bottom: 100 });
   // 사용자가 외부 창들을 쌓아 둔 순서에서 TW-Overlay 한 개만 위로 흩어진 상황을 재현한다.
@@ -2276,7 +2276,10 @@ function checkWindowedFullscreenFocusContracts(): void {
   windowAbove.set(externalHwnd, 0n);
   assert.equal(zOrder.reconcile(zOrderInput).state, 'external-game-monitor');
   const callsAfterDemotion = setWindowCallCount;
-  assert.ok(callsAfterDemotion > 0, '흩어진 TW-Overlay 창을 게임 바로 위로 복구하지 않습니다.');
+  assert.ok(callsAfterDemotion > callsAfterSeparateMonitor,
+    '게임 모니터의 외부 창이 foreground인데 TW-Overlay를 Non-Topmost로 복귀하지 않습니다.');
+  assert.equal(topmostHwnds.has(firstOverlayHwnd) || topmostHwnds.has(secondOverlayHwnd), false,
+    '게임 모니터 외부 창 foreground에서 TW-Overlay Topmost가 남아 있습니다.');
   assert.equal(setWindowCalls.some(call => call.hwnd === gameHwnd), false,
     '외부 앱을 누를 때 테일즈위버 창을 직접 이동합니다.');
   assert.ok(setWindowCalls.some(call => call.hwnd === firstOverlayHwnd && call.insertAfter === otherExternalHwnd),
@@ -2288,8 +2291,12 @@ function checkWindowedFullscreenFocusContracts(): void {
   rects.set(externalHwnd, { left: 200, top: 0, right: 300, bottom: 100 });
   assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
   const callsAfterPromotion = setWindowCallCount;
-  assert.equal(callsAfterPromotion, callsAfterDemotion,
-    '외부 창이 다른 모니터로 이동했다는 이유만으로 자연스러운 Z-order를 다시 씁니다.');
+  assert.ok(callsAfterPromotion > callsAfterDemotion,
+    '외부 창이 다른 모니터로 이동했을 때 TW-Overlay의 게임 모니터 계층을 복원하지 않습니다.');
+  assert.equal(topmostHwnds.has(firstOverlayHwnd) && topmostHwnds.has(secondOverlayHwnd), true,
+    '다른 모니터 외부 창 전환 뒤 TW-Overlay가 Topmost 계층으로 복귀하지 않습니다.');
+  assert.equal(setWindowCalls.slice(callsAfterDemotion).some(call => call.hwnd === gameHwnd), false,
+    '다른 모니터 외부 창 전환에서 테일즈위버 HWND를 직접 변경합니다.');
   zOrder.reconcile(zOrderInput);
   assert.equal(setWindowCallCount, callsAfterPromotion,
     '정상 오버레이 순서에서 불필요한 쓰기를 반복합니다.');
