@@ -5482,6 +5482,41 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(authResurrected, false,
     '로그아웃 전에 시작한 토큰 갱신 응답이 삭제한 인증 상태를 다시 저장했습니다.');
 
+  if (safeStorage.isEncryptionAvailable()) {
+    fs.writeFileSync(authTokenPath, safeStorage.encryptString(tokenJson));
+  } else {
+    fs.writeFileSync(authTokenPath, Buffer.from(tokenJson, 'utf8').toString('base64'), 'utf8');
+  }
+  let resolveStaleFailure: ((response: Response) => void) | undefined;
+  let replacementAuthPreserved = false;
+  try {
+    global.fetch = (async () => new Promise<Response>(resolve => { resolveStaleFailure = resolve; })) as typeof fetch;
+    const staleRefreshPromise = googleAuth.getValidAccessToken() as Promise<string | null>;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    googleAuth.logout();
+    const replacementTokens = {
+      access_token: 'replacement-access-token',
+      refresh_token: 'replacement-refresh-token',
+      expiry_date: Date.now() + 3_600_000,
+      token_type: 'Bearer',
+    };
+    const replacementJson = JSON.stringify(replacementTokens);
+    if (safeStorage.isEncryptionAvailable()) {
+      fs.writeFileSync(authTokenPath, safeStorage.encryptString(replacementJson));
+    } else {
+      fs.writeFileSync(authTokenPath, Buffer.from(replacementJson, 'utf8').toString('base64'), 'utf8');
+    }
+    assert.equal(googleAuth.loadStoredTokens()?.access_token, 'replacement-access-token');
+    resolveStaleFailure!(new Response('stale refresh rejected', { status: 401 }));
+    assert.equal(await staleRefreshPromise, null);
+    replacementAuthPreserved = googleAuth.isLoggedIn() && fs.existsSync(authTokenPath);
+  } finally {
+    global.fetch = originalFetch;
+    googleAuth.logout();
+  }
+  assert.equal(replacementAuthPreserved, true,
+    '이전 세대 토큰 갱신 실패가 새 로그인 인증 상태를 삭제했습니다.');
+
   const driveRequestSource = read('src/modules/googleDriveSync.ts');
   assert.match(driveRequestSource, /cancelPendingRequests/);
   assert.match(driveRequestSource, /response\.status !== 401[\s\S]*?refreshAfterUnauthorized/,

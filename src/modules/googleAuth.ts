@@ -288,8 +288,18 @@ export async function getValidAccessToken(): Promise<string | null> {
         signal: AbortSignal.timeout(15000),
       });
 
+      if (_loginGeneration !== refreshGeneration) {
+        await res.body?.cancel().catch(() => undefined);
+        log('[GoogleAuth] 로그아웃 또는 새 로그인 뒤 도착한 토큰 갱신 응답을 폐기합니다.');
+        return null;
+      }
+
       if (!res.ok) {
         const errText = await res.text();
+        if (_loginGeneration !== refreshGeneration) {
+          log('[GoogleAuth] 로그아웃 또는 새 로그인 뒤 도착한 토큰 갱신 오류를 폐기합니다.');
+          return null;
+        }
         log(`[GoogleAuth] 토큰 갱신 실패 (HTTP ${res.status}): ${errText}`);
         if (res.status === 400 || res.status === 401) {
           logout();
