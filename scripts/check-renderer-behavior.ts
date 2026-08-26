@@ -3159,17 +3159,91 @@ async function checkEtaRankingRenderer(window: BrowserWindow): Promise<void> {
 }
 
 async function checkDockRenderer(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'dock.html'));
+  const dockPath = path.join(projectRoot, 'dist', 'dock.html');
+  const dockSource = fs.readFileSync(dockPath, 'utf8');
+  const inlineScripts = Array.from(
+    dockSource.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi),
+    match => match[1],
+  );
+  const dockScript = inlineScripts.at(-1);
+  assert.ok(dockScript, '독 렌더러 inline script를 찾지 못했습니다.');
+  const html = cleanHtmlForTest(dockPath);
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-  const result = await evaluate(window, () => {
-    const hasBody = document.body !== null;
-    return {
-      hasBody
-    };
-  });
+  const menuData = JSON.parse(fs.readFileSync(
+    path.join(projectRoot, 'dist', 'assets', 'data', 'sidebar_menus.json'),
+    'utf8',
+  ));
+  const categoryRegistry = require(path.join(projectRoot, 'dist', 'shared', 'sidebarCategories.js')) as {
+    SIDEBAR_CATEGORIES: unknown[];
+  };
+  const result = await window.webContents.executeJavaScript(`
+    (async () => {
+      const calls = [];
+      const configCallbacks = [];
+      const activeCallbacks = [];
+      window.sidebarCategories = ${JSON.stringify(categoryRegistry.SIDEBAR_CATEGORIES)};
+      window.lucide = { createIcons: () => {} };
+      window.bindEscapeClose = () => {};
+      window.fetch = async () => ({ json: async () => ${JSON.stringify(menuData)} });
+      window.electronAPI = {
+        toggleContentsChecker: () => calls.push('contentsChecker'),
+        toggleSwordEnhance: () => calls.push('swordEnhance'),
+        onConfigData: callback => configCallbacks.push(callback),
+        onActiveWindows: callback => activeCallbacks.push(callback),
+      };
+      eval(${JSON.stringify(dockScript)});
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      configCallbacks[0]({ sidebarPosition: 'dock', hiddenMenuIds: [] });
+      const homework = document.getElementById('dock-contents-checker-btn');
+      const swordEnhance = document.getElementById('dock-sword-enhance-btn');
+      homework?.click();
+      swordEnhance?.click();
+      activeCallbacks[0](['contentsChecker', 'swordEnhance']);
+
+      const visibleResult = {
+        homeworkLabel: homework?.querySelector('.dock-tooltip')?.textContent,
+        swordEnhanceLabel: swordEnhance?.querySelector('.dock-tooltip')?.textContent,
+        homeworkActive: homework?.classList.contains('active'),
+        swordEnhanceActive: swordEnhance?.classList.contains('active'),
+      };
+
+      configCallbacks[0]({
+        sidebarPosition: 'dock-top',
+        hiddenMenuIds: ['sword-enhance-btn'],
+      });
+
+      return {
+        hasBody: document.body !== null,
+        ...visibleResult,
+        calls,
+        topDockClass: document.body.classList.contains('dock-pos-top'),
+        homeworkStillVisible: document.getElementById('dock-contents-checker-btn') !== null,
+        hiddenSwordAbsent: document.getElementById('dock-sword-enhance-btn') === null,
+      };
+    })()
+  `) as {
+    hasBody: boolean;
+    homeworkLabel?: string;
+    swordEnhanceLabel?: string;
+    homeworkActive?: boolean;
+    swordEnhanceActive?: boolean;
+    calls: string[];
+    topDockClass: boolean;
+    homeworkStillVisible: boolean;
+    hiddenSwordAbsent: boolean;
+  };
 
   assert.equal(result.hasBody, true, '사이드바 독 바디가 렌더링되지 않았습니다.');
+  assert.equal(result.homeworkLabel, '숙제 체크 리스트', '독에 숙제 체크리스트 메뉴가 표시되지 않았습니다.');
+  assert.equal(result.swordEnhanceLabel, '테일즈위버 무기 강화하기', '독에 검 강화하기 메뉴가 표시되지 않았습니다.');
+  assert.deepEqual(result.calls, ['contentsChecker', 'swordEnhance'], '독 1단 메뉴 동작이 연결되지 않았습니다.');
+  assert.equal(result.homeworkActive, true, '숙제 체크리스트 독 활성 상태가 표시되지 않았습니다.');
+  assert.equal(result.swordEnhanceActive, true, '검 강화하기 독 활성 상태가 표시되지 않았습니다.');
+  assert.equal(result.topDockClass, true, '상단 독 설정이 1단 메뉴 재렌더링 뒤 유지되지 않았습니다.');
+  assert.equal(result.homeworkStillVisible, true, '다른 메뉴 숨김 설정이 숙제 체크리스트까지 숨겼습니다.');
+  assert.equal(result.hiddenSwordAbsent, true, '검 강화하기 숨김 설정이 독에 반영되지 않았습니다.');
 }
 
 async function checkIndexRenderer(window: BrowserWindow): Promise<void> {

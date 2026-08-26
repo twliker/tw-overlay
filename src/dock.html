@@ -456,6 +456,41 @@
         }
       });
 
+      // 숙제 체크리스트와 1단 메뉴는 사이드바와 동일하게 바로 실행 가능한 독 아이콘으로 표시합니다.
+      const directMenus = menuData.filter(menu =>
+        !menu.isSystem
+        && !menu.isComment
+        && (menu.category === 'homework' || menu.isOneDepth)
+      );
+      directMenus.forEach(menu => {
+        if (hiddenMenuIds.includes(menu.id)) return;
+
+        const item = document.createElement('div');
+        const colorClass = menu.color ? `color-${menu.color}` : 'color-slate-400';
+        item.className = `dock-item ${colorClass}`;
+        item.id = `dock-${menu.id}`;
+
+        const windowKey = menu.api ? menu.api.replace('toggle', '').replace('Window', '') : '';
+        const camelKey = windowKey ? windowKey.charAt(0).toLowerCase() + windowKey.slice(1) : '';
+        item.dataset.winKey = camelKey;
+
+        item.innerHTML = `
+          <i data-lucide="${menu.icon}"></i>
+          <span class="indicator-dot"></span>
+          <span class="dock-tooltip">${menu.label}</span>
+        `;
+
+        item.onclick = () => {
+          if (menu.action === 'openGallery') {
+            if (window.electronAPI.toggleGallery) window.electronAPI.toggleGallery();
+          } else if (menu.api && window.electronAPI[menu.api]) {
+            window.electronAPI[menu.api]();
+          }
+        };
+
+        normalSection.appendChild(item);
+      });
+
       // 4. 사용자가 추가한 퀵슬롯(사이트 목록) 렌더링
       const quickSlots = (appConfig && appConfig.quickSlots) || [];
       const validSlots = quickSlots.filter(slot => slot && slot.url);
@@ -607,7 +642,7 @@
 
       // 2. 서브메뉴 칩 및 부모 카테고리 active 상태 갱신
       const dockCategoryIds = window.sidebarCategories
-        .filter(cat => cat.id !== 'homework')
+        .filter(cat => cat.id !== 'homework' && cat.id !== 'minigame')
         .map(cat => cat.id);
       dockCategoryIds.forEach(catId => {
         const catItem = document.getElementById(`dock-cat-${catId}`);
