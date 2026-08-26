@@ -6315,6 +6315,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Drive 401의 1회 refresh/retry 경계가 없습니다.');
 
   const cloudSyncDocs = read('docs/google-drive-sync.md');
+  const cloudSyncContract = read('.agents/development/google-drive-sync-contract.md');
   assert.match(cloudSyncDocs, /마지막으로 두 PC가 같았던 상태/,
     '사용자용 동기화 가이드가 3방향 병합의 기준 상태를 쉬운 말로 설명하지 않습니다.');
   assert.match(cloudSyncDocs, /서로 다른 캐릭터[\s\S]*?변경을 모두 유지/,
@@ -6325,7 +6326,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '사용자용 동기화 가이드에 pending 숙제의 다른 PC 팝업 동작이 없습니다.');
   const markedBlock = (marker: string): string => {
     const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = cloudSyncDocs.match(new RegExp(
+    const match = cloudSyncContract.match(new RegExp(
       `<!-- ${escaped}:start -->([\\s\\S]*?)<!-- ${escaped}:end -->`,
     ));
     assert.ok(match, `Google Drive 문서의 ${marker} 검증 블록이 없습니다.`);
@@ -6443,8 +6444,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       `민감·PC 종속 키가 설정 allowlist에 포함됐습니다: ${excluded}`);
     assert.equal(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.includes(excluded), false,
       `민감·PC 종속 키가 숙제 allowlist에 포함됐습니다: ${excluded}`);
-    assert.ok(cloudSyncDocs.includes(`\`${excluded}\``),
-      `Google Drive 문서에 중요 제외 키가 누락되었습니다: ${excluded}`);
+    assert.ok(cloudSyncContract.includes(`\`${excluded}\``),
+      `Google Drive 개발 계약에 중요 제외 키가 누락되었습니다: ${excluded}`);
   }
 
   const privacyPolicyMarkdown = read('PRIVACY_POLICY.md');
@@ -6496,10 +6497,33 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   );
   const guideIndexSource = read('docs/guide/index.html');
   const guideNavDocs = new Set(Array.from(guideIndexSource.matchAll(/data-doc="([^"]+)"/g), match => match[1]));
-  for (const docName of guideNavDocs) {
-    assert.equal(fs.existsSync(path.join(projectRoot, 'docs', `${docName}.md`)), true,
-      `가이드 탐색이 존재하지 않는 문서를 가리킵니다: ${docName}`);
+  assert.equal(guideNavDocs.has('realtime-log-engine'), false,
+    '직접 조작할 수 없는 로그 엔진 문서가 사용자 가이드 탐색에 다시 노출됐습니다.');
+  for (const expectedLabel of [
+    '마정석 계산기', '진화 재료 비용 계산기', '시에나의 기운',
+    '제복 색상 시뮬레이터', '사기꾼 탐지(1:1 대화)', '필드보스 알림 설정',
+  ]) {
+    assert.ok(guideIndexSource.includes(expectedLabel),
+      `가이드 탐색의 실제 메뉴명이 누락됐습니다: ${expectedLabel}`);
   }
+  for (const docName of guideNavDocs) {
+    const userDocPath = path.join(projectRoot, 'docs', `${docName}.md`);
+    assert.equal(fs.existsSync(userDocPath), true,
+      `가이드 탐색이 존재하지 않는 문서를 가리킵니다: ${docName}`);
+    const userDoc = fs.readFileSync(userDocPath, 'utf8');
+    const imageCount = Array.from(userDoc.matchAll(/^!\[[^\]]*\]\([^)]+\)$/gm)).length;
+    assert.ok(imageCount <= 2, `사용자 가이드 본문 이미지가 2개를 초과합니다: ${docName}`);
+    if (!['quickstart', 'google-drive-sync', 'experience-hud'].includes(docName)) {
+      for (const heading of ['언제 쓰는 기능인가요?', '어디에서 켜나요?', '기본 사용법', '자주 혼동하는 점', '문제 해결']) {
+        assert.ok(userDoc.includes(`## ${heading}`),
+          `사용자 흐름 중심 가이드 순서가 누락됐습니다: ${docName} -> ${heading}`);
+      }
+    }
+  }
+  assert.equal(cloudSyncDocs.includes('settings-data-allowlist:start'), false,
+    '개발용 Google Drive allowlist가 공개 사용자 가이드에 다시 노출됐습니다.');
+  assert.ok(cloudSyncContract.includes('settings-data-allowlist:start'),
+    'Google Drive 개발 계약에서 설정 allowlist 검증 블록이 누락됐습니다.');
   for (const entry of guideCoverage.menuCoverage) {
     if (entry.status === 'missing') {
       assert.ok(entry.reason, `문서 누락 메뉴에 감사 사유가 없습니다: ${entry.id}`);

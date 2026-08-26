@@ -75,8 +75,8 @@
   ],
   "settingsSearchCoverage": {
     "doc": "settings",
-    "status": "needs-rewrite",
+    "status": "documented",
     "expectedSearchEntryCount": 43,
-    "reason": "검색 인덱스 43개 기능은 설정 가이드 하나에 연결돼 있으나 현재 문서가 실제 사용자 흐름과 맞지 않음"
+    "reason": "검색 인덱스 43개 기능은 사용자 흐름 중심의 설정 가이드로 연결됨"
   }
 }
