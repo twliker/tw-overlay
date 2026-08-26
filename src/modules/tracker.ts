@@ -387,10 +387,10 @@ export function focusGameWindow(): boolean {
     }
 }
 
-/** 앱 종료·게임 숨김 시 게임 창에 Topmost 상태를 남기지 않는다. */
+/** 앱 종료·게임 숨김 시 TW-Overlay 창에 남은 일시 Topmost 상태만 정리한다. */
 export function releaseGameZOrder(): void {
     try {
-        gameOverlayZOrderController.release(cachedHwnd ?? 0n);
+        gameOverlayZOrderController.release();
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRACKER] Z-Order release failed: ${msg}`);

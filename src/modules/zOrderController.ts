@@ -24,7 +24,6 @@ export interface ZOrderNativeAdapter {
     getWindowRect(hwnd: bigint): WindowRect | null;
     getWindowAbove(hwnd: bigint): bigint;
     isTopmost(hwnd: bigint): boolean;
-    isTaskbarWindow(hwnd: bigint): boolean;
     setWindowAfter(hwnd: bigint, insertAfter: bigint): boolean;
 }
 
@@ -86,20 +85,12 @@ export function resolveZOrderPolicyState(input: ZOrderPolicyInput): ZOrderPolicy
         : 'external-other-monitor';
 }
 
-function isPromotedState(state: ZOrderPolicyState): boolean {
-    return state === 'game-active'
-        || state === 'overlay-active'
-        || state === 'external-other-monitor';
-}
-
 /**
- * 게임과 TW-Overlay 창 묶음의 Win32 z-order를 소유하는 단일 상태 관리자.
- * 호출자는 포커스·위치·폴링 사건마다 현재 HWND만 전달하며 정책을 직접 결정하지 않는다.
+ * 테일즈위버의 자연스러운 Win32 z-order는 읽기만 하고, TW-Overlay 창 묶음만
+ * 기존 내부 순서대로 게임 바로 위에 배치하는 단일 상태 관리자.
  */
 export class GameOverlayZOrderController {
     private state: ZOrderPolicyState = 'inactive';
-    private lastTopology = '';
-    private lastForegroundHwnd = 0n;
     private lastGroupHwnds: bigint[] = [];
 
     constructor(
@@ -126,33 +117,23 @@ export class GameOverlayZOrderController {
             foregroundRect: foregroundHwnd === 0n ? null : this.native.getWindowRect(foregroundHwnd),
         });
         const isGameOrAppFocused = targetState === 'game-active' || targetState === 'overlay-active';
-        const groupHwnds = [...overlayHwnds, input.gameHwnd];
-        const topology = groupHwnds.join(',');
+        const groupHwnds = overlayHwnds;
 
         try {
-            if (targetState === 'external-game-monitor') {
-                this.reconcileDemotedGroup(groupHwnds, foregroundHwnd, topology, targetState);
-            } else {
-                this.reconcilePromotedGroup(groupHwnds, input.gameHwnd, foregroundHwnd, targetState);
-            }
+            this.reconcileOverlayGroup(groupHwnds, input.gameHwnd, foregroundHwnd, targetState);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
             this.writeLog(`[Z_ORDER] Reconcile failed state=${targetState}: ${message}`);
         } finally {
             this.state = targetState;
-            this.lastTopology = topology;
-            this.lastForegroundHwnd = foregroundHwnd;
             this.lastGroupHwnds = groupHwnds;
         }
 
         return { isGameOrAppFocused, state: targetState };
     }
 
-    release(gameHwnd: bigint = 0n): void {
-        const groupHwnds = [...new Set([
-            ...this.lastGroupHwnds,
-            ...(gameHwnd === 0n ? [] : [gameHwnd]),
-        ])];
+    release(): void {
+        const groupHwnds = [...new Set(this.lastGroupHwnds)];
         try {
             for (const hwnd of groupHwnds) {
                 if (this.native.isTopmost(hwnd)) {
@@ -164,53 +145,78 @@ export class GameOverlayZOrderController {
             this.writeLog(`[Z_ORDER] Release failed: ${message}`);
         } finally {
             this.state = 'inactive';
-            this.lastTopology = '';
-            this.lastForegroundHwnd = 0n;
             this.lastGroupHwnds = [];
         }
     }
 
-    private reconcileDemotedGroup(
-        groupHwnds: bigint[],
-        foregroundHwnd: bigint,
-        topology: string,
-        targetState: ZOrderPolicyState,
-    ): void {
-        const hasTopmostWindow = groupHwnds.some(hwnd => this.native.isTopmost(hwnd));
-        const contextChanged = this.state !== targetState
-            || this.lastTopology !== topology
-            || this.lastForegroundHwnd !== foregroundHwnd;
-        if (!hasTopmostWindow && !contextChanged) return;
-
-        let demotionSucceeded = true;
-        for (const hwnd of groupHwnds) {
-            demotionSucceeded = this.native.setWindowAfter(hwnd, this.native.notTopmost)
-                && demotionSucceeded;
-        }
-
-        // 시작 메뉴·작업표시줄처럼 foreground 자체가 Topmost이면 해당 HWND 뒤에
-        // 삽입하지 않는다. 일반 창 영역의 맨 위를 기준으로 내부 순서만 복원한다.
-        const externalIsTopmost = this.native.isTopmost(foregroundHwnd);
-        const placementAnchor = externalIsTopmost ? this.native.top : foregroundHwnd;
-        const placementSucceeded = this.placeWindowStack(placementAnchor, groupHwnds);
-        const stillTopmost = groupHwnds.some(hwnd => this.native.isTopmost(hwnd));
-        this.writeLog(`[Z_ORDER] Transition ${this.state}->${targetState} ${demotionSucceeded && placementSucceeded && !stillTopmost ? 'succeeded' : 'failed'} foreground=${foregroundHwnd} externalTopmost=${externalIsTopmost}`);
-    }
-
-    private reconcilePromotedGroup(
+    private reconcileOverlayGroup(
         groupHwnds: bigint[],
         gameHwnd: bigint,
         foregroundHwnd: bigint,
         targetState: ZOrderPolicyState,
     ): void {
-        const isAlreadySandwiched = this.isWindowStackIntact(groupHwnds, gameHwnd);
-        const allWindowsTopmost = groupHwnds.every(hwnd => this.native.isTopmost(hwnd));
-        const taskbarAboveGroup = this.isTaskbarAboveWindow(groupHwnds[0], gameHwnd);
-        if (isAlreadySandwiched && allWindowsTopmost && !taskbarAboveGroup) return;
+        const gameIsTopmost = this.native.isTopmost(gameHwnd);
+        const allWindowsMatchGameBand = groupHwnds.every(
+            hwnd => this.native.isTopmost(hwnd) === gameIsTopmost,
+        );
+        const isWindowStackIntact = this.isWindowStackIntact(groupHwnds, gameHwnd);
+        if (allWindowsMatchGameBand && isWindowStackIntact) return;
 
-        const placementSucceeded = this.placeWindowStack(this.native.topmost, groupHwnds);
-        const topmostAfter = groupHwnds.every(hwnd => this.native.isTopmost(hwnd));
-        this.writeLog(`[Z_ORDER] Transition ${this.state}->${targetState} ${placementSucceeded && topmostAfter ? 'succeeded' : 'failed'} foreground=${foregroundHwnd} taskbarWasAbove=${taskbarAboveGroup}`);
+        // 우리 창의 Z-order 계층만 게임과 맞춘다. 일반적인 창모드·창모드 전체화면에서는
+        // Non-Topmost이고, 게임 자체가 Topmost인 특수 상태에서만 우리 창도 그 계층을 따른다.
+        // 어떤 경우에도 테일즈위버 HWND에는 SetWindowPos를 호출하지 않는다.
+        let bandChangeSucceeded = true;
+        const bandAnchor = gameIsTopmost ? this.native.topmost : this.native.notTopmost;
+        for (const hwnd of groupHwnds) {
+            if (this.native.isTopmost(hwnd) === gameIsTopmost) continue;
+            bandChangeSucceeded = this.native.setWindowAfter(hwnd, bandAnchor)
+                && bandChangeSucceeded;
+        }
+
+        const placementAnchor = this.findOverlayPlacementAnchor(
+            gameHwnd,
+            groupHwnds,
+            foregroundHwnd,
+            gameIsTopmost,
+        );
+        const placementSucceeded = this.placeWindowStack(placementAnchor, groupHwnds);
+        const allWindowsMatchGameBandAfter = groupHwnds.every(
+            hwnd => this.native.isTopmost(hwnd) === gameIsTopmost,
+        );
+        const stackIntactAfter = this.isWindowStackIntact(groupHwnds, gameHwnd);
+        this.writeLog(`[Z_ORDER] Overlay-only ${this.state}->${targetState} ${bandChangeSucceeded && placementSucceeded && allWindowsMatchGameBandAfter && stackIntactAfter ? 'succeeded' : 'failed'} foreground=${foregroundHwnd} anchor=${placementAnchor} game=${gameHwnd} gameTopmost=${gameIsTopmost}`);
+    }
+
+    private findOverlayPlacementAnchor(
+        gameHwnd: bigint,
+        groupHwnds: bigint[],
+        foregroundHwnd: bigint,
+        gameIsTopmost: boolean,
+    ): bigint {
+        const overlaySet = new Set(groupHwnds);
+
+        // 사용자가 게임이나 TW-Overlay를 직접 선택한 경우에는 우리 내부 순서를 일반 창 영역
+        // 맨 위에서 복원한다. SWP_NOACTIVATE이므로 foreground 소유권은 바꾸지 않는다.
+        if (foregroundHwnd === gameHwnd || overlaySet.has(foregroundHwnd)) {
+            return gameIsTopmost ? this.native.topmost : this.native.top;
+        }
+
+        // 외부 프로그램 사용 중에는 게임보다 위에 있던 모든 외부 창을 그대로 둔다.
+        // 게임 바로 위를 위에서부터 찾지 않고 게임에서 위로 올라가며 찾는 이유는,
+        // foreground 하나만 anchor로 삼아 게임을 두 번째로 끌어올리던 회귀를 막기 위함이다.
+        let current = this.native.getWindowAbove(gameHwnd);
+        for (let depth = 0; current !== 0n && depth < 256; depth++) {
+            if (!overlaySet.has(current)) {
+                // 시작 메뉴·작업표시줄 같은 Topmost 창 뒤에 삽입하면 우리 창에도 Topmost가
+                // 전염될 수 있다. 게임이 일반 창일 때만 일반 창 영역의 맨 위를 사용한다.
+                // 게임 자체가 Topmost라면 같은 계층의 외부 창 아래, 게임 위에 그대로 둔다.
+                return !gameIsTopmost && this.native.isTopmost(current)
+                    ? this.native.top
+                    : current;
+            }
+            current = this.native.getWindowAbove(current);
+        }
+        return gameIsTopmost ? this.native.topmost : this.native.top;
     }
 
     private placeWindowStack(insertAfter: bigint, hwnds: bigint[]): boolean {
@@ -224,7 +230,7 @@ export class GameOverlayZOrderController {
     }
 
     private isWindowStackIntact(groupHwnds: bigint[], gameHwnd: bigint): boolean {
-        const overlayHwnds = groupHwnds.slice(0, -1);
+        const overlayHwnds = groupHwnds;
         if (overlayHwnds.length === 0) return false;
         if (this.native.getWindowAbove(gameHwnd) !== overlayHwnds[overlayHwnds.length - 1]) return false;
         for (let i = overlayHwnds.length - 1; i > 0; i--) {
@@ -233,24 +239,8 @@ export class GameOverlayZOrderController {
         return true;
     }
 
-    private isTaskbarAboveWindow(hwnd: bigint, gameHwnd: bigint): boolean {
-        const gameRect = this.native.getWindowRect(gameHwnd);
-        if (!gameRect) return false;
-        let current = this.native.getWindowAbove(hwnd);
-        for (let depth = 0; current !== 0n && depth < 128; depth++) {
-            const currentRect = this.native.getWindowRect(current);
-            if (this.native.isTaskbarWindow(current)
-                && currentRect
-                && rectsOverlap(currentRect, gameRect)) {
-                return true;
-            }
-            current = this.native.getWindowAbove(current);
-        }
-        return false;
-    }
 }
 
-const classNameBuffer = Buffer.alloc(256 * 2);
 const setWindowFlags = win32.SWP_NOMOVE | win32.SWP_NOSIZE | win32.SWP_NOACTIVATE
     | win32.SWP_NOOWNERZORDER | win32.SWP_NOSENDCHANGING
     | win32.SWP_DEFERERASE | win32.SWP_NOCOPYBITS | win32.SWP_NOREDRAW;
@@ -267,14 +257,6 @@ const nativeAdapter: ZOrderNativeAdapter = {
     getWindowAbove: (hwnd) => nativeHwnd(win32.GetWindow(hwnd, win32.GW_HWNDPREV)),
     isTopmost: (hwnd) => hwnd !== 0n
         && (win32.GetWindowLongW(hwnd, win32.GWL_EXSTYLE) & win32.WS_EX_TOPMOST) !== 0,
-    isTaskbarWindow: (hwnd) => {
-        if (hwnd === 0n) return false;
-        classNameBuffer.fill(0);
-        const length = win32.GetClassNameW(hwnd, classNameBuffer, 256);
-        if (length <= 0) return false;
-        const className = classNameBuffer.toString('utf16le', 0, length * 2);
-        return className === 'Shell_TrayWnd' || className === 'Shell_SecondaryTrayWnd';
-    },
     setWindowAfter: (hwnd, insertAfter) => !!win32.SetWindowPos(
         hwnd,
         insertAfter,
