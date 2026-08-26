@@ -98,6 +98,76 @@ function spawnElectronProbeAsync(args: string[], timeout: number): Promise<{
   });
 }
 
+function checkManualEvidenceCollector(): void {
+  const fixtureRoot = path.join(isolatedUserData, 'manual-evidence-collector');
+  const statePath = path.join(fixtureRoot, 'cloud-sync-state.json');
+  const installerPath = path.join(fixtureRoot, 'twOverlay-test-installer.exe');
+  fs.mkdirSync(fixtureRoot, { recursive: true });
+  fs.writeFileSync(installerPath, 'installer-fixture', 'utf8');
+  fs.writeFileSync(statePath, JSON.stringify({
+    schemaVersion: 1,
+    deviceId: 'secret-device-id',
+    generationId: 'shared-generation-id',
+    profileState: 'established',
+    fileIds: { settings: 'secret-drive-file-id' },
+    remoteRevisions: { settings: 'settings-revision', checklist: 'checklist-revision' },
+    baseSettings: { discordWebhookUrl: 'secret-webhook-value' },
+    baseChecklist: { characterPresets: [{ id: 'char-1', name: 'secret-character-name' }] },
+    settingsDirtyKeys: ['userServer'],
+    checklistOutbox: [{ id: 'outbox-operation-id' }],
+    confirmedChecklistOperations: [{ id: 'confirmed-operation-id' }],
+    restoreResults: [{
+      kind: 'settings', selected: true, status: 'restored', revision: 'restore-revision',
+      lastSyncedAt: 1234, error: 'secret-error-path C:\\Users\\secret',
+    }],
+    restorePartial: false,
+    shutdownRecovery: {
+      createdAt: 2000,
+      settings: {
+        dirtyKeys: ['userServer'], checksum: 'a'.repeat(64), remoteRevision: 'recovery-settings-revision',
+      },
+      checklist: {
+        operationIds: ['outbox-operation-id'], checksum: 'b'.repeat(64),
+        remoteRevision: 'recovery-checklist-revision',
+      },
+    },
+    lastPullAt: 3000,
+  }), 'utf8');
+
+  const collectorPath = path.join(projectRoot, 'scripts', 'collect-v3-manual-evidence.ps1');
+  const result = childProcess.spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy', 'Bypass',
+    '-File', collectorPath,
+    '-StatePath', statePath,
+    '-InstallerPath', installerPath,
+    '-DeviceLabel', 'PC-A',
+  ], { cwd: projectRoot, encoding: 'utf8', timeout: 10_000, windowsHide: true });
+  assert.equal(result.error, undefined, `실기 증거 수집기 실행 실패: ${result.error?.message || ''}`);
+  assert.equal(result.status, 0, `실기 증거 수집기 비정상 종료:\n${result.stdout}\n${result.stderr}`);
+  const evidence = JSON.parse(result.stdout) as any;
+  assert.equal(evidence.deviceLabel, 'PC-A');
+  assert.equal(evidence.installerSha256,
+    crypto.createHash('sha256').update('installer-fixture').digest('hex').toUpperCase());
+  assert.equal(evidence.profileState, 'established');
+  assert.equal(evidence.generationId, 'shared-generation-id');
+  assert.deepEqual(evidence.remoteRevisions,
+    { settings: 'settings-revision', checklist: 'checklist-revision' });
+  assert.deepEqual(evidence.settingsDirtyKeys, ['userServer']);
+  assert.deepEqual(evidence.checklistOutboxIds, ['outbox-operation-id']);
+  assert.deepEqual(evidence.confirmedOperationIds, ['confirmed-operation-id']);
+  assert.equal(evidence.restoreResults[0].status, 'restored');
+  assert.deepEqual(evidence.shutdownRecovery.checklist.operationIds, ['outbox-operation-id']);
+  const serializedEvidence = JSON.stringify(evidence);
+  for (const secret of [
+    'secret-device-id', 'secret-drive-file-id', 'secret-webhook-value',
+    'secret-character-name', 'secret-error-path', statePath, installerPath,
+  ]) {
+    assert.equal(serializedEvidence.includes(secret), false,
+      `실기 증거 수집 결과에 제외 대상 값이 노출되었습니다: ${secret}`);
+  }
+}
+
 function checkShutdownRecoveryAcrossProcessRestarts(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-shutdown-recovery-probe.js');
   const scenarios = ['settings', 'checklist', 'both'] as const;
@@ -7260,6 +7330,7 @@ checkLegacyHomeworkMergeContracts();
 checkHomeworkSourceEventIdContracts();
 checkContentsVisibilityContracts();
 checkContentsInitializationContracts();
+checkManualEvidenceCollector();
 checkShutdownRecoveryAcrossProcessRestarts();
 checkMainQuitRecoveryScenarios();
 checkMainResponseLossRestartReconciliation();
