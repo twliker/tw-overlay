@@ -1985,6 +1985,7 @@ function checkWindowedFullscreenFocusContracts(): void {
   const polling = read('src/modules/pollingLoop.ts');
   const tracker = read('src/modules/tracker.ts');
   const zOrderController = read('src/modules/zOrderController.ts');
+  const ipcHandlers = read('src/modules/ipcHandlers.ts');
 
   assert.match(polling, /const TRANSIENT_STATE_CONFIRM_SAMPLES = 2/,
     '순간적인 게임 창 탐지 실패를 재확인하는 방어가 없습니다.');
@@ -2018,6 +2019,15 @@ function checkWindowedFullscreenFocusContracts(): void {
     'TW-Overlay 포커스 시 오버레이를 게임 바로 위로 정렬하지 않습니다.');
   assert.doesNotMatch(sandwichSource, /placeGameBelowWindow|reconcileGameZOrder\([^\n]*true\)/,
     '샌드위치 정책이 게임 창 자체를 이동하거나 외부 포커스 보호를 우회합니다.');
+  assert.doesNotMatch(ipcHandlers, /setAlwaysOnTop\(true, 'screen-saver'\)/,
+    'HUD 효과·편집·게임 부착 창이 중앙 Z-order 정책 밖에서 외부 앱 위로 올라갑니다.');
+  assert.match(ipcHandlers, /function reconcileGameAttachedWindows\(\)[\s\S]*?tracker\.reconcileGameZOrder\(gameHwnd, wm\.getAllWindowHwnds\(\)\)/,
+    'HUD 효과·편집·사냥 동선 오버레이를 중앙 Z-order 정책으로 복귀하는 경로가 없습니다.');
+  const noticeStart = manager.indexOf('export function createUpdateNoticeWindow(): void');
+  const noticeEnd = manager.indexOf('export function closeUpdateNoticeWindow(): void', noticeStart);
+  assert.ok(noticeStart >= 0 && noticeEnd > noticeStart, '업데이트 공지 창 생성 경로를 찾지 못했습니다.');
+  assert.doesNotMatch(manager.slice(noticeStart, noticeEnd), /alwaysOnTop:\s*true/,
+    '업데이트 공지 창이 외부 앱의 자연스러운 Z-order를 침범합니다.');
   assert.doesNotMatch(tracker, /export function placeGameBelowWindow/,
     '샌드위치 정책 외부에서 게임 창 Z-order를 직접 이동하는 API가 남아 있습니다.');
   assert.match(tracker, /gameOverlayZOrderController\.reconcile\(/,
@@ -2095,7 +2105,6 @@ function checkWindowedFullscreenFocusContracts(): void {
     '독 모드 진입 시 숨은 renderer를 미리 준비하지 않아 첫 단축키 표시가 지연됩니다.');
   assert.match(manager, /showReason === 'preload'[\s\S]*?showMethod = 'preload-hidden'/,
     '사전 로딩한 독이 준비 과정에서 화면에 노출될 수 있습니다.');
-  const ipcHandlers = read('src/modules/ipcHandlers.ts');
   assert.match(ipcHandlers, /ipcMain\.on\('save-quick-slots'[\s\S]*?config\.saveImmediate\(\{ quickSlots: slots \}\);[\s\S]*?wm\.broadcastConfig\(\)/,
     '퀵링크 저장 후 재사용 중인 독 renderer에 최신 설정을 즉시 전달하지 않습니다.');
   assert.match(read('src/dock.html'), /onConfigData\(\(config\) => \{[\s\S]*?appConfig = config;[\s\S]*?renderDock\(\)/,

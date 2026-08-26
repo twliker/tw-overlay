@@ -396,7 +396,7 @@ export function createUpdateNoticeWindow(): void {
     y,
     center: false,
     resizable: false,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
     focusable: true
   };
 

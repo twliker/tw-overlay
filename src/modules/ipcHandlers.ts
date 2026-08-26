@@ -52,6 +52,13 @@ const isLimitedString = (value: unknown, maxLength: number, allowEmpty = true): 
 const isSafeId = (value: unknown): value is string => (
   isLimitedString(value, 128, false) && /^[A-Za-z0-9][A-Za-z0-9:_-]*$/.test(value)
 );
+
+/** 게임과 외부 창은 건드리지 않고 현재 가시 TW-Overlay 창만 게임 위로 복원한다. */
+function reconcileGameAttachedWindows(): void {
+  const gameHwnd = tracker.getGameHwnd();
+  if (!gameHwnd) return;
+  tracker.reconcileGameZOrder(gameHwnd, wm.getAllWindowHwnds());
+}
 const isStringArray = (value: unknown, maxItems = 1_000, maxLength = 500): value is string[] => (
   Array.isArray(value)
   && value.length <= maxItems
@@ -155,7 +162,6 @@ function isSafeExternalJsonValueForIpc(value: unknown, depth = 0): boolean {
 /** 전체 화면 효과를 표시할 게임 오버레이를 준비하고 렌더러 이벤트를 전달합니다. */
 function triggerGameOverlayEffect(
   channel: 'trigger-jellyppy-rain' | 'trigger-firework',
-  durationMs: number,
   logLifecycle = false,
 ): boolean {
   let overlayWin = wm.getGameOverlayWindow();
@@ -183,16 +189,8 @@ function triggerGameOverlayEffect(
     overlayWin.showInactive();
   }
 
-  overlayWin.setAlwaysOnTop(true, 'screen-saver');
-  setTimeout(() => {
-    try {
-      if (overlayWin && !overlayWin.isDestroyed()) {
-        overlayWin.setAlwaysOnTop(false);
-      }
-    } catch (_error) {}
-  }, durationMs);
-
-
+  overlayWin.setAlwaysOnTop(false);
+  reconcileGameAttachedWindows();
 
   const sendEffect = () => {
     if (overlayWin && !overlayWin.isDestroyed()) {
@@ -224,7 +222,10 @@ export function register(): void {
     if (!isBoolean(flag)) return;
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) {
-      win.setAlwaysOnTop(flag, flag ? 'screen-saver' : 'normal');
+      // 사냥 동선 오버레이 모드도 외부 앱 위로 올라가지 않는다.
+      // IPC 계약은 유지하되 실제 순서는 중앙 관리자에 위임한다.
+      win.setAlwaysOnTop(false);
+      reconcileGameAttachedWindows();
       // 오버레이 해제(flag === false) 시, 게임창 뒤로 창이 숨겨지지 않도록 포커스를 다시 줌
       if (!flag) {
         win.show();
@@ -365,12 +366,14 @@ export function register(): void {
       if (enabled) {
         overlayWin.setFocusable(true);
         overlayWin.setIgnoreMouseEvents(false);
-        overlayWin.setAlwaysOnTop(true, 'screen-saver');
+        overlayWin.setAlwaysOnTop(false);
         overlayWin.show();
+        reconcileGameAttachedWindows();
       } else {
         overlayWin.setIgnoreMouseEvents(true);
         overlayWin.setFocusable(false);
         overlayWin.setAlwaysOnTop(false);
+        reconcileGameAttachedWindows();
       }
       overlayWin.webContents.send('game-overlay-edit-mode', enabled, saveOnExit);
     }
@@ -394,13 +397,13 @@ export function register(): void {
   });
 
   ipcMain.on('trigger-jellyppy-rain-global', () => {
-    triggerGameOverlayEffect('trigger-jellyppy-rain', 6500);
+    triggerGameOverlayEffect('trigger-jellyppy-rain');
   });
 
   ipcMain.on('trigger-firework-global', () => {
     log('[IPC] trigger-firework-global event received from renderer in Main Process.');
     analytics.trackEvent('trigger_firework_global');
-    if (!triggerGameOverlayEffect('trigger-firework', 5500, true)) {
+    if (!triggerGameOverlayEffect('trigger-firework', true)) {
       console.warn('[IPC] Failed to forward event: gameOverlayWindow is null or destroyed.');
     }
   });
