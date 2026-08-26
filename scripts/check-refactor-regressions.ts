@@ -1881,6 +1881,10 @@ function checkDependencyOverrideContracts(): void {
     '취약한 js-yaml 버전이 다시 설치될 수 있습니다.');
   assert.equal(packageData.scripts?.postinstall, 'electron-builder install-app-deps',
     'npm ci 후 Electron용 네이티브 모듈 ABI 재빌드가 실행되지 않습니다.');
+  assert.match(packageData.scripts?.['dist:appx'] || '', /verify-appx-package\.js/,
+    'AppX 생성 뒤 실제 패키지 내부를 검증하지 않습니다.');
+  assert.equal(packageData.scripts?.['verify:appx'], 'npm run build-tools && node dist-tools/verify-appx-package.js',
+    '기존 AppX 제출 파일을 독립 검증하는 명령이 유지되지 않습니다.');
   assert.equal(packageData.build?.win?.requestedExecutionLevel, 'requireAdministrator',
     'Windows 실행 파일의 관리자 권한 요청이 제거되었습니다.');
   assert.deepEqual(packageData.build?.appx?.capabilities, ['runFullTrust', 'allowElevation'],
