@@ -6144,6 +6144,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
   const scheduledPullDelays: number[] = [];
+  let clearedPullTimers = 0;
   (globalThis as any).setTimeout = (callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
     if (typeof delay === 'number' && delay >= 25_000) {
       scheduledPullDelays.push(delay);
@@ -6152,7 +6153,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     return (originalSetTimeout as any)(callback, delay, ...args);
   };
   (globalThis as any).clearTimeout = (timer: any) => {
-    if (timer?.cloudPullProbeTimer) return;
+    if (timer?.cloudPullProbeTimer) {
+      clearedPullTimers++;
+      return;
+    }
     return (originalClearTimeout as any)(timer);
   };
   const capturePullDelay = async (gameStatus: 'running' | 'stopped'): Promise<number> => {
@@ -6204,6 +6208,28 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     const recoveredDelay = scheduledPullDelays[before];
     assert.ok(recoveredDelay >= 27_000 && recoveredDelay <= 33_000,
       `성공 뒤 pull backoff가 30초 installation jitter 범위로 초기화되지 않았습니다: ${recoveredDelay}`);
+
+    let immediateListCalls = 0;
+    googleDrive.listSyncFiles = async () => {
+      immediateListCalls++;
+      return originalListSyncFiles();
+    };
+    before = scheduledPullDelays.length;
+    const clearsBeforeImmediate = clearedPullTimers;
+    cloudManager.requestImmediatePull('regression-immediate-pull');
+    await cloudManager.flushPendingSync();
+    for (let attempt = 0; attempt < 5 && scheduledPullDelays.length === before; attempt++) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    assert.equal(immediateListCalls, 1,
+      '즉시 pull 요청이 Drive 파일 목록을 정확히 한 번 조회하지 않았습니다.');
+    assert.ok(clearedPullTimers > clearsBeforeImmediate,
+      '즉시 pull 요청이 기존 장기 pull 타이머를 취소하지 않았습니다.');
+    assert.equal(scheduledPullDelays.length, before + 1,
+      '즉시 pull 완료 뒤 정상 주기 타이머를 하나 다시 예약하지 않았습니다.');
+    const immediateFollowupDelay = scheduledPullDelays[before];
+    assert.ok(immediateFollowupDelay >= 27_000 && immediateFollowupDelay <= 33_000,
+      `즉시 pull 뒤 후속 주기가 30초 installation jitter 범위를 벗어났습니다: ${immediateFollowupDelay}`);
   } finally {
     cloudManager.stopBackgroundSync();
     pollingLoopModule.getGameStatus = originalGetGameStatus;
