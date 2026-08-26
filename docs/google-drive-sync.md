@@ -96,6 +96,8 @@ TW-Overlay는 사용자가 선택적으로 Google 계정을 연결한 경우에�
 | 미반영 완료 이력 | 캐릭터를 결정하기 전에 감지된 숙제 ID, 증가/절대 횟수, 감지 시각, 안정 operation ID |
 | 동기화 제어 상태 | payload revision/checksum, operation ID, 숙제·캐릭터 안정 ID 경로의 `before/after` mutation. 마지막 정상 동기화 기준본과 미전송 outbox 자체는 각 PC의 로컬 `cloud-sync-state.json`에만 저장 |
 
+로컬 `cloud-sync-state.json`을 다시 읽을 때는 Drive file ID·revision·설정 dirty key와 숙제 operation/mutation을 필드별로 검증합니다. 일부 값이 손상돼도 정상 file ID와 미전송 operation은 함께 버리지 않고 독립적으로 보존합니다.
+
 숙제 상태는 `contentId + characterId + resetCycle`을 키로 마지막 정상 동기화본·현재 로컬·현재 클라우드를 비교하는 3방향 병합을 수행합니다.
 
 - 로컬만 바뀜: 로컬 적용
