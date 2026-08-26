@@ -24,6 +24,7 @@ export interface ZOrderNativeAdapter {
     getWindowRect(hwnd: bigint): WindowRect | null;
     getWindowAbove(hwnd: bigint): bigint;
     isTopmost(hwnd: bigint): boolean;
+    isVisible(hwnd: bigint): boolean;
     setWindowAfter(hwnd: bigint, insertAfter: bigint): boolean;
 }
 
@@ -156,19 +157,25 @@ export class GameOverlayZOrderController {
         targetState: ZOrderPolicyState,
     ): void {
         const gameIsTopmost = this.native.isTopmost(gameHwnd);
-        const allWindowsMatchGameBand = groupHwnds.every(
-            hwnd => this.native.isTopmost(hwnd) === gameIsTopmost,
+        const isGameOrAppFocused = targetState === 'game-active' || targetState === 'overlay-active';
+        const desiredTopmost = isGameOrAppFocused || gameIsTopmost;
+        const allWindowsMatchDesiredBand = groupHwnds.every(
+            hwnd => this.native.isTopmost(hwnd) === desiredTopmost,
         );
-        const isWindowStackIntact = this.isWindowStackIntact(groupHwnds, gameHwnd);
-        if (allWindowsMatchGameBand && isWindowStackIntact) return;
+        const isWindowStackIntact = this.isWindowStackIntact(
+            groupHwnds,
+            gameHwnd,
+            isGameOrAppFocused,
+        );
+        if (allWindowsMatchDesiredBand && isWindowStackIntact) return;
 
-        // 우리 창의 Z-order 계층만 게임과 맞춘다. 일반적인 창모드·창모드 전체화면에서는
-        // Non-Topmost이고, 게임 자체가 Topmost인 특수 상태에서만 우리 창도 그 계층을 따른다.
-        // 어떤 경우에도 테일즈위버 HWND에는 SetWindowPos를 호출하지 않는다.
+        // 게임·TW-Overlay가 전경이면 우리 창만 Topmost로 올려 비활성 Electron 창도 게임 위에
+        // 보이게 한다. 외부 프로그램이 전경을 얻는 즉시 게임의 원래 계층으로 복귀한다.
+        // 어떤 상태에서도 테일즈위버 HWND에는 SetWindowPos를 호출하지 않는다.
         let bandChangeSucceeded = true;
-        const bandAnchor = gameIsTopmost ? this.native.topmost : this.native.notTopmost;
+        const bandAnchor = desiredTopmost ? this.native.topmost : this.native.notTopmost;
         for (const hwnd of groupHwnds) {
-            if (this.native.isTopmost(hwnd) === gameIsTopmost) continue;
+            if (this.native.isTopmost(hwnd) === desiredTopmost) continue;
             bandChangeSucceeded = this.native.setWindowAfter(hwnd, bandAnchor)
                 && bandChangeSucceeded;
         }
@@ -177,28 +184,32 @@ export class GameOverlayZOrderController {
             gameHwnd,
             groupHwnds,
             foregroundHwnd,
-            gameIsTopmost,
+            desiredTopmost,
         );
         const placementSucceeded = this.placeWindowStack(placementAnchor, groupHwnds);
-        const allWindowsMatchGameBandAfter = groupHwnds.every(
-            hwnd => this.native.isTopmost(hwnd) === gameIsTopmost,
+        const allWindowsMatchDesiredBandAfter = groupHwnds.every(
+            hwnd => this.native.isTopmost(hwnd) === desiredTopmost,
         );
-        const stackIntactAfter = this.isWindowStackIntact(groupHwnds, gameHwnd);
-        this.writeLog(`[Z_ORDER] Overlay-only ${this.state}->${targetState} ${bandChangeSucceeded && placementSucceeded && allWindowsMatchGameBandAfter && stackIntactAfter ? 'succeeded' : 'failed'} foreground=${foregroundHwnd} anchor=${placementAnchor} game=${gameHwnd} gameTopmost=${gameIsTopmost}`);
+        const stackIntactAfter = this.isWindowStackIntact(
+            groupHwnds,
+            gameHwnd,
+            isGameOrAppFocused,
+        );
+        this.writeLog(`[Z_ORDER] Overlay-only ${this.state}->${targetState} ${bandChangeSucceeded && placementSucceeded && allWindowsMatchDesiredBandAfter && stackIntactAfter ? 'succeeded' : 'failed'} foreground=${foregroundHwnd} anchor=${placementAnchor} game=${gameHwnd} gameTopmost=${gameIsTopmost} overlayTopmost=${desiredTopmost}`);
     }
 
     private findOverlayPlacementAnchor(
         gameHwnd: bigint,
         groupHwnds: bigint[],
         foregroundHwnd: bigint,
-        gameIsTopmost: boolean,
+        desiredTopmost: boolean,
     ): bigint {
         const overlaySet = new Set(groupHwnds);
 
-        // 사용자가 게임이나 TW-Overlay를 직접 선택한 경우에는 우리 내부 순서를 일반 창 영역
+        // 사용자가 게임이나 TW-Overlay를 직접 선택한 경우에는 우리 내부 순서를 Topmost 영역
         // 맨 위에서 복원한다. SWP_NOACTIVATE이므로 foreground 소유권은 바꾸지 않는다.
         if (foregroundHwnd === gameHwnd || overlaySet.has(foregroundHwnd)) {
-            return gameIsTopmost ? this.native.topmost : this.native.top;
+            return desiredTopmost ? this.native.topmost : this.native.top;
         }
 
         // 외부 프로그램 사용 중에는 게임보다 위에 있던 모든 외부 창을 그대로 둔다.
@@ -206,17 +217,21 @@ export class GameOverlayZOrderController {
         // foreground 하나만 anchor로 삼아 게임을 두 번째로 끌어올리던 회귀를 막기 위함이다.
         let current = this.native.getWindowAbove(gameHwnd);
         for (let depth = 0; current !== 0n && depth < 256; depth++) {
+            if (!this.native.isVisible(current)) {
+                current = this.native.getWindowAbove(current);
+                continue;
+            }
             if (!overlaySet.has(current)) {
                 // 시작 메뉴·작업표시줄 같은 Topmost 창 뒤에 삽입하면 우리 창에도 Topmost가
                 // 전염될 수 있다. 게임이 일반 창일 때만 일반 창 영역의 맨 위를 사용한다.
                 // 게임 자체가 Topmost라면 같은 계층의 외부 창 아래, 게임 위에 그대로 둔다.
-                return !gameIsTopmost && this.native.isTopmost(current)
+                return !desiredTopmost && this.native.isTopmost(current)
                     ? this.native.top
                     : current;
             }
             current = this.native.getWindowAbove(current);
         }
-        return gameIsTopmost ? this.native.topmost : this.native.top;
+        return desiredTopmost ? this.native.topmost : this.native.top;
     }
 
     private placeWindowStack(insertAfter: bigint, hwnds: bigint[]): boolean {
@@ -229,14 +244,41 @@ export class GameOverlayZOrderController {
         return succeeded;
     }
 
-    private isWindowStackIntact(groupHwnds: bigint[], gameHwnd: bigint): boolean {
+    private getVisibleWindowAbove(hwnd: bigint): bigint {
+        let current = this.native.getWindowAbove(hwnd);
+        for (let depth = 0; current !== 0n && depth < 256; depth++) {
+            if (!this.native.isVisible(current)) {
+                current = this.native.getWindowAbove(current);
+                continue;
+            }
+            return current;
+        }
+        return 0n;
+    }
+
+    private isWindowAbove(candidateHwnd: bigint, referenceHwnd: bigint): boolean {
+        let current = this.native.getWindowAbove(referenceHwnd);
+        for (let depth = 0; current !== 0n && depth < 256; depth++) {
+            if (current === candidateHwnd) return true;
+            current = this.native.getWindowAbove(current);
+        }
+        return false;
+    }
+
+    private isWindowStackIntact(
+        groupHwnds: bigint[],
+        gameHwnd: bigint,
+        isGameOrAppFocused: boolean,
+    ): boolean {
         const overlayHwnds = groupHwnds;
         if (overlayHwnds.length === 0) return false;
-        if (this.native.getWindowAbove(gameHwnd) !== overlayHwnds[overlayHwnds.length - 1]) return false;
         for (let i = overlayHwnds.length - 1; i > 0; i--) {
-            if (this.native.getWindowAbove(overlayHwnds[i]) !== overlayHwnds[i - 1]) return false;
+            if (this.getVisibleWindowAbove(overlayHwnds[i]) !== overlayHwnds[i - 1]) return false;
         }
-        return true;
+        const lowestOverlayHwnd = overlayHwnds[overlayHwnds.length - 1];
+        return isGameOrAppFocused
+            ? this.isWindowAbove(lowestOverlayHwnd, gameHwnd)
+            : this.getVisibleWindowAbove(gameHwnd) === lowestOverlayHwnd;
     }
 
 }
@@ -257,6 +299,7 @@ const nativeAdapter: ZOrderNativeAdapter = {
     getWindowAbove: (hwnd) => nativeHwnd(win32.GetWindow(hwnd, win32.GW_HWNDPREV)),
     isTopmost: (hwnd) => hwnd !== 0n
         && (win32.GetWindowLongW(hwnd, win32.GWL_EXSTYLE) & win32.WS_EX_TOPMOST) !== 0,
+    isVisible: (hwnd) => hwnd !== 0n && !!win32.IsWindowVisible(hwnd),
     setWindowAfter: (hwnd, insertAfter) => !!win32.SetWindowPos(
         hwnd,
         insertAfter,

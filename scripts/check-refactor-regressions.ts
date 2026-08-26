@@ -1981,11 +1981,37 @@ function checkWindowFocusControllerContracts(): void {
 }
 
 function checkWindowedFullscreenFocusContracts(): void {
+  const packageJson = read('package.json');
   const manager = read('src/modules/windowManager.ts');
   const polling = read('src/modules/pollingLoop.ts');
   const tracker = read('src/modules/tracker.ts');
   const zOrderController = read('src/modules/zOrderController.ts');
   const ipcHandlers = read('src/modules/ipcHandlers.ts');
+  const fixtureProject = read('scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj');
+  const fixtureManifest = read('scripts/fixtures/FakeTalesWeaver/app.manifest');
+  const fixtureSource = read('scripts/fixtures/FakeTalesWeaver/Program.cs');
+  const windowsProbe = read('scripts/runtime-zorder-windows-probe.ts');
+
+  assert.match(packageJson, /"build:zorder-fixture":[^\n]*dotnet build[^\n]*FakeTalesWeaver\.csproj/,
+    '가짜 테일즈위버 Windows fixture 빌드 명령이 없습니다.');
+  assert.match(packageJson, /"test:zorder:windows":[^\n]*runtime-zorder-windows-probe\.js/,
+    '실제 HWND Z-order 통합 검사 명령이 없습니다.');
+  assert.match(fixtureProject, /<AssemblyName>InphaseNXD-zorder-fixture<\/AssemblyName>/,
+    '제품 tracker가 우회 없이 탐지할 수 있는 fixture 실행 파일 이름이 아닙니다.');
+  assert.match(fixtureProject, /FixtureRequireAdministrator[^\n]*true[\s\S]*?ApplicationManifest[^\n]*FixtureRequireAdministrator[^\n]*true/,
+    '가짜 테일즈위버가 기본적으로 관리자 권한 매니페스트를 사용하지 않습니다.');
+  assert.match(fixtureManifest, /requestedExecutionLevel level="requireAdministrator"/,
+    '가짜 테일즈위버가 실제 게임과 같은 관리자 권한을 요구하지 않습니다.');
+  assert.match(fixtureSource, /Talesweaver Z-Order Fixture/,
+    '가짜 테일즈위버 창 제목 계약이 없습니다.');
+  assert.match(fixtureSource, /"windowed" => FixtureMode\.Windowed[\s\S]*?"borderless" => FixtureMode\.Borderless/,
+    '가짜 테일즈위버가 창모드와 창모드 전체화면을 모두 제공하지 않습니다.');
+  assert.match(fixtureSource, /--status-file[\s\S]*?--command-file[\s\S]*?Keys\.F11/,
+    '가짜 테일즈위버의 자동화 상태·명령 채널 또는 수동 모드 전환이 없습니다.');
+  assert.match(windowsProbe, /IsUserAnAdmin[\s\S]*?관리자 PowerShell에서 npm run test:zorder:windows/,
+    'Windows 통합 검사가 동일 권한 레벨을 강제하지 않습니다.');
+  assert.match(windowsProbe, /runScenario\('windowed'[\s\S]*?runScenario\('borderless'/,
+    'Windows 통합 검사가 두 게임 창 모드를 모두 실행하지 않습니다.');
 
   assert.match(polling, /const TRANSIENT_STATE_CONFIRM_SAMPLES = 2/,
     '순간적인 게임 창 탐지 실패를 재확인하는 방어가 없습니다.');
@@ -2052,8 +2078,10 @@ function checkWindowedFullscreenFocusContracts(): void {
     '전경 외부 창의 모니터 진입을 폴링 전에 즉시 Z-order 재판정하지 않습니다.');
   assert.match(tracker, /if \(hLocationEventHook\)[\s\S]*?UnhookWinEvent\(hLocationEventHook\)/,
     '앱 종료 시 위치 이벤트 훅을 해제하지 않습니다.');
-  assert.match(zOrderController, /gameIsTopmost[\s\S]*?allWindowsMatchGameBand[\s\S]*?isWindowStackIntact/,
-    '테일즈위버를 쓰기 대상으로 삼지 않고 우리 창의 Z-order 계층만 맞추는 검사가 없습니다.');
+  assert.match(zOrderController, /isGameOrAppFocused[\s\S]*?desiredTopmost[\s\S]*?allWindowsMatchDesiredBand/,
+    '게임·TW-Overlay 전경에서 우리 창만 승격하고 외부 전경에서 복귀하는 계층 검사가 없습니다.');
+  assert.match(zOrderController, /if \(!this\.native\.isVisible\(current\)\)[\s\S]*?continue/,
+    '숨은 Electron·시스템 보조 HWND를 보이는 외부 창으로 오인합니다.');
   assert.match(tracker, /export function releaseGameZOrder\(\): void[\s\S]*?gameOverlayZOrderController\.release\(\)/,
     '앱 종료 시 TW-Overlay Z-order 상태만 정리하는 경로가 없습니다.');
   assert.match(tracker, /className === 'Shell_TrayWnd' \|\| className === 'Shell_SecondaryTrayWnd'/,
@@ -2120,6 +2148,7 @@ function checkWindowedFullscreenFocusContracts(): void {
         getWindowRect(hwnd: bigint): { left: number; top: number; right: number; bottom: number } | null;
         getWindowAbove(hwnd: bigint): bigint;
         isTopmost(hwnd: bigint): boolean;
+        isVisible(hwnd: bigint): boolean;
         setWindowAfter(hwnd: bigint, insertAfter: bigint): boolean;
       },
       writeLog?: (message: string) => void,
@@ -2132,6 +2161,7 @@ function checkWindowedFullscreenFocusContracts(): void {
   const gameHwnd = 10n;
   const firstOverlayHwnd = 20n;
   const secondOverlayHwnd = 21n;
+  const hiddenHelperHwnd = 22n;
   const externalHwnd = 30n;
   let foregroundHwnd = gameHwnd;
   let setWindowCallCount = 0;
@@ -2141,7 +2171,8 @@ function checkWindowedFullscreenFocusContracts(): void {
   const windowAbove = new Map<bigint, bigint>([
     [firstOverlayHwnd, 0n],
     [secondOverlayHwnd, firstOverlayHwnd],
-    [gameHwnd, secondOverlayHwnd],
+    [hiddenHelperHwnd, secondOverlayHwnd],
+    [gameHwnd, hiddenHelperHwnd],
   ]);
   const rects = new Map<bigint, { left: number; top: number; right: number; bottom: number }>([
     [gameHwnd, { left: 0, top: 0, right: 100, bottom: 100 }],
@@ -2155,6 +2186,7 @@ function checkWindowedFullscreenFocusContracts(): void {
     getWindowRect: (hwnd: bigint) => rects.get(hwnd) ?? null,
     getWindowAbove: (hwnd: bigint): bigint => windowAbove.get(hwnd) ?? 0n,
     isTopmost: (hwnd: bigint): boolean => topmostHwnds.has(hwnd),
+    isVisible: (hwnd: bigint): boolean => hwnd !== hiddenHelperHwnd,
     setWindowAfter: (hwnd: bigint, insertAfter: bigint): boolean => {
       setWindowCallCount++;
       setWindowCalls.push({ hwnd, insertAfter });
@@ -2171,24 +2203,39 @@ function checkWindowedFullscreenFocusContracts(): void {
   const zOrderInput = { gameHwnd, overlayHwnds: [firstOverlayHwnd, secondOverlayHwnd] };
 
   assert.equal(zOrder.reconcile(zOrderInput).state, 'game-active');
-  assert.equal(setWindowCallCount, 0, '정상인 동일 z-order 상태에서도 Win32 쓰기를 수행합니다.');
+  const callsAfterGamePromotion = setWindowCallCount;
+  assert.ok(callsAfterGamePromotion > 0,
+    '비활성 일반 창을 foreground 게임 위로 올리기 위한 overlay-only 승격이 없습니다.');
+  assert.equal(topmostHwnds.has(firstOverlayHwnd) && topmostHwnds.has(secondOverlayHwnd), true,
+    '게임 foreground에서 TW-Overlay 창만 Topmost 계층으로 올라가지 않습니다.');
+  assert.equal(setWindowCalls.some(call => call.hwnd === gameHwnd), false,
+    'TW-Overlay 승격 중 테일즈위버 HWND를 직접 변경합니다.');
   assert.equal(zOrder.reconcile(zOrderInput).state, 'game-active');
-  assert.equal(setWindowCallCount, 0, '동일 상태 재평가가 멱등적이지 않습니다.');
+  assert.equal(setWindowCallCount, callsAfterGamePromotion,
+    '동일 상태 재평가가 멱등적이지 않습니다.');
 
   foregroundHwnd = firstOverlayHwnd;
   assert.equal(zOrder.reconcile(zOrderInput).state, 'overlay-active');
-  assert.equal(setWindowCallCount, 0,
+  assert.equal(setWindowCallCount, callsAfterGamePromotion,
     '정상적인 TW-Overlay 내부 포커스 전환만으로 불필요한 z-order 쓰기를 수행합니다.');
 
   foregroundHwnd = externalHwnd;
   assert.equal(zOrder.reconcile(zOrderInput).state, 'external-other-monitor');
-  assert.equal(setWindowCallCount, 0, '다른 모니터 외부 창만 활성화됐는데 자연스러운 창 순서를 변경합니다.');
+  const callsAfterExternalDemotion = setWindowCallCount;
+  assert.ok(callsAfterExternalDemotion > callsAfterGamePromotion,
+    '외부 창이 foreground인데 TW-Overlay를 Non-Topmost로 복귀하지 않습니다.');
+  assert.equal(topmostHwnds.has(firstOverlayHwnd) || topmostHwnds.has(secondOverlayHwnd), false,
+    '외부 창 foreground에서 TW-Overlay Topmost가 남아 있습니다.');
+  zOrder.reconcile(zOrderInput);
+  assert.equal(setWindowCallCount, callsAfterExternalDemotion,
+    '외부 창 foreground의 정상 상태에서 쓰기를 반복합니다.');
 
   rects.set(externalHwnd, { left: 50, top: 0, right: 150, bottom: 100 });
   // 사용자가 외부 창들을 쌓아 둔 순서에서 TW-Overlay 한 개만 위로 흩어진 상황을 재현한다.
   // 외부 창들은 그대로 두고 우리 창 묶음만 게임 바로 위로 되돌려야 한다.
   windowAbove.set(gameHwnd, secondOverlayHwnd);
-  windowAbove.set(secondOverlayHwnd, otherExternalHwnd);
+  windowAbove.set(secondOverlayHwnd, hiddenHelperHwnd);
+  windowAbove.set(hiddenHelperHwnd, otherExternalHwnd);
   windowAbove.set(otherExternalHwnd, firstOverlayHwnd);
   windowAbove.set(firstOverlayHwnd, externalHwnd);
   windowAbove.set(externalHwnd, 0n);

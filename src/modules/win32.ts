@@ -29,6 +29,7 @@ export const EndDeferWindowPos = user32.func('__stdcall', 'EndDeferWindowPos', '
 export const GetForegroundWindow = user32.func('__stdcall', 'GetForegroundWindow', 'intptr', []);
 export const GetWindow = user32.func('__stdcall', 'GetWindow', 'intptr', ['intptr', 'uint']);
 export const GetWindowRect = user32.func('__stdcall', 'GetWindowRect', 'bool', ['intptr', koffi.out(koffi.pointer(RECT))]);
+export const IsWindowVisible = user32.func('__stdcall', 'IsWindowVisible', 'bool', ['intptr']);
 export const IsIconic = user32.func('__stdcall', 'IsIconic', 'bool', ['intptr']);
 export const SetForegroundWindow = user32.func('__stdcall', 'SetForegroundWindow', 'bool', ['intptr']);
 export const ShowWindow = user32.func('__stdcall', 'ShowWindow', 'bool', ['intptr', 'int']);

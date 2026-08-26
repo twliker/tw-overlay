@@ -16,6 +16,8 @@
     "parse-equipment": "npm run build-tools && node dist-tools/parse-equipment.js",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
     "test:renderer": "electron dist-tools/check-renderer-behavior.js",
+    "build:zorder-fixture": "dotnet build scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj --configuration Release --nologo",
+    "test:zorder:windows": "npm run build && npm run build:zorder-fixture && electron dist-tools/runtime-zorder-windows-probe.js",
     "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer"
   },
   "build": {
