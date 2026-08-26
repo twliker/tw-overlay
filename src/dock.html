@@ -173,8 +173,19 @@
     .dock-item.cloud-sync-status[data-sync-state="uploading"] { color: #60a5fa; }
     .dock-item.cloud-sync-status[data-sync-state="downloading"] { color: #a78bfa; }
     .dock-item.cloud-sync-status[data-sync-state="error"] { color: #fb7185; }
+    .dock-item.cloud-sync-status.hidden { display: none; }
     .dock-item.cloud-sync-status i { color: currentColor; }
+    .cloud-sync-status-visual {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: none;
+    }
     .cloud-sync-normal-dot {
+      display: block;
+      flex: none;
       width: 10px;
       height: 10px;
       border-radius: 9999px;

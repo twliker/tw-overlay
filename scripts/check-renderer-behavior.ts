@@ -3453,10 +3453,12 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 
       const syncItem = document.getElementById('dock-cloud-sync-status');
-      const hiddenWhenUnlinked = syncItem?.classList.contains('hidden');
+      const hiddenWhenUnlinked = syncItem ? getComputedStyle(syncItem).display === 'none' : false;
       syncCallbacks[0]({ isLinked: true, isSyncing: false, fileStatuses: [] });
       const normalState = syncItem?.dataset.syncState;
-      const normalHasDot = syncItem?.querySelector('.cloud-sync-normal-dot') !== null;
+      const normalDot = syncItem?.querySelector('.cloud-sync-normal-dot');
+      const normalDotRect = normalDot?.getBoundingClientRect();
+      const normalHasVisibleDot = Boolean(normalDotRect && normalDotRect.width >= 9 && normalDotRect.height >= 9);
       syncCallbacks[0]({ isLinked: true, isSyncing: true, syncActivity: 'upload' });
       const uploadState = syncItem?.dataset.syncState;
       const uploadIcon = syncItem?.querySelector('[data-lucide]')?.getAttribute('data-lucide');
@@ -3469,7 +3471,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       const errorTooltip = syncItem?.querySelector('.dock-tooltip')?.textContent;
       syncItem?.click();
       syncCallbacks[0]({ isLinked: false });
-      const hiddenAfterLogout = syncItem?.classList.contains('hidden');
+      const hiddenAfterLogout = syncItem ? getComputedStyle(syncItem).display === 'none' : false;
 
       const visibleResult = {
         homeworkLabel: homework?.querySelector('.dock-tooltip')?.textContent,
@@ -3480,7 +3482,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
         swordEnhanceActive: swordEnhance?.classList.contains('active'),
         hiddenWhenUnlinked,
         normalState,
-        normalHasDot,
+        normalHasVisibleDot,
         uploadState,
         uploadIcon,
         downloadState,
@@ -3515,7 +3517,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
     swordEnhanceActive?: boolean;
     hiddenWhenUnlinked?: boolean;
     normalState?: string;
-    normalHasDot?: boolean;
+    normalHasVisibleDot?: boolean;
     uploadState?: string;
     uploadIcon?: string;
     downloadState?: string;
@@ -3538,7 +3540,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   assert.deepEqual(result.calls.slice(0, 2), ['contentsChecker', 'swordEnhance'], '독 1단 메뉴 동작이 연결되지 않았습니다.');
   assert.equal(result.hiddenWhenUnlinked, true, '미연결 상태에서 독 동기화 아이콘이 보입니다.');
   assert.equal(result.normalState, 'normal');
-  assert.equal(result.normalHasDot, true, '정상 상태가 초록색 점으로 표시되지 않았습니다.');
+  assert.equal(result.normalHasVisibleDot, true, '정상 상태가 실제 크기를 가진 초록색 점으로 표시되지 않았습니다.');
   assert.equal(result.uploadState, 'uploading');
   assert.equal(result.uploadIcon, 'cloud-upload');
   assert.equal(result.downloadState, 'downloading');
