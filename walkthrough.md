@@ -109,6 +109,8 @@ OAuth callback 응답 보안 수정 커밋 `fe6e7d9` 기준 같은 범위는 16�
 
 중단된 로컬 상태 저장 복구 수정 커밋 `6753832` 기준 같은 범위는 18개 파일, 2,898줄 추가, 196줄 삭제다. `cloudSyncState.ts`가 새 installation ID를 즉시 원자 저장하고, 정식 파일이 없거나 손상된 경우 검증된 `.tmp`의 dirty/outbox/recovery를 정식 상태로 승격한다. 생성 산출물은 추가되지 않았다.
 
+Phase 3 후속 자동 범위 최종 감사 커밋 `1f310a9` 기준 `origin/beta/v2.7.0`의 `93d2922` 이후는 18개 파일, 2,906줄 추가, 196줄 삭제와 로컬 80개 커밋이다. 작업 트리는 clean이고 생성 산출물·신규 TODO/FIXME·HEAD tag가 없으며 버전은 `2.7.0-beta.1`이다. 자동화로 가능한 교차 업로드·부분 복원·종료 recovery와 추가 손상 경계는 완료했고, 실제 계정·두 PC·Windows 세션·게임 환경 항목만 대기한다.
+
 ## 4. 릴리즈 전 남은 실기 검증
 
 실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail, 일반 종료, 강제 DPI 렌더링의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.

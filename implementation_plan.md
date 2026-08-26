@@ -1,7 +1,7 @@
 # TW-Overlay v3.0.0 정식 릴리즈 구현 계획
 
 작성일: 2026-08-24  
-상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 3 분리 파일·다중 PC 자동 수렴·부분 복원·종료 복구 핵심 경로 구현 및 강화 검증 진행 중, Phase 5 동적 Z-order·독 재사용 실기 검증 완료**
+상태: **사용자 승인 완료 — Phase 1·2 완료, Phase 3 분리 파일·다중 PC 자동 수렴·부분 복원·종료 복구 자동 검증 완료 및 실계정·Windows 실기 대기, Phase 5 동적 Z-order·독 재사용 실기 검증 완료**
 
 ## 0. 최우선 개발·릴리즈 원칙
 
@@ -554,6 +554,8 @@
 **로컬 클라우드 상태 손상 복구 수정 후 범위 감사(2026-08-26, `c908f19`, `1789baf`):** 같은 원격 기준 범위는 18개 파일, 2,839줄 추가, 192줄 삭제다. 숫자 Drive file ID, 배열 revision, 비허용 dirty key, `null` mutation, 손상 recovery 필드와 빈 installation/generation ID가 있는 상태 파일을 실제 로더에 주입해 손상 값이 그대로 남는 결함을 재현했다. 필드별 정규화와 공통 operation 검증 후 정상 checklist file ID·revision·dirty 시각·operation/recovery만 보존되고 기존 프로필이 `fresh`로 오인되지 않는지 확인했으며 전체 자동 게이트를 통과했다. 생성 산출물은 추가되지 않았고 원격 push·버전·태그·배포는 수행하지 않았다.
 
 **중단된 로컬 상태 원자 저장 복구 수정 후 범위 감사(2026-08-26, `6753832`):** 같은 원격 기준 범위는 18개 파일, 2,898줄 추가, 196줄 삭제다. 정식 상태 파일 없이 유효한 `.tmp`만 남은 재시작 fixture에서 기존 구현이 새 UUID와 빈 outbox로 대체되는 결함을 재현했다. 수정 후 임시 상태의 installation ID·settings dirty·숙제 operation·recovery marker가 보존된 채 정식 파일로 승격되고, 완전히 새 상태도 `load()` 시점에 즉시 디스크에 기록되는지 확인했다. 전체 자동 게이트를 통과했으며 생성 산출물·원격 push·버전·태그·배포는 없다.
+
+**Phase 3 후속 자동 범위 최종 감사(2026-08-26, `1f310a9`):** `git fetch origin --prune` 후 `origin/beta/v2.7.0`은 `93d2922`로 유지됐고 로컬 브랜치는 80개 커밋 앞선 clean 상태였다. 전체 범위는 18개 파일, 2,906줄 추가, 196줄 삭제이며 `dist`, `dist-tools`, `dist_electron`, `release`, `out` 추적 파일과 신규 TODO/FIXME가 없다. `package.json`은 `2.7.0-beta.1`, HEAD tag는 없고 push·버전 변경·태그·배포를 수행하지 않았다. 마지막 문서 반영 전 `npm run typecheck`, `npm test`, 전체 `git diff --check`가 통과했으며, 문서 커밋도 동일 게이트를 다시 통과시킨다. 남은 Phase 3 항목은 자동 fixture로 대체하지 않는 실제 Google 계정·두 Windows PC·실제 네트워크 단절·로그오프/시스템 종료 검증뿐이다.
 
 **실기 검증 절차 준비(2026-08-26):** 실제 두 PC 클라우드, 종료·로그오프, DPI·모니터·RDP, Z-order 무조작 소크, 대형 로그·Tail 재연결의 준비 조건·실행 순서·합격 기준·증거 표를 `docs/v3-manual-validation.md`에 분리했다. 설치 파일 SHA-256, 설정 UI의 파일별 checksum/revision/pending, 원격 operation ID와 민감·사용자 값을 제외한 로컬 상태 추출 절차도 추가했다. 모든 결과는 대기로 시작하며 실제 증거가 없는 항목을 완료로 표시하지 않는다.
 
