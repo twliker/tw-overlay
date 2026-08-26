@@ -9,6 +9,7 @@
   <script src="assets/ui-utils.js"></script>
   <script src="assets/audio-playback.js"></script>
   <script src="shared/sidebarCategories.js"></script>
+  <script src="shared/cloudSyncPresentation.js"></script>
 
   <script>
     window.bindElectronListenerCleanup();
@@ -141,6 +142,13 @@
     .color-rose-400 { --theme-color: #fb7185; --theme-glow: rgba(251, 113, 133, 0.15); }
     .color-purple-500 { --theme-color: #a855f7; --theme-glow: rgba(168, 85, 247, 0.15); }
     .color-slate-400 { --theme-color: #cbd5e1; --theme-glow: rgba(203, 213, 225, 0.15); }
+    .sidebar-cloud-sync-normal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 9999px;
+      background: #34d399;
+      box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+    }
   </style>
 </head>
 
@@ -162,6 +170,14 @@
 
     <!-- 시스템 하단 버튼 영역 (고정) -->
     <div id="system-menus" class="mt-auto flex flex-col gap-0.5"></div>
+
+    <button id="cloud-sync-status" type="button"
+      class="hidden p-2 text-slate-400 relative bg-transparent border-0"
+      onclick="window.electronAPI.toggleSettings('data:google-sync')"
+      onmouseenter="showTooltip(this.dataset.tooltip || '', this)" onmouseleave="hideTooltip()"
+      aria-label="클라우드 동기화 상태">
+      <span id="cloud-sync-status-visual" class="flex items-center justify-center w-4 h-4"></span>
+    </button>
 
     <!-- 후원 버튼 -->
     <div class="p-2 cursor-pointer text-purple-400/90 hover:text-purple-300 hover:scale-110 transition-transform relative"
@@ -228,6 +244,29 @@
 
     function hideTooltip() {
       tooltip.style.display = 'none';
+    }
+
+    function updateCloudSyncStatus(status) {
+      const button = document.getElementById('cloud-sync-status');
+      const visual = document.getElementById('cloud-sync-status-visual');
+      if (!button || !visual || !window.cloudSyncPresentation) return;
+      const presentation = window.cloudSyncPresentation.get(status);
+      button.classList.toggle('hidden', !presentation.visible);
+      if (!presentation.visible) {
+        visual.replaceChildren();
+        return;
+      }
+      button.dataset.tooltip = presentation.label;
+      button.dataset.syncState = presentation.state;
+      const colors = {
+        normal: '#34d399', checking: '#fbbf24', uploading: '#60a5fa',
+        downloading: '#a78bfa', error: '#fb7185'
+      };
+      visual.style.color = colors[presentation.state];
+      visual.innerHTML = presentation.icon
+        ? `<i data-lucide="${presentation.icon}" class="w-4 h-4${presentation.state === 'checking' ? ' animate-spin' : ''}"></i>`
+        : '<span class="sidebar-cloud-sync-normal-dot"></span>';
+      refreshIcons();
     }
 
     const sidebarCategories = window.sidebarCategories;
@@ -699,6 +738,12 @@
 
     window.electronAPI.onOverlayStatus(updateOverlayIcon);
     window.electronAPI.onChatOverlayStatus(updateChatOverlayIcon);
+    if (window.electronAPI.onGoogleSyncStatusChanged) {
+      window.electronAPI.onGoogleSyncStatusChanged(updateCloudSyncStatus);
+    }
+    if (window.electronAPI.googleSyncGetStatus) {
+      window.electronAPI.googleSyncGetStatus().then(updateCloudSyncStatus).catch(() => {});
+    }
 
     window.electronAPI.onClickThroughStatus((isClickThrough) => {
       const icon = document.getElementById('click-through-icon');

@@ -524,9 +524,11 @@ function scheduleUpload(kind: SyncKind, immediate = false, retryDelay?: number):
       if (!result.success) throw new Error(result.error || `${kind} 자동 업로드 실패`);
       uploadFailureCount[kind] = 0;
       delete uploadLastError[kind];
+      broadcastStatus();
     }).catch(error => {
       uploadFailureCount[kind]++;
       uploadLastError[kind] = error instanceof Error ? error.message : String(error);
+      broadcastStatus();
       const retryMs = Math.min(60_000, (kind === 'settings' ? SETTINGS_DEBOUNCE_MS : CHECKLIST_DEBOUNCE_MS)
         * (2 ** uploadFailureCount[kind]));
       log(`[CloudSyncManager] ${kind} 자동 업로드 실패, ${retryMs}ms 후 재시도: ${error}`);
@@ -977,9 +979,13 @@ export async function syncFromCloud(
       pullFailureCount = 0;
       reconcileShutdownRecovery();
     }
+    if (!manual) broadcastStatus();
     return result;
   } catch (error) {
-    if (!manual) pullFailureCount++;
+    if (!manual) {
+      pullFailureCount++;
+      broadcastStatus();
+    }
     throw error;
   } finally {
     scheduleNextPull();

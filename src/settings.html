@@ -4870,6 +4870,7 @@
         'system': { groupId: 'system', routeIndex: 0 },
         'shortcuts': { groupId: 'system', routeIndex: 0 },
         'data': { groupId: 'system', routeIndex: 1 },
+        'data:google-sync': { groupId: 'system', routeIndex: 1 },
         'data:retention': { groupId: 'system', routeIndex: 1 },
         'data:backup': { groupId: 'system', routeIndex: 1 },
         'optimize': { groupId: 'system', routeIndex: 2 },
@@ -5360,6 +5361,8 @@
         targetId = 'gallery-keyword-card';
       } else if (tabId === 'trade') {
         targetId = 'trade-settings-card';
+      } else if (tabId === 'data:google-sync') {
+        targetId = 'google-sync-card';
       } else if (tabId === 'data' || tabId === 'data:retention') {
         targetId = 'diary-keep-days-card';
       } else if (tabId === 'optimize') {

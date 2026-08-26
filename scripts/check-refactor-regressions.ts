@@ -2686,6 +2686,61 @@ function checkSharedConstants() {
   );
   assert.equal(sidebarCategories.find(category => category.id === 'homework')?.settingsLabel, '숙제 관리');
 
+  const cloudSyncPresentation = loadBrowserConstantModule(
+    'dist/shared/cloudSyncPresentation.js',
+    'cloudSyncPresentation',
+  ) as {
+    get(status: unknown, kind?: 'settings' | 'checklist'): {
+      visible: boolean;
+      state: string;
+      icon: string | null;
+      label: string;
+    };
+  };
+  assert.equal(cloudSyncPresentation.get({ isLinked: false }).visible, false,
+    'Google 계정 미연결 상태에서 동기화 아이콘이 노출됩니다.');
+  assert.deepEqual(
+    ['checking', 'upload', 'download'].map(syncActivity => cloudSyncPresentation.get({
+      isLinked: true,
+      isSyncing: true,
+      syncActivity,
+    }).state),
+    ['checking', 'uploading', 'downloading'],
+    '클라우드 진행 상태가 사용자용 확인/업로드/다운로드 상태로 변환되지 않습니다.',
+  );
+  assert.equal(cloudSyncPresentation.get({
+    isLinked: true,
+    fileStatuses: [{ kind: 'settings', retryCount: 1, lastError: 'settings failed' }],
+  }, 'checklist').state, 'normal', '설정 파일 오류가 숙제 전용 상태를 오류로 오염시킵니다.');
+  assert.equal(cloudSyncPresentation.get({
+    isLinked: true,
+    fileStatuses: [{ kind: 'checklist', retryCount: 1, lastError: 'checklist failed' }],
+  }, 'checklist').state, 'error', '숙제 파일 오류가 숙제 전용 상태에 표시되지 않습니다.');
+  assert.equal(cloudSyncPresentation.get({ isLinked: true, pullRetryCount: 1 }).state, 'error',
+    '클라우드 수신 오류가 상태 아이콘에 표시되지 않습니다.');
+
+  const sidebarSource = read('src/index.html');
+  const dockSource = read('src/dock.html');
+  const checklistSource = read('src/contents-checker.html');
+  for (const [name, source] of [
+    ['사이드바', sidebarSource],
+    ['독', dockSource],
+    ['숙제 체크리스트', checklistSource],
+  ] as const) {
+    assert.match(source, /shared\/cloudSyncPresentation\.js/,
+      `${name}가 공통 동기화 상태 정책을 사용하지 않습니다.`);
+    assert.match(source, /data:google-sync/,
+      `${name} 동기화 아이콘이 Google Drive 설정 화면으로 연결되지 않았습니다.`);
+  }
+
+  const cloudSyncManagerSource = read('src/modules/cloudSyncManager.ts');
+  assert.match(cloudSyncManagerSource,
+    /uploadFailureCount\[kind\]\+\+;[\s\S]*?uploadLastError\[kind\][\s\S]*?broadcastStatus\(\)/,
+    '자동 업로드 실패 상태가 창들에 즉시 전달되지 않습니다.');
+  assert.match(cloudSyncManagerSource,
+    /if \(!manual\) \{\s*pullFailureCount\+\+;\s*broadcastStatus\(\)/,
+    '자동 수신 예외 상태가 창들에 즉시 전달되지 않습니다.');
+
   const chatChannels = loadBrowserConstantModule(
     'dist/shared/chatChannels.js',
     'chatChannels',

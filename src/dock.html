@@ -168,6 +168,20 @@
       transform: translateY(0);
     }
 
+    .dock-item.cloud-sync-status[data-sync-state="normal"] { color: #34d399; }
+    .dock-item.cloud-sync-status[data-sync-state="checking"] { color: #fbbf24; }
+    .dock-item.cloud-sync-status[data-sync-state="uploading"] { color: #60a5fa; }
+    .dock-item.cloud-sync-status[data-sync-state="downloading"] { color: #a78bfa; }
+    .dock-item.cloud-sync-status[data-sync-state="error"] { color: #fb7185; }
+    .dock-item.cloud-sync-status i { color: currentColor; }
+    .cloud-sync-normal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 9999px;
+      background: #34d399;
+      box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+    }
+
     /* 독 카테고리 및 플라이아웃 스타일 */
     .dock-category-item {
       position: relative;
@@ -305,11 +319,31 @@
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
   <script src="shared/sidebarCategories.js"></script>
+  <script src="shared/cloudSyncPresentation.js"></script>
   <script>
     let appConfig = null;
     let menuData = [];
     let activeKeys = [];
     let isDockMousePassThrough = null;
+    let cloudSyncStatus = null;
+
+    function updateCloudSyncStatus(status) {
+      cloudSyncStatus = status;
+      const item = document.getElementById('dock-cloud-sync-status');
+      if (!item || !window.cloudSyncPresentation) return;
+      const presentation = window.cloudSyncPresentation.get(status);
+      item.classList.toggle('hidden', !presentation.visible);
+      item.dataset.syncState = presentation.state;
+      const visual = item.querySelector('.cloud-sync-status-visual');
+      const tooltip = item.querySelector('.dock-tooltip');
+      if (tooltip) tooltip.textContent = presentation.label;
+      if (visual) {
+        visual.innerHTML = presentation.icon
+          ? `<i data-lucide="${presentation.icon}"${presentation.state === 'checking' ? ' class="animate-spin"' : ''}></i>`
+          : '<span class="cloud-sync-normal-dot"></span>';
+      }
+      if (presentation.visible && typeof lucide !== 'undefined') lucide.createIcons();
+    }
 
     function setDockMousePassThrough(ignore) {
       if (isDockMousePassThrough === ignore) return;
@@ -595,6 +629,14 @@
       // 6. 하드코딩된 시스템 제어 메뉴 추가 고정 노출 (환경 설정, 후원, 종료)
       const systemItems = [
         {
+          id: 'cloud-sync-status',
+          label: '',
+          icon: 'cloud',
+          color: 'slate-400',
+          api: 'openGoogleSyncSettings',
+          isSystem: true
+        },
+        {
           id: 'settings-btn',
           label: '환경 설정',
           icon: 'settings',
@@ -631,13 +673,21 @@
         item.dataset.winKey = camelKey;
 
         item.innerHTML = `
-          <i data-lucide="${menu.icon}"></i>
+          ${menu.id === 'cloud-sync-status'
+            ? '<span class="cloud-sync-status-visual flex items-center justify-center w-5 h-5"></span>'
+            : `<i data-lucide="${menu.icon}"></i>`}
           <span class="indicator-dot"></span>
           <span class="dock-tooltip">${menu.label}</span>
         `;
 
+        if (menu.id === 'cloud-sync-status') {
+          item.classList.add('cloud-sync-status', 'hidden');
+        }
+
         item.onclick = () => {
-          if (menu.action === 'openSponsor') {
+          if (menu.api === 'openGoogleSyncSettings') {
+            window.electronAPI.toggleSettings('data:google-sync');
+          } else if (menu.action === 'openSponsor') {
             window.electronAPI.openExternal('https://fairy.hada.io/@filbert');
           } else if (menu.api && window.electronAPI[menu.api]) {
             window.electronAPI[menu.api]();
@@ -652,6 +702,7 @@
       }
 
       updateActiveStates();
+      updateCloudSyncStatus(cloudSyncStatus);
     }
 
     function updateActiveStates() {
@@ -722,6 +773,13 @@
       activeKeys = keys;
       updateActiveStates();
     });
+
+    if (window.electronAPI.onGoogleSyncStatusChanged) {
+      window.electronAPI.onGoogleSyncStatusChanged(updateCloudSyncStatus);
+    }
+    if (window.electronAPI.googleSyncGetStatus) {
+      window.electronAPI.googleSyncGetStatus().then(updateCloudSyncStatus).catch(() => {});
+    }
 
     window.addEventListener('resize', () => {
       document.querySelectorAll('.dock-flyout-submenu').forEach(fitFlyoutToViewport);

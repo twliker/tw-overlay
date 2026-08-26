@@ -109,6 +109,26 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
       render();
       const soundBtn = document.getElementById('btn-sound-settings');
       soundBtn?.click();
+      const syncButton = document.getElementById('checklist-cloud-sync-status');
+      const syncHiddenWhenUnlinked = syncButton?.classList.contains('hidden');
+      updateChecklistCloudSyncStatus({ isLinked: true, fileStatuses: [] });
+      const syncNormalState = syncButton?.dataset.syncState;
+      const syncNormalHasDot = syncButton?.querySelector('.checklist-sync-normal-dot') !== null;
+      updateChecklistCloudSyncStatus({ isLinked: true, isSyncing: true, syncActivity: 'checking' });
+      const syncCheckingState = syncButton?.dataset.syncState;
+      updateChecklistCloudSyncStatus({ isLinked: true, isSyncing: true, syncActivity: 'upload' });
+      const syncUploadState = syncButton?.dataset.syncState;
+      updateChecklistCloudSyncStatus({ isLinked: true, isSyncing: true, syncActivity: 'download' });
+      const syncDownloadState = syncButton?.dataset.syncState;
+      updateChecklistCloudSyncStatus({
+        isLinked: true,
+        fileStatuses: [{ kind: 'checklist', retryCount: 1, lastError: 'failed' }]
+      });
+      const syncErrorState = syncButton?.dataset.syncState;
+      const syncErrorTooltip = document.getElementById('checklist-cloud-sync-tooltip')?.textContent;
+      syncButton?.click();
+      updateChecklistCloudSyncStatus({ isLinked: false });
+      const syncHiddenAfterLogout = syncButton?.classList.contains('hidden');
 
       const orderedCategories = Array.from(document.querySelectorAll('.category-row > span'))
         .map(span => span.textContent);
@@ -154,6 +174,15 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
         moveCalls,
         settingsCalls,
         soundButtonPresent: soundBtn !== null,
+        syncHiddenWhenUnlinked,
+        syncNormalState,
+        syncNormalHasDot,
+        syncCheckingState,
+        syncUploadState,
+        syncDownloadState,
+        syncErrorState,
+        syncErrorTooltip,
+        syncHiddenAfterLogout,
         characterName: document.querySelector('.char-name')?.textContent,
         customName: customCell?.querySelector('.text-xs')?.textContent,
         customBadge: Array.from(customCell?.querySelectorAll('span') || [])
@@ -177,6 +206,15 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
     moveCalls: unknown[][];
     settingsCalls: unknown[][];
     soundButtonPresent: boolean;
+    syncHiddenWhenUnlinked?: boolean;
+    syncNormalState?: string;
+    syncNormalHasDot?: boolean;
+    syncCheckingState?: string;
+    syncUploadState?: string;
+    syncDownloadState?: string;
+    syncErrorState?: string;
+    syncErrorTooltip?: string;
+    syncHiddenAfterLogout?: boolean;
     characterName: string;
     customName: string;
     customBadge: boolean;
@@ -199,7 +237,16 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
     ['item', 'category-b-1', 'category-a-1', 'after']
   ]);
   assert.equal(result.soundButtonPresent, true);
-  assert.deepEqual(result.settingsCalls, [['sound']]);
+  assert.deepEqual(result.settingsCalls, [['sound'], ['data:google-sync']]);
+  assert.equal(result.syncHiddenWhenUnlinked, true, '미연결 상태에서 숙제 동기화 아이콘이 보입니다.');
+  assert.equal(result.syncNormalState, 'normal');
+  assert.equal(result.syncNormalHasDot, true, '숙제 정상 상태가 초록색 점으로 표시되지 않았습니다.');
+  assert.equal(result.syncCheckingState, 'checking');
+  assert.equal(result.syncUploadState, 'uploading');
+  assert.equal(result.syncDownloadState, 'downloading');
+  assert.equal(result.syncErrorState, 'error');
+  assert.match(result.syncErrorTooltip || '', /숙제 체크리스트 동기화 오류/);
+  assert.equal(result.syncHiddenAfterLogout, true, '로그아웃 뒤 숙제 동기화 아이콘이 숨겨지지 않았습니다.');
   assert.equal(result.characterName, '캐릭터"><img id="injected-character">');
   assert.equal(result.customName, '<img id="injected-item">사용자 숙제');
   assert.equal(result.customBadge, true);
@@ -231,6 +278,7 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
   };
   ipcMain.on('get-default-config-sync', onDefaultConfig);
   ipcMain.handle('check-chat-log-status', async () => false);
+  ipcMain.handle('google-sync-get-status', async () => ({ isLinked: false }));
   ipcMain.on('contents-apply-pending', onApplyPending);
   ipcMain.on('contents-clear-pending', onClearPending);
 
@@ -348,6 +396,7 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
   } finally {
     ipcMain.removeListener('get-default-config-sync', onDefaultConfig);
     ipcMain.removeHandler('check-chat-log-status');
+    ipcMain.removeHandler('google-sync-get-status');
     ipcMain.removeListener('contents-apply-pending', onApplyPending);
     ipcMain.removeListener('contents-clear-pending', onClearPending);
     if (!pendingWindow.isDestroyed()) pendingWindow.destroy();
@@ -732,6 +781,7 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
     { tabId: 'gallery', expectedGroup: 'alerts', expectedSection: 'section-external' },
     { tabId: 'trade', expectedGroup: 'alerts', expectedSection: 'section-external' },
     { tabId: 'shortcuts', expectedGroup: 'system', expectedSection: 'section-shortcuts' },
+    { tabId: 'data:google-sync', expectedGroup: 'system', expectedSection: 'section-data' },
     { tabId: 'data:retention', expectedGroup: 'system', expectedSection: 'section-data' },
     { tabId: 'about', expectedGroup: 'about', expectedSection: 'section-about' },
   ];
@@ -3360,12 +3410,17 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   const categoryRegistry = require(path.join(projectRoot, 'dist', 'shared', 'sidebarCategories.js')) as {
     SIDEBAR_CATEGORIES: unknown[];
   };
+  const cloudSyncPresentationCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'shared', 'cloudSyncPresentation.js'),
+    'utf8',
+  );
   const result = await window.webContents.executeJavaScript(`
     (async () => {
       const calls = [];
       const mousePassThroughCalls = [];
       const configCallbacks = [];
       const activeCallbacks = [];
+      const syncCallbacks = [];
       window.sidebarCategories = ${JSON.stringify(categoryRegistry.SIDEBAR_CATEGORIES)};
       window.lucide = { createIcons: () => {} };
       window.bindEscapeClose = () => {};
@@ -3373,13 +3428,17 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       window.electronAPI = {
         toggleContentsChecker: () => calls.push('contentsChecker'),
         toggleSwordEnhance: () => calls.push('swordEnhance'),
+        toggleSettings: (...args) => calls.push(['settings', ...args]),
         setIgnoreMouseEvents: (ignore, options) => mousePassThroughCalls.push({
           ignore,
           forward: options?.forward === true,
         }),
         onConfigData: callback => configCallbacks.push(callback),
         onActiveWindows: callback => activeCallbacks.push(callback),
+        onGoogleSyncStatusChanged: callback => syncCallbacks.push(callback),
+        googleSyncGetStatus: async () => ({ isLinked: false }),
       };
+      ${cloudSyncPresentationCode}
       eval(${JSON.stringify(dockScript)});
       await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -3393,6 +3452,25 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       activeCallbacks[0](['contentsChecker', 'swordEnhance']);
       document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 
+      const syncItem = document.getElementById('dock-cloud-sync-status');
+      const hiddenWhenUnlinked = syncItem?.classList.contains('hidden');
+      syncCallbacks[0]({ isLinked: true, isSyncing: false, fileStatuses: [] });
+      const normalState = syncItem?.dataset.syncState;
+      const normalHasDot = syncItem?.querySelector('.cloud-sync-normal-dot') !== null;
+      syncCallbacks[0]({ isLinked: true, isSyncing: true, syncActivity: 'upload' });
+      const uploadState = syncItem?.dataset.syncState;
+      const uploadIcon = syncItem?.querySelector('[data-lucide]')?.getAttribute('data-lucide');
+      syncCallbacks[0]({ isLinked: true, isSyncing: true, syncActivity: 'download' });
+      const downloadState = syncItem?.dataset.syncState;
+      syncCallbacks[0]({ isLinked: true, isSyncing: true, syncActivity: 'checking' });
+      const checkingState = syncItem?.dataset.syncState;
+      syncCallbacks[0]({ isLinked: true, pullRetryCount: 1 });
+      const errorState = syncItem?.dataset.syncState;
+      const errorTooltip = syncItem?.querySelector('.dock-tooltip')?.textContent;
+      syncItem?.click();
+      syncCallbacks[0]({ isLinked: false });
+      const hiddenAfterLogout = syncItem?.classList.contains('hidden');
+
       const visibleResult = {
         homeworkLabel: homework?.querySelector('.dock-tooltip')?.textContent,
         swordEnhanceLabel: swordEnhance?.querySelector('.dock-tooltip')?.textContent,
@@ -3400,6 +3478,16 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
         swordEnhanceImage: swordEnhance?.querySelector('img')?.getAttribute('src'),
         homeworkActive: homework?.classList.contains('active'),
         swordEnhanceActive: swordEnhance?.classList.contains('active'),
+        hiddenWhenUnlinked,
+        normalState,
+        normalHasDot,
+        uploadState,
+        uploadIcon,
+        downloadState,
+        checkingState,
+        errorState,
+        errorTooltip,
+        hiddenAfterLogout,
       };
 
       configCallbacks[0]({
@@ -3425,7 +3513,17 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
     swordEnhanceImage?: string;
     homeworkActive?: boolean;
     swordEnhanceActive?: boolean;
-    calls: string[];
+    hiddenWhenUnlinked?: boolean;
+    normalState?: string;
+    normalHasDot?: boolean;
+    uploadState?: string;
+    uploadIcon?: string;
+    downloadState?: string;
+    checkingState?: string;
+    errorState?: string;
+    errorTooltip?: string;
+    hiddenAfterLogout?: boolean;
+    calls: unknown[];
     mousePassThroughCalls: Array<{ ignore: boolean; forward: boolean }>;
     topDockClass: boolean;
     homeworkStillVisible: boolean;
@@ -3437,7 +3535,19 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.swordEnhanceLabel, '테일즈위버 무기 강화하기', '독에 검 강화하기 메뉴가 표시되지 않았습니다.');
   assert.equal(result.homeworkIcon, 'check-square', '독 숙제 아이콘이 사이드바 카테고리 아이콘과 다릅니다.');
   assert.equal(result.swordEnhanceImage, 'assets/img/검강화하기.png', '독 검 강화 아이콘이 사이드바 전용 이미지와 다릅니다.');
-  assert.deepEqual(result.calls, ['contentsChecker', 'swordEnhance'], '독 1단 메뉴 동작이 연결되지 않았습니다.');
+  assert.deepEqual(result.calls.slice(0, 2), ['contentsChecker', 'swordEnhance'], '독 1단 메뉴 동작이 연결되지 않았습니다.');
+  assert.equal(result.hiddenWhenUnlinked, true, '미연결 상태에서 독 동기화 아이콘이 보입니다.');
+  assert.equal(result.normalState, 'normal');
+  assert.equal(result.normalHasDot, true, '정상 상태가 초록색 점으로 표시되지 않았습니다.');
+  assert.equal(result.uploadState, 'uploading');
+  assert.equal(result.uploadIcon, 'cloud-upload');
+  assert.equal(result.downloadState, 'downloading');
+  assert.equal(result.checkingState, 'checking');
+  assert.equal(result.errorState, 'error');
+  assert.match(result.errorTooltip || '', /오류/);
+  assert.equal(result.hiddenAfterLogout, true, '로그아웃 뒤 독 동기화 아이콘이 숨겨지지 않았습니다.');
+  assert.deepEqual(result.calls.at(-1), ['settings', 'data:google-sync'],
+    '독 동기화 아이콘이 Google Drive 설정 카드로 이동하지 않습니다.');
   assert.deepEqual(result.mousePassThroughCalls, [
     { ignore: true, forward: true },
     { ignore: false, forward: false },

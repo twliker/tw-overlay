@@ -8,6 +8,7 @@
     <script src="assets/tailwind.min.js"></script>
     <script src="assets/lucide.min.js"></script>
     <script src="assets/ui-utils.js"></script>
+    <script src="shared/cloudSyncPresentation.js"></script>
     <style>
         body {
             color: white;
@@ -357,6 +358,40 @@
             justify-content: center;
             flex-shrink: 0;
         }
+
+        #checklist-cloud-sync-status { position: relative; }
+        #checklist-cloud-sync-status[data-sync-state="normal"] { color: #34d399; }
+        #checklist-cloud-sync-status[data-sync-state="checking"] { color: #fbbf24; }
+        #checklist-cloud-sync-status[data-sync-state="uploading"] { color: #60a5fa; }
+        #checklist-cloud-sync-status[data-sync-state="downloading"] { color: #a78bfa; }
+        #checklist-cloud-sync-status[data-sync-state="error"] { color: #fb7185; }
+        .checklist-sync-normal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 9999px;
+            background: #34d399;
+            box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+        }
+        .checklist-sync-tooltip {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 8px);
+            z-index: 200;
+            display: none;
+            width: max-content;
+            max-width: 260px;
+            padding: 6px 9px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(15,23,42,0.98);
+            color: #e2e8f0;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.35;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+            pointer-events: none;
+        }
+        #checklist-cloud-sync-status:hover .checklist-sync-tooltip { display: block; }
     </style>
 </head>
 
@@ -376,6 +411,10 @@
             </div>
         </div>
         <div class="win-controls">
+            <button id="checklist-cloud-sync-status" type="button" class="win-btn hidden" aria-label="숙제 체크리스트 동기화 상태">
+                <span id="checklist-cloud-sync-visual" class="flex items-center justify-center w-4 h-4"></span>
+                <span id="checklist-cloud-sync-tooltip" class="checklist-sync-tooltip"></span>
+            </button>
             <button id="btn-sound-settings" class="win-btn" title="소리 설정">
                 <i data-lucide="volume-2" class="w-4 h-4"></i>
             </button>
@@ -616,6 +655,26 @@
         let collapsedCategories = new Set(); // 던전/재화 등
         let promptCallback = null;
         const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+        function updateChecklistCloudSyncStatus(status) {
+            const button = document.getElementById('checklist-cloud-sync-status');
+            const visual = document.getElementById('checklist-cloud-sync-visual');
+            const tooltip = document.getElementById('checklist-cloud-sync-tooltip');
+            if (!button || !visual || !tooltip || !window.cloudSyncPresentation) return;
+            const presentation = window.cloudSyncPresentation.get(status, 'checklist');
+            button.classList.toggle('hidden', !presentation.visible);
+            if (!presentation.visible) {
+                visual.replaceChildren();
+                tooltip.textContent = '';
+                return;
+            }
+            button.dataset.syncState = presentation.state;
+            tooltip.textContent = presentation.label;
+            visual.innerHTML = presentation.icon
+                ? `<i data-lucide="${presentation.icon}" class="w-4 h-4${presentation.state === 'checking' ? ' animate-spin' : ''}"></i>`
+                : '<span class="checklist-sync-normal-dot"></span>';
+            lucide.createIcons();
+        }
 
         // 시간 셀렉트박스 초기화
         const hourSelect = document.getElementById('new-item-hour');
@@ -1358,6 +1417,17 @@
                 window.electronAPI.toggleSettings('sound');
             }
         };
+
+        document.getElementById('checklist-cloud-sync-status').onclick = () => {
+            window.electronAPI.toggleSettings('data:google-sync');
+        };
+
+        if (window.electronAPI.onGoogleSyncStatusChanged) {
+            window.electronAPI.onGoogleSyncStatusChanged(updateChecklistCloudSyncStatus);
+        }
+        if (window.electronAPI.googleSyncGetStatus) {
+            window.electronAPI.googleSyncGetStatus().then(updateChecklistCloudSyncStatus).catch(() => {});
+        }
 
         document.getElementById('btn-help').onclick = () => {
             document.getElementById('help-modal').classList.remove('hidden');
