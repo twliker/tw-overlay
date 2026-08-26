@@ -193,15 +193,21 @@ async function discoverFiles(): Promise<SyncFiles> {
         const rawMeta = await googleDriveSync.downloadJsonPayload<unknown>(metaFile.id);
         if (isValidMetaPayload(rawMeta)) {
           const meta = rawMeta;
-          files.meta = metaFile;
-          files.generationId = meta.generationId;
-          cloudState.update(state => { state.generationId = meta.generationId; });
           const settingsId = meta.files.settings?.id;
           const checklistId = meta.files.checklist?.id;
           const settingsById = settingsId ? all.find(file => file.id === settingsId) : undefined;
           const checklistById = checklistId ? all.find(file => file.id === checklistId) : undefined;
-          if (settingsById?.name === googleDriveSync.SETTINGS_SYNC_FILE_NAME) files.settings = settingsById;
-          if (checklistById?.name === googleDriveSync.CHECKLIST_SYNC_FILE_NAME) files.checklist = checklistById;
+          const validSettingsRef = settingsById?.name === googleDriveSync.SETTINGS_SYNC_FILE_NAME;
+          const validChecklistRef = checklistById?.name === googleDriveSync.CHECKLIST_SYNC_FILE_NAME;
+          if (!validSettingsRef && !validChecklistRef) {
+            log('[CloudSyncManager] 메타 후보의 데이터 파일 참조가 모두 없어 다음 후보를 확인합니다.');
+            continue;
+          }
+          files.meta = metaFile;
+          files.generationId = meta.generationId;
+          cloudState.update(state => { state.generationId = meta.generationId; });
+          if (validSettingsRef) files.settings = settingsById;
+          if (validChecklistRef) files.checklist = checklistById;
           break;
         }
       } catch (error) {

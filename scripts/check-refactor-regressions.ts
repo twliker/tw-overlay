@@ -6085,6 +6085,19 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     id: 'corrupt-meta-newer', name: 'tw_overlay_sync_meta.json',
     modifiedTime: '2026-08-25T11:00:04.000Z', payload: { schemaVersion: 1, generationId: 123 },
   });
+  memoryFiles.set('dangling-meta-newest', {
+    id: 'dangling-meta-newest', name: 'tw_overlay_sync_meta.json',
+    modifiedTime: '2026-08-25T11:00:05.000Z',
+    payload: {
+      schemaVersion: 1,
+      generationId: 'generation-with-no-data-files',
+      updatedAt: Date.now(),
+      files: {
+        settings: { id: 'missing-settings-id', name: 'tw_overlay_settings.json' },
+        checklist: { id: 'missing-checklist-id', name: 'tw_overlay_checklist.json' },
+      },
+    },
+  });
   const duplicateRestore = await cloudManager.syncFromCloud(true, ['settings', 'checklist']);
   assert.equal(duplicateRestore.success, true);
   assert.equal(duplicateRestore.partial, false);
