@@ -2699,6 +2699,14 @@ function checkSharedConstants() {
   };
   assert.equal(cloudSyncPresentation.get({ isLinked: false }).visible, false,
     'Google 계정 미연결 상태에서 동기화 아이콘이 노출됩니다.');
+  const reauthPresentation = cloudSyncPresentation.get({
+    isLinked: false,
+    reauthRequired: true,
+  });
+  assert.equal(reauthPresentation.visible, true,
+    '인증 만료 상태가 일반 미연결처럼 숨겨집니다.');
+  assert.equal(reauthPresentation.state, 'error');
+  assert.match(reauthPresentation.label, /다시 로그인/);
   assert.deepEqual(
     ['checking', 'upload', 'download'].map(syncActivity => cloudSyncPresentation.get({
       isLinked: true,
@@ -6021,8 +6029,24 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const authSource = read('src/modules/googleAuth.ts');
   assert.match(authSource, /const loginGeneration = \+\+_loginGeneration/,
     '취소된 OAuth 콜백의 늦은 토큰 저장을 막는 로그인 세대가 없습니다.');
-  assert.match(authSource, /tokens\.access_token && tokens\.expiry_date[\s\S]*?if \(!tokens\.refresh_token\) return null/,
+  assert.match(authSource, /tokens\.access_token && tokens\.expiry_date[\s\S]*?if \(!tokens\.refresh_token\)/,
     '유효 access token만 있는 세션을 refresh token 검사보다 먼저 허용하지 않습니다.');
+  assert.match(authSource, /if \(!tokens\.refresh_token\)[\s\S]*?invalidateAuth\(\)/,
+    '만료된 access token에 refresh token이 없을 때 재로그인 필요 상태로 전환하지 않습니다.');
+  const cloudManagerSource = read('src/modules/cloudSyncManager.ts');
+  assert.match(cloudManagerSource, /reauthRequired:\s*!isLinked[\s\S]*?googleSyncEnabled === true/,
+    '토큰 만료와 사용자의 명시적 연결 해제를 구분하는 상태가 없습니다.');
+  const authInvalidatedHandler = cloudManagerSource.match(
+    /googleAuth\.setOnAuthInvalidated\(\(\) => \{([\s\S]*?)\n\}\);/,
+  )?.[1] || '';
+  assert.doesNotMatch(authInvalidatedHandler, /googleSyncEnabled:\s*false/,
+    '인증 만료가 사용자의 명시적 연결 해제처럼 자동 동기화 설정을 끕니다.');
+  assert.match(settingsSource, /id="google-sync-unlinked-title"/,
+    '설정 화면에 인증 만료 안내를 갱신할 제목 영역이 없습니다.');
+  assert.match(settingsSource, /status\.reauthRequired[\s\S]*?다시 로그인/,
+    '설정 화면이 인증 만료 상태에서 다시 로그인을 안내하지 않습니다.');
+  assert.match(read('src/index.html'), /showCloudReauthToast[\s\S]*?data:google-sync/,
+    '인증 만료 비차단 알림에서 Google 동기화 설정으로 이동할 수 없습니다.');
 
   const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js'));
   assert.equal(googleAuth.isSafeOAuthLoopbackPort(1723), false,
@@ -6606,6 +6630,19 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
 
   cloudSyncState.resetCacheForTests();
   const cloudManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js'));
+  googleAuth.isLoggedIn = () => false;
+  const dirtyBeforeAuthInvalidation = structuredClone(cloudSyncState.load());
+  googleAuth.invalidateAuth();
+  const authExpiredStatus = cloudManager.getSyncStatus();
+  assert.equal(configModule.load().googleSyncEnabled, true,
+    '인증 만료가 사용자의 자동 동기화 선택을 껐습니다.');
+  assert.equal(authExpiredStatus.reauthRequired, true,
+    '인증 만료 뒤 재로그인 필요 상태가 유지되지 않습니다.');
+  assert.deepEqual(cloudSyncState.load().settingsDirtyKeys, dirtyBeforeAuthInvalidation.settingsDirtyKeys,
+    '인증 만료가 설정 dirty 상태를 삭제했습니다.');
+  assert.deepEqual(cloudSyncState.load().checklistOutbox, dirtyBeforeAuthInvalidation.checklistOutbox,
+    '인증 만료가 숙제 outbox를 삭제했습니다.');
+  googleAuth.isLoggedIn = () => true;
   const legacyPayload = { schemaVersion: 1, data: { userServer: 99 }, marker: 'legacy-single-file' };
   memoryFiles.set('legacy-single-file', {
     id: 'legacy-single-file',

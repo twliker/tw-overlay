@@ -98,6 +98,10 @@ export function getSyncStatus(): GoogleSyncStatus {
   }));
   return {
     isLinked,
+    // 명시적 로그아웃은 googleSyncEnabled를 끄지만 인증 만료는 사용자의 동기화 의도를 보존한다.
+    reauthRequired: !isLinked
+      && cfg.googleSyncEnabled === true
+      && Boolean(profile?.email || cfg.googleSyncUserEmail),
     email: profile?.email || cfg.googleSyncUserEmail,
     lastSyncedAt: cfg.googleSyncLastTime,
     fileName: getStatusFileName(),
@@ -1207,12 +1211,8 @@ googleAuth.setOnAuthInvalidated(() => {
   log('[CloudSyncManager] 구글 인증 만료 감지');
   stopBackgroundSync();
   googleDriveSync.cancelPendingRequests();
-  applyingCloud = true;
-  try {
-    config.saveImmediate({ googleSyncEnabled: false });
-  } finally {
-    applyingCloud = false;
-  }
+  // 사용자가 누른 '연결 해제'와 구분한다. 인증 만료 시에는 동기화 의도와
+  // dirty/outbox/recovery를 그대로 두어 재로그인 직후 이어서 수렴시킨다.
   broadcastStatus();
 });
 

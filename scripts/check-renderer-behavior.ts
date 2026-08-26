@@ -126,6 +126,10 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
       });
       const syncErrorState = syncButton?.dataset.syncState;
       const syncErrorTooltip = document.getElementById('checklist-cloud-sync-tooltip')?.textContent;
+      updateChecklistCloudSyncStatus({ isLinked: false, reauthRequired: true });
+      const syncReauthState = syncButton?.dataset.syncState;
+      const syncReauthVisible = !syncButton?.classList.contains('hidden');
+      const syncReauthTooltip = document.getElementById('checklist-cloud-sync-tooltip')?.textContent;
       syncButton?.click();
       updateChecklistCloudSyncStatus({ isLinked: false });
       const syncHiddenAfterLogout = syncButton?.classList.contains('hidden');
@@ -182,6 +186,9 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
         syncDownloadState,
         syncErrorState,
         syncErrorTooltip,
+        syncReauthState,
+        syncReauthVisible,
+        syncReauthTooltip,
         syncHiddenAfterLogout,
         characterName: document.querySelector('.char-name')?.textContent,
         customName: customCell?.querySelector('.text-xs')?.textContent,
@@ -214,6 +221,9 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
     syncDownloadState?: string;
     syncErrorState?: string;
     syncErrorTooltip?: string;
+    syncReauthState?: string;
+    syncReauthVisible?: boolean;
+    syncReauthTooltip?: string;
     syncHiddenAfterLogout?: boolean;
     characterName: string;
     customName: string;
@@ -246,6 +256,9 @@ async function checkContentsChecklist(window: BrowserWindow): Promise<void> {
   assert.equal(result.syncDownloadState, 'downloading');
   assert.equal(result.syncErrorState, 'error');
   assert.match(result.syncErrorTooltip || '', /숙제 체크리스트 동기화 오류/);
+  assert.equal(result.syncReauthState, 'error');
+  assert.equal(result.syncReauthVisible, true, '재로그인 필요 상태에서 숙제 동기화 아이콘이 숨겨집니다.');
+  assert.match(result.syncReauthTooltip || '', /다시 로그인/);
   assert.equal(result.syncHiddenAfterLogout, true, '로그아웃 뒤 숙제 동기화 아이콘이 숨겨지지 않았습니다.');
   assert.equal(result.characterName, '캐릭터"><img id="injected-character">');
   assert.equal(result.customName, '<img id="injected-item">사용자 숙제');
@@ -1102,6 +1115,15 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const checklistPreviewJson = document.getElementById('google-sync-preview-code')?.textContent || '';
       const previewButtonKinds = previewButtons.map(button => button.dataset.googlePreviewKind);
       const previewButtonLabels = previewButtons.map(button => button.textContent?.trim());
+      updateGoogleSyncUI({ isLinked: false, reauthRequired: true, email: 'expired@example.com' });
+      const reauthUi = {
+        title: document.getElementById('google-sync-unlinked-title')?.textContent || '',
+        description: document.getElementById('google-sync-unlinked-description')?.textContent || '',
+        loginLabel: document.getElementById('google-sync-login-label')?.textContent || '',
+        badge: document.getElementById('google-sync-badge')?.textContent || '',
+        unlinkedVisible: !document.getElementById('google-sync-unlinked-view')?.classList.contains('hidden'),
+        linkedHidden: document.getElementById('google-sync-linked-view')?.classList.contains('hidden') === true,
+      };
       const syncActivityTexts = {};
       for (const activity of ['upload', 'download', 'checking', 'preview', 'rollback']) {
         updateGoogleSyncUI({ isLinked: true, isSyncing: true, syncActivity: activity });
@@ -1151,6 +1173,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         nativeTitlesRemoved,
         cloudTooltipsUnified,
         syncActivityTexts,
+        reauthUi,
         previewButtonKinds,
         previewButtonLabels,
         settingsPreviewTitle,
@@ -1190,6 +1213,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     nativeTitlesRemoved: boolean;
     cloudTooltipsUnified: boolean;
     syncActivityTexts: Record<string, string>;
+    reauthUi: Record<string, string | boolean>;
     previewButtonKinds: string[];
     previewButtonLabels: string[];
     settingsPreviewTitle: string;
@@ -1239,6 +1263,12 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.syncActivityTexts.checking, /새 변경 확인 중/);
   assert.match(result.syncActivityTexts.preview, /저장 데이터 확인 중/);
   assert.match(result.syncActivityTexts.rollback, /이전 상태로 되돌리는 중/);
+  assert.equal(result.reauthUi.unlinkedVisible, true);
+  assert.equal(result.reauthUi.linkedHidden, true);
+  assert.match(String(result.reauthUi.title), /다시 로그인/);
+  assert.match(String(result.reauthUi.description), /대기 중인 변경 내용부터 이어서 동기화/);
+  assert.equal(result.reauthUi.loginLabel, '다시 로그인');
+  assert.match(String(result.reauthUi.badge), /다시 로그인 필요/);
   assert.deepEqual(result.previewButtonKinds, ['settings', 'checklist']);
   assert.deepEqual(result.previewButtonLabels, ['데이터 확인', '데이터 확인']);
   assert.match(result.settingsPreviewTitle, /일반 설정 데이터 확인/);
@@ -3469,6 +3499,10 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       syncCallbacks[0]({ isLinked: true, pullRetryCount: 1 });
       const errorState = syncItem?.dataset.syncState;
       const errorTooltip = syncItem?.querySelector('.dock-tooltip')?.textContent;
+      syncCallbacks[0]({ isLinked: false, reauthRequired: true });
+      const reauthState = syncItem?.dataset.syncState;
+      const reauthVisible = syncItem ? getComputedStyle(syncItem).display !== 'none' : false;
+      const reauthTooltip = syncItem?.querySelector('.dock-tooltip')?.textContent;
       syncItem?.click();
       syncCallbacks[0]({ isLinked: false });
       const hiddenAfterLogout = syncItem ? getComputedStyle(syncItem).display === 'none' : false;
@@ -3489,6 +3523,9 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
         checkingState,
         errorState,
         errorTooltip,
+        reauthState,
+        reauthVisible,
+        reauthTooltip,
         hiddenAfterLogout,
       };
 
@@ -3524,6 +3561,9 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
     checkingState?: string;
     errorState?: string;
     errorTooltip?: string;
+    reauthState?: string;
+    reauthVisible?: boolean;
+    reauthTooltip?: string;
     hiddenAfterLogout?: boolean;
     calls: unknown[];
     mousePassThroughCalls: Array<{ ignore: boolean; forward: boolean }>;
@@ -3547,6 +3587,9 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.checkingState, 'checking');
   assert.equal(result.errorState, 'error');
   assert.match(result.errorTooltip || '', /오류/);
+  assert.equal(result.reauthState, 'error');
+  assert.equal(result.reauthVisible, true, '재로그인 필요 상태에서 독 동기화 아이콘이 숨겨집니다.');
+  assert.match(result.reauthTooltip || '', /다시 로그인/);
   assert.equal(result.hiddenAfterLogout, true, '로그아웃 뒤 독 동기화 아이콘이 숨겨지지 않았습니다.');
   assert.deepEqual(result.calls.at(-1), ['settings', 'data:google-sync'],
     '독 동기화 아이콘이 Google Drive 설정 카드로 이동하지 않습니다.');

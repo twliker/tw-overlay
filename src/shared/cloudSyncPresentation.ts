@@ -6,6 +6,7 @@ interface CloudSyncFileStatusLike {
 
 interface CloudSyncStatusLike {
   isLinked?: boolean;
+  reauthRequired?: boolean;
   isSyncing?: boolean;
   syncActivity?: 'upload' | 'download' | 'checking' | 'preview' | 'rollback';
   autoSync?: boolean;
@@ -36,6 +37,15 @@ interface Window {
     status: CloudSyncStatusLike | null | undefined,
     kind?: 'settings' | 'checklist',
   ): CloudSyncPresentation {
+    if (status?.reauthRequired) {
+      return {
+        visible: true,
+        state: 'error',
+        icon: 'circle-alert',
+        label: 'Google 인증 만료 · 다시 로그인 필요',
+      };
+    }
+
     if (!status?.isLinked) {
       return { visible: false, state: 'normal', icon: null, label: '' };
     }

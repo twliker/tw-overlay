@@ -220,6 +220,7 @@
     let lastConfig = null;
     let sidebarPos = 'right';
     let isCollapsed = false;
+    let wasCloudReauthRequired = false;
 
     const audioPlayback = window.createAudioPlaybackController({
       getDefaultVolume: () => bossNotifyVolume,
@@ -267,6 +268,40 @@
         ? `<i data-lucide="${presentation.icon}" class="w-4 h-4${presentation.state === 'checking' ? ' animate-spin' : ''}"></i>`
         : '<span class="sidebar-cloud-sync-normal-dot"></span>';
       refreshIcons();
+
+      const reauthRequired = status?.reauthRequired === true;
+      if (reauthRequired && !wasCloudReauthRequired) showCloudReauthToast();
+      wasCloudReauthRequired = reauthRequired;
+    }
+
+    function showCloudReauthToast() {
+      if (document.getElementById('cloud-reauth-toast')) return;
+      const toast = document.createElement('div');
+      toast.id = 'cloud-reauth-toast';
+      toast.className = 'boss-toast show';
+      toast.style.borderLeft = '3px solid #fb7185';
+
+      const row = document.createElement('div');
+      row.className = 'flex items-start justify-between w-full gap-3';
+      const message = document.createElement('div');
+      message.className = 'min-w-0';
+      message.innerHTML = '<div class="boss-toast-name text-rose-300">Google 로그인이 필요합니다</div><div class="text-[11px] text-slate-400 mt-1 leading-relaxed">다시 로그인하면 멈춘 동기화를 이어서 진행합니다.</div>';
+      const closeButton = document.createElement('button');
+      closeButton.className = 'p-1 text-slate-400 hover:text-white bg-white/5 hover:bg-red-500/80 rounded-md transition-colors shrink-0';
+      closeButton.innerHTML = '<i data-lucide="x" class="w-3.5 h-3.5"></i>';
+      closeButton.addEventListener('click', event => removeToast(toast.id, event));
+      row.append(message, closeButton);
+
+      const action = document.createElement('button');
+      action.className = 'mt-3 px-3 py-1.5 flex items-center justify-center gap-1.5 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-lg hover:bg-rose-500 hover:text-white transition-all text-[11px] font-bold';
+      action.innerHTML = '<i data-lucide="settings" class="w-3.5 h-3.5"></i> 동기화 설정 열기';
+      action.addEventListener('click', event => {
+        window.electronAPI.toggleSettings('data:google-sync');
+        removeToast(toast.id, event);
+      });
+      toast.append(row, action);
+      appendInteractiveToast(toast);
+      setTimeout(() => removeToast(toast.id), 30_000);
     }
 
     const sidebarCategories = window.sidebarCategories;

@@ -282,7 +282,11 @@ export async function getValidAccessToken(): Promise<string | null> {
   if (tokens.access_token && tokens.expiry_date && tokens.expiry_date - now > 5 * 60 * 1000) {
     return tokens.access_token;
   }
-  if (!tokens.refresh_token) return null;
+  if (!tokens.refresh_token) {
+    // 만료된 access token만 남은 상태는 네트워크 오류가 아니라 재인증이 필요한 상태다.
+    invalidateAuth();
+    return null;
+  }
 
   // 이미 다른 비동기 흐름에서 갱신 중인 경우 동일 Promise를 대기
   if (_refreshPromise) {

@@ -2655,12 +2655,12 @@
             <!-- 미연동 상태 -->
             <div id="google-sync-unlinked-view" class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between gap-4">
               <div class="flex flex-col gap-1 min-w-0 flex-1">
-                <span class="text-sm font-bold text-slate-200">Google 계정으로 동기화 시작하기</span>
-                <p class="text-xs text-slate-500">한 번 연결하면 설정과 숙제 변경 내용을 자동으로 저장하고 다른 PC에 반영합니다.</p>
+                <span id="google-sync-unlinked-title" class="text-sm font-bold text-slate-200">Google 계정으로 동기화 시작하기</span>
+                <p id="google-sync-unlinked-description" class="text-xs text-slate-500">한 번 연결하면 설정과 숙제 변경 내용을 자동으로 저장하고 다른 PC에 반영합니다.</p>
               </div>
               <div class="flex items-center gap-2 flex-shrink-0">
                 <button id="btn-google-login" onclick="handleGoogleLogin()" class="btn-primary px-4 py-2.5 flex items-center gap-2 text-xs font-bold shadow-lg whitespace-nowrap">
-                  <i data-lucide="log-in" class="w-4 h-4 flex-shrink-0"></i> <span>Google 계정으로 로그인</span>
+                  <i data-lucide="log-in" class="w-4 h-4 flex-shrink-0"></i> <span id="google-sync-login-label">Google 계정으로 로그인</span>
                 </button>
                 <button id="btn-google-cancel-login" onclick="handleGoogleCancelLogin()" class="px-3 py-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 hover:text-rose-200 transition hidden flex items-center gap-1.5 shadow-sm whitespace-nowrap flex-shrink-0">
                   <i data-lucide="x" class="w-3.5 h-3.5 flex-shrink-0"></i> <span>취소</span>
@@ -3770,6 +3770,9 @@
       const backupBtn = document.getElementById('btn-google-backup');
       const restoreBtn = document.getElementById('btn-google-restore');
       const rollbackBtn = document.getElementById('btn-google-rollback');
+      const unlinkedTitle = document.getElementById('google-sync-unlinked-title');
+      const unlinkedDescription = document.getElementById('google-sync-unlinked-description');
+      const loginLabel = document.getElementById('google-sync-login-label');
 
       if (status.isLinked) {
         if (unlinkedView) unlinkedView.classList.add('hidden');
@@ -3806,9 +3809,27 @@
       } else {
         if (unlinkedView) unlinkedView.classList.remove('hidden');
         if (linkedView) linkedView.classList.add('hidden');
+        const reauthRequired = status.reauthRequired === true;
+        if (unlinkedTitle) {
+          unlinkedTitle.textContent = reauthRequired
+            ? 'Google 계정에 다시 로그인해 주세요'
+            : 'Google 계정으로 동기화 시작하기';
+          unlinkedTitle.classList.toggle('text-rose-300', reauthRequired);
+          unlinkedTitle.classList.toggle('text-slate-200', !reauthRequired);
+        }
+        if (unlinkedDescription) {
+          unlinkedDescription.textContent = reauthRequired
+            ? '인증이 만료되어 동기화가 잠시 멈췄습니다. 다시 로그인하면 대기 중인 변경 내용부터 이어서 동기화합니다.'
+            : '한 번 연결하면 설정과 숙제 변경 내용을 자동으로 저장하고 다른 PC에 반영합니다.';
+        }
+        if (loginLabel) loginLabel.textContent = reauthRequired ? '다시 로그인' : 'Google 계정으로 로그인';
         if (badge) {
-          badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1.5';
-          badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> 연동 안 됨';
+          badge.className = reauthRequired
+            ? 'px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/25 flex items-center gap-1.5'
+            : 'px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1.5';
+          badge.innerHTML = reauthRequired
+            ? '<i data-lucide="circle-alert" class="w-3.5 h-3.5"></i> 다시 로그인 필요'
+            : '<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> 연동 안 됨';
         }
       }
 

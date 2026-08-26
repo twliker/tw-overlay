@@ -603,6 +603,8 @@ export interface GoogleSyncFileStatus {
 
 export interface GoogleSyncStatus {
     isLinked: boolean;
+    /** 사용자가 연결 해제한 것이 아니라 저장된 인증이 만료되어 다시 로그인이 필요한 상태 */
+    reauthRequired?: boolean;
     email?: string;
     lastSyncedAt?: number;
     isSyncing?: boolean;
