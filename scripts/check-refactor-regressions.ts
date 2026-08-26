@@ -5382,6 +5382,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '종료 전 파일별 클라우드 recovery marker를 저장하지 않습니다.');
   assert.match(managerSource, /reconcileShutdownRecovery[\s\S]*?operationIds\.every/,
     '다음 실행에서 확인된 숙제 operation 기준으로 recovery marker를 정리하지 않습니다.');
+  assert.match(managerSource, /export async function loginAndInit\(\)[\s\S]*?startBackgroundSync\(\);[\s\S]*?await syncFromCloud\(false\)/,
+    'Google 로그인 완료 뒤 scheduler 시작과 최초 즉시 pull이 연결되지 않았습니다.');
 
   const mainSource = read('src/main.ts');
   assert.match(mainSource, /const decision = shutdownGate\.requestQuit\(\);[\s\S]*?decision === 'allow'[\s\S]*?event\.preventDefault\(\);[\s\S]*?decision === 'wait'/,
