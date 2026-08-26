@@ -21,6 +21,7 @@
 
 ### Google Drive 동기화·복원·종료
 
+- `7940d31`에서 기본 화면은 계정, 자동 동기화 상태, 마지막 동기화 시각과 `지금 저장`·`불러오기`만 보여 주도록 단순화했다. 파일별 checksum·revision·복원 선택·데이터 확인·되돌리기·연동 해제는 기본으로 닫힌 `고급 설정 및 데이터 확인`에서 제공하며, 기존 동기화·복원 로직과 부분 복원 결과 표시는 유지한다.
 - 설정, 숙제, 메타를 각각 `tw_overlay_settings.json`, `tw_overlay_checklist.json`, `tw_overlay_sync_meta.json`으로 분리했다.
 - 설정과 숙제의 dirty/debounce를 분리하고 모든 Drive 요청을 single-flight 큐로 직렬화했다.
 - 숙제는 base/local/remote 3방향 병합과 안정 operation/mutation을 사용한다. 업로드 뒤 revision·operation을 재확인하며 overwrite나 응답 유실 뒤에도 outbox를 유지해 재수렴한다.
@@ -39,6 +40,7 @@
 
 ### 채팅·렌더러·알림·창 관리
 
+- `7940d31`에서 독의 숙제 체크리스트와 검 강화하기가 사이드바와 동일한 아이콘 원본을 사용하도록 통일했고, 클릭·활성·사용자 숨김 동작은 그대로 유지했다.
 - 비정상 대형 채팅 로그는 제한 읽기 모드로 전환하고, 주간 동기화는 유한 batch와 ACK, fingerprint, event ID, 내구 offset으로 재개한다.
 - Tail 오류 뒤 첫 재시도 때 로그 파일이 아직 없어도 같은 경로라면 1/2/4/8/16초 지수 백오프를 계속하며, 복원 뒤 기존 내용을 재생하지 않고 실시간 append부터 처리한다.
 - 채팅 history/search/live 요청의 generation을 분리하고 stale success/catch/finally가 최신 화면을 덮지 않게 했다.

@@ -16,8 +16,8 @@
 ### 공통 증거 수집
 
 1. 두 PC에서 같은 설치 파일을 사용하고 `Get-FileHash -Algorithm SHA256 <설치파일>` 결과의 `Hash`만 기록한다.
-2. 설정 > 백업 & 복구 > Google Drive 클라우드 동기화에서 파일별 `로컬` checksum, `클라우드` revision, `대기 N개/전송 완료`를 시나리오 전후에 기록한다. 계정 이메일이 보이는 영역은 캡처하지 않는다.
-3. 원격 숙제 operation은 같은 화면의 `데이터 확인`에서 `tw_overlay_checklist.json`의 `revision`, `checksum`, `operations[].id`만 확인한다. `data` 전체에는 캐릭터 이름과 사용자 설정이 있으므로 원본 JSON 전체를 공유하지 않는다.
+2. 설정 > 백업 & 복구 > 클라우드 동기화에서 `고급 설정 및 데이터 확인`을 펼친 뒤 파일별 `로컬` checksum, `클라우드` revision, `대기 N개/전송 완료`를 시나리오 전후에 기록한다. 계정 이메일이 보이는 영역은 캡처하지 않는다.
+3. 원격 숙제 operation은 펼친 고급 영역의 숙제 체크리스트 카드에서 `데이터 확인`을 눌러 `tw_overlay_checklist.json`의 `revision`, `checksum`, `operations[].id`만 확인한다. `data` 전체에는 캐릭터 이름과 사용자 설정이 있으므로 원본 JSON 전체를 공유하지 않는다.
 4. 데스크톱 설치판의 로컬 상태는 기본적으로 `%APPDATA%\twOverlay\cloud-sync-state.json`에 있다. 저장소 루트에서 다음 수집기를 실행하면 설치 파일은 SHA-256만, 로컬 상태는 판정에 필요한 generation/revision/dirty/operation/recovery만 JSON으로 출력한다. 실제 경로, device ID, Drive file ID, base snapshot, Webhook, 캐릭터 이름과 원문 오류는 출력하지 않는다. `-InstallerPath`는 생략할 수 있으며 PC-B에서는 `-DeviceLabel PC-B`를 사용한다.
 
 ```powershell
