@@ -5791,6 +5791,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '다음 실행에서 확인된 숙제 operation 기준으로 recovery marker를 정리하지 않습니다.');
   assert.match(managerSource, /export async function loginAndInit\(\)[\s\S]*?startBackgroundSync\(\);[\s\S]*?await syncFromCloud\(false\)/,
     'Google 로그인 완료 뒤 scheduler 시작과 최초 즉시 pull이 연결되지 않았습니다.');
+  assert.match(managerSource, /enqueueTransfer\(`\$\{kind\} 자동 업로드`, 'upload'/,
+    '자동 업로드 상태가 사용자에게 업로드로 구분되지 않습니다.');
+  assert.match(managerSource, /useRestoreFlow \? 'download' : 'checking'/,
+    '클라우드 불러오기와 원격 변경 확인 상태가 구분되지 않습니다.');
 
   const mainSource = read('src/main.ts');
   assert.match(mainSource, /const decision = shutdownGate\.requestQuit\(\);[\s\S]*?decision === 'allow'[\s\S]*?event\.preventDefault\(\);[\s\S]*?decision === 'wait'/,
@@ -5824,6 +5828,12 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Google 동기화 UI가 개발 중 단일 파일명을 표시합니다.');
   assert.match(settingsSource, /GOOGLE_SYNC_FILE_LABEL = 'tw_overlay_settings\.json, tw_overlay_checklist\.json'/,
     'Google 동기화 UI의 정식 분리 파일 fallback이 없습니다.');
+  assert.match(settingsSource, /id="btn-google-logout"[\s\S]*?연결 해제/,
+    'Google 계정 연결 해제 버튼이 계정 영역에 없습니다.');
+  assert.match(settingsSource, /id="btn-google-backup"[^>]+title="[^"]*Google Drive에 바로 저장/,
+    '지금 저장 버튼에 클라우드 저장 설명이 없습니다.');
+  assert.match(settingsSource, /id="btn-google-restore"[^>]+title="[^"]*이 PC로 불러옵니다/,
+    '불러오기 버튼에 클라우드 복원 설명이 없습니다.');
 
   const shutdownCoordinator = require(path.join(projectRoot, 'dist', 'modules', 'shutdownCoordinator.js'));
   const shutdownGate = shutdownCoordinator.createShutdownGate();

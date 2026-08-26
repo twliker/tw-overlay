@@ -605,6 +605,7 @@ export interface GoogleSyncStatus {
     email?: string;
     lastSyncedAt?: number;
     isSyncing?: boolean;
+    syncActivity?: 'upload' | 'download' | 'checking' | 'preview' | 'rollback';
     autoSync?: boolean;
     fileName?: string;
     cloudModifiedTime?: string;

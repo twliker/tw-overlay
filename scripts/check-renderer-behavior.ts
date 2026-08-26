@@ -1013,6 +1013,12 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const fileStatusText = document.getElementById('google-file-sync-status')?.textContent || '';
       const fileNameText = document.getElementById('google-sync-file-name')?.textContent || '';
       const syncBadgeText = document.getElementById('google-sync-badge')?.textContent || '';
+      const logoutButton = document.getElementById('btn-google-logout');
+      const logoutOutsideAdvanced = logoutButton?.closest('#google-sync-advanced') === null;
+      const actionTooltips = {
+        backup: document.getElementById('btn-google-backup')?.getAttribute('title') || '',
+        restore: document.getElementById('btn-google-restore')?.getAttribute('title') || '',
+      };
       const previewButtons = Array.from(document.querySelectorAll('[data-google-preview-kind]'));
       previewButtons[0]?.click();
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -1027,6 +1033,11 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       const checklistPreviewJson = document.getElementById('google-sync-preview-code')?.textContent || '';
       const previewButtonKinds = previewButtons.map(button => button.dataset.googlePreviewKind);
       const previewButtonLabels = previewButtons.map(button => button.textContent?.trim());
+      const syncActivityTexts = {};
+      for (const activity of ['upload', 'download', 'checking', 'preview', 'rollback']) {
+        updateGoogleSyncUI({ isLinked: true, isSyncing: true, syncActivity: activity });
+        syncActivityTexts[activity] = document.getElementById('google-sync-badge')?.textContent || '';
+      }
       const copyButton = document.getElementById('btn-google-preview-copy');
       const closeButton = document.getElementById('btn-google-preview-close');
       const copyButtonNoWrap = copyButton ? getComputedStyle(copyButton).whiteSpace === 'nowrap' : false;
@@ -1063,6 +1074,9 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         fileStatusText,
         fileNameText,
         syncBadgeText,
+        logoutOutsideAdvanced,
+        actionTooltips,
+        syncActivityTexts,
         previewButtonKinds,
         previewButtonLabels,
         settingsPreviewTitle,
@@ -1094,6 +1108,9 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     fileStatusText: string;
     fileNameText: string;
     syncBadgeText: string;
+    logoutOutsideAdvanced: boolean;
+    actionTooltips: Record<string, string>;
+    syncActivityTexts: Record<string, string>;
     previewButtonKinds: string[];
     previewButtonLabels: string[];
     settingsPreviewTitle: string;
@@ -1129,6 +1146,14 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.fileStatusText, /원격 확인 재시도 1회/);
   assert.match(result.fileNameText, /tw_overlay_settings\.json, tw_overlay_checklist\.json \(Drive AppData\)/);
   assert.match(result.syncBadgeText, /자동 동기화 켜짐/);
+  assert.equal(result.logoutOutsideAdvanced, true, 'Google 계정 연결 해제가 고급 설정 안에 숨겨졌습니다.');
+  assert.match(result.actionTooltips.backup, /Google Drive에 바로 저장/);
+  assert.match(result.actionTooltips.restore, /Google Drive에 저장된.*이 PC로 불러옵니다/);
+  assert.match(result.syncActivityTexts.upload, /클라우드에 저장 중/);
+  assert.match(result.syncActivityTexts.download, /클라우드에서 불러오는 중/);
+  assert.match(result.syncActivityTexts.checking, /새 변경 확인 중/);
+  assert.match(result.syncActivityTexts.preview, /저장 데이터 확인 중/);
+  assert.match(result.syncActivityTexts.rollback, /이전 상태로 되돌리는 중/);
   assert.deepEqual(result.previewButtonKinds, ['settings', 'checklist']);
   assert.deepEqual(result.previewButtonLabels, ['데이터 확인', '데이터 확인']);
   assert.match(result.settingsPreviewTitle, /일반 설정 데이터 확인/);

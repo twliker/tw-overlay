@@ -2669,9 +2669,14 @@
                     <div class="text-[11px] text-emerald-300 mt-0.5">이 PC와 다른 PC의 변경 내용을 자동으로 맞춥니다.</div>
                   </div>
                 </div>
-                <div class="text-right">
-                  <div class="text-[11px] text-slate-400 font-medium">마지막 동기화</div>
-                  <div id="google-sync-last-time" class="text-xs font-semibold text-slate-300">-</div>
+                <div class="flex items-center gap-4 flex-shrink-0">
+                  <div class="text-right">
+                    <div class="text-[11px] text-slate-400 font-medium">마지막 동기화</div>
+                    <div id="google-sync-last-time" class="text-xs font-semibold text-slate-300">-</div>
+                  </div>
+                  <button id="btn-google-logout" onclick="handleGoogleLogout()" class="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-all border border-red-500/20 whitespace-nowrap" title="이 PC에서 Google 계정 연결을 해제합니다. 로컬 데이터는 유지됩니다.">
+                    연결 해제
+                  </button>
                 </div>
               </div>
 
@@ -2685,10 +2690,10 @@
                 </label>
 
                 <div class="flex items-center gap-2">
-                  <button id="btn-google-backup" onclick="handleGoogleBackupNow()" class="btn-primary px-4 py-2 flex items-center gap-1.5 text-xs font-bold shadow-sm">
+                  <button id="btn-google-backup" onclick="handleGoogleBackupNow()" class="btn-primary px-4 py-2 flex items-center gap-1.5 text-xs font-bold shadow-sm" title="현재 PC의 일반 설정과 숙제 체크리스트를 Google Drive에 바로 저장합니다.">
                     <i data-lucide="cloud-upload" class="w-3.5 h-3.5"></i> 지금 저장
                   </button>
-                  <button id="btn-google-restore" onclick="handleGoogleRestoreNow()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border border-white/10">
+                  <button id="btn-google-restore" onclick="handleGoogleRestoreNow()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 border border-white/10" title="Google Drive에 저장된 일반 설정과 숙제 체크리스트를 선택하여 이 PC로 불러옵니다.">
                     <i data-lucide="cloud-download" class="w-3.5 h-3.5"></i> 불러오기
                   </button>
                 </div>
@@ -2742,12 +2747,9 @@
                         <i data-lucide="files" class="w-3.5 h-3.5"></i> 전체 데이터 확인
                       </button>
                       <button id="btn-google-rollback" onclick="handleGoogleRollback()" class="hidden px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 transition flex items-center gap-1.5">
-                        <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> 최근 복원 되돌리기
+                        <i data-lucide="undo-2" class="w-3.5 h-3.5"></i> 마지막 불러오기 되돌리기
                       </button>
                     </div>
-                    <button onclick="handleGoogleLogout()" class="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold rounded-xl transition-all border border-red-500/20">
-                      Google 계정 연결 해제
-                    </button>
                   </div>
                 </div>
               </details>
@@ -3696,8 +3698,16 @@
 
         if (badge) {
           if (status.isSyncing) {
+            const activityLabels = {
+              upload: '클라우드에 저장 중...',
+              download: '클라우드에서 불러오는 중...',
+              checking: '새 변경 확인 중...',
+              preview: '저장 데이터 확인 중...',
+              rollback: '이전 상태로 되돌리는 중...',
+            };
+            const activityLabel = activityLabels[status.syncActivity] || '동기화 중...';
             badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-1.5 animate-pulse';
-            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span> 동기화 중...';
+            badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span> ${activityLabel}`;
           } else if (status.autoSync === false) {
             badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/25 flex items-center gap-1.5';
             badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-300"></span> 자동 동기화 꺼짐';

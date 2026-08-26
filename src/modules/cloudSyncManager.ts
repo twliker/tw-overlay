@@ -23,6 +23,7 @@ import { log } from './logger';
 import { broadcastToAllWindows } from './windowMessaging';
 
 type SyncKind = 'settings' | 'checklist';
+type SyncActivity = NonNullable<GoogleSyncStatus['syncActivity']>;
 
 const SETTINGS_DEBOUNCE_MS = 1_500;
 const CHECKLIST_DEBOUNCE_MS = 500;
@@ -35,6 +36,7 @@ let checklistTimer: NodeJS.Timeout | null = null;
 let pullTimer: NodeJS.Timeout | null = null;
 let transferTail: Promise<unknown> = Promise.resolve();
 let activeTransfers = 0;
+let activeSyncActivity: SyncActivity | undefined;
 let applyingCloud = false;
 let settingsChangeSerial = 0;
 let backgroundStarted = false;
@@ -100,6 +102,7 @@ export function getSyncStatus(): GoogleSyncStatus {
     lastSyncedAt: cfg.googleSyncLastTime,
     fileName: getStatusFileName(),
     isSyncing: activeTransfers > 0,
+    syncActivity: activeSyncActivity,
     autoSync: cfg.googleSyncAutoSync !== false,
     profileState: state.profileState,
     restoreResults: state.restoreResults,
@@ -120,14 +123,16 @@ function broadcastStatus(): void {
   broadcastToAllWindows('google-sync-status-changed', getSyncStatus());
 }
 
-function enqueueTransfer<T>(label: string, task: () => Promise<T>): Promise<T> {
+function enqueueTransfer<T>(label: string, activity: SyncActivity, task: () => Promise<T>): Promise<T> {
   const run = async (): Promise<T> => {
     activeTransfers++;
+    activeSyncActivity = activity;
     broadcastStatus();
     try {
       return await task();
     } finally {
       activeTransfers--;
+      if (activeTransfers === 0) activeSyncActivity = undefined;
       broadcastStatus();
     }
   };
@@ -515,7 +520,7 @@ function scheduleUpload(kind: SyncKind, immediate = false, retryDelay?: number):
     }
     if (kind === 'settings') settingsTimer = null;
     else checklistTimer = null;
-    enqueueTransfer(`${kind} 자동 업로드`, () => uploadKinds([kind])).then(result => {
+    enqueueTransfer(`${kind} 자동 업로드`, 'upload', () => uploadKinds([kind])).then(result => {
       if (!result.success) throw new Error(result.error || `${kind} 자동 업로드 실패`);
       uploadFailureCount[kind] = 0;
       delete uploadLastError[kind];
@@ -935,7 +940,7 @@ export function logout(): GoogleSyncStatus {
 export async function syncToCloud(_manual = false): Promise<GoogleSyncResult> {
   markSettingsDirty(syncDataHelper.SETTINGS_SYNCABLE_KEYS.map(String));
   markChecklistDirty(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.map(String));
-  return enqueueTransfer('수동 백업', () => uploadKinds(['settings', 'checklist'], true));
+  return enqueueTransfer('수동 백업', 'upload', () => uploadKinds(['settings', 'checklist'], true));
 }
 
 /** 자동 pull은 로컬 dirty를 보존하며, 명시적 복원은 일반 설정에 클라우드 스냅샷을 적용한다. */
@@ -960,9 +965,13 @@ export async function syncFromCloud(
       return { success: false, error: '복원할 파일 종류를 하나 이상 선택해야 합니다.' };
     }
     const useRestoreFlow = manual || state.profileState === 'fresh';
-    const result = await enqueueTransfer(manual ? '수동 복원' : '원격 변경 확인', () => useRestoreFlow
+    const result = await enqueueTransfer(
+      manual ? '수동 복원' : '원격 변경 확인',
+      useRestoreFlow ? 'download' : 'checking',
+      () => useRestoreFlow
       ? pullRestoreFromCloud(normalizedKinds, state.profileState === 'fresh')
-      : pullFromCloud(false));
+      : pullFromCloud(false),
+    );
     if (!result.success && !manual) pullFailureCount++;
     else if (result.success) {
       pullFailureCount = 0;
@@ -980,7 +989,7 @@ export async function syncFromCloud(
 /** 마지막 클라우드 복원 직전 로컬 config로 되돌린다. 정상 저장 이벤트를 통해 필요한 재동기화를 예약한다. */
 export async function rollbackLastRestore(): Promise<GoogleSyncResult> {
   try {
-    return await enqueueTransfer('복원 되돌리기', async () => {
+    return await enqueueTransfer('복원 되돌리기', 'rollback', async () => {
       const backup = syncDataHelper.loadLocalSyncBackup();
       if (!config.saveImmediate(backup)) {
         return { success: false, error: config.getLastSaveError() || '로컬 백업 적용에 실패했습니다.' };
@@ -1010,7 +1019,7 @@ export async function getCloudDataPreview(selectedKind?: GoogleSyncDataKind): Pr
 }> {
   if (!googleAuth.isLoggedIn()) return { success: false, error: 'Google 로그인이 필요합니다.' };
   try {
-    return await enqueueTransfer('미리보기', async () => {
+    return await enqueueTransfer('미리보기', 'preview', async () => {
       const files = await discoverFiles();
       const allInspections = await Promise.all((['settings', 'checklist'] as const)
         .map(kind => inspectRestoreCandidates(kind, files)));
@@ -1182,7 +1191,7 @@ export async function flushPendingSync(): Promise<void> {
   checklistTimer = clearTimer(checklistTimer);
   const state = cloudState.load();
   if (canAutoSync() && (state.settingsDirtyKeys.length > 0 || state.checklistOutbox.length > 0)) {
-    await enqueueTransfer('종료 flush', () => uploadKinds(['settings', 'checklist']));
+    await enqueueTransfer('종료 flush', 'upload', () => uploadKinds(['settings', 'checklist']));
   }
   await transferTail;
   reconcileShutdownRecovery();
