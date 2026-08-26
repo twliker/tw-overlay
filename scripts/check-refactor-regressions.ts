@@ -6157,6 +6157,65 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(configModule.load().userServer, 13,
     '손상된 최신 중복 파일 대신 메타가 가리키는 유효 설정 파일을 복원하지 않았습니다.');
 
+  // established 자동 pull도 손상된 설정 파일과 정상 숙제 파일을 독립 처리한다.
+  memoryFiles.clear();
+  const establishedPartialGeneration = 'generation-established-partial';
+  const establishedBaseChecklist = syncDataHelper.extractChecklistSyncData(configModule.load());
+  const establishedRemoteConfig = structuredClone(configModule.load());
+  establishedRemoteConfig.characterPresets = establishedRemoteConfig.characterPresets.map((character: any, index: number) => (
+    index === 0 ? { ...character, name: 'established 원격 정상 캐릭터' } : character
+  ));
+  const establishedChecklist = syncDataHelper.buildChecklistSyncPayload(
+    establishedRemoteConfig,
+    'remote-established-pc',
+    establishedPartialGeneration,
+    [],
+  );
+  memoryFiles.set('established-corrupt-settings', {
+    id: 'established-corrupt-settings', name: 'tw_overlay_settings.json',
+    modifiedTime: '2026-08-25T11:10:00.000Z', payload: { invalid: true },
+  });
+  memoryFiles.set('established-valid-checklist', {
+    id: 'established-valid-checklist', name: 'tw_overlay_checklist.json',
+    modifiedTime: '2026-08-25T11:10:01.000Z', payload: establishedChecklist,
+  });
+  memoryFiles.set('established-partial-meta', {
+    id: 'established-partial-meta', name: 'tw_overlay_sync_meta.json',
+    modifiedTime: '2026-08-25T11:10:02.000Z',
+    payload: {
+      schemaVersion: 1,
+      generationId: establishedPartialGeneration,
+      updatedAt: Date.now(),
+      files: {
+        settings: { id: 'established-corrupt-settings', name: 'tw_overlay_settings.json' },
+        checklist: { id: 'established-valid-checklist', name: 'tw_overlay_checklist.json' },
+      },
+    },
+  });
+  cloudSyncState.update((state: any) => {
+    state.profileState = 'established';
+    state.generationId = establishedPartialGeneration;
+    state.fileIds = {};
+    state.remoteRevisions = {};
+    state.baseSettings = syncDataHelper.extractSettingsSyncData(configModule.load());
+    state.baseChecklist = establishedBaseChecklist;
+    state.settingsDirtyKeys = [];
+    state.settingsDirtyAt = {};
+    state.checklistOutbox = [];
+    state.confirmedChecklistOperations = [];
+  });
+  const establishedPartialPull = await cloudManager.syncFromCloud(false);
+  assert.equal(establishedPartialPull.success, true);
+  assert.equal(establishedPartialPull.partial, true);
+  assert.equal(establishedPartialPull.restoreResults.find((result: any) => result.kind === 'settings').status,
+    'invalid');
+  assert.equal(establishedPartialPull.restoreResults.find((result: any) => result.kind === 'checklist').status,
+    'restored');
+  assert.equal(configModule.load().characterPresets[0].name, 'established 원격 정상 캐릭터',
+    'established pull에서 손상 설정 때문에 정상 숙제 변경이 누락됐습니다.');
+  assert.equal(cloudSyncState.load().checklistOutbox.length, 0,
+    'established 부분 pull이 원격 숙제 적용을 echo outbox로 만들었습니다.');
+
   // 메타가 없을 때 최신 세대와 다른 유효 파일은 독립적으로 제외한다.
   memoryFiles.clear();
   const mismatchedSettings = syncDataHelper.buildSettingsSyncPayload({

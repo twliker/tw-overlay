@@ -795,28 +795,51 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
   let applied = false;
   let backupCreated = false;
   let discoveredGeneration = files.generationId;
+  const results: GoogleSyncFileRestoreResult[] = [];
   for (const kind of ['settings', 'checklist'] as const) {
     const requestStartedAt = Date.now();
-    const payload = await downloadValidated(kind, fileForKind(files, kind), discoveredGeneration);
-    if (!payload) {
-      if (kind === 'settings') markSettingsDirty(syncDataHelper.SETTINGS_SYNCABLE_KEYS.map(String));
-      else markChecklistDirty(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.map(String));
-      continue;
+    const file = fileForKind(files, kind);
+    try {
+      const payload = await downloadValidated(kind, file, discoveredGeneration);
+      if (!payload) {
+        if (kind === 'settings') markSettingsDirty(syncDataHelper.SETTINGS_SYNCABLE_KEYS.map(String));
+        else markChecklistDirty(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.map(String));
+        continue;
+      }
+      if (!discoveredGeneration && payload.generationId) {
+        discoveredGeneration = payload.generationId;
+        files.generationId = payload.generationId;
+        cloudState.update(state => { state.generationId = payload.generationId!; });
+      }
+      const revisionChanged = cloudState.load().remoteRevisions[kind] !== revisionOf(payload);
+      if (revisionChanged && !backupCreated) {
+        syncDataHelper.createLocalBackupBeforeSync(config.load());
+        backupCreated = true;
+      }
+      const changed = await receiveKind(kind, payload, manualRestore, requestStartedAt, {
+        createBackup: false,
+      });
+      latestAt = Math.max(latestAt, payload.lastSyncedAt);
+      applied = changed || applied;
+      results.push({
+        kind,
+        selected: true,
+        status: changed ? 'restored' : 'unchanged',
+        fileName: file?.name,
+        revision: payload.revision,
+        lastSyncedAt: payload.lastSyncedAt,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`[CloudSyncManager] ${kind} 원격 파일을 적용하지 못해 다른 파일을 계속 확인합니다: ${message}`);
+      results.push({
+        kind,
+        selected: true,
+        status: 'invalid',
+        fileName: file?.name,
+        error: message,
+      });
     }
-    if (!discoveredGeneration && payload.generationId) {
-      discoveredGeneration = payload.generationId;
-      files.generationId = payload.generationId;
-      cloudState.update(state => { state.generationId = payload.generationId!; });
-    }
-    latestAt = Math.max(latestAt, payload.lastSyncedAt);
-    const revisionChanged = cloudState.load().remoteRevisions[kind] !== revisionOf(payload);
-    if (revisionChanged && !backupCreated) {
-      syncDataHelper.createLocalBackupBeforeSync(config.load());
-      backupCreated = true;
-    }
-    applied = (await receiveKind(kind, payload, manualRestore, requestStartedAt, {
-      createBackup: false,
-    })) || applied;
   }
 
   if (latestAt > 0) {
@@ -831,13 +854,22 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
   const pendingState = cloudState.load();
   if (!manualRestore && pendingState.settingsDirtyKeys.length > 0) scheduleUpload('settings', true);
   if (pendingState.checklistOutbox.length > 0) scheduleUpload('checklist', true);
+  const failed = results.filter(result => result.status === 'invalid');
+  const succeeded = results.filter(result => result.status === 'restored' || result.status === 'unchanged');
+  const partial = failed.length > 0 && succeeded.length > 0;
+  const success = failed.length === 0 || succeeded.length > 0;
   return {
-    success: true,
-    message: applied ? '클라우드 변경 사항을 반영했습니다.' : '이미 최신 상태입니다.',
+    success,
+    message: partial
+      ? '정상 클라우드 파일의 변경 사항만 반영했습니다.'
+      : success ? (applied ? '클라우드 변경 사항을 반영했습니다.' : '이미 최신 상태입니다.') : undefined,
+    error: failed.length > 0 ? failed[0].error : undefined,
     fileName: getStatusFileName(),
     lastSyncedAt: latestAt || config.load().googleSyncLastTime,
     fileCount: files.all.length,
     files: files.all,
+    restoreResults: results,
+    partial,
   };
 }
 
