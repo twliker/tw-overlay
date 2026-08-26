@@ -26,12 +26,14 @@
     /* Calendar Grid */
     .calendar-grid {
       display: grid;
-      grid-template-columns: repeat(8, 1fr);
+      grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: 8px;
+      align-items: start;
     }
 
     .calendar-cell {
       min-height: 120px;
+      height: 120px;
       min-width: 0;
       overflow: hidden;
       border-radius: 12px;
@@ -42,6 +44,10 @@
       flex-direction: column;
       position: relative;
       transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .calendar-cell.expanded {
+      height: auto;
     }
 
     .calendar-cell:hover {
@@ -147,8 +153,44 @@
       flex-direction: column;
       gap: 4px;
       margin-top: 6px;
-      flex: 1;
-      overflow-y: auto;
+      flex: 0 0 auto;
+      max-height: 58px;
+      overflow: hidden;
+    }
+
+    .calendar-cell.expanded .loot-stack {
+      max-height: none;
+      overflow: visible;
+    }
+
+    .calendar-cell-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 22px;
+      margin-top: auto;
+      padding-top: 4px;
+      border-top: 1px solid rgba(148, 163, 184, 0.12);
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .calendar-cell.has-overflow .calendar-cell-toggle:not([hidden]) {
+      display: flex;
+    }
+
+    .calendar-cell-toggle:hover,
+    .calendar-cell-toggle:focus-visible {
+      color: #5eead4;
+    }
+
+    .calendar-cell-toggle:focus-visible {
+      outline: 2px solid rgba(45, 212, 191, 0.65);
+      outline-offset: 2px;
     }
 
     .loot-badge {
@@ -604,6 +646,7 @@
   <script src="assets/ui-utils.js"></script>
   <script src="assets/request-generation.js"></script>
   <script src="renderer/diary/log-utils.js"></script>
+  <script src="renderer/diary/calendar-cell-expansion.js"></script>
   <script>
     const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
     const escapeHtml = (value) => String(value ?? '')
@@ -1162,6 +1205,7 @@
         const score = data ? data.total_score : 0, level = getLevel(score);
         const div = document.createElement('div');
         div.className = `calendar-cell ${isOther ? 'other-month' : ''} level-${level} ${dStr === todayStr ? 'today' : ''} ${dStr === selectedDateStr ? 'active' : ''}`;
+        div.dataset.calendarDay = dStr;
         div.onclick = () => selectDate(dStr, div);
 
         let cellHtml = `
@@ -1212,7 +1256,12 @@
         }
         lootStackHtml += `</div>`;
 
-        div.innerHTML = cellHtml + lootStackHtml;
+        const toggleHtml = `
+          <button type="button" class="calendar-cell-toggle" hidden aria-expanded="false" aria-label="득템 목록 더보기">
+            <span class="calendar-cell-toggle-label">더보기</span>
+          </button>
+        `;
+        div.innerHTML = cellHtml + lootStackHtml + toggleHtml;
         grid.appendChild(div);
       };
 
@@ -1234,6 +1283,7 @@
           weekWDone = 0; weekWTotal = 0; currentWeekDates = [];
         }
       }
+      requestAnimationFrame(() => window.diaryCalendarExpansion.refresh(grid));
     }
 
         async function selectWeek(weekIndex, dates, cellElement, hwDone, hwTotal) {
