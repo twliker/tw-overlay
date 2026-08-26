@@ -481,14 +481,16 @@ async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
       assert.equal(company.observation.companyState.lastCompletedAt, 20_000,
         '동일 완료 시각 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
     }
-    assert.ok(company.remoteStore.uploadCounts.company >= 1);
-    assert.ok(company.remoteStore.uploadCounts.home >= 1);
-    assert.ok(company.remoteStore.uploadOrder.length >= 3,
+    assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'company').length >= 1);
+    assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'home').length >= 1);
+    assert.ok(company.remoteStore.checklistUploadOrder.length >= 3,
       `${scenario} 교차 overwrite 뒤 누락 operation 재게시가 발생하지 않았습니다.`);
-    assert.deepEqual(new Set(company.remoteStore.uploadOrder.slice(0, 2)), new Set(['company', 'home']),
+    assert.deepEqual(new Set(company.remoteStore.checklistUploadOrder.slice(0, 2)), new Set(['company', 'home']),
       `${scenario} 최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.`);
     assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
     assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-download.ready')), true);
+    assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-checklist-upload.ready')), true);
+    assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-checklist-upload.ready')), true);
 
     const storePath = path.join(probeRoot, 'remote-store.json');
     const uploadsBeforeRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;

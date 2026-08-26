@@ -18,6 +18,7 @@ interface RemoteStore {
   files: Record<string, RemoteFile>;
   uploadCounts: Record<string, number>;
   uploadOrder: string[];
+  checklistUploadOrder: string[];
 }
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -159,6 +160,7 @@ void app.whenReady().then(() => {
     if (device === 'company') {
       for (const name of ['company', 'home']) {
         fs.rmSync(path.join(probeRoot, `${name}-first-download.ready`), { force: true });
+        fs.rmSync(path.join(probeRoot, `${name}-first-checklist-upload.ready`), { force: true });
       }
       const payload = syncDataHelper.buildChecklistSyncPayload(
         baseChecklist, 'seed-device', generationId, []);
@@ -173,6 +175,7 @@ void app.whenReady().then(() => {
         files: { [checklistFileName]: remoteFile },
         uploadCounts: {},
         uploadOrder: [],
+        checklistUploadOrder: [],
       } satisfies RemoteStore), 'utf8');
     }
     const seedStore = loadStore();
@@ -221,11 +224,22 @@ void app.whenReady().then(() => {
     return snapshot;
   };
   googleDriveSync.cancelPendingRequests = () => undefined;
+  let firstChecklistUpload = true;
   googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, existingFileId?: string) => {
+    if (fileName === checklistFileName && firstChecklistUpload) {
+      firstChecklistUpload = false;
+      fs.writeFileSync(path.join(probeRoot, `${device}-first-checklist-upload.ready`), 'ready', 'utf8');
+      const deadline = Date.now() + 8_000;
+      while (!fs.existsSync(path.join(probeRoot, `${otherDevice}-first-checklist-upload.ready`))) {
+        if (Date.now() >= deadline) throw new Error(`${device} first checklist upload barrier timed out`);
+        wait(10);
+      }
+    }
     const id = existingFileId || `${fileName}-id`;
     updateStore(store => {
       store.uploadCounts[device] = (store.uploadCounts[device] || 0) + 1;
       store.uploadOrder.push(device);
+      if (fileName === checklistFileName) store.checklistUploadOrder.push(device);
       store.files[fileName] = {
         id,
         name: fileName,
@@ -283,6 +297,7 @@ void app.whenReady().then(() => {
           remoteCompanyState,
           uploadCounts: structuredClone(store.uploadCounts),
           uploadOrder: [...store.uploadOrder],
+          checklistUploadOrder: [...store.checklistUploadOrder],
           firstChecklistRevision,
         };
         app.quit();
