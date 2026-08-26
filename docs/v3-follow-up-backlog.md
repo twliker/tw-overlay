@@ -237,6 +237,8 @@
 
 ### FUP-17. 경험치 HUD 표시와 세션 상태 분리
 
+**상태: 구현 및 자동 검증 완료 (2026-08-27)**
+
 **확정 정책**
 
 - 게임 실행 시 경험치 HUD를 무조건 표시하지 않는다.
@@ -245,19 +247,13 @@
 - XP 세션은 기본적으로 `정지` 상태로 시작한다. 사용자가 명시적으로 자동 시작 옵션을 켠 경우에만 자동 시작한다.
 - 세션 시작·정지는 HUD 표시·숨김을 자동으로 변경하지 않는다.
 
-**현재 원인**
+**수정 결과**
 
-- 기본 설정이 `showXpWidget: true`, `xpAutoStart: true`다.
-- `xpTracker.start()`가 세션 활성 상태를 `showXpWidget`에 즉시 저장한다.
-- `startSession()`과 `stopSession()`도 HUD 표시 설정을 각각 true/false로 덮어쓴다.
-
-**구현 계획**
-
-1. 누락 키 기본값만 `showXpWidget=false`, `xpAutoStart=false`로 변경하고 기존 명시값은 보존한다.
-2. tracker 초기화에서는 `xpAutoStart`로 추적 상태만 결정하고 `showXpWidget`을 저장하지 않는다.
-3. 세션 시작·정지에서 `showXpWidget` 저장과 config broadcast 결합을 제거한다. 세션 상태 갱신 IPC만 보낸다.
-4. HUD 표시 토글은 기존 설정/단축키 경로에서만 `showXpWidget`을 변경한다.
-5. 앱 시작, 게임 시작, 게임 재시작, 세션 시작/정지, HUD 수동 표시/숨김의 모든 조합을 자동 검사한다.
+- 신규 누락 키 기본값을 `showXpWidget=false`, `xpAutoStart=false`로 변경했다. config의 missing-only 병합이 기존 사용자의 명시값은 그대로 보존한다.
+- tracker 시작은 `xpAutoStart === true`일 때만 세션을 활성화하며 HUD 표시 설정을 저장하지 않는다.
+- 세션 시작·정지는 추적 상태와 상태 payload만 갱신하고 `showXpWidget`을 변경하거나 config를 재방송하지 않는다.
+- 게임 오버레이와 상세 창도 설정이 명시적으로 true일 때만 HUD 표시 상태로 초기화한다.
+- 별도 Electron 검사에서 신규 기본값, 누락·false·true 자동 시작 해석, 숨김 상태의 세션 시작, 표시 상태의 세션 정지와 renderer 기본값을 실행한다.
 
 **완료 조건**
 

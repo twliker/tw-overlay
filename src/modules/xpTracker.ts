@@ -3,10 +3,9 @@ import * as config from './config';
 import { log } from './logger';
 import * as wm from './windowManager';
 import {
-  broadcastToAllWindows,
   sendToFirstWindowByPage,
 } from './windowMessaging';
-import type { XpStats } from '../shared/types';
+import type { AppConfig, XpStats } from '../shared/types';
 
 export const QUEST_DEFINITIONS = {
   forge: { name: '대장간', target: 1500, icon: 'hammer' },
@@ -24,6 +23,10 @@ export function getEssenceExchangeCount(amount: number): number {
   return loss / XP_PER_ESSENCE;
 }
 
+export function shouldAutoStartXpSession(configValue: Pick<AppConfig, 'xpAutoStart'>): boolean {
+  return configValue.xpAutoStart === true;
+}
+
 /**
  * XP 추적 모듈 — 경험치 세션 통계, 분당 히스토리, 경험의 정수 알림, 팔색조 언덕 추적
  */
@@ -36,7 +39,7 @@ class XpTracker {
   private _lastMinuteTimestamp = Math.floor(Date.now() / 60000);
   private _currentMinuteXP = 0;
   private _historyTimer: NodeJS.Timeout | null = null;
-  private _isActive = true;
+  private _isActive = false;
   private _accumulatedTime = 0;
 
   // 경험의 정수 자동 교환 버프 미감지 알람
@@ -93,10 +96,9 @@ class XpTracker {
     }
     this._started = true;
     const cfg = config.load();
-    this._isActive = cfg.xpAutoStart !== false;
-
-    // [앱 기동 싱크 보완]: 앱 시작 시 세션 시작 상태(isActive)와 오버레이 가시성(showXpWidget) 싱크를 즉시 동기화
-    config.saveImmediate({ showXpWidget: this._isActive });
+    // 세션 추적과 HUD 표시는 서로 독립된 사용자 선택이다.
+    // 기존 명시값은 config missing-only 병합으로 보존하고, true일 때만 자동 시작한다.
+    this._isActive = shouldAutoStartXpSession(cfg);
 
     // 히스토리 갱신 타이머 (10초마다 분 롤오버 체크)
     if (this._historyTimer) clearInterval(this._historyTimer);
@@ -343,10 +345,7 @@ class XpTracker {
     this._currentMinuteXP = 0;
     log('[XP_TRACKER] XP 세션 측정 시작');
     
-    // 세션 시작 시 오버레이 경험치 HUD 활성화
-    config.saveImmediate({ showXpWidget: true });
     this.broadcastUpdate();
-    this.broadcastConfig();
   }
 
   public stopSession(): void {
@@ -355,10 +354,7 @@ class XpTracker {
     this._accumulatedTime += Date.now() - this._startTime;
     log('[XP_TRACKER] XP 세션 측정 중지');
     
-    // 세션 중지 시 오버레이 경험치 HUD 숨김
-    config.saveImmediate({ showXpWidget: false });
     this.broadcastUpdate();
-    this.broadcastConfig();
   }
 
   public toggleSession(): void {
@@ -376,11 +372,6 @@ class XpTracker {
     }
     const payload = this.buildXpPayload(0);
     this.sendToXpWindows('xp-update', payload);
-  }
-
-  private broadcastConfig(): void {
-    const cfg = config.load();
-    broadcastToAllWindows('config-data', cfg);
   }
 
   private _fireEssenceAlert(): void {

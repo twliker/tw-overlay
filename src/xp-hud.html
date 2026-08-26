@@ -476,7 +476,7 @@
           <div class="setting-row-sub">앱 실행 시 경험치 측정을 자동으로 시작합니다.</div>
         </div>
         <label class="toggle-wrap">
-          <input type="checkbox" id="toggle-xp-auto-start" checked>
+          <input type="checkbox" id="toggle-xp-auto-start">
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -792,7 +792,7 @@
       });
     }
 
-    let currentShowXpWidget = true;
+    let currentShowXpWidget = false;
 
     window.electronAPI.onConfigData(async (config) => {
       if (config.showXpWidget !== undefined) {

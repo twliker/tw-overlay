@@ -2188,7 +2188,7 @@
       _currentBuffIds = newIds;
     }
 
-    let showXpWidget = true;
+    let showXpWidget = false;
     let sessionStartTime = Date.now();
     let sessionAccumulatedTime = 0;
     let sessionIsActive = false;
@@ -2302,7 +2302,7 @@
     window.electronAPI.onConfigData((config) => {
       currentConfig = config;
       const oldShowXpWidget = showXpWidget;
-      showXpWidget = config.showXpWidget !== false;
+      showXpWidget = config.showXpWidget === true;
       const hud = document.getElementById('xp-hud');
 
       if (hud) {
