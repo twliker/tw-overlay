@@ -5364,6 +5364,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '파일 분리를 위한 이름별 Drive 검색 경계가 없습니다.');
   assert.match(driveSource, /export async function uploadJsonPayload\(/,
     '파일 분리를 위한 범용 JSON 업로드 경계가 없습니다.');
+  assert.doesNotMatch(driveSource, /tw_overlay_sync\.json|LEGACY_SYNC_FILE_NAME|findSyncFile\(|downloadSyncPayload\(|uploadSyncPayload\(/,
+    'Drive 모듈에 개발 중 단일 파일 호환 API가 남아 있습니다.');
 
   const managerSource = read('src/modules/cloudSyncManager.ts');
   assert.doesNotMatch(managerSource, /findSyncFile\(|uploadSyncPayload\(|downloadSyncPayload\(/,
@@ -5412,6 +5414,11 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const ipcSource = read('src/modules/ipcHandlers.ts');
   assert.match(ipcSource, /google-sync-toggle-auto[\s\S]*?refreshBackgroundSchedule\(\)[\s\S]*?if \(enabled\) cloudSync\.requestImmediatePull\('auto-sync-enabled'\)/,
     '자동 동기화 활성화가 scheduler 갱신과 즉시 pull에 연결되지 않았습니다.');
+  const settingsSource = read('src/settings.html');
+  assert.doesNotMatch(settingsSource, /tw_overlay_sync\.json/,
+    'Google 동기화 UI가 개발 중 단일 파일명을 표시합니다.');
+  assert.match(settingsSource, /GOOGLE_SYNC_FILE_LABEL = 'tw_overlay_settings\.json, tw_overlay_checklist\.json'/,
+    'Google 동기화 UI의 정식 분리 파일 fallback이 없습니다.');
 
   const shutdownCoordinator = require(path.join(projectRoot, 'dist', 'modules', 'shutdownCoordinator.js'));
   const shutdownGate = shutdownCoordinator.createShutdownGate();

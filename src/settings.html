@@ -2668,7 +2668,7 @@
                     <div id="google-sync-user-email" class="text-sm font-bold text-slate-200">-</div>
                     <div class="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
                       <i data-lucide="file-json" class="w-3 h-3 text-blue-400"></i>
-                      <span id="google-sync-file-name" class="font-mono">tw_overlay_sync.json (Drive AppData)</span>
+                      <span id="google-sync-file-name" class="font-mono">tw_overlay_settings.json, tw_overlay_checklist.json (Drive AppData)</span>
                     </div>
                   </div>
                 </div>
@@ -3470,6 +3470,8 @@
     }
 
     // --- Google Drive Sync UI Handlers ---
+    const GOOGLE_SYNC_FILE_LABEL = 'tw_overlay_settings.json, tw_overlay_checklist.json';
+
     function formatSyncTime(ts) {
       if (!ts) return '동기화 기록 없음';
       const d = new Date(ts);
@@ -3644,7 +3646,7 @@
         if (linkedView) linkedView.classList.remove('hidden');
         if (emailEl) emailEl.textContent = status.email || '연동됨';
         if (fileNameEl) {
-          const name = status.fileName || 'tw_overlay_sync.json';
+          const name = status.fileName || GOOGLE_SYNC_FILE_LABEL;
           const countStr = typeof status.fileCount === 'number' ? ` (보관 파일: ${status.fileCount}개)` : '';
           fileNameEl.textContent = `${name} (Drive AppData)${countStr}`;
         }
@@ -3753,7 +3755,7 @@
         const res = await window.electronAPI.googleSyncBackup();
         if (res.success) {
           const timeStr = formatSyncTime(res.lastSyncedAt);
-          const fileName = res.fileName || 'tw_overlay_sync.json';
+          const fileName = res.fileName || GOOGLE_SYNC_FILE_LABEL;
           const countStr = typeof res.fileCount === 'number' ? `\n• 드라이브 보관 파일 수: ${res.fileCount}개` : '';
           alert(`현재 숙제 및 게임 설정이 구글 드라이브에 안전하게 백업되었습니다.\n\n• 파일명: ${fileName}\n• 백업 일시: ${timeStr}${countStr}`);
         } else {
@@ -3799,7 +3801,7 @@
         renderGoogleRestoreStatus(res.restoreResults, res.partial, res.profileState);
         if (res.success) {
           const timeStr = formatSyncTime(res.lastSyncedAt);
-          const fileName = res.fileName || 'tw_overlay_sync.json';
+          const fileName = res.fileName || GOOGLE_SYNC_FILE_LABEL;
           const countStr = typeof res.fileCount === 'number' ? `\n• 드라이브 보관 파일 수: ${res.fileCount}개` : '';
           const resultMessage = res.partial
             ? '정상인 파일은 복원했지만 일부 파일은 적용하지 못했습니다. 파일별 결과를 확인해 주세요.'
@@ -3864,7 +3866,7 @@
           if (codeEl) codeEl.textContent = jsonStr;
           if (metaEl) {
             const timeStr = formatSyncTime(res.payload.lastSyncedAt);
-            const fileName = res.fileMeta?.name || 'tw_overlay_sync.json';
+            const fileName = res.fileMeta?.name || GOOGLE_SYNC_FILE_LABEL;
             const countStr = typeof res.fileCount === 'number' ? ` | 보관 파일: ${res.fileCount}개` : '';
             metaEl.textContent = `파일명: ${fileName}${countStr} | 최종 수정: ${timeStr} | 계정: ${res.payload.updatedBy || 'Google User'}`;
           }

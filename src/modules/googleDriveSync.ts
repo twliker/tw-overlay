@@ -2,15 +2,11 @@
  * Google Drive REST API v3 AppData 동기화 모듈
  */
 import { log } from './logger';
-import { GoogleSyncPayload } from '../shared/types';
 import * as googleAuth from './googleAuth';
 
-export const LEGACY_SYNC_FILE_NAME = 'tw_overlay_sync.json';
 export const SETTINGS_SYNC_FILE_NAME = 'tw_overlay_settings.json';
 export const CHECKLIST_SYNC_FILE_NAME = 'tw_overlay_checklist.json';
 export const META_SYNC_FILE_NAME = 'tw_overlay_sync_meta.json';
-/** 기존 UI·단일 파일 마이그레이션 호환용 별칭. */
-export const SYNC_FILE_NAME = LEGACY_SYNC_FILE_NAME;
 const BOUNDARY = '-------tw_overlay_sync_boundary_314159265';
 let requestController = new AbortController();
 
@@ -96,11 +92,6 @@ export async function findSyncFileByName(fileName: string): Promise<DriveFileMet
   return null;
 }
 
-/** 기존 단일 동기화 파일 검색. */
-export async function findSyncFile(): Promise<DriveFileMeta | null> {
-  return findSyncFileByName(LEGACY_SYNC_FILE_NAME);
-}
-
 /** Google Drive에서 JSON 파일 다운로드. */
 export async function downloadJsonPayload<T>(fileId: string): Promise<T | null> {
   const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
@@ -118,11 +109,6 @@ export async function downloadJsonPayload<T>(fileId: string): Promise<T | null> 
     log(`[GoogleDriveSync] JSON 파싱 오류: ${err}`);
     return null;
   }
-}
-
-/** 기존 단일 동기화 페이로드 다운로드. */
-export async function downloadSyncPayload(fileId: string): Promise<GoogleSyncPayload | null> {
-  return downloadJsonPayload<GoogleSyncPayload>(fileId);
 }
 
 /** Google Drive에 지정한 JSON 파일 업로드 (신규 생성 또는 기존 파일 갱신). */
@@ -196,9 +182,4 @@ export async function uploadJsonPayload(
   const data = (await res.json()) as { id: string };
   log(`[GoogleDriveSync] JSON 파일 신규 생성 완료 (${fileName}): ${data.id}`);
   return data.id;
-}
-
-/** 기존 단일 동기화 페이로드 업로드. */
-export async function uploadSyncPayload(payload: GoogleSyncPayload, existingFileId?: string): Promise<string> {
-  return uploadJsonPayload(LEGACY_SYNC_FILE_NAME, payload, existingFileId);
 }

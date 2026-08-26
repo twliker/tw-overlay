@@ -807,6 +807,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
       });
       const rollbackVisible = !document.getElementById('btn-google-rollback')?.classList.contains('hidden');
       const fileStatusText = document.getElementById('google-file-sync-status')?.textContent || '';
+      const fileNameText = document.getElementById('google-sync-file-name')?.textContent || '';
       await handleGoogleRollback();
       return {
         restoreCalls,
@@ -820,6 +821,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
         summaryVisible,
         rollbackVisible,
         fileStatusText,
+        fileNameText,
       };
     })()
   `) as {
@@ -834,6 +836,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
     summaryVisible: boolean;
     rollbackVisible: boolean;
     fileStatusText: string;
+    fileNameText: string;
   };
 
   assert.deepEqual(result.restoreCalls, [['settings']]);
@@ -852,6 +855,7 @@ async function checkGoogleRestoreSelection(window: BrowserWindow): Promise<void>
   assert.match(result.fileStatusText, /업로드 재시도 1회/);
   assert.match(result.fileStatusText, /숙제 체크리스트전송 완료/);
   assert.match(result.fileStatusText, /원격 확인 재시도 1회/);
+  assert.match(result.fileNameText, /tw_overlay_settings\.json, tw_overlay_checklist\.json \(Drive AppData\)/);
   assert.equal(result.alerts.length, 2);
 }
 
