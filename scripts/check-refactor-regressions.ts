@@ -5435,6 +5435,53 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '취소된 OAuth 콜백의 늦은 토큰 저장을 막는 로그인 세대가 없습니다.');
   assert.match(authSource, /tokens\.access_token && tokens\.expiry_date[\s\S]*?if \(!tokens\.refresh_token\) return null/,
     '유효 access token만 있는 세션을 refresh token 검사보다 먼저 허용하지 않습니다.');
+
+  const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js'));
+  const { safeStorage } = require('electron') as typeof import('electron');
+  const authTokenPath = path.join(isolatedUserData, 'google_auth.enc');
+  const expiredTokens = {
+    access_token: 'expired-access-token',
+    refresh_token: 'refresh-token-for-logout-race',
+    expiry_date: 0,
+    token_type: 'Bearer',
+  };
+  const tokenJson = JSON.stringify(expiredTokens);
+  if (safeStorage.isEncryptionAvailable()) {
+    fs.writeFileSync(authTokenPath, safeStorage.encryptString(tokenJson));
+  } else {
+    fs.writeFileSync(authTokenPath, Buffer.from(tokenJson, 'utf8').toString('base64'), 'utf8');
+  }
+
+  const originalFetch = global.fetch;
+  let resolveRefresh: ((response: Response) => void) | undefined;
+  let refreshStarted = false;
+  let refreshedToken: string | null = null;
+  let authResurrected = false;
+  try {
+    global.fetch = (async () => {
+      refreshStarted = true;
+      return new Promise<Response>(resolve => { resolveRefresh = resolve; });
+    }) as typeof fetch;
+    const refreshPromise = googleAuth.getValidAccessToken() as Promise<string | null>;
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(refreshStarted, true, '로그아웃 경쟁 검사에서 토큰 갱신 요청이 시작되지 않았습니다.');
+    googleAuth.logout();
+    resolveRefresh!(new Response(JSON.stringify({
+      access_token: 'late-refreshed-access-token',
+      expires_in: 3600,
+      token_type: 'Bearer',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    refreshedToken = await refreshPromise;
+    authResurrected = googleAuth.isLoggedIn() || fs.existsSync(authTokenPath);
+  } finally {
+    global.fetch = originalFetch;
+    googleAuth.logout();
+  }
+  assert.equal(refreshedToken, null,
+    '로그아웃 전에 시작한 토큰 갱신 응답이 취소 뒤 access token을 반환했습니다.');
+  assert.equal(authResurrected, false,
+    '로그아웃 전에 시작한 토큰 갱신 응답이 삭제한 인증 상태를 다시 저장했습니다.');
+
   const driveRequestSource = read('src/modules/googleDriveSync.ts');
   assert.match(driveRequestSource, /cancelPendingRequests/);
   assert.match(driveRequestSource, /response\.status !== 401[\s\S]*?refreshAfterUnauthorized/,
@@ -5624,7 +5671,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     pendingHomeworks: [],
   });
 
-  const googleAuth = require(path.join(projectRoot, 'dist', 'modules', 'googleAuth.js'));
   googleAuth.isLoggedIn = () => true;
   googleAuth.loadStoredProfile = () => ({ email: 'integration@example.com' });
 

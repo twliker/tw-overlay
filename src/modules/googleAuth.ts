@@ -262,6 +262,7 @@ export async function getValidAccessToken(): Promise<string | null> {
     return _refreshPromise;
   }
 
+  const refreshGeneration = _loginGeneration;
   _refreshPromise = (async () => {
     try {
       const { clientId, clientSecret } = getGoogleCredentials();
@@ -309,6 +310,11 @@ export async function getValidAccessToken(): Promise<string | null> {
         token_type?: string;
         scope?: string;
       };
+
+      if (_loginGeneration !== refreshGeneration) {
+        log('[GoogleAuth] 로그아웃 또는 새 로그인 뒤 도착한 토큰 갱신 응답을 폐기합니다.');
+        return null;
+      }
 
       const updatedTokens: GoogleAuthTokens = {
         ...tokens,
