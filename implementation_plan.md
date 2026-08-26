@@ -578,6 +578,8 @@
 
 **관리자 Windows Z-order probe 안정화 및 통과(2026-08-26, `a9e3805`):** 첫 관리자 실행의 창모드 전체화면 시나리오에서 제품 reconcile 로그는 게임 foreground와 `SWP_NOACTIVATE` 성공을 기록했지만 100ms 뒤 단일 boolean 검사가 실패했다. 테스트 BrowserWindow의 비동기 로딩 완료를 기다리고, 테스트 전용 입력 스레드 연결로 가짜 게임 foreground가 200ms 안정된 뒤 reconcile하도록 fixture를 수정했으며, 실패 시 reconcile 직전·직후·100ms 뒤 실제 foreground HWND 역할을 출력하도록 보강했다. 동일 관리자 명령 재실행에서 창모드와 창모드 전체화면 모두 게임·외부 앱 foreground 보존, 외부 창 우선, 오버레이 스택 복구, 게임 bounds·Topmost 불변이 통과했다. 제품 Z-order 코드는 변경하지 않았다.
 
+**클라우드 파일별 데이터 확인 UI 개선(2026-08-26, `fe0f9f8`):** 일반 설정과 숙제 체크리스트 상태 카드에 각각 `데이터 확인`을 추가하고, 상단의 기존 동작은 `전체 데이터 확인`으로 명확히 구분했다. 카드 미리보기는 두 파일의 공유 generation 검증을 유지하면서 요청한 파일 payload·파일명·크기·변경 요약만 반환하며, 숙제 JSON에 일반 설정이 섞이지 않고 generation 불일치 설정도 정상으로 표시하지 않는지 메모리 Drive 검사로 고정했다. 800×600 실제 Electron 렌더링에서 두 카드가 올바른 `settings/checklist` IPC 인자를 전달하고 모달 제목·JSON이 분리되며, 긴 메타와 파일 목록에서도 `복사`·`닫기`의 계산된 `white-space`가 `nowrap`인지 확인했다. 전체 자동 게이트를 통과했고 복원·업로드 정책은 변경하지 않았다.
+
 최종 릴리즈 게이트:
 
 - TypeScript 검사 100% 통과
