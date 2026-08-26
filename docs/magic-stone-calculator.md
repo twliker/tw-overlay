@@ -1,6 +1,6 @@
 # 마정석 계산기
 
-![마정석과 금화 주머니의 가치를 계산하는 도구](../screenshot/magic-stone-calculator.png)
+![마정석과 금화 주머니의 가치를 계산하는 도구](./screenshot/magic-stone-calculator.png)
 
 ## 언제 쓰는 기능인가요?
 

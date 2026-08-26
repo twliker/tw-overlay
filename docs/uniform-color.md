@@ -1,6 +1,6 @@
 # 제복 색상 시뮬레이터
 
-![제복 색상 조합을 미리 보는 시뮬레이터](../screenshot/uniform-color.png)
+![제복 색상 조합을 미리 보는 시뮬레이터](./screenshot/uniform-color.png)
 
 ## 언제 쓰는 기능인가요?
 

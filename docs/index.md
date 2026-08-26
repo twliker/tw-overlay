@@ -1,7 +1,7 @@
 # 메인 대시보드 (Sidebar Dashboard)
 
-![기능을 여는 세로 사이드바](../screenshot/main-sidebar.png)
-![화면 아래에 배치한 독 메뉴](../screenshot/main-dock.png)
+![기능을 여는 세로 사이드바](./screenshot/main-sidebar.png)
+![화면 아래에 배치한 독 메뉴](./screenshot/main-dock.png)
 
 ## 1. 기능 개요 및 목적
 TW-Overlay 앱의 핵심 컨트롤 타워 역할을 하는 사이드바 형태의 대시보드입니다. 게임 화면 옆에 상주하며 각종 계산기, 사전, 알림 시스템을 원클릭으로 호출하고 필드보스 및 커스텀 알림을 토스트 형태로 사용자에게 전달합니다.
@@ -24,4 +24,4 @@ TW-Overlay 앱의 핵심 컨트롤 타워 역할을 하는 사이드바 형태�
 - **앱 설정:** `main` 프로세스에서 관리되는 전역 `config`
 
 ## 5. 스크린샷
-![스크린샷](../screenshot/index.png)
+![스크린샷](./screenshot/index.png)

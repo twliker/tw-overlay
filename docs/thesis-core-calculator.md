@@ -1,6 +1,6 @@
 # 테시스 코어 계산기
 
-![목표 단계까지 필요한 재료를 계산하는 테시스 코어 계산기](../screenshot/thesis-core-calculator.png)
+![목표 단계까지 필요한 재료를 계산하는 테시스 코어 계산기](./screenshot/thesis-core-calculator.png)
 
 ## 언제 쓰는 기능인가요?
 

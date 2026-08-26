@@ -1,6 +1,6 @@
 # 시간 측정 및 기록
 
-![보스와 던전의 플레이 시간을 재는 스톱워치](../screenshot/stopwatch.png)
+![보스와 던전의 플레이 시간을 재는 스톱워치](./screenshot/stopwatch.png)
 
 ## 언제 쓰는 기능인가요?
 

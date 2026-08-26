@@ -1,6 +1,6 @@
 # 진화 재료 비용 계산기
 
-![목표 단계까지 진화 재료 비용을 합산하는 계산기](../screenshot/evolution-calculator.png)
+![목표 단계까지 진화 재료 비용을 합산하는 계산기](./screenshot/evolution-calculator.png)
 
 ## 언제 쓰는 기능인가요?
 

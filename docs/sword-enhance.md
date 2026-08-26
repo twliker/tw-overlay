@@ -1,6 +1,6 @@
 # 검 강화하기
 
-![모험가와 무기를 선택해 진행하는 검 강화하기](../screenshot/sword-enhance.png)
+![모험가와 무기를 선택해 진행하는 검 강화하기](./screenshot/sword-enhance.png)
 
 ## 언제 쓰는 기능인가요?
 

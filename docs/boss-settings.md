@@ -1,6 +1,6 @@
 # 필드보스 알림 설정
 
-![필드보스별 출현 시각과 알림 설정](../screenshot/boss-settings.png)
+![필드보스별 출현 시각과 알림 설정](./screenshot/boss-settings.png)
 
 ## 언제 쓰는 기능인가요?
 

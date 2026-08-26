@@ -1,6 +1,6 @@
 # 키워드 & 득템 단어 알림
 
-![채팅에서 감지할 키워드와 알림 방식을 정하는 화면](../screenshot/word-alarm.png)
+![채팅에서 감지할 키워드와 알림 방식을 정하는 화면](./screenshot/word-alarm.png)
 
 ## 언제 쓰는 기능인가요?
 

@@ -1,6 +1,6 @@
 # 디스코드 알림
 
-![게임 채팅 알림을 받을 디스코드 설정](../screenshot/discord-alarm.png)
+![게임 채팅 알림을 받을 디스코드 설정](./screenshot/discord-alarm.png)
 
 ## 언제 쓰는 기능인가요?
 

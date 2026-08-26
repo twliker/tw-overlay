@@ -1,6 +1,6 @@
 # 사냥 도핑 & 예상 경험치
 
-![사냥 도핑 조합과 예상 경험치를 비교하는 계산기](../screenshot/hunting-exp-calculator.png)
+![사냥 도핑 조합과 예상 경험치를 비교하는 계산기](./screenshot/hunting-exp-calculator.png)
 
 ## 언제 쓰는 기능인가요?
 

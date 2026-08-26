@@ -1,6 +1,6 @@
 # 에타 랭킹 조회
 
-![서버와 캐릭터의 에타 랭킹 조회](../screenshot/eta-ranking.png)
+![서버와 캐릭터의 에타 랭킹 조회](./screenshot/eta-ranking.png)
 
 ## 언제 쓰는 기능인가요?
 

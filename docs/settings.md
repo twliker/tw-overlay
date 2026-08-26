@@ -1,9 +1,9 @@
 # 환경 설정
 
-![앱 동작과 시작 방식을 정하는 일반 설정](../screenshot/settings-general.png)
-![게임 HUD와 알림을 정하는 게임 설정](../screenshot/settings-game.png)
-![채팅 오버레이의 표시 방식을 정하는 설정](../screenshot/settings-chat-overlay.png)
-![백업과 클라우드 동기화를 관리하는 데이터 설정](../screenshot/settings-data.png)
+![앱 동작과 시작 방식을 정하는 일반 설정](./screenshot/settings-general.png)
+![게임 HUD와 알림을 정하는 게임 설정](./screenshot/settings-game.png)
+![채팅 오버레이의 표시 방식을 정하는 설정](./screenshot/settings-chat-overlay.png)
+![백업과 클라우드 동기화를 관리하는 데이터 설정](./screenshot/settings-data.png)
 
 ## 언제 쓰는 기능인가요?
 

@@ -1,6 +1,6 @@
 # 커스텀 알림
 
-![원하는 시각과 반복 조건을 지정하는 커스텀 알림](../screenshot/custom-alert.png)
+![원하는 시각과 반복 조건을 지정하는 커스텀 알림](./screenshot/custom-alert.png)
 
 ## 언제 쓰는 기능인가요?
 

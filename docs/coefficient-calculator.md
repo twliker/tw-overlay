@@ -1,6 +1,6 @@
 # 대미지 계수 계산기
 
-![캐릭터와 장비 조건을 입력하는 대미지 계수 계산기](../screenshot/coefficient-calculator.png)
+![캐릭터와 장비 조건을 입력하는 대미지 계수 계산기](./screenshot/coefficient-calculator.png)
 
 ## 언제 쓰는 기능인가요?
 

@@ -1,6 +1,6 @@
 # 사냥터 동선 시뮬레이션
 
-![지도 위에 반복 사냥 동선을 그리는 시뮬레이터](../screenshot/hunting-path-simulator.png)
+![지도 위에 반복 사냥 동선을 그리는 시뮬레이터](./screenshot/hunting-path-simulator.png)
 
 ## 언제 쓰는 기능인가요?
 

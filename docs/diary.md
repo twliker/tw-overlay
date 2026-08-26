@@ -1,7 +1,7 @@
 # 모험 일지
 
-![날짜별 플레이 기록을 보는 모험 일지 달력](../screenshot/diary-calendar.png)
-![월간 활동과 수익을 요약한 모험 성적표](../screenshot/diary-statistics.png)
+![날짜별 플레이 기록을 보는 모험 일지 달력](./screenshot/diary-calendar.png)
+![월간 활동과 수익을 요약한 모험 성적표](./screenshot/diary-statistics.png)
 
 ## 언제 쓰는 기능인가요?
 

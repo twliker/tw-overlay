@@ -27,15 +27,15 @@ function validateGuideScreenshotCoverage(): void {
     const firstContent = lines.slice(titleIndex + 1).find(line => line.trim().length > 0) || '';
     assert.match(firstContent, /^!\[[^\]]+\]\([^)]+\)$/, `${docName}.md의 대표 이미지는 제목 바로 아래에 있어야 합니다.`);
 
-    const images = [...markdown.matchAll(/!\[[^\]]*\]\((?:\.\/|\.\.\/)?screenshot\/([^)]+)\)/g)]
+    const images = [...markdown.matchAll(/!\[[^\]]*\]\(((?:\.\/|\.\.\/)?screenshot\/[^)]+)\)/g)]
       .map(match => match[1]);
     assert.ok(images.length >= 1, `${docName}.md에 기능 이미지가 없습니다.`);
     if (multiScreenDocs.has(docName)) {
       assert.ok(images.length >= 2, `${docName}.md는 주요 상태를 보여주는 이미지가 두 장 이상 필요합니다.`);
     }
-    for (const imageName of images) {
-      assert.ok(fs.existsSync(path.join(projectRoot, 'docs', 'screenshot', imageName)),
-        `${docName}.md에서 참조한 ${imageName} 파일이 없습니다.`);
+    for (const imagePath of images) {
+      assert.ok(fs.existsSync(path.resolve(path.dirname(markdownPath), imagePath)),
+        `${docName}.md에서 참조한 ${imagePath} 파일이 없습니다.`);
     }
   }
 }

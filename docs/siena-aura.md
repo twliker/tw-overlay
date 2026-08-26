@@ -1,6 +1,6 @@
 # 시에나의 기운
 
-![시에나의 기운 능력치와 소모 재화를 시험하는 도구](../screenshot/siena-aura.png)
+![시에나의 기운 능력치와 소모 재화를 시험하는 도구](./screenshot/siena-aura.png)
 
 ## 언제 쓰는 기능인가요?
 

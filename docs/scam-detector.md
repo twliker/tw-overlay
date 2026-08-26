@@ -1,6 +1,6 @@
 # 사기꾼 탐지 (1:1 대화)
 
-![1대1 대화의 위험 신호를 점검하는 사기꾼 탐지](../screenshot/scam-detector.png)
+![1대1 대화의 위험 신호를 점검하는 사기꾼 탐지](./screenshot/scam-detector.png)
 
 ## 언제 쓰는 기능인가요?
 

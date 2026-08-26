@@ -1,6 +1,6 @@
 # 렐릭 강화 시뮬레이션
 
-![렐릭 강화 재료와 비용을 예상하는 시뮬레이션](../screenshot/relic-calculator.png)
+![렐릭 강화 재료와 비용을 예상하는 시뮬레이션](./screenshot/relic-calculator.png)
 
 ## 언제 쓰는 기능인가요?
 

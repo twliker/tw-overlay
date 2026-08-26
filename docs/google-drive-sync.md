@@ -1,7 +1,7 @@
 # Google Drive 클라우드 동기화
 
-![Google 계정 연결 전 클라우드 동기화 화면](../screenshot/google-sync-login.png)
-![Google 계정 연결 후 자동 동기화 화면](../screenshot/google-sync-connected.png)
+![Google 계정 연결 전 클라우드 동기화 화면](./screenshot/google-sync-login.png)
+![Google 계정 연결 후 자동 동기화 화면](./screenshot/google-sync-connected.png)
 
 ## 언제 쓰는 기능인가요?
 

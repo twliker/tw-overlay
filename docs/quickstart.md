@@ -1,7 +1,7 @@
 # 빠른 시작
 
-![처음 실행 시 시작 마법사](../screenshot/quickstart-setup.png)
-![주요 게임 오버레이 기능 안내](../screenshot/quickstart-features.png)
+![처음 실행 시 시작 마법사](./screenshot/quickstart-setup.png)
+![주요 게임 오버레이 기능 안내](./screenshot/quickstart-features.png)
 
 ## 설치하기
 
@@ -25,7 +25,7 @@ Windows가 처음 실행하는 설치 파일을 확인할 수 있습니다. 게�
 2. 자동으로 찾은 채팅 로그 폴더가 맞는지 확인합니다.
 3. 다른 위치에 게임을 설치했다면 **경로 변경**에서 `TalesWeaver\ChatLog` 폴더를 지정합니다.
 
-![채팅 로그 설정 안내](../screenshot/setting-chatlog.png)
+![채팅 로그 설정 안내](./screenshot/setting-chatlog.png)
 
 ## 기본 조작
 

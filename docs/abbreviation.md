@@ -1,6 +1,6 @@
 # 게임 용어 & 줄임말 사전
 
-![게임 용어와 줄임말을 검색하는 사전](../screenshot/abbreviation.png)
+![게임 용어와 줄임말을 검색하는 사전](./screenshot/abbreviation.png)
 
 ## 언제 쓰는 기능인가요?
 

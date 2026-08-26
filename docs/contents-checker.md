@@ -1,7 +1,7 @@
 # 숙제 체크리스트
 
-![캐릭터별 숙제 진행 현황](../screenshot/contents-checker-overview.png)
-![플레이 기록을 반영할 캐릭터 선택](../screenshot/contents-checker-pending.png)
+![캐릭터별 숙제 진행 현황](./screenshot/contents-checker-overview.png)
+![플레이 기록을 반영할 캐릭터 선택](./screenshot/contents-checker-pending.png)
 
 ## 언제 쓰는 기능인가요?
 

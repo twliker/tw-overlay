@@ -1,6 +1,6 @@
 # 장비 강화 · 인챈트 · 인크립트 기댓값
 
-![장비 강화 방식별 기댓값을 계산하는 시뮬레이터](../screenshot/equipment-simulator.png)
+![장비 강화 방식별 기댓값을 계산하는 시뮬레이터](./screenshot/equipment-simulator.png)
 
 ## 언제 쓰는 기능인가요?
 
