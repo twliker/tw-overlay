@@ -23,6 +23,12 @@ const ELSO_FLUSH_DEBOUNCE_MS = 3000;
 let _elsoDebounceTimer: NodeJS.Timeout | null = null;
 const _pendingElsoByDate = new Map<string, { latestTime: string; totalAmount: number }>();
 
+/** 금화 주머니 환산 SEED 인메모리 버퍼 (날짜별 단일 행 및 3초 디바운스 저장) */
+const GOLD_POUCH_FLUSH_DEBOUNCE_MS = 3000;
+export const GOLD_POUCH_DAILY_CONTENT = '[자동] 금화 주머니 환산';
+let _goldPouchDebounceTimer: NodeJS.Timeout | null = null;
+const _pendingGoldPouchSeedByDate = new Map<string, { latestTime: string; totalAmount: number }>();
+
 export function migrateAlarmLogsV4(database: Database.Database): void {
   const alarmColumns = database.prepare('PRAGMA table_info(alarm_logs)').all() as Array<{ name: string }>;
   if (!alarmColumns.some(column => column.name === 'scheduled_at')) {
@@ -417,6 +423,11 @@ export function initDb(): void {
         committed_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS gold_pouch_flush_operations (
+        operation_id TEXT PRIMARY KEY,
+        committed_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS chat_sync_committed_events (
         event_id TEXT PRIMARY KEY,
         committed_at INTEGER NOT NULL
@@ -605,6 +616,9 @@ export function initDb(): void {
     }
     if (!replayElsoRecoveryJournal()) {
       throw new Error('엘소 복구 기록을 재생하지 못했습니다.');
+    }
+    if (!replayGoldPouchRecoveryJournal()) {
+      throw new Error('금화 주머니 환산 SEED 복구 기록을 재생하지 못했습니다.');
     }
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
@@ -797,14 +811,15 @@ export function getMonthDateRange(yearMonth: string): { start: string; end: stri
 
 /** 데이터베이스 연결을 명시적으로 닫습니다 (백업 복구용). */
 export function closeDb(): boolean {
-  const flushed = flushPendingElso();
+  const elsoFlushed = flushPendingElso();
+  const goldPouchFlushed = flushPendingGoldPouchSeed();
   statementCache.clear();
   if (db) {
     db.close();
     db = null;
     log('[DiaryDB] Database connection closed.');
   }
-  return flushed;
+  return elsoFlushed && goldPouchFlushed;
 }
 
 /** 특정 날짜의 일지가 없으면 생성합니다. */
@@ -852,12 +867,40 @@ export function getDiaryByDate(date: string): DiaryData {
     }
   }
 
+  const pendingGoldPouchSeed = _pendingGoldPouchSeedByDate.get(date);
+  if (pendingGoldPouchSeed && pendingGoldPouchSeed.totalAmount > 0) {
+    let found = false;
+    activityLogs = activityLogs.map(log => {
+      if (log.type === 'calc' && log.content === GOLD_POUCH_DAILY_CONTENT) {
+        found = true;
+        return {
+          ...log,
+          time: pendingGoldPouchSeed.latestTime,
+          amount: (log.amount || 0) + pendingGoldPouchSeed.totalAmount,
+        };
+      }
+      return log;
+    });
+    if (!found) {
+      activityLogs.push({
+        id: -2,
+        date,
+        type: 'calc',
+        content: GOLD_POUCH_DAILY_CONTENT,
+        time: pendingGoldPouchSeed.latestTime,
+        amount: pendingGoldPouchSeed.totalAmount,
+        source: 'automatic',
+      });
+    }
+  }
+
   return { diary, homeworkLogs, activityLogs };
 }
 
 /** 특정 월의 달력 렌더링을 위해 요약 데이터 목록을 가져옵니다. (주변 날짜 포함) */
 export function getDiariesByMonth(yearMonth: string): DiaryEntry[] {
   flushPendingElso();
+  flushPendingGoldPouchSeed();
   if (!db) initDb();
   if (!db) return [];
 
@@ -1156,6 +1199,7 @@ export function updateDiaryMonster(date: string, monsterId: string): boolean {
 /** 특정 월의 요약 정보 (득템 수, 누적 시드, 상세 목록)를 가져옵니다. */
 export function getMonthlySummary(yearMonth: string): { totalLoots: number, totalSeed: number, lootList: any[], seedList: any[] } {
   flushPendingElso();
+  flushPendingGoldPouchSeed();
   if (!db) initDb();
   if (!db) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
 
@@ -1185,6 +1229,7 @@ export function getMonthlySummary(yearMonth: string): { totalLoots: number, tota
 /** 월간 통계 데이터를 추출합니다 (인포그래픽용). */
 export function getMonthlyStatistics(yearMonth: string): any {
   flushPendingElso();
+  flushPendingGoldPouchSeed();
   if (!db) initDb();
   if (!db) return null;
 
@@ -1429,7 +1474,171 @@ export interface BatchSyncData {
   essences: Array<{ eventId?: string; date: string; timeOnly: string; diaryContent: string; count: number }>;
   seeds: Array<{ eventId?: string; date: string; timeOnly: string; content: string; amount: number }>;
   elsoPoints: Array<{ date: string; timeOnly: string; amount: number }>;
+  goldPouchSeeds?: Array<{ date: string; timeOnly: string; amount: number }>;
   shouts: Array<{ eventId?: string; fullTimestamp: number; sender: string; message: string }>;
+}
+
+interface GoldPouchRecoveryJournal {
+  schemaVersion: 1;
+  operationId: string;
+  createdAt: number;
+  entries: Array<{ date: string; latestTime: string; totalAmount: number }>;
+}
+
+export function getGoldPouchRecoveryJournalPath(): string {
+  return path.join(app.getPath('userData'), 'gold-pouch-seed-recovery.json');
+}
+
+function validateGoldPouchRecoveryJournal(value: unknown): GoldPouchRecoveryJournal {
+  if (!value || typeof value !== 'object') throw new Error('복구 기록이 객체가 아닙니다.');
+  const journal = value as Partial<GoldPouchRecoveryJournal>;
+  if (journal.schemaVersion !== 1 || typeof journal.operationId !== 'string' || journal.operationId.length < 8) {
+    throw new Error('복구 기록 메타데이터가 유효하지 않습니다.');
+  }
+  if (!Number.isFinite(journal.createdAt) || !Array.isArray(journal.entries) || journal.entries.length === 0) {
+    throw new Error('복구 기록 항목이 유효하지 않습니다.');
+  }
+  const entries = journal.entries.map(entry => {
+    if (
+      !entry || typeof entry.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date)
+      || typeof entry.latestTime !== 'string'
+      || !Number.isSafeInteger(entry.totalAmount) || entry.totalAmount <= 0
+    ) throw new Error('복구 기록에 잘못된 금화 주머니 항목이 있습니다.');
+    return { date: entry.date, latestTime: entry.latestTime, totalAmount: entry.totalAmount };
+  });
+  return {
+    schemaVersion: 1,
+    operationId: journal.operationId,
+    createdAt: journal.createdAt as number,
+    entries,
+  };
+}
+
+function writeGoldPouchRecoveryJournal(journal: GoldPouchRecoveryJournal): void {
+  const journalPath = getGoldPouchRecoveryJournalPath();
+  const tempPath = `${journalPath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(journal), 'utf8');
+  fs.renameSync(tempPath, journalPath);
+}
+
+function applyGoldPouchRecoveryOperation(journal: GoldPouchRecoveryJournal): boolean {
+  if (!db) throw new Error('DB가 초기화되지 않았습니다.');
+  let applied = false;
+  db.transaction(() => {
+    const operationResult = db!.prepare(`
+      INSERT OR IGNORE INTO gold_pouch_flush_operations (operation_id, committed_at)
+      VALUES (?, ?)
+    `).run(journal.operationId, Date.now());
+    if (operationResult.changes === 0) return;
+
+    const ensureDiary = db!.prepare('INSERT OR IGNORE INTO diaries (date) VALUES (?)');
+    const selectSeed = db!.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'calc' AND content = ? ORDER BY id ASC LIMIT 1");
+    const updateSeed = db!.prepare('UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?');
+    const insertSeed = db!.prepare("INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, 'calc', ?, ?, ?, 'automatic')");
+
+    for (const entry of journal.entries) {
+      ensureDiary.run(entry.date);
+      const existing = selectSeed.get(entry.date, GOLD_POUCH_DAILY_CONTENT) as { id: number; amount: number } | undefined;
+      if (existing) {
+        updateSeed.run(entry.latestTime, (existing.amount || 0) + entry.totalAmount, existing.id);
+      } else {
+        insertSeed.run(entry.date, GOLD_POUCH_DAILY_CONTENT, entry.latestTime, entry.totalAmount);
+        addScore(entry.date, POINTS.CALC_RECORD);
+      }
+    }
+    applied = true;
+  })();
+  return applied;
+}
+
+/** 남아 있는 금화 주머니 복구 기록을 operation ID 기준 정확히 한 번 적용한다. */
+export function replayGoldPouchRecoveryJournal(): boolean {
+  const journalPath = getGoldPouchRecoveryJournalPath();
+  if (!fs.existsSync(journalPath)) return true;
+  if (!db) return false;
+  let journal: GoldPouchRecoveryJournal;
+  try {
+    journal = validateGoldPouchRecoveryJournal(JSON.parse(fs.readFileSync(journalPath, 'utf8')) as unknown);
+  } catch (error) {
+    const quarantinePath = `${journalPath}.corrupt-${Date.now()}`;
+    try {
+      fs.renameSync(journalPath, quarantinePath);
+      log(`[DiaryDB] Invalid gold pouch recovery journal quarantined: ${quarantinePath} (${error})`);
+    } catch (quarantineError) {
+      log(`[DiaryDB] Invalid gold pouch recovery journal quarantine failed: ${quarantineError}`);
+      return false;
+    }
+    return true;
+  }
+
+  try {
+    const applied = applyGoldPouchRecoveryOperation(journal);
+    try {
+      fs.unlinkSync(journalPath);
+    } catch (cleanupError) {
+      log(`[DiaryDB] Gold pouch recovery journal cleanup deferred: ${cleanupError}`);
+    }
+    if (applied) notifyUpdate();
+    return true;
+  } catch (error) {
+    log(`[DiaryDB] Gold pouch recovery journal replay failed: ${error}`);
+    return false;
+  }
+}
+
+export function hasPendingGoldPouchSeed(): boolean {
+  return _pendingGoldPouchSeedByDate.size > 0 || fs.existsSync(getGoldPouchRecoveryJournalPath());
+}
+
+/** 금화 주머니 환산 SEED 버퍼를 복구 가능한 단일 트랜잭션으로 저장합니다. */
+export function flushPendingGoldPouchSeed(): boolean {
+  if (_goldPouchDebounceTimer) {
+    clearTimeout(_goldPouchDebounceTimer);
+    _goldPouchDebounceTimer = null;
+  }
+  if (_pendingGoldPouchSeedByDate.size === 0) {
+    if (!db && fs.existsSync(getGoldPouchRecoveryJournalPath())) initDb();
+    return replayGoldPouchRecoveryJournal();
+  }
+  if (!db) initDb();
+  if (!db || !replayGoldPouchRecoveryJournal()) return false;
+
+  const entries = Array.from(_pendingGoldPouchSeedByDate.entries());
+  _pendingGoldPouchSeedByDate.clear();
+  const journal: GoldPouchRecoveryJournal = {
+    schemaVersion: 1,
+    operationId: randomUUID(),
+    createdAt: Date.now(),
+    entries: entries
+      .filter(([, info]) => info.totalAmount > 0)
+      .map(([date, info]) => ({ date, latestTime: info.latestTime, totalAmount: info.totalAmount })),
+  };
+  if (journal.entries.length === 0) return true;
+
+  let journalWritten = false;
+  try {
+    writeGoldPouchRecoveryJournal(journal);
+    journalWritten = true;
+    applyGoldPouchRecoveryOperation(journal);
+    try {
+      fs.unlinkSync(getGoldPouchRecoveryJournalPath());
+    } catch (cleanupError) {
+      log(`[DiaryDB] Gold pouch recovery journal cleanup deferred: ${cleanupError}`);
+    }
+    notifyUpdate();
+    return true;
+  } catch (error) {
+    if (!journalWritten) {
+      for (const [date, info] of entries) {
+        const current = _pendingGoldPouchSeedByDate.get(date) || { latestTime: info.latestTime, totalAmount: 0 };
+        current.totalAmount += info.totalAmount;
+        current.latestTime = info.latestTime;
+        _pendingGoldPouchSeedByDate.set(date, current);
+      }
+    }
+    log(`[DiaryDB] flushPendingGoldPouchSeed failed: ${error}`);
+    return false;
+  }
 }
 
 export interface BatchSyncResult {
@@ -1459,6 +1668,7 @@ function createFailedBatchSyncResult(error: string): BatchSyncResult {
  */
 export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   flushPendingElso();
+  flushPendingGoldPouchSeed();
   if (!db) initDb();
   if (!db) return createFailedBatchSyncResult('데이터베이스를 초기화하지 못했습니다.');
 
@@ -1474,6 +1684,8 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   const insertShout = db.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)');
   const selectElso = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso' ORDER BY id ASC LIMIT 1");
   const updateElso = db.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
+  const selectGoldPouchSeed = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'calc' AND content = ? ORDER BY id ASC LIMIT 1");
+  const updateGoldPouchSeed = db.prepare('UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?');
 
   const selectStone = db.prepare(`
     SELECT id, amount FROM activity_logs 
@@ -1552,6 +1764,22 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
       const existing = selectActivity.get(item.date, item.timeOnly, item.content);
       if (!existing) {
         insertActivity.run(item.date, 'calc', item.content, item.timeOnly, item.amount);
+        addScore(item.date, POINTS.CALC_RECORD);
+        seedsAdded++;
+      }
+    }
+
+    // 2-1. 과거 로그의 날짜별 금화 주머니 총액과 로컬 DB 중 큰 값을 유지한다.
+    for (const item of (data.goldPouchSeeds || [])) {
+      ensureDiaryExists(item.date);
+      const existing = selectGoldPouchSeed.get(item.date, GOLD_POUCH_DAILY_CONTENT) as { id: number; amount: number } | undefined;
+      if (existing) {
+        if (item.amount > (existing.amount || 0)) {
+          updateGoldPouchSeed.run(item.timeOnly, item.amount, existing.id);
+          seedsAdded++;
+        }
+      } else if (item.amount > 0) {
+        insertActivity.run(item.date, 'calc', GOLD_POUCH_DAILY_CONTENT, item.timeOnly, item.amount);
         addScore(item.date, POINTS.CALC_RECORD);
         seedsAdded++;
       }
@@ -1853,6 +2081,23 @@ export function addElsoPoints(date: string, time: string, points: number): void 
   }, ELSO_FLUSH_DEBOUNCE_MS);
 
   // 2. 오늘의 요약 HUD 실시간 반영용 1초 쓰로틀링 UI 알림 (디스크 I/O 없이 메모리 데이터로 부드럽게 실시간 갱신)
+  throttleNotifyUpdate(1000);
+}
+
+/** 실시간으로 감지한 금화 주머니 환산 SEED를 날짜별 단일 행에 누적합니다. */
+export function addGoldPouchSeed(date: string, time: string, amount: number): void {
+  if (!Number.isSafeInteger(amount) || amount <= 0) return;
+
+  const current = _pendingGoldPouchSeedByDate.get(date) || { latestTime: time, totalAmount: 0 };
+  current.totalAmount += amount;
+  current.latestTime = time;
+  _pendingGoldPouchSeedByDate.set(date, current);
+
+  if (_goldPouchDebounceTimer) clearTimeout(_goldPouchDebounceTimer);
+  _goldPouchDebounceTimer = setTimeout(() => {
+    flushPendingGoldPouchSeed();
+  }, GOLD_POUCH_FLUSH_DEBOUNCE_MS);
+
   throttleNotifyUpdate(1000);
 }
 

@@ -118,6 +118,7 @@ export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean
     if (!filePath) return false;
 
     if (!diaryDb.flushPendingElso()) throw new Error('대기 중인 엘소 기록을 저장하지 못했습니다.');
+    if (!diaryDb.flushPendingGoldPouchSeed()) throw new Error('대기 중인 금화 주머니 환산 SEED 기록을 저장하지 못했습니다.');
     diaryDb.checkpointWal();
     stagingPath = createStagingDirectory(userDataPath, 'export-');
     const snapshotPath = path.join(stagingPath, 'snapshot');
@@ -168,6 +169,7 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
       : legacyManifest(extractedPath);
 
     if (!diaryDb.flushPendingElso()) throw new Error('복원 전 엘소 기록을 저장하지 못했습니다.');
+    if (!diaryDb.flushPendingGoldPouchSeed()) throw new Error('복원 전 금화 주머니 환산 SEED 기록을 저장하지 못했습니다.');
     diaryDb.checkpointWal();
     if (!diaryDb.closeDb()) throw new Error('복원 전 엘소 기록 정리를 완료하지 못했습니다.');
     const backupsRoot = path.join(userDataPath, 'backups');

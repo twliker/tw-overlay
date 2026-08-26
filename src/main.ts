@@ -74,6 +74,9 @@ function prepareFastSessionEnd(): void {
   if (!diaryDb.flushPendingElso()) {
     log('[SHUTDOWN] Windows 세션 종료 중 엘소 recovery 기록을 유지합니다.');
   }
+  if (!diaryDb.flushPendingGoldPouchSeed()) {
+    log('[SHUTDOWN] Windows 세션 종료 중 금화 주머니 recovery 기록을 유지합니다.');
+  }
   diaryDb.checkpointWal();
 }
 
@@ -304,6 +307,9 @@ app.on('before-quit', (event) => {
   if (config.hasPending()) config.saveImmediate();
   if (!diaryDb.flushPendingElso()) {
     log('[SHUTDOWN] 엘소 DB flush 실패 — 디스크 복구 기록을 다음 실행에 재생합니다.');
+  }
+  if (!diaryDb.flushPendingGoldPouchSeed()) {
+    log('[SHUTDOWN] 금화 주머니 DB flush 실패 — 디스크 복구 기록을 다음 실행에 재생합니다.');
   }
   cloudSync.prepareShutdownRecovery();
 

@@ -20,6 +20,11 @@ export interface SyncElsoAggregate {
   totalAmount: number;
 }
 
+export interface SyncGoldPouchSeedAggregate {
+  latestTime: string;
+  totalAmount: number;
+}
+
 export interface ChatLogFileAggregate {
   totalLines: number;
   lootsDetected: number;
@@ -30,6 +35,7 @@ export interface ChatLogFileAggregate {
   homework: Record<string, SyncHomeworkAggregate>;
   magicStones: Record<string, Record<string, SyncMagicStoneAggregate>>;
   elsoByDate: Record<string, SyncElsoAggregate>;
+  goldPouchSeedByDate: Record<string, SyncGoldPouchSeedAggregate>;
 }
 
 export interface DurableChatLogFileState extends ChatLogFileAggregate {
@@ -84,6 +90,12 @@ export interface ParsedElsoEvent {
   amount: number;
 }
 
+export interface ParsedGoldPouchSeedEvent {
+  date: string;
+  timeOnly: string;
+  amount: number;
+}
+
 export interface ChatLogSyncBatchData {
   jobId: string;
   batchId: string;
@@ -101,6 +113,7 @@ export interface ChatLogSyncBatchData {
   shouts: ParsedShoutEvent[];
   seeds: ParsedSeedEvent[];
   elsoPoints: ParsedElsoEvent[];
+  goldPouchSeeds?: ParsedGoldPouchSeedEvent[];
 }
 
 export interface WorkerDoneData {
@@ -149,6 +162,7 @@ export function createEmptyChatLogFileAggregate(): ChatLogFileAggregate {
     homework: {},
     magicStones: {},
     elsoByDate: {},
+    goldPouchSeedByDate: {},
   };
 }
 

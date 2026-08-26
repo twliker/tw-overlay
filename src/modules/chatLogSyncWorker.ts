@@ -2,7 +2,7 @@ import { promises as fsp } from 'fs';
 import * as iconv from 'iconv-lite';
 import { parentPort, workerData } from 'worker_threads';
 import { ChatParser } from './chatParser';
-import { parseElsoMessage, formatLootDiaryContent } from './itemAcquisition';
+import { parseElsoMessage, formatLootDiaryContent, getGoldPouchSeedAmount } from './itemAcquisition';
 import { ChatLogLineNormalizer } from './chatLogNormalizer';
 import { getChatLogReadRetryDelayMs, isRetryableChatLogReadError } from './chatLogFileRetry';
 import {
@@ -324,6 +324,17 @@ async function runWorker() {
       // ignore
     }
 
+    const goldPouchSeed = getGoldPouchSeedAmount(evt);
+    if (goldPouchSeed > 0) {
+      const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+      const existing = aggregate.goldPouchSeedByDate[evt.date];
+      aggregate.goldPouchSeedByDate[evt.date] = {
+        latestTime: timeOnly,
+        totalAmount: (existing?.totalAmount || 0) + goldPouchSeed,
+      };
+      aggregate.seedsDetected++;
+    }
+
     const matchedKeyword = lootKeywords.find(k => evt.message.includes(k));
     const isAlwaysTrackedItem = evt.itemName === '경험의 정수';
     const isMagicStone = evt.itemName.includes('마정석') || evt.message.includes('마정석');
@@ -476,6 +487,7 @@ async function runWorker() {
       if (!aggregate) throw new Error('채팅 로그 파일 누적 상태가 없습니다.');
       const aggregateLoots: ParsedLootEvent[] = [];
       const aggregateElso = [] as ChatLogSyncBatchData['elsoPoints'];
+      const aggregateGoldPouchSeeds: NonNullable<ChatLogSyncBatchData['goldPouchSeeds']> = [];
       if (fileComplete) {
         for (const [date, grades] of Object.entries(aggregate.magicStones)) {
           for (const [grade, info] of Object.entries(grades)) {
@@ -489,6 +501,9 @@ async function runWorker() {
         }
         for (const [date, info] of Object.entries(aggregate.elsoByDate)) {
           aggregateElso.push({ date, timeOnly: info.latestTime, amount: info.totalAmount });
+        }
+        for (const [date, info] of Object.entries(aggregate.goldPouchSeedByDate)) {
+          aggregateGoldPouchSeeds.push({ date, timeOnly: info.latestTime, amount: info.totalAmount });
         }
       }
       const batch: ChatLogSyncBatchData = {
@@ -508,6 +523,7 @@ async function runWorker() {
         shouts: [...shouts],
         seeds: [...seeds],
         elsoPoints: aggregateElso,
+        goldPouchSeeds: aggregateGoldPouchSeeds,
       };
       await postBatchAndWaitForAck(batch);
       loots = [];

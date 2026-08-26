@@ -245,6 +245,7 @@ export async function syncWeeklyChatLogs(options?: {
         homework: durable.homework,
         magicStones: durable.magicStones,
         elsoByDate: durable.elsoByDate,
+        goldPouchSeedByDate: durable.goldPouchSeedByDate,
       },
     });
   }

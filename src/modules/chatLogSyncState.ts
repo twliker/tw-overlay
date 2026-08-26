@@ -78,6 +78,15 @@ function normalizeAggregate(value: unknown): ChatLogFileAggregate {
       elsoByDate[date] = { latestTime: info.latestTime, totalAmount: Math.max(0, info.totalAmount) };
     }
   }
+  const goldPouchSeedByDate: ChatLogFileAggregate['goldPouchSeedByDate'] = {};
+  if (parsed.goldPouchSeedByDate && typeof parsed.goldPouchSeedByDate === 'object') {
+    for (const [date, info] of Object.entries(parsed.goldPouchSeedByDate)) {
+      if (!info || typeof info !== 'object'
+        || typeof info.latestTime !== 'string'
+        || typeof info.totalAmount !== 'number' || !Number.isFinite(info.totalAmount)) continue;
+      goldPouchSeedByDate[date] = { latestTime: info.latestTime, totalAmount: Math.max(0, info.totalAmount) };
+    }
+  }
   return {
     totalLines: normalizeNumber(parsed.totalLines),
     lootsDetected: normalizeNumber(parsed.lootsDetected),
@@ -88,6 +97,7 @@ function normalizeAggregate(value: unknown): ChatLogFileAggregate {
     homework,
     magicStones,
     elsoByDate,
+    goldPouchSeedByDate,
   };
 }
 

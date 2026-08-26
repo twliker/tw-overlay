@@ -16,7 +16,7 @@ import {
 } from './windowMessaging';
 import type { ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from '../shared/types';
 import { showSupportedDesktopNotification } from './desktopNotification';
-import { formatLootDiaryContent, parseElsoMessage } from './itemAcquisition';
+import { formatLootDiaryContent, getGoldPouchSeedAmount, parseElsoMessage } from './itemAcquisition';
 import { normalizeNotificationKeyword, normalizeNotificationKeywords } from '../shared/keywordSanitizer';
 export { parseElsoMessage };
 const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = require('../shared/chatChannels') as ChatChannelConstants;
@@ -437,6 +437,12 @@ class ChatLogProcessor {
         }
       } catch (err) {
         log(`[Processor] Elso parse/save error: ${err}`);
+      }
+
+      const goldPouchSeed = getGoldPouchSeedAmount(data);
+      if (goldPouchSeed > 0) {
+        const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+        diaryDb.addGoldPouchSeed(data.date, timeOnly, goldPouchSeed);
       }
 
       const keywords = normalizeNotificationKeywords(cfg.lootKeywords);

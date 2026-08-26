@@ -43,6 +43,11 @@ const ELSO_PICKUP_RE = /^\[([\d,]+)\]\s*ELSO를\s*습득했습니다\.?$/i;
 const ELSO_BONUS_RE = /ELSO\s*포인트를\s*추가로\s*획득\s*(?:하였|했)습니다/i;
 const ELSO_ITEM_RE = new RegExp(`^\\[엘소\\s*([\\d,]+)포인트\\](?:을\\(를\\)|을|를)\\s*\\[?([\\d,]+)\\]?개\\s*${ACQUISITION_VERB}`);
 const ELSO_DAILY_RE = new RegExp(`^일일\\s+보상으로\\s+([\\d,]+)\\s*Elso\\s*포인트(?:을\\(를\\)|을|를)\\s*${ACQUISITION_VERB}`, 'i');
+const GOLD_POUCH_BRACKET_RE = new RegExp(
+  `\\[\\s*금화\\s*주머니\\s+([\\d,]+)개\\s*\\]\\s*(?:을\\(를\\)|을|를)?\\s*${ACQUISITION_VERB}`,
+);
+
+export const GOLD_POUCH_SEED_VALUE = 500_000;
 
 function countValue(rawCount: string | undefined): number {
   if (!rawCount) return 1;
@@ -139,6 +144,18 @@ export function parseItemAcquisition(
     };
   }
 
+  // 군자금·마정석 교환 보상은 수량이 대괄호 안에 들어가므로 일반 대괄호 아이템보다 먼저 분리합니다.
+  const goldPouchBracketMatch = normalized.match(GOLD_POUCH_BRACKET_RE);
+  if (goldPouchBracketMatch) {
+    const isOwn = !normalized.startsWith('누군가');
+    return {
+      itemName: '금화 주머니',
+      count: countValue(goldPouchBracketMatch[1]),
+      source: isOwn ? 'direct' : 'other',
+      isOwn,
+    };
+  }
+
   const bracketMatch = normalized.match(BRACKET_ITEM_RE);
   if (bracketMatch) {
     const isOwn = !normalized.startsWith('누군가');
@@ -210,6 +227,17 @@ export function parseItemAcquisition(
   }
 
   return null;
+}
+
+/** 자신의 금화 주머니 획득 이벤트를 SEED로 환산합니다. 시간 문자열은 중복될 수 있으므로 식별자로 사용하지 않습니다. */
+export function getGoldPouchSeedAmount(acquisition: ItemAcquisition): number {
+  if (!acquisition.isOwn || acquisition.count <= 0) return 0;
+  const normalizedName = acquisition.itemName
+    .normalize('NFC')
+    .replace(/[\s\u00A0]+/gu, ' ')
+    .trim();
+  if (normalizedName !== '금화 주머니') return 0;
+  return acquisition.count * GOLD_POUCH_SEED_VALUE;
 }
 
 function parseMultiItemAcquisition(normalized: string): ItemAcquisition[] {

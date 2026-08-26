@@ -3133,7 +3133,7 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
     decodeChatLogBuffer(buffer: Buffer): { content: string; encoding: string; damaged: boolean };
     normalizeChatLogLines(lines: string[]): string[];
   };
-  const { parseItemAcquisition, parseItemAcquisitions, formatLootDiaryContent } = require(path.join(projectRoot, 'dist/modules/itemAcquisition.js')) as {
+  const { parseItemAcquisition, parseItemAcquisitions, formatLootDiaryContent, getGoldPouchSeedAmount } = require(path.join(projectRoot, 'dist/modules/itemAcquisition.js')) as {
     parseItemAcquisition(message: string, context?: { isSelfChat?: boolean }): {
       itemName: string;
       count: number;
@@ -3147,6 +3147,7 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
       isOwn: boolean;
     }>;
     formatLootDiaryContent(itemName: string): string;
+    getGoldPouchSeedAmount(acquisition: { itemName: string; count: number; source: string; isOwn: boolean }): number;
   };
   assert.equal(formatLootDiaryContent(' 경험의\u200B  정수 '), '[득템] 경험의 정수');
 
@@ -3262,6 +3263,22 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
   assert.deepEqual(parseItemAcquisition('테스터 : 금화 주머니를 획득했습니다.', { isSelfChat: true }), {
     itemName: '금화 주머니', count: 1, source: 'direct', isOwn: true,
   });
+  const moonQueenGoldPouches = parseItemAcquisition('가짜 달여왕 군단의 군자금 [ 금화 주머니 80개 ]를 획득했습니다.');
+  assert.deepEqual(moonQueenGoldPouches, {
+    itemName: '금화 주머니', count: 80, source: 'direct', isOwn: true,
+  });
+  assert.equal(getGoldPouchSeedAmount(moonQueenGoldPouches!), 40_000_000);
+  const exchangedGoldPouches = parseItemAcquisition('금화 주머니 6217개를 획득 하였습니다.');
+  assert.deepEqual(exchangedGoldPouches, {
+    itemName: '금화 주머니', count: 6217, source: 'direct', isOwn: true,
+  });
+  assert.equal(getGoldPouchSeedAmount(exchangedGoldPouches!), 3_108_500_000);
+  const petGoldPouch = parseItemAcquisition('펫이 [금화 주머니]을(를) 주웠습니다.');
+  assert.equal(getGoldPouchSeedAmount(petGoldPouch!), 500_000);
+  const otherGoldPouches = parseItemAcquisition('누군가 달여왕 군단의 군자금 [ 금화 주머니 80개 ]를 획득했습니다.');
+  assert.equal(otherGoldPouches?.isOwn, false);
+  assert.equal(getGoldPouchSeedAmount(otherGoldPouches!), 0,
+    '타인의 금화 주머니 공지가 내 SEED 수익으로 환산되었습니다.');
   assert.deepEqual(parseItemAcquisition('[경험의 정수] 아이템을 1개 획득하였습니다.'), {
     itemName: '경험의 정수', count: 1, source: 'direct', isOwn: true,
   });
@@ -4179,6 +4196,50 @@ function checkChatLogSyncManagerContracts() {
       '이미 커밋된 엘소 recovery operation이 중복 반영되었습니다.');
     assert.equal(fs.existsSync(elsoJournalPath), false);
     diaryDb.removeActivityLog(elsoRecoveryDate, 'elso', '엘소 포인트 획득');
+
+    // 동일 시각의 금화 주머니 여러 건도 빠짐없이 날짜별 단일 SEED 행으로 누적되어야 한다.
+    const goldPouchDate = '2099-12-26';
+    diaryDb.addGoldPouchSeed(goldPouchDate, '12:34:56', 500_000);
+    diaryDb.addGoldPouchSeed(goldPouchDate, '12:34:56', 500_000);
+    assert.equal(diaryDb.flushPendingGoldPouchSeed(), true);
+    let goldPouchRows = diaryDb.getDiaryByDate(goldPouchDate).activityLogs
+      .filter((log: { type: string; content: string }) => log.type === 'calc' && log.content === diaryDb.GOLD_POUCH_DAILY_CONTENT);
+    assert.equal(goldPouchRows.length, 1);
+    assert.equal(goldPouchRows[0].amount, 1_000_000,
+      '동일 시각의 금화 주머니 두 건이 하나의 이벤트로 합쳐졌습니다.');
+
+    // 과거 로그 재탐색은 DB보다 작거나 같은 값으로 덮지 않고, 더 큰 전체 합계만 채택한다.
+    diaryDb.batchInsertSyncResults({
+      loots: [], essences: [], seeds: [], elsoPoints: [], shouts: [],
+      goldPouchSeeds: [{ date: goldPouchDate, timeOnly: '12:35:00', amount: 500_000 }],
+    });
+    assert.equal(diaryDb.getDiaryByDate(goldPouchDate).activityLogs
+      .find((log: { content: string }) => log.content === diaryDb.GOLD_POUCH_DAILY_CONTENT)?.amount, 1_000_000);
+    diaryDb.batchInsertSyncResults({
+      loots: [], essences: [], seeds: [], elsoPoints: [], shouts: [],
+      goldPouchSeeds: [{ date: goldPouchDate, timeOnly: '12:36:00', amount: 1_500_000 }],
+    });
+    goldPouchRows = diaryDb.getDiaryByDate(goldPouchDate).activityLogs
+      .filter((log: { type: string; content: string }) => log.type === 'calc' && log.content === diaryDb.GOLD_POUCH_DAILY_CONTENT);
+    assert.equal(goldPouchRows.length, 1);
+    assert.equal(goldPouchRows[0].amount, 1_500_000);
+
+    // 응답 유실 뒤 같은 recovery operation이 재생돼도 금액은 정확히 한 번만 증가한다.
+    const goldPouchJournalPath = diaryDb.getGoldPouchRecoveryJournalPath();
+    const goldPouchJournal = {
+      schemaVersion: 1,
+      operationId: 'regression-gold-pouch-operation-001',
+      createdAt: Date.now(),
+      entries: [{ date: goldPouchDate, latestTime: '12:37:00', totalAmount: 500_000 }],
+    };
+    fs.writeFileSync(goldPouchJournalPath, JSON.stringify(goldPouchJournal), 'utf8');
+    assert.equal(diaryDb.replayGoldPouchRecoveryJournal(), true);
+    fs.writeFileSync(goldPouchJournalPath, JSON.stringify(goldPouchJournal), 'utf8');
+    assert.equal(diaryDb.replayGoldPouchRecoveryJournal(), true);
+    assert.equal(diaryDb.getDiaryByDate(goldPouchDate).activityLogs
+      .find((log: { content: string }) => log.content === diaryDb.GOLD_POUCH_DAILY_CONTENT)?.amount, 2_000_000);
+    assert.equal(fs.existsSync(goldPouchJournalPath), false);
+    diaryDb.removeActivityLog(goldPouchDate, 'calc', diaryDb.GOLD_POUCH_DAILY_CONTENT);
 
     // 테스트 후 데이터 정리 및 DB 파일 닫기
     diaryDb.removeActivityLog(testDate, 'loot', testContent);
@@ -7668,6 +7729,8 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
   const managerSeedMessage = '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.';
   const managerLines = [
     '<font size="2" color="white"> [22시 39분 34초] </font> <font size="2" color="#ff64ff">하급 마정석 1개를 획득 하였습니다.</font></br>',
+    '<font size="2" color="white"> [22시 39분 35초] </font> <font size="2" color="#c8ffc8">테스터 : 금화 주머니를 획득 했습니다.</font></br>',
+    '<font size="2" color="white"> [22시 39분 35초] </font> <font size="2" color="#ff64ff">가짜 달여왕 군단의 군자금 [ 금화 주머니 80개 ]를 획득했습니다.</font></br>',
     ...Array.from({ length: 2_001 }, (_, index) => `manager-ignored-${index}`),
     `<font size="2" color="white"> [ 0시 25분 25초] </font> <font size="2" color="#ff64ff">${managerSeedMessage}</font></br>`,
   ];
@@ -7681,10 +7744,15 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const firstSync = await syncManager.syncWeeklyChatLogs({ startDate, endDate: startDate });
     assert.equal(firstSync.success, true);
     assert.equal(firstSync.totalFiles, 1);
-    assert.equal(firstSync.seedsDetected, 1);
+    assert.equal(firstSync.seedsDetected, 3);
     assert.equal(firstSync.lootsDetected, 1);
-    assert.equal(firstSync.seedsAdded, 1);
+    assert.equal(firstSync.seedsAdded, 2);
     assert.equal(firstSync.lootsAdded, 1);
+    const managerGoldPouchRows = diaryDb.getDiaryByDate('2026-08-26').activityLogs
+      .filter((log: { type: string; content: string }) => log.type === 'calc' && log.content === diaryDb.GOLD_POUCH_DAILY_CONTENT);
+    assert.equal(managerGoldPouchRows.length, 1);
+    assert.equal(managerGoldPouchRows[0].amount, 40_500_000,
+      '주간 로그 동기화가 동일 시각 금화 주머니 획득을 날짜별 합계로 반영하지 못했습니다.');
 
     const resumedSync = await syncManager.syncWeeklyChatLogs({ startDate, endDate: startDate });
     assert.equal(resumedSync.success, true);
@@ -7696,6 +7764,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     assert.equal(managerState.confirmedOffset, fs.statSync(managerFile).size,
       '메인 ACK 뒤 snapshot 확정 offset이 내구 상태에 저장되지 않았습니다.');
   } finally {
+    diaryDb.removeActivityLog('2026-08-26', 'calc', diaryDb.GOLD_POUCH_DAILY_CONTENT);
     configModule.saveImmediate({ chatLogPath: previousChatLogPath });
   }
 
