@@ -163,20 +163,26 @@ function normalizeShutdownRecovery(value: unknown): CloudShutdownRecovery | unde
   const settings = parsed.settings && typeof parsed.settings === 'object'
     && isStringArray(parsed.settings.dirtyKeys)
     && typeof parsed.settings.checksum === 'string'
+    && /^[a-f0-9]{64}$/i.test(parsed.settings.checksum)
     ? {
-      dirtyKeys: parsed.settings.dirtyKeys.slice(0, 500),
+      dirtyKeys: Array.from(new Set(parsed.settings.dirtyKeys
+        .filter(key => SETTINGS_SYNCABLE_KEYS.includes(key as keyof AppConfig)))).slice(0, 500),
       checksum: parsed.settings.checksum,
       remoteRevision: typeof parsed.settings.remoteRevision === 'string'
+        && parsed.settings.remoteRevision.length > 0 && parsed.settings.remoteRevision.length <= 500
         ? parsed.settings.remoteRevision : undefined,
     }
     : undefined;
   const checklist = parsed.checklist && typeof parsed.checklist === 'object'
     && isStringArray(parsed.checklist.operationIds)
     && typeof parsed.checklist.checksum === 'string'
+    && /^[a-f0-9]{64}$/i.test(parsed.checklist.checksum)
     ? {
-      operationIds: parsed.checklist.operationIds.slice(0, 1_000),
+      operationIds: Array.from(new Set(parsed.checklist.operationIds
+        .filter(id => id.length > 0 && id.length <= 200))).slice(0, 1_000),
       checksum: parsed.checklist.checksum,
       remoteRevision: typeof parsed.checklist.remoteRevision === 'string'
+        && parsed.checklist.remoteRevision.length > 0 && parsed.checklist.remoteRevision.length <= 500
         ? parsed.checklist.remoteRevision : undefined,
     }
     : undefined;
@@ -188,8 +194,9 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const parsed = value as Partial<CloudSyncLocalState>;
   if (parsed.schemaVersion !== STATE_SCHEMA_VERSION
-    || typeof parsed.deviceId !== 'string'
-    || typeof parsed.generationId !== 'string') return null;
+    || typeof parsed.deviceId !== 'string' || parsed.deviceId.length === 0 || parsed.deviceId.length > 200
+    || typeof parsed.generationId !== 'string' || parsed.generationId.length === 0
+    || parsed.generationId.length > 200) return null;
 
   const settingsDirtyKeys = isStringArray(parsed.settingsDirtyKeys)
     ? Array.from(new Set(parsed.settingsDirtyKeys.filter(key => SETTINGS_SYNCABLE_KEYS.includes(key as keyof AppConfig))))
@@ -206,7 +213,8 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
     schemaVersion: STATE_SCHEMA_VERSION,
     deviceId: parsed.deviceId,
     generationId: parsed.generationId,
-    createdAt: typeof parsed.createdAt === 'number' ? parsed.createdAt : Date.now(),
+    createdAt: typeof parsed.createdAt === 'number' && Number.isFinite(parsed.createdAt)
+      ? parsed.createdAt : Date.now(),
     profileState: parsed.profileState === 'fresh'
       || parsed.profileState === 'established'
       || parsed.profileState === 'needs-confirmation'
@@ -223,7 +231,8 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
     restoreResults: normalizeRestoreResults(parsed.restoreResults),
     restorePartial: typeof parsed.restorePartial === 'boolean' ? parsed.restorePartial : undefined,
     shutdownRecovery: normalizeShutdownRecovery(parsed.shutdownRecovery),
-    lastPullAt: typeof parsed.lastPullAt === 'number' ? parsed.lastPullAt : undefined,
+    lastPullAt: typeof parsed.lastPullAt === 'number' && Number.isFinite(parsed.lastPullAt)
+      ? parsed.lastPullAt : undefined,
   };
 }
 

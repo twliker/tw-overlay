@@ -5876,6 +5876,19 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       },
     ],
     confirmedChecklistOperations: [],
+    shutdownRecovery: {
+      createdAt: 1000,
+      settings: {
+        dirtyKeys: ['userServer', 'not-syncable', 'userServer'],
+        checksum: 'a'.repeat(64),
+        remoteRevision: 123,
+      },
+      checklist: {
+        operationIds: ['valid-persisted-operation', '', 'x'.repeat(201), 'valid-persisted-operation'],
+        checksum: 'b'.repeat(64),
+        remoteRevision: 'valid-recovery-revision',
+      },
+    },
   }), 'utf8');
   cloudSyncState.resetCacheForTests();
   const normalizedCorruptState = cloudSyncState.load();
@@ -5889,6 +5902,27 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '제거된 dirty key의 시각 정보가 로컬 동기화 상태에 남았습니다.');
   assert.deepEqual(normalizedCorruptState.checklistOutbox, [validPersistedOperation],
     '손상된 mutation을 가진 숙제 operation이 outbox에 남았습니다.');
+  assert.deepEqual(normalizedCorruptState.shutdownRecovery?.settings, {
+    dirtyKeys: ['userServer'],
+    checksum: 'a'.repeat(64),
+    remoteRevision: undefined,
+  }, '손상된 설정 종료 recovery 필드가 로컬 동기화 상태에 남았습니다.');
+  assert.deepEqual(normalizedCorruptState.shutdownRecovery?.checklist, {
+    operationIds: ['valid-persisted-operation'],
+    checksum: 'b'.repeat(64),
+    remoteRevision: 'valid-recovery-revision',
+  }, '손상된 숙제 종료 recovery operation ID가 로컬 동기화 상태에 남았습니다.');
+  fs.writeFileSync(cloudStatePath, JSON.stringify({
+    schemaVersion: 1,
+    deviceId: '',
+    generationId: '',
+  }), 'utf8');
+  cloudSyncState.resetCacheForTests();
+  const invalidIdentityState = cloudSyncState.load();
+  assert.notEqual(invalidIdentityState.deviceId, '', '빈 installation ID를 유효한 로컬 상태로 사용했습니다.');
+  assert.notEqual(invalidIdentityState.generationId, '', '빈 generation ID를 유효한 로컬 상태로 사용했습니다.');
+  assert.notEqual(invalidIdentityState.profileState, 'fresh',
+    '식별자가 손상된 기존 프로필을 fresh 자동 복원 대상으로 판정했습니다.');
   fs.rmSync(cloudStatePath);
   cloudSyncState.resetCacheForTests();
   const initialState = cloudSyncState.load();
