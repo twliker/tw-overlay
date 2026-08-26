@@ -6294,6 +6294,14 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Drive 401의 1회 refresh/retry 경계가 없습니다.');
 
   const cloudSyncDocs = read('docs/google-drive-sync.md');
+  assert.match(cloudSyncDocs, /마지막으로 두 PC가 같았던 상태/,
+    '사용자용 동기화 가이드가 3방향 병합의 기준 상태를 쉬운 말로 설명하지 않습니다.');
+  assert.match(cloudSyncDocs, /서로 다른 캐릭터[\s\S]*?변경을 모두 유지/,
+    '사용자용 동기화 가이드에 다른 캐릭터의 숙제 변경 병합 예시가 없습니다.');
+  assert.match(cloudSyncDocs, /완료·해제[\s\S]*?횟수[\s\S]*?정해진 순서로 다시 적용/,
+    '사용자용 동기화 가이드에 같은 숙제의 완료·해제·횟수 충돌 설명이 없습니다.');
+  assert.match(cloudSyncDocs, /선택 대기 상태도 클라우드에 저장[\s\S]*?캐릭터 선택 팝업/,
+    '사용자용 동기화 가이드에 pending 숙제의 다른 PC 팝업 동작이 없습니다.');
   const markedBlock = (marker: string): string => {
     const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const match = cloudSyncDocs.match(new RegExp(
