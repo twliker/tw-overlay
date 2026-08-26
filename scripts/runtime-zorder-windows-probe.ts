@@ -172,7 +172,12 @@ function writeCommand(filePath: string, command: Record<string, unknown>): void 
   fs.renameSync(temporaryPath, filePath);
 }
 
-function createTestWindow(title: string, color: string, x: number, y: number): BrowserWindow {
+async function createTestWindow(
+  title: string,
+  color: string,
+  x: number,
+  y: number,
+): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     width: 360,
     height: 240,
@@ -186,7 +191,7 @@ function createTestWindow(title: string, color: string, x: number, y: number): B
     backgroundColor: color,
     webPreferences: { sandbox: true },
   });
-  window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(
     `<body style="margin:0;background:${color};color:white;display:grid;place-items:center;font:700 24px Segoe UI">${title}</body>`,
   )}`);
   window.showInactive();
@@ -208,18 +213,29 @@ async function waitForForeground(win32: Win32Runtime, hwnd: bigint): Promise<voi
   );
 }
 
-async function activateBrowserWindowForTest(
+async function waitForStableForeground(
   win32: Win32Runtime,
-  window: BrowserWindow,
+  hwnd: bigint,
+  stableMs = 200,
+): Promise<void> {
+  const deadline = Date.now() + 3_000;
+  let stableSince = 0;
+  while (Date.now() < deadline) {
+    if (parseNativeHwnd(win32.GetForegroundWindow()) === hwnd) {
+      if (stableSince === 0) stableSince = Date.now();
+      if (Date.now() - stableSince >= stableMs) return;
+    } else {
+      stableSince = 0;
+    }
+    await delay(25);
+  }
+  throw new Error(`foreground ${hwnd} did not remain stable for ${stableMs}ms`);
+}
+
+async function activateNativeWindowForTest(
+  win32: Win32Runtime,
   hwnd: bigint,
 ): Promise<void> {
-  window.show();
-  window.focus();
-  await delay(50);
-  if (parseNativeHwnd(win32.GetForegroundWindow()) === hwnd) return;
-
-  // Windows의 foreground lock를 우회하기 위한 테스트 전용 입력 큐 연결이다.
-  // 제품 코드는 외부 창 또는 게임에 이 API를 사용하지 않는다.
   const currentThreadId = getCurrentThreadId() as number;
   const foregroundThreadId = getWindowThreadProcessId(
     parseNativeHwnd(win32.GetForegroundWindow()),
@@ -234,7 +250,6 @@ async function activateBrowserWindowForTest(
     && targetThreadId !== foregroundThreadId
     && !!attachThreadInput(currentThreadId, targetThreadId, true);
   try {
-    window.focus();
     bringWindowToTop(hwnd);
     win32.SetForegroundWindow(hwnd);
   } finally {
@@ -242,6 +257,21 @@ async function activateBrowserWindowForTest(
     if (attachedForeground) attachThreadInput(currentThreadId, foregroundThreadId, false);
   }
   await waitForForeground(win32, hwnd);
+}
+
+async function activateBrowserWindowForTest(
+  win32: Win32Runtime,
+  window: BrowserWindow,
+  hwnd: bigint,
+): Promise<void> {
+  window.show();
+  window.focus();
+  await delay(50);
+  if (parseNativeHwnd(win32.GetForegroundWindow()) === hwnd) return;
+
+  // Windows의 foreground lock를 우회하기 위한 테스트 전용 입력 큐 연결이다.
+  // 제품 코드는 외부 창 또는 게임에 이 API를 사용하지 않는다.
+  await activateNativeWindowForTest(win32, hwnd);
 }
 
 function getWindowAbove(win32: Win32Runtime, hwnd: bigint): bigint {
@@ -322,9 +352,10 @@ async function activateFixture(
   );
   // Foreground lock가 허용하는 현재 테스트 프로세스 경로도 함께 시도한다.
   if (parseNativeHwnd(win32.GetForegroundWindow()) !== gameHwnd) {
-    win32.SetForegroundWindow(gameHwnd);
+    await activateNativeWindowForTest(win32, gameHwnd);
   }
   await waitForForeground(win32, gameHwnd);
+  await waitForStableForeground(win32, gameHwnd);
   return status;
 }
 
@@ -383,9 +414,11 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
 
   const baseX = status.screenBounds.X + 80 + (scenarioIndex * 20);
   const baseY = status.screenBounds.Y + 80 + (scenarioIndex * 20);
-  const firstOverlay = createTestWindow(`Twoverlay Overlay A (${mode})`, '#194b7a', baseX, baseY);
-  const secondOverlay = createTestWindow(`Twoverlay Overlay B (${mode})`, '#5b2c83', baseX + 40, baseY + 40);
-  const externalWindow = createTestWindow(`External App (${mode})`, '#744210', baseX + 80, baseY + 80);
+  const [firstOverlay, secondOverlay, externalWindow] = await Promise.all([
+    createTestWindow(`Twoverlay Overlay A (${mode})`, '#194b7a', baseX, baseY),
+    createTestWindow(`Twoverlay Overlay B (${mode})`, '#5b2c83', baseX + 40, baseY + 40),
+    createTestWindow(`External App (${mode})`, '#744210', baseX + 80, baseY + 80),
+  ]);
   const firstOverlayHwnd = browserWindowHwnd(firstOverlay);
   const secondOverlayHwnd = browserWindowHwnd(secondOverlay);
   const externalHwnd = browserWindowHwnd(externalWindow);
@@ -393,7 +426,9 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
   await activateFixture(win32, commandPath, statusPath, gameHwnd, 1);
   const gameRectBeforeReconcile = readWindowRect(win32, gameHwnd);
   const gameTopmostBeforeReconcile = isTopmost(win32, gameHwnd);
+  const foregroundBeforeReconcile = parseNativeHwnd(win32.GetForegroundWindow());
   tracker.reconcileGameZOrder(detectedHwndText, [firstOverlayHwnd.toString(), secondOverlayHwnd.toString()]);
+  const foregroundImmediatelyAfterReconcile = parseNativeHwnd(win32.GetForegroundWindow());
   await delay(100);
   if (!isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd)
       || !isAbove(win32, secondOverlayHwnd, gameHwnd)) {
@@ -421,8 +456,21 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
       && isAbove(win32, secondOverlayHwnd, gameHwnd),
     `${mode} game overlay stack`,
   );
-  const foregroundPreservedForGame = parseNativeHwnd(win32.GetForegroundWindow()) === gameHwnd;
-  assert.equal(foregroundPreservedForGame, true, `${mode} reconcile stole game foreground`);
+  const foregroundAfterReconcile = parseNativeHwnd(win32.GetForegroundWindow());
+  const foregroundPreservedForGame = foregroundBeforeReconcile === gameHwnd
+    && foregroundImmediatelyAfterReconcile === gameHwnd
+    && foregroundAfterReconcile === gameHwnd;
+  const foregroundLabels = new Map([
+    [gameHwnd, 'game'],
+    [firstOverlayHwnd, 'overlay-a'],
+    [secondOverlayHwnd, 'overlay-b'],
+    [externalHwnd, 'external'],
+  ]);
+  assert.equal(
+    foregroundPreservedForGame,
+    true,
+    `${mode} reconcile foreground changed before=${foregroundLabels.get(foregroundBeforeReconcile) ?? foregroundBeforeReconcile} immediately=${foregroundLabels.get(foregroundImmediatelyAfterReconcile) ?? foregroundImmediatelyAfterReconcile} after100ms=${foregroundLabels.get(foregroundAfterReconcile) ?? foregroundAfterReconcile}`,
+  );
   assert.deepEqual(readWindowRect(win32, gameHwnd), gameRectBeforeReconcile, `${mode} reconcile moved/resized game`);
   assert.equal(isTopmost(win32, gameHwnd), gameTopmostBeforeReconcile, `${mode} reconcile changed game Topmost`);
 
