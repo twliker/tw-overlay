@@ -298,6 +298,21 @@
     let appConfig = null;
     let menuData = [];
     let activeKeys = [];
+    let isDockMousePassThrough = null;
+
+    function setDockMousePassThrough(ignore) {
+      if (isDockMousePassThrough === ignore) return;
+      isDockMousePassThrough = ignore;
+      if (window.electronAPI && window.electronAPI.setIgnoreMouseEvents) {
+        window.electronAPI.setIgnoreMouseEvents(ignore, ignore ? { forward: true } : {});
+      }
+    }
+
+    function updateDockMousePassThrough(event) {
+      const target = event.target;
+      const isInteractive = target instanceof Element && Boolean(target.closest('.dock-container'));
+      setDockMousePassThrough(!isInteractive);
+    }
 
     function fitFlyoutToViewport(flyout) {
       if (!flyout) return;
@@ -693,6 +708,11 @@
     window.addEventListener('resize', () => {
       document.querySelectorAll('.dock-flyout-submenu').forEach(fitFlyoutToViewport);
     });
+
+    // 투명 여백은 게임으로 통과시키고, 실제 독 패널·플라이아웃 위에서만 클릭을 받습니다.
+    document.addEventListener('mousemove', updateDockMousePassThrough, true);
+    document.addEventListener('mouseleave', () => setDockMousePassThrough(true));
+    setDockMousePassThrough(true);
 
     // 로드
     loadMenus();

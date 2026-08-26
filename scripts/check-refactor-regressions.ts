@@ -2127,6 +2127,8 @@ function checkWindowedFullscreenFocusContracts(): void {
     '자동 재생성된 관리 창이 비활성 상태로 표시되지 않습니다.');
   assert.doesNotMatch(manager, /key === 'dock'[^\n]*focusable: false/,
     '독 창이 no-activate로 생성되어 hover만 되고 클릭이 전달되지 않을 수 있습니다.');
+  assert.match(manager, /if \(key === 'dock'\)[\s\S]*?setIgnoreMouseEvents\(true, \{ forward: true \}\)/,
+    '독 renderer가 준비되기 전 투명 여백이 게임 입력을 가로챌 수 있습니다.');
   assert.ok((manager.match(/'game-resync'/g) ?? []).length >= 6,
     '게임 동기화 중 생성되는 창의 비활성 표시 사유가 누락되었습니다.');
   const clickThroughStart = manager.indexOf('export function toggleClickThrough(): boolean');
@@ -2156,6 +2158,8 @@ function checkWindowedFullscreenFocusContracts(): void {
     '퀵링크 저장 후 재사용 중인 독 renderer에 최신 설정을 즉시 전달하지 않습니다.');
   assert.match(read('src/dock.html'), /onConfigData\(\(config\) => \{[\s\S]*?appConfig = config;[\s\S]*?renderDock\(\)/,
     '독 renderer가 퀵링크·위치 설정 변경을 수신해 즉시 다시 그리지 않습니다.');
+  assert.match(read('src/dock.html'), /target\.closest\('\.dock-container'\)[\s\S]*?setDockMousePassThrough\(!isInteractive\)/,
+    '독의 실제 UI와 투명 여백을 구분하는 마우스 투과 처리가 없습니다.');
 
   const zOrderRuntime = require(path.join(projectRoot, 'dist', 'modules', 'zOrderController.js')) as {
     GameOverlayZOrderController: new (

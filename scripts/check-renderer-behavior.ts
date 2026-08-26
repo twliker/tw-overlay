@@ -3180,6 +3180,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   const result = await window.webContents.executeJavaScript(`
     (async () => {
       const calls = [];
+      const mousePassThroughCalls = [];
       const configCallbacks = [];
       const activeCallbacks = [];
       window.sidebarCategories = ${JSON.stringify(categoryRegistry.SIDEBAR_CATEGORIES)};
@@ -3189,6 +3190,10 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       window.electronAPI = {
         toggleContentsChecker: () => calls.push('contentsChecker'),
         toggleSwordEnhance: () => calls.push('swordEnhance'),
+        setIgnoreMouseEvents: (ignore, options) => mousePassThroughCalls.push({
+          ignore,
+          forward: options?.forward === true,
+        }),
         onConfigData: callback => configCallbacks.push(callback),
         onActiveWindows: callback => activeCallbacks.push(callback),
       };
@@ -3198,9 +3203,12 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       configCallbacks[0]({ sidebarPosition: 'dock', hiddenMenuIds: [] });
       const homework = document.getElementById('dock-contents-checker-btn');
       const swordEnhance = document.getElementById('dock-sword-enhance-btn');
+      homework?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+      homework?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
       homework?.click();
       swordEnhance?.click();
       activeCallbacks[0](['contentsChecker', 'swordEnhance']);
+      document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 
       const visibleResult = {
         homeworkLabel: homework?.querySelector('.dock-tooltip')?.textContent,
@@ -3218,6 +3226,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
         hasBody: document.body !== null,
         ...visibleResult,
         calls,
+        mousePassThroughCalls,
         topDockClass: document.body.classList.contains('dock-pos-top'),
         homeworkStillVisible: document.getElementById('dock-contents-checker-btn') !== null,
         hiddenSwordAbsent: document.getElementById('dock-sword-enhance-btn') === null,
@@ -3230,6 +3239,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
     homeworkActive?: boolean;
     swordEnhanceActive?: boolean;
     calls: string[];
+    mousePassThroughCalls: Array<{ ignore: boolean; forward: boolean }>;
     topDockClass: boolean;
     homeworkStillVisible: boolean;
     hiddenSwordAbsent: boolean;
@@ -3239,6 +3249,11 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.homeworkLabel, '숙제 체크 리스트', '독에 숙제 체크리스트 메뉴가 표시되지 않았습니다.');
   assert.equal(result.swordEnhanceLabel, '테일즈위버 무기 강화하기', '독에 검 강화하기 메뉴가 표시되지 않았습니다.');
   assert.deepEqual(result.calls, ['contentsChecker', 'swordEnhance'], '독 1단 메뉴 동작이 연결되지 않았습니다.');
+  assert.deepEqual(result.mousePassThroughCalls, [
+    { ignore: true, forward: true },
+    { ignore: false, forward: false },
+    { ignore: true, forward: true },
+  ], '독의 투명 여백과 실제 UI 사이 마우스 투과 전환이 올바르지 않습니다.');
   assert.equal(result.homeworkActive, true, '숙제 체크리스트 독 활성 상태가 표시되지 않았습니다.');
   assert.equal(result.swordEnhanceActive, true, '검 강화하기 독 활성 상태가 표시되지 않았습니다.');
   assert.equal(result.topDockClass, true, '상단 독 설정이 1단 메뉴 재렌더링 뒤 유지되지 않았습니다.');

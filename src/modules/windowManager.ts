@@ -791,6 +791,11 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   if (sizing.isResizable) {
     win.setResizable(true);
   }
+  // 독은 플라이아웃 배치 공간을 포함한 큰 투명 창이므로, 로딩 전부터 빈 영역의 입력을
+  // 게임에 전달합니다. renderer가 실제 독 패널 위에서만 입력을 다시 활성화합니다.
+  if (key === 'dock') {
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
   winCfg.ref = win;
   // 창 생성 시 Windows가 기본 위치에 배치하면서 move 이벤트가 발생하므로,
   // ready-to-show에서 올바른 위치를 설정하기 전까지 위치 저장을 차단합니다.
