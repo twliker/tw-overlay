@@ -5924,9 +5924,41 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.notEqual(invalidIdentityState.profileState, 'fresh',
     '식별자가 손상된 기존 프로필을 fresh 자동 복원 대상으로 판정했습니다.');
   fs.rmSync(cloudStatePath);
+  const recoveredTempState = {
+    schemaVersion: 1,
+    deviceId: 'temp-recovery-device',
+    generationId: 'temp-recovery-generation',
+    createdAt: 1000,
+    profileState: 'established',
+    fileIds: {},
+    remoteRevisions: {},
+    settingsDirtyKeys: ['userServer'],
+    settingsDirtyAt: { userServer: 1000 },
+    checklistOutbox: [validPersistedOperation],
+    confirmedChecklistOperations: [],
+    shutdownRecovery: {
+      createdAt: 1000,
+      settings: { dirtyKeys: ['userServer'], checksum: 'a'.repeat(64) },
+      checklist: { operationIds: ['valid-persisted-operation'], checksum: 'b'.repeat(64) },
+    },
+  };
+  fs.writeFileSync(`${cloudStatePath}.tmp`, JSON.stringify(recoveredTempState), 'utf8');
+  cloudSyncState.resetCacheForTests();
+  const promotedTempState = cloudSyncState.load();
+  assert.equal(promotedTempState.deviceId, recoveredTempState.deviceId,
+    '원자 저장 중 남은 유효 임시 상태의 installation ID를 복구하지 못했습니다.');
+  assert.deepEqual(promotedTempState.settingsDirtyKeys, ['userServer']);
+  assert.deepEqual(promotedTempState.checklistOutbox, [validPersistedOperation]);
+  assert.equal(fs.existsSync(cloudStatePath), true,
+    '복구한 임시 클라우드 상태를 정식 상태 파일로 승격하지 않았습니다.');
+  assert.equal(fs.existsSync(`${cloudStatePath}.tmp`), false,
+    '승격이 끝난 임시 클라우드 상태 파일이 남았습니다.');
+  fs.rmSync(cloudStatePath);
   cloudSyncState.resetCacheForTests();
   const initialState = cloudSyncState.load();
   assert.equal(typeof initialState.deviceId, 'string');
+  assert.equal(fs.existsSync(cloudStatePath), true,
+    '최초 installation ID를 변경 발생 전 디스크에 기록하지 않았습니다.');
   cloudSyncState.update((state: any) => {
     state.settingsDirtyKeys = ['userServer'];
     state.checklistOutbox.push({

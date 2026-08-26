@@ -250,13 +250,36 @@ function writeAtomic(state: CloudSyncLocalState): void {
   fs.renameSync(tempPath, filePath);
 }
 
+function readNormalizedState(filePath: string): CloudSyncLocalState | null {
+  try {
+    return normalizeState(JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 export function load(): CloudSyncLocalState {
   if (cachedState) return structuredClone(cachedState);
+  const filePath = getStatePath();
+  const tempPath = `${filePath}.tmp`;
+  const primaryState = readNormalizedState(filePath);
+  if (primaryState) {
+    cachedState = primaryState;
+    try {
+      fs.rmSync(tempPath, { force: true });
+    } catch (error) {
+      log(`[CloudSyncState] 오래된 임시 상태 정리 실패: ${error}`);
+    }
+    return structuredClone(cachedState);
+  }
+
+  const temporaryState = readNormalizedState(tempPath);
+  cachedState = temporaryState || createState();
   try {
-    const parsed = JSON.parse(fs.readFileSync(getStatePath(), 'utf-8')) as unknown;
-    cachedState = normalizeState(parsed) || createState();
-  } catch {
-    cachedState = createState();
+    writeAtomic(cachedState);
+    if (temporaryState) log('[CloudSyncState] 원자 저장 중 남은 임시 상태를 복구했습니다.');
+  } catch (error) {
+    log(`[CloudSyncState] 초기 상태 저장 실패: ${error}`);
   }
   return structuredClone(cachedState);
 }
