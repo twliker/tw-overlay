@@ -399,8 +399,11 @@ export function stop(): void {
 }
 
 export function updateWindows(sidebarWin: BrowserWindow | null, tradeWin: BrowserWindow | null = null): void {
-    sidebarWindowRef = sidebarWin;
-    tradeWindowRef = tradeWin;
+    // null은 "창 참조를 지움"이 아니라 "이번 호출에서는 해당 창이 변경되지 않음"이다.
+    // 설정 저장은 두 인자를 모두 null로 전달하고, 거래소 창 생성은 sidebarWin만 null로
+    // 전달하므로 기존 참조를 보존해야 알림 배지와 열린 창 갱신이 계속 동작한다.
+    if (sidebarWin) sidebarWindowRef = sidebarWin;
+    if (tradeWin) tradeWindowRef = tradeWin;
 
     const cfg = config.load();
     tradeKeywords = normalizeNotificationKeywords(cfg.tradeKeywords);

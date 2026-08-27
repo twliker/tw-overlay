@@ -7841,6 +7841,33 @@ function checkNotificationKeywordBoundaries(): void {
   }
 }
 
+function checkTradeMonitorWindowReferenceContracts(): void {
+  const tradeSource = read('src/modules/tradeMonitor.ts');
+  assert.match(
+    tradeSource,
+    /export function updateWindows[\s\S]*?if \(sidebarWin\) sidebarWindowRef = sidebarWin;[\s\S]*?if \(tradeWin\) tradeWindowRef = tradeWin;/,
+    '거래소 모니터가 null 갱신에서 기존 사이드바/거래소 창 참조를 보존하지 않습니다.',
+  );
+  assert.doesNotMatch(
+    tradeSource,
+    /export function updateWindows[\s\S]*?sidebarWindowRef = sidebarWin;\s*tradeWindowRef = tradeWin;/,
+    '거래소 모니터가 설정 저장 또는 창 생성 시 기존 창 참조를 null로 지웁니다.',
+  );
+
+  const ipcSource = read('src/modules/ipcHandlers.ts');
+  assert.match(
+    ipcSource,
+    /trade\.updateWindows\(null, null\)/,
+    '설정 저장 경로의 거래소 모니터 갱신 계약이 바뀌었습니다.',
+  );
+  const windowManagerSource = read('src/modules/windowManager.ts');
+  assert.match(
+    windowManagerSource,
+    /trade\.updateWindows\(null, win\)/,
+    '거래소 창 생성 경로의 부분 갱신 계약이 바뀌었습니다.',
+  );
+}
+
 function checkChatLogPathCandidateBoundaries(): void {
   const {
     buildChatLogPathCandidates,
@@ -8214,6 +8241,7 @@ checkCustomTabHistoryContracts();
 checkLargeChatLogReadBoundary();
 checkChatTailRecoveryBoundary();
 checkNotificationKeywordBoundaries();
+checkTradeMonitorWindowReferenceContracts();
 checkChatLogPathCandidateBoundaries();
 checkPendingHomeworkOrdering();
 checkLegacyHomeworkMergeContracts();
