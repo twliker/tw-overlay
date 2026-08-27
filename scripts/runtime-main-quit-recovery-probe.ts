@@ -79,6 +79,22 @@ const hardTimeout = setTimeout(() => {
   app.exit(1);
 }, 17_000);
 
+function recordHideCompletion(): void {
+  if (quitRequestedAt === 0 || hideLatencyMs !== null) return;
+  const visible = BrowserWindow.getAllWindows()
+    .filter(window => !window.isDestroyed() && window.isVisible());
+  if (visible.length === 0) {
+    hideLatencyMs = Date.now() - quitRequestedAt;
+    if (hidePoll) clearInterval(hidePoll);
+    hidePoll = undefined;
+  }
+}
+
+// 실제 hide 이벤트에서 완료 시각을 기록해, 바쁜 CI runner의 timer 지연을 제품 지연으로 오인하지 않는다.
+app.on('browser-window-created', (_event, window) => {
+  window.on('hide', recordHideCompletion);
+});
+
 const logger = require(path.join(projectRoot, 'dist', 'modules', 'logger.js')) as {
   log(message: string, forceInProd?: boolean): void;
 };
@@ -103,14 +119,7 @@ app.on('before-quit', () => {
   if (quitRequestedAt === 0 || firstQuitObserved) return;
   firstQuitObserved = true;
   firstVisibleWindowCount = BrowserWindow.getAllWindows().filter(window => window.isVisible()).length;
-  hidePoll = setInterval(() => {
-    const visible = BrowserWindow.getAllWindows().filter(window => !window.isDestroyed() && window.isVisible());
-    if (visible.length === 0) {
-      hideLatencyMs = Date.now() - quitRequestedAt;
-      if (hidePoll) clearInterval(hidePoll);
-      hidePoll = undefined;
-    }
-  }, 1);
+  hidePoll = setInterval(recordHideCompletion, 1);
 });
 
 app.on('quit', () => {
