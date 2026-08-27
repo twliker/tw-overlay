@@ -3124,10 +3124,9 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
       await tick(100);
       const oldestVisibleAfterReturn = document.querySelector('[data-chat-id="older-0"]') !== null;
       const topDomCount = chatArea.querySelectorAll('.chat-message-row').length;
-      const resizeAnchorBefore = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+      const resizeAnchorBefore = await waitForTopToSettle('[data-chat-id="older-0"]');
       chatArea.style.width = '320px';
-      await tick(180);
-      const resizeAnchorNarrow = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+      const resizeAnchorNarrow = await waitForTopToSettle('[data-chat-id="older-0"]');
       chatArea.style.width = '';
       const resizeAnchorRestored = await waitForTopToSettle('[data-chat-id="older-0"]');
       const oldestTopBeforeLive = resizeAnchorRestored;
@@ -3224,7 +3223,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(typeof virtualizationResult.resizeAnchorRestored, 'number');
   assert.ok(Math.abs(virtualizationResult.resizeAnchorNarrow! - virtualizationResult.resizeAnchorBefore!) <= 2
     && Math.abs(virtualizationResult.resizeAnchorRestored! - virtualizationResult.resizeAnchorBefore!) <= 2,
-  '채팅 폭 변경과 높이 재측정 중 현재 앵커 행이 이동했습니다.');
+  `채팅 폭 변경과 높이 재측정 중 현재 앵커 행이 이동했습니다: ${virtualizationResult.resizeAnchorBefore} → ${virtualizationResult.resizeAnchorNarrow} → ${virtualizationResult.resizeAnchorRestored}`);
   assert.ok(virtualizationResult.heightAfterLive > virtualizationResult.heightAfterPrepend,
     'live 1,000건이 메모리 가상 목록에 보존되지 않았습니다.');
   assert.equal(virtualizationResult.newestLiveVisible, true,
