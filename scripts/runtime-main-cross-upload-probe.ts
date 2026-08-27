@@ -97,8 +97,13 @@ function operationIds(payload: any): string[] {
 
 let probeError: string | null = null;
 let observation: Record<string, unknown> | null = null;
+let resultWritten = false;
+let hardTimeout: NodeJS.Timeout | undefined;
 
-app.on('quit', () => {
+function writeProbeResult(): void {
+  if (resultWritten) return;
+  resultWritten = true;
+  if (hardTimeout) clearTimeout(hardTimeout);
   const statePath = path.join(userData, 'cloud-sync-state.json');
   const configPath = path.join(userData, 'config.json');
   const state = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, 'utf8')) : null;
@@ -110,7 +115,23 @@ app.on('quit', () => {
     config,
     remoteStore: fs.existsSync(storePath) ? loadStore() : null,
   }), 'utf8');
+}
+
+function finishRunProbe(exitCode = 0): void {
+  writeProbeResult();
+  app.exit(exitCode);
+}
+
+app.on('quit', () => {
+  writeProbeResult();
 });
+
+if (mode === 'run') {
+  hardTimeout = setTimeout(() => {
+    probeError = `${scenario} ${device} process exceeded the probe hard timeout`;
+    finishRunProbe(1);
+  }, 30_000);
+}
 
 void app.whenReady().then(() => {
   if (mode === 'prepare') {
@@ -324,7 +345,7 @@ void app.whenReady().then(() => {
           checklistUploadOrder: [...store.checklistUploadOrder],
           firstChecklistRevision,
         };
-        app.quit();
+        finishRunProbe();
         return;
       }
       if (Date.now() >= deadline) {
@@ -337,13 +358,13 @@ void app.whenReady().then(() => {
           remoteCompanyState,
           uploadOrder: store.uploadOrder,
         })}`;
-        app.quit();
+        finishRunProbe();
         return;
       }
       setTimeout(() => void poll(), 100);
     } catch (error) {
       probeError = error instanceof Error ? error.message : String(error);
-      app.quit();
+      finishRunProbe();
     }
   };
   setTimeout(() => void poll(), 500);
