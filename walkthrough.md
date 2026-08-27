@@ -125,7 +125,7 @@ Phase 3 후속 자동 범위 최종 감사 커밋 `1f310a9` 기준 `origin/beta/
 
 ## 4. 릴리즈 전 남은 실기 검증
 
-실행 순서와 합격 기준은 [`docs/v3-manual-validation.md`](docs/v3-manual-validation.md)에 정리했다. 대형 로그·Tail, 일반 종료, 강제 DPI 렌더링의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
+실행 순서와 합격 기준은 [`.agents/development/v3-manual-validation.md`](.agents/development/v3-manual-validation.md)에 정리했다. 대형 로그·Tail, 일반 종료, 강제 DPI 렌더링의 격리 런타임 범위만 부분 통과했으며 나머지 실환경 결과는 대기 상태다.
 
 - 실제 Google 계정과 서로 다른 두 PC에서 교차 업로드·pull·재시작 재수렴 확인
 - 실제 Drive 응답 유실 종료·원격 재확인과 Windows 로그오프·시스템 종료에서 recovery marker·WAL 복구 확인
@@ -145,4 +145,4 @@ Phase 3 후속 자동 범위 최종 감사 커밋 `1f310a9` 기준 `origin/beta/
 
 위 항목은 사용자의 명시적 승인과 실기 증거가 있기 전에는 완료로 표시하지 않는다.
 
-실기 증거는 `docs/v3-manual-validation.md`의 공통 수집 절차에 따라 설치 파일 SHA-256, 파일별 checksum/revision/pending, 필요한 operation ID와 시각만 기록한다. OAuth token·Google 이메일·Webhook URL·절대경로·캐릭터 이름이 포함될 수 있는 원본 파일과 전체 JSON은 공유하지 않는다.
+실기 증거는 `.agents/development/v3-manual-validation.md`의 공통 수집 절차에 따라 설치 파일 SHA-256, 파일별 checksum/revision/pending, 필요한 operation ID와 시각만 기록한다. OAuth token·Google 이메일·Webhook URL·절대경로·캐릭터 이름이 포함될 수 있는 원본 파일과 전체 JSON은 공유하지 않는다.

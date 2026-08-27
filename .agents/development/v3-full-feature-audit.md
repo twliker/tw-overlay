@@ -29,8 +29,8 @@
 | `npm test` | 통과 | 메인 회귀, 클라우드 동시성·복구, DB, 렌더러 41개 흐름, 가이드·일지·버프·에타·XP·어벤던 정책 |
 | `npm run test:stress` | 통과 | 100/100/100/500건 버스트, 10초 1,200건 지속 유입, XP·숙제·DOM 정합성 |
 | `npm audit --omit=dev --audit-level=critical` | 통과 | 프로덕션 의존성 critical 0건 |
-| beta AppX 내부 검증 | 통과 | 타일 4개, manifest, VCLibs, Koffi·better-sqlite3 x64, Store updater 분기 |
-| 현재 터미널의 `npm run test:zorder:windows` | 권한 조건 미충족 | fixture 빌드 성공 후 비관리자 실행을 검사기가 거부함 |
+| v3.0.0 AppX 내부 검증 | 통과 | 타일 4개, manifest, VCLibs, Koffi·better-sqlite3 x64, Store updater 분기 |
+| 관리자 `npm run test:zorder:windows` | 통과 | v3.0.0 windowed/borderless, `elevated: true`, 게임·외부 foreground와 외부 순서 보존, overlay band·stack 복구 |
 
 부하 결과는 고처리량 최대 event-loop 지연 12~13ms, 지속 구간 최대 1ms였고, 지속 테스트의 XP `735,600,000`, 킬 수 `480`, 채팅 DOM `43`, 포커스 채팅 DOM `150`이 기대값과 일치했다.
 
@@ -42,7 +42,7 @@
 - 시작 시 32MB 상한 로그의 전체 읽기·정규화는 약 121~141ms, 탭별 최근 150개 replay는 약 114~129ms로 합계 약 250~255ms였다. Tail 연결과 비동기 replay 사이의 실시간 로그 순서 버퍼를 새로 도입할 정도의 이득이 확인되지 않아 제품 코드는 변경하지 않았다.
 - 전역/per-window renderer background throttling 해제는 게임 오버레이의 가려진 상태 타이머·알림 시각과 연결된 초기 정책이다. 패키지 유휴 CPU 프로파일 없이 축소하면 회귀 위험이 더 크므로 이번 최적화 범위에서는 유지한다.
 
-AppX 검증은 기존 `twOverlay-2.7.0-beta.1.appx`의 **패키지 구조 검증기 확인**이다. 현재 HEAD로 만든 3.0.0 패키지나 Store 서명 설치본 실행 완료를 뜻하지 않는다.
+AppX 검증은 사용자 공지 이미지를 반영한 현재 릴리즈 후보의 `twOverlay-3.0.0.appx`에 대한 **패키지 구조 검증기 확인**이다. Store 서명 설치본의 실행 완료를 뜻하지 않는다.
 
 ## 기능군별 상태
 
@@ -50,7 +50,7 @@ AppX 검증은 기존 `twOverlay-2.7.0-beta.1.appx`의 **패키지 구조 검증
 |---|---|---|
 | 시작·설정·마이그레이션 | 손상 config 격리, missing-only 기본값, 원자 저장, 자동 시작 요청 순서, 설정 IPC 통과 | 2.7.1 실제 데이터에서 3.0.0 업데이트 설치, 자동 시작 재부팅 확인 |
 | 사이드바·독·트레이·설정 | 메뉴 레지스트리, 독 아이콘/숨김, 설정 저장·딥링크 렌더 검사 통과 | 모든 메뉴 클릭, 독 상/하단, 퀵링크, 트레이 복원 |
-| 창·Z-order·DPI | 단일 상태 관리자·게임 HWND 불변 계약, 가짜 게임 windowed/borderless probe 보유 | 관리자 HEAD 재실행, 실제 게임 두 모드, 100/125/150%, 듀얼 모니터·RDP·30~60분 소크 |
+| 창·Z-order·DPI | 단일 상태 관리자·게임 HWND 불변 계약, 관리자 가짜 게임 windowed/borderless probe 통과 | 실제 게임 두 모드, 100/125/150%, 듀얼 모니터·RDP·30~60분 소크 |
 | 채팅 오버레이·포커스 채팅 | UTF-8/EUC-KR, 대형 파일, Tail 재연결, 가상 목록, 검색/history/live 순서, 고부하 통과 | 실제 장시간 로그, 채팅 탭·크기·투과·검색 체감 |
 | 숙제 체크리스트 | 기본 61개, 캐릭터 CRUD, 단일/복수 후보, pending, 일일·주간 리셋, 클라우드 병합 통과 | 실제 플레이 자동 감지, 차감권 사용 흐름, 두 PC 순차 수렴 |
 | 모험일지·DB | 마이그레이션, WAL/close, 단건 삭제, 금화 주머니 일 누적, 엘소·SEED, 달력 접기 통과 | 실제 득템/재완료/삭제/달력 가독성, 자정 전후 장시간 실행 |
@@ -67,12 +67,11 @@ AppX 검증은 기존 `twOverlay-2.7.0-beta.1.appx`의 **패키지 구조 검증
 
 현재 소스 자동 검증에서 추가로 재현되는 제품 결함은 없다. 그러나 다음은 테스트하지 않았으므로 완료로 표시하지 않는다.
 
-1. 현재 HEAD의 관리자 권한 `npm run test:zorder:windows` 재실행
-2. 실제 테일즈위버 창모드·창모드 전체화면 장시간 Z-order 실기
-3. 실제 Google 계정의 두 PC 순차 동기화·토큰 철회·네트워크 복구
-4. Windows 로그오프·재부팅과 DPI·모니터·RDP 실기
-5. 최종 3.0.0 NSIS 설치/업데이트 및 AppX 내부 검증
-6. Store 서명본의 첫 실행·완전 종료 후 두 번째 실행
-7. 외부 갤러리·거래 사이트와 사기 감지 모델의 실제 네트워크 흐름
+1. 실제 테일즈위버 창모드·창모드 전체화면 장시간 Z-order 실기
+2. 실제 Google 계정의 두 PC 순차 동기화·토큰 철회·네트워크 복구
+3. Windows 로그오프·재부팅과 DPI·모니터·RDP 실기
+4. 최종 3.0.0 NSIS를 이용한 2.7.1 업데이트 설치와 기본 기능 확인
+5. Store 서명본의 첫 실행·완전 종료 후 두 번째 실행
+6. 외부 갤러리·거래 사이트와 사기 감지 모델의 실제 네트워크 흐름
 
-실행 기록은 `docs/v3-release-manual-test-checklist.md`에 남긴다. 위 필수 항목이 미완료인 상태에서는 3.0.0 릴리즈 준비 완료로 판정하지 않는다.
+실행 기록은 `.agents/development/v3-release-manual-test-checklist.md`에 남긴다. 위 필수 항목이 미완료인 상태에서는 3.0.0 릴리즈 준비 완료로 판정하지 않는다.

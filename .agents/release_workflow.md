@@ -82,7 +82,7 @@ npm run test:zorder:windows
 
 ### 3.3 사용자 실기 게이트
 
-[`docs/v3-release-manual-test-checklist.md`](../docs/v3-release-manual-test-checklist.md)를 실제 릴리즈 후보 설치 파일로 수행합니다.
+[`development/v3-release-manual-test-checklist.md`](development/v3-release-manual-test-checklist.md)를 실제 릴리즈 후보 설치 파일로 수행합니다.
 
 - [ ] 필수 실기 항목이 모두 체크됨
 - [ ] 실패하거나 애매한 항목은 수정 후 같은 시나리오를 재검증함

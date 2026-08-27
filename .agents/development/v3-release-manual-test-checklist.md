@@ -54,20 +54,20 @@
 npm run test:zorder:windows
 ```
 
-- [ ] **FIX-01 — 관리자 권한 실제 HWND 검사가 통과한다.**
+- [x] **FIX-01 — 관리자 권한 실제 HWND 검사가 통과한다.**
   - 합격: 출력의 `passed`와 `elevated`가 모두 `true`이고 종료 코드가 0이다.
-  - 코멘트:
-  - 증거/로그:
+  - 코멘트: 2026-08-27 19:02 KST, v3.0.0 릴리즈 후보에서 관리자 PowerShell로 통과했다.
+  - 증거/로그: `passed: true`, `elevated: true`, 종료 코드 0
 
-- [ ] **FIX-02 — 창모드 시나리오가 통과한다.**
+- [x] **FIX-02 — 창모드 시나리오가 통과한다.**
   - 합격: tracker 탐지, 게임 foreground 보존, 외부 창 우선, 오버레이 순서 복구가 모두 `true`다.
-  - 코멘트:
-  - 증거/로그:
+  - 코멘트: 게임과 외부 창의 foreground를 침범하지 않고 확정된 오버레이 band·내부 순서를 복구했다.
+  - 증거/로그: `gameTopmost: false`, `foregroundPreservedForGame: true`, `foregroundPreservedForExternal: true`, `overlayTopmostWhileGameActive: true`, `externalOrderingPolicyPreserved: true`, `overlayBandsMatchGame: true`, `overlayStackRepaired: true`
 
-- [ ] **FIX-03 — 창모드 전체화면 시나리오가 통과한다.**
+- [x] **FIX-03 — 창모드 전체화면 시나리오가 통과한다.**
   - 합격: borderless bounds와 게임 위치·크기·Topmost 불변, 외부 창 우선, 오버레이 순서 복구가 모두 정상이다.
-  - 코멘트:
-  - 증거/로그:
+  - 코멘트: 화면 전체 bounds를 인식했고 게임을 Topmost로 바꾸지 않은 채 외부 창 우선과 오버레이 순서를 보존했다.
+  - 증거/로그: `gameTopmost: false`, `foregroundPreservedForGame: true`, `foregroundPreservedForExternal: true`, `overlayTopmostWhileGameActive: true`, `externalOrderingPolicyPreserved: true`, `overlayBandsMatchGame: true`, `overlayStackRepaired: true`
 
 상세 사용법: [`fake-talesweaver-fixture.md`](fake-talesweaver-fixture.md)
 
@@ -353,11 +353,11 @@ npm run test:zorder:windows
 
 ## 9. Microsoft Store 패키지
 
-- [ ] **MST-01 — 제출할 AppX 내부 검증을 통과한다.**
+- [x] **MST-01 — 제출할 AppX 내부 검증을 통과한다.**
   - 실행: `npm run verify:appx -- dist_electron/twOverlay-3.0.0.appx`
   - 합격: `passed: true`이며 TW-Overlay 타일 4개, `runFullTrust`·`allowElevation`, `Microsoft.VCLibs.140.00.UWPDesktop`, 앱 진입점과 Windows x64 네이티브 모듈이 모두 확인된다.
-  - AppX SHA-256:
-  - 코멘트:
+  - AppX SHA-256: `BC508B7FAD29444DB012DFADA02D31832168BD01E0738D53E4E5B035AB823D80`
+  - 코멘트: 2026-08-27 사용자 공지 이미지 반영 뒤 재생성한 v3.0.0 AppX에서 내부 검증을 통과했다. Store 서명본 설치·실행 검증은 MST-02~04에서 별도로 수행한다.
 
 - [ ] **MST-02 — 서명된 Store 패키지의 타일이 제품을 올바르게 나타낸다.**
   - 사전 조건: Partner Center 서명본·비공개 flight 또는 제출본 복사본의 테스트 서명 패키지를 사용한다.
@@ -407,8 +407,8 @@ npm run test:zorder:windows
 - [ ] Windows 종료·재부팅 뒤 데이터가 보존됐다.
 - [ ] Microsoft Store AppX 내부 검증과 서명 설치본 2회 실행이 통과했다.
 - [ ] 민감 정보가 문서·화면 캡처·공유 로그에 포함되지 않았다.
-- [ ] 최종 `npm run typecheck`, `npm test`, `git diff --check`가 통과했다.
-- [ ] 최종 `npm run test:stress`가 통과했다.
+- [x] 최종 `npm run typecheck`, `npm test`, `git diff --check`가 통과했다.
+- [x] 최종 `npm run test:stress`가 통과했다.
 
 ### 최종 코멘트
 
