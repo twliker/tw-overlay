@@ -653,6 +653,8 @@
 
 **전 기능 전수조사 — 검증 범위 명문화(2026-08-27, `330b023`, `3fb16a0`):** 기존 고처리량·지속 부하 검사가 정식 npm 명령과 태그 CI에 연결되지 않아 릴리즈에서 빠질 수 있는 검증 공백을 확인했다. 두 검사를 `npm run test:stress`로 묶고 GitHub Actions가 패키징 전에 실행하도록 고정했다. 현재 HEAD에서 100/100/100/500건 burst와 10초 1,200건 지속 유입이 통과했고 XP·킬 수·숙제·renderer DOM이 기대값과 일치했다. `.agents/development/v3-full-feature-audit.md`에 기능군별 자동/구조/실기 상태와 이번 조사 결함을 기록하고, 실기 체크리스트에는 모든 주요 화면·계산기·외부 서비스·사기 감지를 빠짐없이 한 번씩 여는 `FUN-01`~`FUN-09`를 추가했다. 관리자 Z-order, 실제 게임·두 PC Google·Windows 종료/DPI/RDP, 최종 3.0.0 설치본·Store 서명본은 미실행이므로 릴리즈 차단 실기로 유지한다.
 
+**성능 최적화 — 변경 없는 클라우드 pull(2026-08-27, `f7b06e5`):** 게임 실행 중 약 30초마다 수행하는 자동 pull이 원격 변경이 없어도 설정·숙제 payload를 다시 내려받고 동일한 file ID·revision·last sync time을 원자 저장하던 비용을 줄였다. Drive의 file ID·version·MD5·수정 시각·크기를 로컬의 마지막 검증 fingerprint와 비교해 모두 같을 때만 설정·숙제 media 다운로드와 동일 config/state 저장을 생략한다. fingerprint가 없거나 달라진 경우, 파일 ID가 바뀐 경우와 수동 불러오기·데이터 확인은 기존 schema/checksum/generation 검증 및 병합 경로를 그대로 사용한다. 기존 설치의 state에는 새 필드가 없어 첫 pull을 정상 다운로드한 뒤 자동 보강되며, 업로드 뒤에는 캐시를 무효화해 새 원격 버전을 다시 확인한다. 메모리 Drive에서 두 번째 변경 없는 pull이 meta만 다운로드하고 config/state의 atomic rename을 만들지 않는 것을 고정했으며, monotonic Drive version을 사용하는 실제 2프로세스 교차 업로드 probe에서 업로드 응답 직후 overwrite·재시도 후에도 양쪽 operation이 재수렴하는 것을 확인했다. typecheck, 전체 자동 테스트와 diff 검사를 통과했다.
+
 최종 릴리즈 게이트:
 
 - TypeScript 검사 100% 통과
