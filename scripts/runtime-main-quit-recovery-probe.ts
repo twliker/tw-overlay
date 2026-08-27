@@ -74,6 +74,11 @@ let walCheckpointObserved = false;
 let databaseCloseObserved = false;
 let shutdownTimeoutObserved = false;
 
+const hardTimeout = setTimeout(() => {
+  console.error('runtime main quit recovery probe timed out');
+  app.exit(1);
+}, 17_000);
+
 const logger = require(path.join(projectRoot, 'dist', 'modules', 'logger.js')) as {
   log(message: string, forceInProd?: boolean): void;
 };
@@ -109,6 +114,7 @@ app.on('before-quit', () => {
 });
 
 app.on('quit', () => {
+  clearTimeout(hardTimeout);
   if (hidePoll) clearInterval(hidePoll);
   if (hideLatencyMs === null) {
     const visible = BrowserWindow.getAllWindows()
@@ -140,34 +146,57 @@ app.on('quit', () => {
   }), 'utf8');
 });
 
-void app.whenReady().then(() => {
-  setTimeout(() => {
-    if (scenario === 'session-end') {
-      const targetWindow = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
-      if (!targetWindow) throw new Error('runtime session-end probe window was not created');
-      let prevented = false;
-      targetWindow.emit('query-session-end', {
-        preventDefault: () => { prevented = true; },
-      });
-      const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
-      setTimeout(() => {
-        const logText = fs.readFileSync(path.join(userData, 'debug.log'), 'utf8');
-        sessionEndObservation = {
-          prevented,
-          recoverySettingsDirtyKeys: state.shutdownRecovery?.settings?.dirtyKeys || [],
-          recoveryChecklistOperationIds: state.shutdownRecovery?.checklist?.operationIds || [],
-          walCheckpointLogged: walCheckpointObserved
-            || logText.includes('[DiaryDB] WAL Checkpoint executed:'),
-        };
-        quitRequestedAt = Date.now();
-        app.quit();
-      }, 50);
-      return;
-    }
-    quitRequestedAt = Date.now();
-    app.quit();
-    if (scenario === 'timeout') setTimeout(() => app.quit(), 100);
-  }, 1_800);
+void app.whenReady().then(async () => {
+  // 종료 시 표시 중인 모든 앱 창이 즉시 숨겨지는지 검증하기 위한 probe 전용 창이다.
+  // 제품의 비동기 ready-to-show 속도에 의존하면 느린 CI runner에서 검증이 흔들린다.
+  const probeWindow = new BrowserWindow({
+    width: 240,
+    height: 120,
+    show: true,
+    skipTaskbar: true,
+  });
+  probeWindow.showInactive();
+
+  const windowManager = require(path.join(projectRoot, 'dist', 'modules', 'windowManager.js')) as {
+    getMainWindow(): BrowserWindow | null;
+  };
+  const mainWindowDeadline = Date.now() + 10_000;
+  while (!windowManager.getMainWindow() && Date.now() < mainWindowDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  if (!windowManager.getMainWindow()) {
+    throw new Error('runtime main quit probe main window was not created');
+  }
+
+  await new Promise(resolve => setTimeout(resolve, 100));
+  if (scenario === 'session-end') {
+    const targetWindow = BrowserWindow.getAllWindows().find(window => !window.isDestroyed());
+    if (!targetWindow) throw new Error('runtime session-end probe window was not created');
+    let prevented = false;
+    targetWindow.emit('query-session-end', {
+      preventDefault: () => { prevented = true; },
+    });
+    const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
+    setTimeout(() => {
+      const logText = fs.readFileSync(path.join(userData, 'debug.log'), 'utf8');
+      sessionEndObservation = {
+        prevented,
+        recoverySettingsDirtyKeys: state.shutdownRecovery?.settings?.dirtyKeys || [],
+        recoveryChecklistOperationIds: state.shutdownRecovery?.checklist?.operationIds || [],
+        walCheckpointLogged: walCheckpointObserved
+          || logText.includes('[DiaryDB] WAL Checkpoint executed:'),
+      };
+      quitRequestedAt = Date.now();
+      app.quit();
+    }, 50);
+    return;
+  }
+  quitRequestedAt = Date.now();
+  app.quit();
+  if (scenario === 'timeout') setTimeout(() => app.quit(), 100);
+}).catch(error => {
+  console.error(error);
+  app.exit(1);
 });
 
 require(path.join(projectRoot, 'dist', 'main.js'));

@@ -8440,45 +8440,49 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
   diaryDb.removeActivityLog(eventDate, 'loot', '[득템] 안정 ID A');
 }
 
-checkDiscordNotifierContracts();
-checkBossNotifierContracts();
-checkBackendServiceContracts();
-checkIpcChannelContracts();
-checkRendererBundleCleanliness();
-checkCorruptedConfigResilience();
-checkShoutSuffixStripping();
-checkMandatoryUpdateLogic();
-checkCustomTabHistoryContracts();
-checkLargeChatLogReadBoundary();
-checkChatTailRecoveryBoundary();
-checkNotificationKeywordBoundaries();
-checkTradeMonitorWindowReferenceContracts();
-checkAutoStartRequestOrderingContracts();
-checkLocalCalendarDateContracts();
-checkChatLogPathCandidateBoundaries();
-checkPendingHomeworkOrdering();
-checkLegacyHomeworkMergeContracts();
-checkHomeworkSourceEventIdContracts();
-checkContentsVisibilityContracts();
-checkContentsInitializationContracts();
-checkManualEvidenceCollector();
-checkManualEvidenceComparator();
-checkShutdownRecoveryAcrossProcessRestarts();
-checkMainQuitRecoveryScenarios();
-checkMainResponseLossRestartReconciliation();
-checkMainPartialRestoreConfirmationGate();
-checkXpExchangeContracts();
-checkAbandonedFeeMatchingContracts();
-checkMissedCustomAlertContracts();
-checkMissedBossAlertContracts();
-checkViewRequestGenerationContracts();
-void checkMissedMinuteSchedulerContracts()
-  .then(() => checkAudioPlaybackContracts())
-  .then(() => checkMainConcurrentCrossUploadConvergence())
-  .then(() => checkChatLogWorkerReadRecovery())
-  .then(() => checkChatSearchSizeBoundaries())
-  .then(() => checkChatLogWorkerBatchProtocol())
-  .then(() => checkGoogleSyncDataContracts()).then(() => {
+async function runRegressionChecks(): Promise<void> {
+  checkDiscordNotifierContracts();
+  checkBossNotifierContracts();
+  checkBackendServiceContracts();
+  checkIpcChannelContracts();
+  checkRendererBundleCleanliness();
+  checkCorruptedConfigResilience();
+  checkShoutSuffixStripping();
+  checkMandatoryUpdateLogic();
+  checkCustomTabHistoryContracts();
+  checkLargeChatLogReadBoundary();
+  checkChatTailRecoveryBoundary();
+  checkNotificationKeywordBoundaries();
+  checkTradeMonitorWindowReferenceContracts();
+  checkAutoStartRequestOrderingContracts();
+  checkLocalCalendarDateContracts();
+  checkChatLogPathCandidateBoundaries();
+  checkPendingHomeworkOrdering();
+  checkLegacyHomeworkMergeContracts();
+  checkHomeworkSourceEventIdContracts();
+  checkContentsVisibilityContracts();
+  checkContentsInitializationContracts();
+  checkManualEvidenceCollector();
+  checkManualEvidenceComparator();
+  checkShutdownRecoveryAcrossProcessRestarts();
+  checkMainQuitRecoveryScenarios();
+  checkMainResponseLossRestartReconciliation();
+  checkMainPartialRestoreConfirmationGate();
+  checkXpExchangeContracts();
+  checkAbandonedFeeMatchingContracts();
+  checkMissedCustomAlertContracts();
+  checkMissedBossAlertContracts();
+  checkViewRequestGenerationContracts();
+  await checkMissedMinuteSchedulerContracts();
+  await checkAudioPlaybackContracts();
+  await checkMainConcurrentCrossUploadConvergence();
+  await checkChatLogWorkerReadRecovery();
+  await checkChatSearchSizeBoundaries();
+  await checkChatLogWorkerBatchProtocol();
+  await checkGoogleSyncDataContracts();
+}
+
+void runRegressionChecks().then(() => {
   console.log('Refactor regression checks passed.');
   finishRegressionChecks(0);
 }).catch(error => {
