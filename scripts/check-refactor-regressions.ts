@@ -1889,6 +1889,11 @@ function checkDependencyOverrideContracts(): void {
     'AppX 생성 뒤 실제 패키지 내부를 검증하지 않습니다.');
   assert.equal(packageData.scripts?.['verify:appx'], 'npm run build-tools && node dist-tools/verify-appx-package.js',
     '기존 AppX 제출 파일을 독립 검증하는 명령이 유지되지 않습니다.');
+  assert.equal(
+    packageData.scripts?.['test:stress'],
+    'npm run build && electron dist-tools/stress-test-high-throughput.js && electron dist-tools/stress-test-sustained.js',
+    '고처리량·지속 부하 검사가 릴리즈 게이트에서 빠질 수 있습니다.',
+  );
   assert.equal(packageData.build?.win?.requestedExecutionLevel, 'requireAdministrator',
     'Windows 실행 파일의 관리자 권한 요청이 제거되었습니다.');
   assert.deepEqual(packageData.build?.appx?.capabilities, ['runFullTrust', 'allowElevation'],

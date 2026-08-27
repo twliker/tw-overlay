@@ -23,6 +23,7 @@
     "test:eta-ranking": "electron dist-tools/check-eta-ranking-behavior.js",
     "test:xp-policy": "electron dist-tools/check-xp-hud-policy.js",
     "test:abandoned-visibility": "electron dist-tools/check-abandoned-visibility-policy.js",
+    "test:stress": "npm run build && electron dist-tools/stress-test-high-throughput.js && electron dist-tools/stress-test-sustained.js",
     "capture:guide": "npm run build && electron dist-tools/capture-guide-screenshots.js",
     "build:zorder-fixture": "dotnet build scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj --configuration Release --nologo",
     "test:zorder:windows": "npm run build && npm run build:zorder-fixture && electron dist-tools/runtime-zorder-windows-probe.js",
