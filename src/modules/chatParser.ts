@@ -3,6 +3,7 @@ import { log } from './logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ChatTrigger, ChatPatternType, ChatParserEventMap } from '../shared/types';
+import { formatLocalDateKey } from '../shared/localDate';
 import { parseItemAcquisition, parseItemAcquisitions } from './itemAcquisition';
 
 const { isNpcSender } = require('../shared/chatConstants') as ChatConstants;
@@ -52,10 +53,10 @@ export class ChatParser extends EventEmitter {
   // FIXED_MSG 전용: 고정 메시지 → buffId
   private _fixedMsgIndex: Map<string, string> = new Map();
 
-  constructor() {
+  constructor(now = new Date()) {
     super();
     // 초기값은 오늘 날짜로 설정 (로그 헤더 감지 전 대비)
-    this._currentDate = new Date().toISOString().split('T')[0];
+    this._currentDate = formatLocalDateKey(now);
     this.loadBuffTriggers();
   }
 

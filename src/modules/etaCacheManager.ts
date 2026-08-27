@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { log } from './logger';
 import * as config from './config';
+import { formatLocalDateKey, type LocalDateSource } from '../shared/localDate';
 
 interface EtaRankingItem {
   ServerCode: number;
@@ -15,6 +16,13 @@ interface EtaRankingItem {
 interface EtaPayload {
   CollectDate?: string;
   Rankings?: EtaRankingItem[];
+}
+
+export function isEtaCollectDateFresh(
+  collectDate: string | undefined,
+  now: LocalDateSource = new Date(),
+): boolean {
+  return typeof collectDate === 'string' && collectDate.startsWith(formatLocalDateKey(now));
 }
 
 class EtaCacheManager {
@@ -66,10 +74,8 @@ class EtaCacheManager {
     try {
       const raw = fs.readFileSync(cachePath, 'utf-8');
       const payload: EtaPayload = JSON.parse(raw);
-      if (!payload.CollectDate) return false;
-      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       // CollectDate 형식: "2026-06-04 08:17:18"
-      return payload.CollectDate.startsWith(today);
+      return isEtaCollectDateFresh(payload.CollectDate);
     } catch {
       return false;
     }

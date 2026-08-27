@@ -8,6 +8,7 @@ import * as config from './config';
 import { AppConfig, ContentsCheckerItem, ResetRule, MAIN_CHAR_ID, DEFAULT_CHAR_NAME, PendingHomework } from '../shared/types';
 import { log } from './logger';
 import * as diaryDb from './diaryDb';
+import { formatLocalDateKey as getLocalDateKey } from '../shared/localDate';
 
 type LegacyContentsCheckerItem = ContentsCheckerItem & {
   isCompleted?: boolean;
@@ -966,13 +967,6 @@ function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
 function refreshUI() {
   scheduleNextResetCheck();
   import('./windowManager').then(wm => wm.applySettings({}));
-}
-
-function getLocalDateKey(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function syncHomeworkDiary(

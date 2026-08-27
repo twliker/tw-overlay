@@ -7,6 +7,13 @@ const MAIN_DEFAULT_CONFIG = ipcRenderer.sendSync('get-default-config-sync') as A
 
 const DEFAULT_CONFIG: AppConfig = MAIN_DEFAULT_CONFIG;
 
+function getLocalDateKey(now = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function bindIpcListener<TArgs extends unknown[]>(
   channel: string,
   callback: (...args: TArgs) => void,
@@ -462,7 +469,7 @@ if (isDevelopmentTestRuntime) {
   });
 
   contextBridge.exposeInMainWorld('testEssence', (count: number = 1) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateKey();
     ipcRenderer.send('inject-test-chat', `Date : ${today}`);
     const safeCount = Number.isInteger(count) ? Math.max(1, Math.min(count, 100)) : 1;
     const xpAmount = safeCount * 10_000_000_000;
@@ -476,7 +483,7 @@ if (isDevelopmentTestRuntime) {
   });
 
   contextBridge.exposeInMainWorld('testQuestKill', (count: number = 100) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateKey();
     const safeCount = Number.isInteger(count) ? Math.max(1, Math.min(count, 1_000)) : 100;
     ipcRenderer.send('inject-test-chat', `Date : ${today}`);
     for (let i = 0; i < safeCount; i++) {

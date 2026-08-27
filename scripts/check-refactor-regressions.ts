@@ -7903,6 +7903,57 @@ function checkAutoStartRequestOrderingContracts(): void {
     '끄기 뒤 늦게 생성된 자동 시작 파일을 정리하지 않습니다.');
 }
 
+function checkLocalCalendarDateContracts(): void {
+  const { formatLocalDateKey } = require(
+    path.join(projectRoot, 'dist', 'shared', 'localDate.js'),
+  ) as {
+    formatLocalDateKey(now: {
+      getFullYear(): number;
+      getMonth(): number;
+      getDate(): number;
+    }): string;
+  };
+  const localAfterMidnight = {
+    getFullYear: () => 2026,
+    getMonth: () => 0,
+    getDate: () => 2,
+    toISOString: () => { throw new Error('로컬 날짜에 UTC 변환을 사용하면 안 됩니다.'); },
+  };
+  assert.equal(formatLocalDateKey(localAfterMidnight), '2026-01-02');
+
+  const { isEtaCollectDateFresh } = require(
+    path.join(projectRoot, 'dist', 'modules', 'etaCacheManager.js'),
+  ) as {
+    isEtaCollectDateFresh(collectDate: string | undefined, now: typeof localAfterMidnight): boolean;
+  };
+  assert.equal(isEtaCollectDateFresh('2026-01-02 00:10:00', localAfterMidnight), true);
+  assert.equal(isEtaCollectDateFresh('2026-01-01 23:59:59', localAfterMidnight), false);
+  assert.equal(isEtaCollectDateFresh(undefined, localAfterMidnight), false);
+
+  const { ChatParser } = require(
+    path.join(projectRoot, 'dist', 'modules', 'chatParser.js'),
+  ) as { ChatParser: new (now: typeof localAfterMidnight) => any };
+  const parser = new ChatParser(localAfterMidnight);
+  let parsedDate = '';
+  parser.once('SEED_GAINED', (event: { date: string }) => { parsedDate = event.date; });
+  parser.parseLine('[ 0시 10분 00초] 콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.');
+  assert.equal(parsedDate, '2026-01-02',
+    '날짜 헤더가 없는 자정 직후 채팅이 이전 UTC 날짜로 기록됩니다.');
+
+  for (const file of [
+    'src/modules/chatParser.ts',
+    'src/modules/chatLogManager.ts',
+    'src/modules/diaryDb.ts',
+    'src/modules/etaCacheManager.ts',
+    'src/modules/contentsChecker.ts',
+    'src/modules/todaySummary.ts',
+    'src/preload.ts',
+  ]) {
+    assert.doesNotMatch(read(file), /toISOString\(\)\.(?:split\('T'\)|slice\(0, 10\))/,
+      `${file}이 로컬 달력 날짜에 UTC 날짜를 사용합니다.`);
+  }
+}
+
 function checkChatLogPathCandidateBoundaries(): void {
   const {
     buildChatLogPathCandidates,
@@ -8278,6 +8329,7 @@ checkChatTailRecoveryBoundary();
 checkNotificationKeywordBoundaries();
 checkTradeMonitorWindowReferenceContracts();
 checkAutoStartRequestOrderingContracts();
+checkLocalCalendarDateContracts();
 checkChatLogPathCandidateBoundaries();
 checkPendingHomeworkOrdering();
 checkLegacyHomeworkMergeContracts();

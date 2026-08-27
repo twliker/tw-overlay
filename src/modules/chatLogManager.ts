@@ -18,6 +18,7 @@ import {
   readInitialChatLogSnapshot,
   trimRecentChatLogLines,
 } from './chatLogFileReader';
+import { formatLocalDateKey } from '../shared/localDate';
 
 const { isLegacyNpcSender } = require('../shared/chatConstants') as ChatConstants;
 const { COLORS: CHAT_COLORS, stripShoutSuffix, getSystemColorGroup } = require('../shared/chatChannels') as ChatChannelConstants;
@@ -340,7 +341,7 @@ class ChatLogManager {
     chatLogProcessor.clearHistoryStore();
 
     // 날짜 헤더 감지 (파서와 동일한 방식)
-    let currentDate = new Date().toISOString().split('T')[0];
+    let currentDate = formatLocalDateKey();
     const dateHeaderMatch = lines.slice(0, 20).find(l => l.includes('Date :'));
     if (dateHeaderMatch) {
       const m1 = dateHeaderMatch.match(/Date\s*:\s*(\d{4}-\d{2}-\d{2})/);

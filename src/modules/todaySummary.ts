@@ -6,14 +6,12 @@ import type {
 } from '../shared/types';
 import { DEFAULT_CHAR_NAME, MAIN_CHAR_ID } from '../shared/types';
 import { parseItemAcquisition } from './itemAcquisition';
+import { formatLocalDateKey } from '../shared/localDate';
 
 const MAX_REMAINING_HOMEWORK_ITEMS = 5;
 
 export function getLocalDateKey(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return formatLocalDateKey(now);
 }
 
 const LOOT_NAME_CACHE = new Map<string, string>();

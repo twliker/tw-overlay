@@ -7,6 +7,7 @@ import { log } from './logger';
 import { DiaryEntry, HomeworkLog, ActivityLog, DiaryData, AlarmLog, TimerRecord } from '../shared/types';
 import { broadcastToAllWindows } from './windowMessaging';
 import { formatLootDiaryContent, parseItemAcquisition } from './itemAcquisition';
+import { formatLocalDateKey } from '../shared/localDate';
 
 let db: Database.Database | null = null;
 
@@ -2042,7 +2043,7 @@ export function cleanOldDiaryData(keepDays: number): void {
   try {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - keepDays);
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const cutoffStr = formatLocalDateKey(cutoff);
 
     const transaction = db.transaction(() => {
       const delHw = db!.prepare('DELETE FROM homework_logs WHERE date < ?');
