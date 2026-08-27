@@ -6267,6 +6267,24 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   }
 
   const originalFetch = global.fetch;
+  const withRegressionGoogleCredentials = async <T>(action: () => Promise<T>): Promise<T> => {
+    const originalCredentialExistsSync = fs.existsSync;
+    const originalCredentialReadFileSync = fs.readFileSync;
+    try {
+      fs.existsSync = ((candidate: fs.PathLike) => path.basename(String(candidate)) === 'env.json'
+        || originalCredentialExistsSync(candidate)) as typeof fs.existsSync;
+      fs.readFileSync = ((candidate: fs.PathOrFileDescriptor, ...args: any[]) => {
+        if (typeof candidate !== 'number' && path.basename(String(candidate)) === 'env.json') {
+          return JSON.stringify({ GOOGLE_CLIENT_ID: 'regression-client-id' });
+        }
+        return (originalCredentialReadFileSync as any)(candidate, ...args);
+      }) as typeof fs.readFileSync;
+      return await action();
+    } finally {
+      fs.existsSync = originalCredentialExistsSync;
+      fs.readFileSync = originalCredentialReadFileSync;
+    }
+  };
   let resolveRefresh: ((response: Response) => void) | undefined;
   let refreshStarted = false;
   let refreshedToken: string | null = null;
@@ -6276,7 +6294,9 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       refreshStarted = true;
       return new Promise<Response>(resolve => { resolveRefresh = resolve; });
     }) as typeof fetch;
-    const refreshPromise = googleAuth.getValidAccessToken() as Promise<string | null>;
+    const refreshPromise = withRegressionGoogleCredentials(
+      () => googleAuth.getValidAccessToken() as Promise<string | null>,
+    );
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(refreshStarted, true, '로그아웃 경쟁 검사에서 토큰 갱신 요청이 시작되지 않았습니다.');
     googleAuth.logout();
@@ -6305,7 +6325,9 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   let replacementAuthPreserved = false;
   try {
     global.fetch = (async () => new Promise<Response>(resolve => { resolveStaleFailure = resolve; })) as typeof fetch;
-    const staleRefreshPromise = googleAuth.getValidAccessToken() as Promise<string | null>;
+    const staleRefreshPromise = withRegressionGoogleCredentials(
+      () => googleAuth.getValidAccessToken() as Promise<string | null>,
+    );
     await new Promise<void>(resolve => setImmediate(resolve));
     googleAuth.logout();
     const replacementTokens = {
