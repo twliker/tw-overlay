@@ -3045,6 +3045,24 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
   const virtualizationResult = await window.webContents.executeJavaScript(`
     (async () => {
       const tick = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
+      const waitForTopToSettle = async selector => {
+        let previous;
+        let stableSamples = 0;
+        let current;
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          await tick(50);
+          current = document.querySelector(selector)?.getBoundingClientRect().top;
+          if (typeof current === 'number' && typeof previous === 'number'
+            && Math.abs(current - previous) <= 0.1) {
+            stableSamples += 1;
+          } else {
+            stableSamples = 0;
+          }
+          previous = current;
+          if (attempt >= 4 && stableSamples >= 4) return current;
+        }
+        return current;
+      };
       const chatArea = document.getElementById('chatArea');
       const makeItem = (prefix, index, type = 'general') => ({
         id: prefix + '-' + index,
@@ -3106,20 +3124,18 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
       await tick(100);
       const oldestVisibleAfterReturn = document.querySelector('[data-chat-id="older-0"]') !== null;
       const topDomCount = chatArea.querySelectorAll('.chat-message-row').length;
-      const oldestTopBeforeLive = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
-      const resizeAnchorBefore = oldestTopBeforeLive;
+      const resizeAnchorBefore = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
       chatArea.style.width = '320px';
       await tick(180);
       const resizeAnchorNarrow = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
       chatArea.style.width = '';
-      await tick(180);
-      const resizeAnchorRestored = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+      const resizeAnchorRestored = await waitForTopToSettle('[data-chat-id="older-0"]');
+      const oldestTopBeforeLive = resizeAnchorRestored;
 
       for (let index = 0; index < 1000; index += 1) {
         window.__chatUpdatedCallback(makeItem('live-bulk', index));
       }
-      await tick(140);
-      const oldestTopAfterLive = document.querySelector('[data-chat-id="older-0"]')?.getBoundingClientRect().top;
+      const oldestTopAfterLive = await waitForTopToSettle('[data-chat-id="older-0"]');
       const heightAfterLive = Number.parseFloat(document.querySelector('.virtual-list-content')?.style.height || '0');
       const liveAtTopDomCount = chatArea.querySelectorAll('.chat-message-row').length;
 
@@ -3202,7 +3218,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(typeof virtualizationResult.oldestTopBeforeLive, 'number');
   assert.equal(typeof virtualizationResult.oldestTopAfterLive, 'number');
   assert.ok(Math.abs(virtualizationResult.oldestTopAfterLive! - virtualizationResult.oldestTopBeforeLive!) <= 2,
-    '과거 탐색 중 live append가 현재 스크롤 앵커를 이동시켰습니다.');
+    `과거 탐색 중 live append가 현재 스크롤 앵커를 이동시켰습니다: ${virtualizationResult.oldestTopBeforeLive} → ${virtualizationResult.oldestTopAfterLive}`);
   assert.equal(typeof virtualizationResult.resizeAnchorBefore, 'number');
   assert.equal(typeof virtualizationResult.resizeAnchorNarrow, 'number');
   assert.equal(typeof virtualizationResult.resizeAnchorRestored, 'number');
