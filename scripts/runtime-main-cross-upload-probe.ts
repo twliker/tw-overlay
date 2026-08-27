@@ -38,6 +38,7 @@ const appDataRoot = path.join(probeRoot, device, 'appData');
 const userData = path.join(appDataRoot, 'twOverlay');
 const storePath = path.join(probeRoot, 'remote-store.json');
 const storeLockPath = path.join(probeRoot, 'remote-store.lock');
+const completionBasePath = path.join(probeRoot, 'completion-time-base.txt');
 const generationId = `cross-upload-${scenario}-generation`;
 const checklistFileName = 'tw_overlay_checklist.json';
 const checklistFileId = 'cross-upload-checklist-id';
@@ -112,6 +113,11 @@ app.on('quit', () => {
 
 void app.whenReady().then(() => {
   if (mode === 'prepare') {
+    if (device === 'company') {
+      fs.writeFileSync(completionBasePath, String(Date.now() - 60_000), 'utf8');
+    }
+    const completionTimeBase = Number(fs.readFileSync(completionBasePath, 'utf8'));
+    if (!Number.isFinite(completionTimeBase)) throw new Error('cross upload completion time base is invalid');
     const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as any;
     const contentsChecker = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as any;
     const syncDataHelper = require(path.join(projectRoot, 'dist', 'modules', 'syncDataHelper.js')) as any;
@@ -146,7 +152,7 @@ void app.whenReady().then(() => {
     localItem.completedState[changedCharacterId] = {
       isCompleted: device === 'company' || scenario === 'nonconflict',
       currentCount: device === 'company' ? 1 : 2,
-      lastCompletedAt: device === 'company' ? 10_000 : 20_000,
+      lastCompletedAt: completionTimeBase + (device === 'company' ? 1_000 : 2_000),
     };
     const operation = {
       id: ownOperationId,
@@ -252,6 +258,8 @@ void app.whenReady().then(() => {
   };
 
   const deadline = Date.now() + 20_000;
+  const completionTimeBase = Number(fs.readFileSync(completionBasePath, 'utf8'));
+  const expectedHomeCompletedAt = completionTimeBase + 2_000;
   const poll = async (): Promise<void> => {
     try {
       const cloudSyncManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js')) as any;
@@ -279,10 +287,10 @@ void app.whenReady().then(() => {
           && homeState?.currentCount === 2
         : companyState?.isCompleted === true
           && companyState?.currentCount === 2
-          && companyState?.lastCompletedAt === 20_000
+          && companyState?.lastCompletedAt === expectedHomeCompletedAt
           && remoteCompanyState?.isCompleted === true
           && remoteCompanyState?.currentCount === 2
-          && remoteCompanyState?.lastCompletedAt === 20_000
+          && remoteCompanyState?.lastCompletedAt === expectedHomeCompletedAt
           && homeState?.isCompleted === false
           && homeState?.currentCount === 0;
       if (hasBothOperations

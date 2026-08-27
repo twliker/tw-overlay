@@ -634,6 +634,10 @@ async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
       assert.equal(home.observation.companyState.currentCount, 1);
       assert.equal(home.observation.homeState.currentCount, 2);
     } else {
+      const expectedHomeCompletedAt = Number(fs.readFileSync(
+        path.join(probeRoot, 'completion-time-base.txt'),
+        'utf8',
+      )) + 2_000;
       assert.deepEqual(company.observation.companyState, home.observation.companyState,
         '동일 숙제·캐릭터 충돌에서 회사/집 로컬 상태가 수렴하지 않았습니다.');
       assert.deepEqual(company.observation.companyState, company.observation.remoteCompanyState,
@@ -642,7 +646,7 @@ async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
         '회사 PC의 완료 변경이 집 PC의 횟수 변경과 결합되지 않았습니다.');
       assert.equal(company.observation.companyState.currentCount, 2,
         '동일 횟수 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
-      assert.equal(company.observation.companyState.lastCompletedAt, 20_000,
+      assert.equal(company.observation.companyState.lastCompletedAt, expectedHomeCompletedAt,
         '동일 완료 시각 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
     }
     assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'company').length >= 1);
@@ -4690,6 +4694,8 @@ function checkPendingHomeworkOrdering(): void {
     getHomeworkResetCycleKey,
     getPendingHomeworkCandidateIds,
     shouldAutoAssignSinglePendingCandidate,
+    getNextHomeworkResetAt,
+    resetExpiredHomeworkItems,
   } = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as {
     mergePendingHomeworkEvent(
       existing: { id: string; count: number; isIncrement: boolean; timestamp: number } | undefined,
@@ -4738,6 +4744,17 @@ function checkPendingHomeworkOrdering(): void {
       autoAssignSingleCandidate: boolean | undefined,
       candidateCharacterIds: string[],
     ): boolean;
+    getNextHomeworkResetAt(
+      items: Array<{ resetRule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number } }>,
+      nowTimestamp?: number,
+    ): number | undefined;
+    resetExpiredHomeworkItems(
+      items: Array<Record<string, any>>,
+      nowTimestamp?: number,
+    ): {
+      items: Array<Record<string, any>>;
+      resetEntries: Array<{ itemName: string; characterId: string; resetType: 'daily' | 'weekly' }>;
+    };
   };
 
   const incrementFirst = mergePendingHomeworkEvent(undefined, 'weekly-test', 1, true, 100);
@@ -4809,6 +4826,42 @@ function checkPendingHomeworkOrdering(): void {
     '직접 선택 설정에서는 후보가 한 명이어도 자동 반영하면 안 됩니다.');
   assert.equal(shouldAutoAssignSinglePendingCandidate(true, ['char-main', 'char-alt']), false,
     '후보가 둘 이상이면 자동 반영 설정과 무관하게 선택 팝업을 사용해야 합니다.');
+
+  const resetNow = new Date(2026, 7, 27, 9, 0, 0, 0).getTime();
+  const previousCycle = new Date(2026, 7, 26, 23, 30, 0, 0).getTime();
+  const currentCycle = new Date(2026, 7, 27, 0, 30, 0, 0).getTime();
+  const resetFixture: Array<Record<string, any>> = [{
+    id: 'daily-club-boss', name: '클럽 보스', category: '클럽', isVisible: true,
+    resetRule: { type: 'daily', hour: 0 },
+    completedState: { 'char-main': { isCompleted: true, currentCount: 2, lastCompletedAt: previousCycle } },
+  }, {
+    id: 'daily-eta-quest', name: '에타 퀘스트', category: '일반', isVisible: true,
+    resetRule: { type: 'daily', hour: 0 },
+    completedState: { 'char-main': { isCompleted: true, currentCount: 1, lastCompletedAt: previousCycle } },
+  }, {
+    id: 'daily-eta-will-upgrade', name: '에타 도전과제', category: '일반', isVisible: true,
+    resetRule: { type: 'daily', hour: 0 },
+    completedState: { 'char-main': { isCompleted: true, currentCount: 1, lastCompletedAt: currentCycle } },
+  }];
+  const resetResult = resetExpiredHomeworkItems(resetFixture, resetNow);
+  assert.deepEqual(resetResult.resetEntries.map(entry => entry.itemName), ['클럽 보스', '에타 퀘스트'],
+    '클라우드에서 받은 전날 일일 숙제만 현재 주기에서 초기화해야 합니다.');
+  assert.deepEqual(resetResult.items[0].completedState['char-main'], {
+    isCompleted: false, currentCount: 0, lastCompletedAt: undefined,
+  });
+  assert.equal(resetResult.items[2].completedState['char-main'].isCompleted, true,
+    '오늘 리셋 경계 뒤 완료한 일일 숙제를 초기화했습니다.');
+  assert.equal(resetFixture[0].completedState['char-main'].isCompleted, true,
+    '리셋 정규화가 입력 스냅샷을 직접 변경했습니다.');
+
+  assert.equal(getNextHomeworkResetAt([resetFixture[0] as any], resetNow),
+    new Date(2026, 7, 28, 0, 0, 0, 0).getTime(),
+    '앱을 켜 둔 상태의 다음 일일 리셋 경계를 잘못 계산했습니다.');
+  assert.equal(getNextHomeworkResetAt([{
+    resetRule: { type: 'weekly', dayOfWeek: 1, hour: 0 },
+  }], resetNow), new Date(2026, 7, 31, 0, 0, 0, 0).getTime(),
+  '앱을 켜 둔 상태의 다음 주간 리셋 경계를 잘못 계산했습니다.');
+
   candidateItems[0].completedState['char-main'] = { isCompleted: false, currentCount: 0 };
   assert.deepEqual(
     getPendingHomeworkCandidateIds(candidatePresets, candidateItems, candidatePending),
@@ -6002,6 +6055,13 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '자동 업로드 상태가 사용자에게 업로드로 구분되지 않습니다.');
   assert.match(managerSource, /useRestoreFlow \? 'download' : 'checking'/,
     '클라우드 불러오기와 원격 변경 확인 상태가 구분되지 않습니다.');
+  assert.match(managerSource, /result\.success[\s\S]*?import\('\.\/contentsChecker'\)[\s\S]*?contentsChecker\.checkReset\(\)/,
+    '클라우드 숙제 적용 완료 뒤 현재 리셋 주기 정규화가 연결되지 않았습니다.');
+
+  const contentsCheckerSource = read('src/modules/contentsChecker.ts');
+  assert.match(contentsCheckerSource,
+    /function scheduleNextResetCheck[\s\S]*?getNextHomeworkResetAt[\s\S]*?setTimeout\([\s\S]*?checkReset\(\)/,
+    '앱을 계속 켜 둔 경우 다음 일일·주간 리셋 경계를 다시 검사하지 않습니다.');
 
   const mainSource = read('src/main.ts');
   assert.match(mainSource, /const decision = shutdownGate\.requestQuit\(\);[\s\S]*?decision === 'allow'[\s\S]*?event\.preventDefault\(\);[\s\S]*?decision === 'wait'/,
@@ -6739,11 +6799,18 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
 
   // 실제 cloudSyncManager가 분리 파일을 사용하고 다른 PC의 숙제 변경을 echo 없이 받는지 모의 Drive로 검증
   const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js'));
+  const integrationCycleStartedAt = Date.now() - 10_000;
+  const integrationChecklistItems = structuredClone(sampleLocalConfig.contentsCheckerItems);
+  for (const item of integrationChecklistItems) {
+    for (const state of Object.values(item.completedState) as Array<any>) {
+      if (state.lastCompletedAt) state.lastCompletedAt = integrationCycleStartedAt;
+    }
+  }
   configModule.saveImmediate({
     googleSyncEnabled: true,
     googleSyncAutoSync: true,
     userServer: 16,
-    contentsCheckerItems: sampleLocalConfig.contentsCheckerItems,
+    contentsCheckerItems: integrationChecklistItems,
     characterPresets: sampleLocalConfig.characterPresets,
     pendingHomeworks: [],
   });
@@ -6831,7 +6898,9 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   let remoteChecklistPayload = structuredClone(uploadedChecklist.payload);
   const remoteChecklistBefore = structuredClone(remoteChecklistPayload.data);
   const remoteItem = remoteChecklistPayload.data.contentsCheckerItems.find((item: any) => item.id === 'daily-abyss');
-  remoteItem.completedState['char-2'] = { isCompleted: true, currentCount: 1, lastCompletedAt: 5000 };
+  remoteItem.completedState['char-2'] = {
+    isCompleted: true, currentCount: 1, lastCompletedAt: integrationCycleStartedAt + 1_000,
+  };
   remoteChecklistPayload.operations = [
     ...(remoteChecklistPayload.operations || []),
     {
@@ -6868,7 +6937,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     .find((item: any) => item.id === 'daily-abyss').completedState['char-2'];
   assert.equal(received.isCompleted, true,
     '회사 PC의 원격 숙제 완료가 집 PC 자동 pull에 반영되지 않았습니다.');
-  assert.equal(received.lastCompletedAt, 5000);
+  assert.equal(received.lastCompletedAt, integrationCycleStartedAt + 1_000);
   assert.equal(configModule.load().userServer, 7,
     '같은 pull의 원격 설정 변경이 반영되지 않았습니다.');
   const combinedPullBackup = JSON.parse(fs.readFileSync(
@@ -6889,7 +6958,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const companyState = companyItems.find((item: any) => item.id === 'daily-abyss').completedState['char-1'];
   companyState.isCompleted = false;
   companyState.currentCount = 0;
-  companyState.lastCompletedAt = 6000;
+  companyState.lastCompletedAt = integrationCycleStartedAt + 2_000;
   configModule.saveImmediate({ contentsCheckerItems: companyItems });
   const companyUpload = await cloudManager.syncToCloud(true);
   assert.equal(companyUpload.success, true);
@@ -6904,7 +6973,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     .find((item: any) => item.id === 'daily-abyss').completedState['char-2'];
   homeState.isCompleted = true;
   homeState.currentCount = 2;
-  homeState.lastCompletedAt = 6100;
+  homeState.lastCompletedAt = integrationCycleStartedAt + 3_000;
   const homeOperation = {
     id: 'operation-home-overwrite',
     deviceId: 'home-pc',
@@ -6972,7 +7041,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     .find((item: any) => item.id === 'daily-abyss').completedState['char-1'];
   responseLossState.isCompleted = true;
   responseLossState.currentCount = 1;
-  responseLossState.lastCompletedAt = 7000;
+  responseLossState.lastCompletedAt = integrationCycleStartedAt + 4_000;
   configModule.saveImmediate({ contentsCheckerItems: responseLossItems });
   assert.equal(cloudManager.prepareShutdownRecovery(), true);
   loseNextChecklistResponse = true;
@@ -6993,13 +7062,104 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(convergedLocalState.shutdownRecovery, undefined,
     '재시작 후 원격 operation을 확인했는데 recovery marker가 남았습니다.');
 
+  // fresh PC가 전날 완료 상태를 복원해도 현재 일일 주기에는 체크가 남지 않고,
+  // 리셋 operation을 원격에 게시해 다른 PC도 같은 미완료 상태로 수렴해야 한다.
+  memoryFiles.clear();
+  const staleResetGeneration = 'generation-stale-daily-reset';
+  const currentResetBoundary = new Date();
+  currentResetBoundary.setHours(0, 0, 0, 0);
+  const staleCompletedAt = currentResetBoundary.getTime() - 60_000;
+  const staleRemoteConfig = {
+    ...configModule.load(),
+    characterPresets: [{ id: 'stale-reset-character', name: '리셋 확인 캐릭터' }],
+    contentsCheckerItems: [{
+      id: 'daily-cloud-reset',
+      name: '클라우드 일일 리셋 확인',
+      category: '일반',
+      isVisible: true,
+      isCustom: true,
+      resetRule: { type: 'daily', hour: 0 },
+      completedState: {
+        'stale-reset-character': {
+          isCompleted: true,
+          currentCount: 1,
+          lastCompletedAt: staleCompletedAt,
+        },
+      },
+    }],
+    pendingHomeworks: [],
+  };
+  const staleSettingsPayload = syncDataHelper.buildSettingsSyncPayload(
+    staleRemoteConfig,
+    'stale-remote-pc',
+    staleResetGeneration,
+  );
+  const staleChecklistPayload = syncDataHelper.buildChecklistSyncPayload(
+    staleRemoteConfig,
+    'stale-remote-pc',
+    staleResetGeneration,
+    [],
+  );
+  memoryFiles.set('stale-reset-settings', {
+    id: 'stale-reset-settings', name: 'tw_overlay_settings.json',
+    modifiedTime: new Date(Date.now() + 40_000).toISOString(), payload: staleSettingsPayload,
+  });
+  memoryFiles.set('stale-reset-checklist', {
+    id: 'stale-reset-checklist', name: 'tw_overlay_checklist.json',
+    modifiedTime: new Date(Date.now() + 40_001).toISOString(), payload: staleChecklistPayload,
+  });
+  cloudSyncState.update((state: any) => {
+    state.profileState = 'fresh';
+    state.baseChecklist = undefined;
+    state.baseSettings = undefined;
+    state.remoteRevisions = {};
+    state.checklistOutbox = [];
+    state.confirmedChecklistOperations = [];
+    state.settingsDirtyKeys = [];
+    state.settingsDirtyAt = {};
+    state.restoreResults = undefined;
+    state.restorePartial = undefined;
+  });
+  configModule.saveImmediate({
+    characterPresets: [{ id: 'fresh-local-character', name: '로컬 기본 캐릭터' }],
+    contentsCheckerItems: [],
+    pendingHomeworks: [],
+  });
+  const staleRestore = await cloudManager.syncFromCloud(false);
+  assert.equal(staleRestore.success, true);
+  assert.equal(cloudSyncState.load().profileState, 'established',
+    '정상 설정·숙제 파일을 받은 fresh PC가 established 상태가 되지 않았습니다.');
+  const resetLocalState = configModule.load().contentsCheckerItems
+    .find((item: any) => item.id === 'daily-cloud-reset')
+    .completedState['stale-reset-character'];
+  assert.equal(resetLocalState.isCompleted, false,
+    'fresh PC가 클라우드에서 받은 전날 일일 숙제를 체크 상태로 표시했습니다.');
+  assert.equal(resetLocalState.currentCount, 0);
+  assert.equal(resetLocalState.lastCompletedAt, undefined);
+  const resetOperationIds = cloudSyncState.load().checklistOutbox.map((operation: any) => operation.id);
+  assert.ok(resetOperationIds.length > 0,
+    '클라우드 적용 뒤 발생한 일일 리셋이 숙제 outbox에 기록되지 않았습니다.');
+  await cloudManager.flushPendingSync();
+  const resetRemotePayload = currentChecklistFile().payload;
+  const resetRemoteState = resetRemotePayload.data.contentsCheckerItems
+    .find((item: any) => item.id === 'daily-cloud-reset')
+    .completedState['stale-reset-character'];
+  assert.equal(resetRemoteState.isCompleted, false,
+    'fresh PC의 일일 리셋 결과가 최종 원격 payload에 반영되지 않았습니다.');
+  const resetRemoteOperationIds = new Set((resetRemotePayload.operations || [])
+    .map((operation: any) => operation.id));
+  for (const operationId of resetOperationIds) {
+    assert.equal(resetRemoteOperationIds.has(operationId), true,
+      `일일 리셋 operation이 최종 원격 payload에서 사라졌습니다: ${operationId}`);
+  }
+
   // fresh 프로필의 파일별 독립 복원: 지원하지 않는 설정 때문에 정상 숙제 복원이 막히지 않아야 한다.
   memoryFiles.clear();
   const partialGeneration = 'generation-partial-restore';
   const remoteFreshChecklist = syncDataHelper.buildChecklistSyncPayload({
     ...configModule.load(),
     characterPresets: [{ id: 'remote-character', name: '원격 캐릭터' }],
-    contentsCheckerItems: sampleLocalConfig.contentsCheckerItems,
+    contentsCheckerItems: integrationChecklistItems,
     pendingHomeworks: sampleLocalConfig.pendingHomeworks,
   }, 'remote-pc', partialGeneration, []);
   memoryFiles.set('incompatible-settings', {
@@ -7389,7 +7549,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const scheduledPullDelays: number[] = [];
   let clearedPullTimers = 0;
   (globalThis as any).setTimeout = (callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
-    if (typeof delay === 'number' && delay >= 25_000) {
+    if (typeof delay === 'number' && delay >= 25_000 && delay <= 1_000_000) {
       scheduledPullDelays.push(delay);
       return { cloudPullProbeTimer: true };
     }

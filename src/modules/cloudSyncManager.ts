@@ -1015,6 +1015,13 @@ export async function syncFromCloud(
     );
     if (!result.success && !manual) pullFailureCount++;
     else if (result.success) {
+      // 원격 payload의 완료 시각이 이미 현재 일일/주간 리셋 경계를 지났다면
+      // 로컬에 적용한 직후 정규화한다. fresh 복원도 profile 판정이 끝난 뒤 실행하므로
+      // 실제 리셋은 일반 숙제 변경 operation으로 기록되어 다른 PC까지 수렴한다.
+      const contentsChecker = await import('./contentsChecker');
+      if (contentsChecker.checkReset()) {
+        log('[CloudSyncManager] 클라우드 숙제 적용 뒤 지난 리셋 주기 상태를 초기화했습니다.');
+      }
       pullFailureCount = 0;
       reconcileShutdownRecovery();
     }
