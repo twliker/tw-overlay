@@ -556,6 +556,19 @@ export function load(): AppConfig {
   return deepClone(_cachedConfig);
 }
 
+/**
+ * 고빈도 읽기 경로가 거대한 숙제·버프 배열까지 매번 복사하지 않도록 필요한 필드만
+ * 독립 스냅샷으로 반환한다. 반환값은 load()와 마찬가지로 내부 캐시와 별칭을 공유하지 않는다.
+ */
+export function loadFields<K extends keyof AppConfig>(keys: readonly K[]): Pick<AppConfig, K> {
+  const source = _cachedConfig || load();
+  const selected = {} as Pick<AppConfig, K>;
+  for (const key of keys) {
+    selected[key] = deepClone(source[key]);
+  }
+  return selected;
+}
+
 function schedulePendingRetry(): void {
   if (_saveTimer || !_pendingConfig || _saveRetryIndex >= SAVE_RETRY_DELAYS_MS.length) return;
   const delay = SAVE_RETRY_DELAYS_MS[_saveRetryIndex++];

@@ -4541,6 +4541,15 @@ function checkCorruptedConfigResilience(): void {
   const secondLoad = configModule.load();
   assert.notEqual(secondLoad, loaded, '설정 load 호출이 같은 최상위 객체를 노출합니다.');
   assert.notEqual(secondLoad.shortcuts, loaded.shortcuts, '설정 load 호출이 같은 중첩 객체를 노출합니다.');
+  const selected = configModule.loadFields(['shortcuts', 'userServer']);
+  assert.deepEqual(Object.keys(selected).sort(), ['shortcuts', 'userServer'],
+    '선택 설정 읽기가 요청하지 않은 큰 설정 필드까지 반환합니다.');
+  assert.notEqual(selected.shortcuts, loaded.shortcuts,
+    '선택 설정 읽기가 중첩 객체의 내부 캐시 별칭을 노출합니다.');
+  const originalShortcut = configModule.load().shortcuts.toggleOverlay;
+  selected.shortcuts.toggleOverlay = 'mutated-by-regression-test';
+  assert.equal(configModule.load().shortcuts.toggleOverlay, originalShortcut,
+    '선택 설정 스냅샷 수정이 내부 설정 캐시를 오염시켰습니다.');
 }
 
 function checkShoutSuffixStripping(): void {

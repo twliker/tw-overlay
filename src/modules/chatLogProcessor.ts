@@ -23,6 +23,21 @@ const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = requi
 
 type HomeworkSourceEvent = { date: string; timestamp: string; message: string };
 
+// 일반 채팅은 게임 중 가장 자주 발생하는 경로다. 전체 AppConfig의 숙제·버프·창 위치를
+// 매 줄 복사하지 않고 실제 알림/분류에 필요한 값만 독립 스냅샷으로 읽는다.
+const NORMAL_CHAT_CONFIG_KEYS = [
+  'userServer',
+  'discordAlertEnabled',
+  'discordWebhookUrl',
+  'discordRules',
+  'discordKeywords',
+  'wordAlarmEnabled',
+  'wordAlarmKeywords',
+  'wordAlarmHistoryEnabled',
+  'wordAlarmSound',
+  'wordAlarmVolume',
+] as const;
+
 /** 동일한 채팅 줄을 재처리해도 같은 숙제 이벤트 ID가 생성되도록 한다. */
 export function createHomeworkSourceEventId(
   eventName: string,
@@ -594,7 +609,7 @@ class ChatLogProcessor {
       // 1. 만료된(5분이 경과한) 실시간 감지 추적 목록 필터링
       this._activeTrackingAlarms = this._activeTrackingAlarms.filter(a => now <= a.endTime);
 
-      const cfg = config.load();
+      const cfg = config.loadFields(NORMAL_CHAT_CONFIG_KEYS);
 
       // 에타 랭킹 정보 조회 및 탭 히스토리 누적
       const serverCode = cfg.userServer || (DEFAULT_CONFIG.userServer as number);
