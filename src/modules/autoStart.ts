@@ -4,6 +4,35 @@ import * as path from 'path';
 import { log } from './logger';
 import { exec } from 'child_process';
 
+export class AutoStartRequestTracker {
+    private generation = 0;
+    private enabled = false;
+
+    begin(enabled: boolean): number {
+        this.enabled = enabled;
+        return ++this.generation;
+    }
+
+    isCurrent(generation: number, enabled: boolean): boolean {
+        return this.generation === generation && this.enabled === enabled;
+    }
+
+    isDisabled(): boolean {
+        return !this.enabled;
+    }
+}
+
+const autoStartRequests = new AutoStartRequestTracker();
+
+function removeAutoStartFiles(lnkPath: string, vbsPath: string): void {
+    try {
+        if (fs.existsSync(lnkPath)) fs.unlinkSync(lnkPath);
+        if (fs.existsSync(vbsPath)) fs.unlinkSync(vbsPath);
+    } catch (err) {
+        log('[AUTOSTART] Cleanup FAIL: ' + err);
+    }
+}
+
 /**
  * 자동 실행 설정 (바로가기 .lnk + 레지스트리 혼합 방식)
  * 
@@ -12,6 +41,7 @@ import { exec } from 'child_process';
  * 3. 이 'twOverlay.lnk' 경로를 레지스트리(Run 키)에 등록
  */
 export function setupAutoStart(enable: boolean): void {
+    const requestGeneration = autoStartRequests.begin(enable);
     const exePath = app.getPath('exe');
     const userDataPath = app.getPath('userData');
     const vbsPath = path.join(userDataPath, 'twOverlayLauncher.vbs');
@@ -45,19 +75,26 @@ export function setupAutoStart(enable: boolean): void {
             oLink.Save
         `;
         
-        const lnkCreatorPath = path.join(userDataPath, 'create_lnk.vbs');
+        // 겹쳐 실행된 설정 저장이 같은 임시 스크립트를 덮어쓰지 않도록 요청별로 분리한다.
+        const lnkCreatorPath = path.join(
+            userDataPath,
+            `create_lnk-${process.pid}-${requestGeneration}.vbs`,
+        );
         try {
             fs.writeFileSync(lnkCreatorPath, createLnkScript, 'utf8');
             exec(`cscript //Nologo "${lnkCreatorPath}"`, (error) => {
                 if (error) {
                     log('[AUTOSTART] LNK Creation FAIL: ' + error);
-                } else {
+                } else if (autoStartRequests.isCurrent(requestGeneration, true)) {
                     // 3. 생성된 .lnk 파일을 레지스트리에 등록
                     app.setLoginItemSettings({
                         openAtLogin: true,
                         path: lnkPath // exe 대신 lnk 경로를 등록하여 아이콘/이름 유지
                     });
                     log('[AUTOSTART] Successfully registered LNK to registry');
+                } else if (autoStartRequests.isDisabled()) {
+                    // 끄기 뒤 늦게 끝난 cscript가 공유 .lnk를 다시 만들 수 있으므로 제거한다.
+                    removeAutoStartFiles(lnkPath, vbsPath);
                 }
                 try { fs.unlinkSync(lnkCreatorPath); } catch {}
             });
@@ -68,11 +105,6 @@ export function setupAutoStart(enable: boolean): void {
     } else {
         // 비활성화: 레지스트리 등록 해제 및 파일 삭제
         app.setLoginItemSettings({ openAtLogin: false, path: lnkPath });
-        try {
-            if (fs.existsSync(lnkPath)) fs.unlinkSync(lnkPath);
-            if (fs.existsSync(vbsPath)) fs.unlinkSync(vbsPath);
-        } catch (err) {
-            log('[AUTOSTART] Cleanup FAIL: ' + err);
-        }
+        removeAutoStartFiles(lnkPath, vbsPath);
     }
 }

@@ -7868,6 +7868,41 @@ function checkTradeMonitorWindowReferenceContracts(): void {
   );
 }
 
+function checkAutoStartRequestOrderingContracts(): void {
+  const { AutoStartRequestTracker } = require(
+    path.join(projectRoot, 'dist', 'modules', 'autoStart.js'),
+  ) as {
+    AutoStartRequestTracker: new () => {
+      begin(enabled: boolean): number;
+      isCurrent(generation: number, enabled: boolean): boolean;
+      isDisabled(): boolean;
+    };
+  };
+  const tracker = new AutoStartRequestTracker();
+  const firstEnable = tracker.begin(true);
+  const disable = tracker.begin(false);
+  assert.equal(tracker.isCurrent(firstEnable, true), false,
+    '늦게 끝난 자동 시작 켜기 요청이 현재 요청으로 남았습니다.');
+  assert.equal(tracker.isCurrent(disable, false), true);
+  assert.equal(tracker.isDisabled(), true);
+
+  const secondEnable = tracker.begin(true);
+  assert.equal(tracker.isCurrent(disable, false), false);
+  assert.equal(tracker.isCurrent(secondEnable, true), true);
+  assert.equal(tracker.isDisabled(), false);
+
+  const source = read('src/modules/autoStart.ts');
+  assert.match(source,
+    /create_lnk-\$\{process\.pid\}-\$\{requestGeneration\}\.vbs/,
+    '동시에 실행되는 자동 시작 바로가기 생성기가 요청별 임시 파일을 사용하지 않습니다.');
+  assert.match(source,
+    /autoStartRequests\.isCurrent\(requestGeneration, true\)[\s\S]*?openAtLogin: true/,
+    '현재 자동 시작 켜기 요청만 레지스트리에 반영하는 세대 검사가 없습니다.');
+  assert.match(source,
+    /autoStartRequests\.isDisabled\(\)[\s\S]*?removeAutoStartFiles\(lnkPath, vbsPath\)/,
+    '끄기 뒤 늦게 생성된 자동 시작 파일을 정리하지 않습니다.');
+}
+
 function checkChatLogPathCandidateBoundaries(): void {
   const {
     buildChatLogPathCandidates,
@@ -8242,6 +8277,7 @@ checkLargeChatLogReadBoundary();
 checkChatTailRecoveryBoundary();
 checkNotificationKeywordBoundaries();
 checkTradeMonitorWindowReferenceContracts();
+checkAutoStartRequestOrderingContracts();
 checkChatLogPathCandidateBoundaries();
 checkPendingHomeworkOrdering();
 checkLegacyHomeworkMergeContracts();
