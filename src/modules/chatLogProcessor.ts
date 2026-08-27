@@ -37,6 +37,33 @@ const NORMAL_CHAT_CONFIG_KEYS = [
   'wordAlarmSound',
   'wordAlarmVolume',
 ] as const;
+const ITEM_LOOT_CONFIG_KEYS = ['lootKeywords'] as const;
+const TRADE_SHOUT_CONFIG_KEYS = [
+  'shoutKeywords',
+  'userServer',
+  'discordAlertEnabled',
+  'discordWebhookUrl',
+  'discordRules',
+] as const;
+const SPECIAL_MONSTER_CONFIG_KEYS = ['specialMonsterAlertEnabled'] as const;
+const ABYSS_TREASURE_CONFIG_KEYS = [
+  'questCompleteAlertEnabled',
+  'essenceAlertSound',
+  'essenceAlertVolume',
+] as const;
+const ETHOS_CONFIG_KEYS = ['ethosAlertEnabled', 'ethosAlertSound', 'ethosAlertVolume'] as const;
+const ABYSS_APOSTLE_CONFIG_KEYS = [
+  'abyssApostleAlertEnabled',
+  'abyssApostleStartSound',
+  'abyssApostleEndSound',
+  'abyssApostleVolume',
+] as const;
+const WAVE_WARNING_CONFIG_KEYS = [
+  'waveMonsterWarningEnabled',
+  'waveMonsterWarningSound',
+  'waveMonsterWarningVolume',
+] as const;
+const LOKAGOS_CONFIG_KEYS = ['lokagosAlertEnabled', 'lokagosAlertSound', 'lokagosAlertVolume'] as const;
 
 /** 동일한 채팅 줄을 재처리해도 같은 숙제 이벤트 ID가 생성되도록 한다. */
 export function createHomeworkSourceEventId(
@@ -413,7 +440,7 @@ class ChatLogProcessor {
 
     // 0. 공허 특별 몬스터 출현 알림
     chatParser.on('SPECIAL_MONSTER_SPAWN', (data) => {
-      const cfg = config.load();
+      const cfg = config.loadFields(SPECIAL_MONSTER_CONFIG_KEYS);
       if (cfg.specialMonsterAlertEnabled === false) return;
       log(`[CHAT_PROCESSOR] 특별 몬스터 출현 감지: ${data.message}`);
       this.sendGameOverlayEvent('special-monster-alert', data);
@@ -421,7 +448,7 @@ class ChatLogProcessor {
 
     // 0-1. 심연의 보물창고 종료 안내. 기존 입장 횟수 기반 숙제 반영과는 독립된 실시간 알림입니다.
     chatParser.on('ABYSS_TREASURE_COMPLETE', (data) => {
-      const cfg = config.load();
+      const cfg = config.loadFields(ABYSS_TREASURE_CONFIG_KEYS);
       if (cfg.questCompleteAlertEnabled === false) return;
 
       this.sendGameOverlayEvent('abyss-treasure-complete-alert', data);
@@ -455,7 +482,7 @@ class ChatLogProcessor {
 
     // 2. 아이템 획득 처리
     chatParser.on('ITEM_LOOTED', (data) => {
-      const cfg = config.load();
+      const cfg = config.loadFields(ITEM_LOOT_CONFIG_KEYS);
 
       // 엘소 포인트 누적 획득 체크 및 DB 반영
       let elsoPoints = 0;
@@ -555,7 +582,7 @@ class ChatLogProcessor {
       }
       diaryDb.addShoutLog(data.sender, data.message, fullTimestamp);
       sendToFirstWindowByPage('shout-history.html', 'shout-history-updated');
-      const cfg = config.load();
+      const cfg = config.loadFields(TRADE_SHOUT_CONFIG_KEYS);
       const keywords = normalizeNotificationKeywords(cfg.shoutKeywords);
       // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
       const matchedKeyword = keywords.find(k => data.message.includes(k));
@@ -747,7 +774,7 @@ class ChatLogProcessor {
 
     // 4. 에토스 기믹 알림 처리
     chatParser.on('ETHOS_PASSWORD', (data) => {
-      const cfg = config.load();
+      const cfg = config.loadFields(ETHOS_CONFIG_KEYS);
       if (!cfg.ethosAlertEnabled) return;
 
       this.sendGameOverlayEvent('ethos-alert', data);
@@ -762,7 +789,7 @@ class ChatLogProcessor {
 
     // 4-2. 심연의 제2사도 기믹 알림 처리
     chatParser.on('ABYSS_APOSTLE_PATTERN', (data) => {
-      const cfg = config.load();
+      const cfg = config.loadFields(ABYSS_APOSTLE_CONFIG_KEYS);
       if (!cfg.abyssApostleAlertEnabled) return;
 
       this.sendGameOverlayEvent('abyss-apostle-alert', data);
@@ -776,7 +803,7 @@ class ChatLogProcessor {
 
       if (cfg.abyssApostleEndSound && cfg.abyssApostleEndSound !== 'none') {
         setTimeout(() => {
-          const currentCfg = config.load();
+          const currentCfg = config.loadFields(ABYSS_APOSTLE_CONFIG_KEYS);
           if (currentCfg.abyssApostleAlertEnabled) {
             this.playAlertSound({
               label: '심연의 제2사도 반사 종료',
@@ -792,7 +819,7 @@ class ChatLogProcessor {
 
     // 4-3. 몬스터 웨이브 종료 대기 알림 처리
     chatParser.on('WAVE_MONSTER_WARNING', (data) => {
-      const cfg = config.load();
+      const cfg = config.loadFields(WAVE_WARNING_CONFIG_KEYS);
       if (!cfg.waveMonsterWarningEnabled) return;
 
       this.sendGameOverlayEvent('wave-warning-alert', data);
@@ -807,7 +834,7 @@ class ChatLogProcessor {
 
     // 4-4. 로카고스 기믹 알림 처리
     chatParser.on('LOKAGOS_PATTERN', (data) => {
-      const cfg = config.load();
+      const cfg = config.loadFields(LOKAGOS_CONFIG_KEYS);
       if (!cfg.lokagosAlertEnabled) return;
 
       this.sendGameOverlayEvent('lokagos-alert', data);

@@ -4711,6 +4711,7 @@ function checkPendingHomeworkOrdering(): void {
     shouldAutoAssignSinglePendingCandidate,
     getNextHomeworkResetAt,
     resetExpiredHomeworkItems,
+    queuePendingHomework,
   } = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as {
     mergePendingHomeworkEvent(
       existing: { id: string; count: number; isIncrement: boolean; timestamp: number } | undefined,
@@ -4770,6 +4771,13 @@ function checkPendingHomeworkOrdering(): void {
       items: Array<Record<string, any>>;
       resetEntries: Array<{ itemName: string; characterId: string; resetType: 'daily' | 'weekly' }>;
     };
+    queuePendingHomework(
+      id: string,
+      count: number,
+      isIncrement: boolean,
+      sourceEventId?: string,
+      eventTimestamp?: number,
+    ): void;
   };
 
   const incrementFirst = mergePendingHomeworkEvent(undefined, 'weekly-test', 1, true, 100);
@@ -4892,6 +4900,60 @@ function checkPendingHomeworkOrdering(): void {
   assert.equal(nextCyclePending.count, 2,
     '리셋 주기가 바뀌면 이전 주기의 압축 횟수를 이어받지 않아야 합니다.');
   assert.deepEqual(nextCyclePending.sourceEventIds, ['stable-event-2']);
+
+  const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as any;
+  const previousConfig = configModule.loadFields([
+    'characterPresets',
+    'contentsCheckerItems',
+    'pendingHomeworks',
+    'contentsAutoAssignSingleCandidate',
+  ]);
+  const originalSaveImmediate = configModule.saveImmediate;
+  const completedAt = Date.now();
+  try {
+    originalSaveImmediate({
+      characterPresets: [{ id: 'single-character', name: '단일 캐릭터' }],
+      contentsCheckerItems: [{
+        id: 'daily-repeat-save-regression',
+        name: '반복 저장 방지 숙제',
+        category: '회귀 검사',
+        isVisible: true,
+        maxCount: 1,
+        resetRule: { type: 'daily', hour: 0 },
+        completedState: {
+          'single-character': {
+            isCompleted: true,
+            currentCount: 1,
+            lastCompletedAt: completedAt,
+          },
+        },
+      }],
+      pendingHomeworks: [],
+      contentsAutoAssignSingleCandidate: true,
+    });
+    let redundantSaveCount = 0;
+    configModule.saveImmediate = (...args: unknown[]) => {
+      redundantSaveCount++;
+      return originalSaveImmediate(...args);
+    };
+    queuePendingHomework(
+      'daily-repeat-save-regression',
+      1,
+      true,
+      'repeat-save-regression-event',
+      completedAt + 1000,
+    );
+    assert.equal(redundantSaveCount, 0,
+      '현재 주기에 이미 완료된 단일 캐릭터 숙제를 반복 감지해 동일 config를 다시 저장했습니다.');
+  } finally {
+    configModule.saveImmediate = originalSaveImmediate;
+    originalSaveImmediate(previousConfig);
+  }
+
+  const checkerSource = read('src/modules/contentsChecker.ts');
+  assert.match(checkerSource,
+    /config\.loadFields\(PENDING_HOMEWORK_CONFIG_KEYS\)/,
+    '숙제 자동 감지 경로가 필요한 설정 필드만 읽지 않습니다.');
 }
 
 function checkLegacyHomeworkMergeContracts(): void {
@@ -5024,6 +5086,23 @@ function checkXpExchangeContracts(): void {
     'XP HUD와 모험일지가 서로 다른 경험의 정수 교환 판정을 사용합니다.');
   assert.doesNotMatch(processorSource, /data\.amount <= -9_000_000_000/,
     '모험일지 경로에 기존 90억 교환 판정이 남아 있습니다.');
+  assert.match(processorSource,
+    /ITEM_LOOT_CONFIG_KEYS = \['lootKeywords'\] as const;[\s\S]*?chatParser\.on\('ITEM_LOOTED'[\s\S]*?config\.loadFields\(ITEM_LOOT_CONFIG_KEYS\)/,
+    '고빈도 아이템 획득 경로가 전체 설정 스냅샷을 복사합니다.');
+  assert.match(processorSource,
+    /TRADE_SHOUT_CONFIG_KEYS =[\s\S]*?chatParser\.on\('TRADE_SHOUT'[\s\S]*?config\.loadFields\(TRADE_SHOUT_CONFIG_KEYS\)/,
+    '외치기 경로가 실제 사용하는 설정 필드만 읽지 않습니다.');
+  for (const keySet of [
+    'SPECIAL_MONSTER_CONFIG_KEYS',
+    'ABYSS_TREASURE_CONFIG_KEYS',
+    'ETHOS_CONFIG_KEYS',
+    'ABYSS_APOSTLE_CONFIG_KEYS',
+    'WAVE_WARNING_CONFIG_KEYS',
+    'LOKAGOS_CONFIG_KEYS',
+  ]) {
+    assert.ok(processorSource.includes(`config.loadFields(${keySet})`),
+      `읽기 전용 알림 이벤트가 선택 설정 읽기를 사용하지 않습니다: ${keySet}`);
+  }
 }
 
 function checkAbandonedFeeMatchingContracts(): void {

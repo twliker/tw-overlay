@@ -152,6 +152,12 @@ const clonePending = (pending: PendingHomework[] | undefined): PendingHomework[]
 let initializationCompleted = false;
 const MAX_PENDING_SOURCE_EVENT_IDS = 128;
 const MAX_PENDING_HOMEWORK_ITEMS = 256;
+const PENDING_HOMEWORK_CONFIG_KEYS = [
+  'characterPresets',
+  'contentsCheckerItems',
+  'pendingHomeworks',
+  'contentsAutoAssignSingleCandidate',
+] as const;
 const DIARY_WRITE_RETRY_DELAYS_MS = [250, 1000, 4000] as const;
 const RESET_TIMER_MIN_DELAY_MS = 250;
 let resetCheckTimer: NodeJS.Timeout | null = null;
@@ -1495,12 +1501,12 @@ export function queuePendingHomework(
   sourceEventId?: string,
   eventTimestamp: number = Date.now()
 ): void {
-  const cfg = config.load();
-  const presets = clonePresets(cfg.characterPresets);
+  const cfg = config.loadFields(PENDING_HOMEWORK_CONFIG_KEYS);
+  const presets = cfg.characterPresets || [];
 
   log(`[Contents Checker] queuePendingHomework 호출 - ID: ${id}, Count: ${count}, isIncrement: ${isIncrement}`);
 
-  const items = cloneItems(cfg.contentsCheckerItems);
+  const items = cfg.contentsCheckerItems || [];
   const targetItem = items.find(i => i.id === id);
 
   // 1. 해당 숙제가 존재하지 않거나 숨김 처리(isVisible: false)된 경우 감지 및 보류 대기열 추가 무시
@@ -1528,12 +1534,25 @@ export function queuePendingHomework(
   // 3. 이 숙제에 참여하는 캐릭터가 오직 1명이면 보류 대기열 없이 즉시 해당 캐릭터에 안전하게 반영
   if (activeCharacters.length === 1) {
     const targetCharId = activeCharacters[0].id;
-    log(`[Contents Checker] 단일 참여 캐릭터 감지 - '${activeCharacters[0].name}' (${targetCharId})에게 즉시 반영`);
-    if (isIncrement) {
-      incrementItemCount(id, targetCharId, count);
-    } else {
-      updateItemCount(id, targetCharId, count);
+    const maxCount = targetItem.maxCount || 1;
+    const currentState = targetItem.completedState?.[targetCharId];
+    const currentCount = getStateCount(currentState, maxCount);
+    const nextCount = resolvePendingHomeworkCount(currentCount, {
+      id,
+      count,
+      isIncrement,
+      timestamp: eventTimestamp,
+    }, maxCount);
+    const stateBelongsToCurrentCycle = typeof currentState?.lastCompletedAt === 'number'
+      && !shouldReset(targetItem.resetRule, new Date(currentState.lastCompletedAt), new Date());
+    if (nextCount === currentCount
+      && currentState?.isCompleted === (nextCount === maxCount)
+      && stateBelongsToCurrentCycle) {
+      log(`[Contents Checker] 현재 주기에 이미 같은 횟수가 반영되어 중복 저장을 건너뜁니다. - ID: ${id}`);
+      return;
     }
+    log(`[Contents Checker] 단일 참여 캐릭터 감지 - '${activeCharacters[0].name}' (${targetCharId})에게 즉시 반영`);
+    updateItemCount(id, targetCharId, nextCount);
     return;
   }
 
@@ -1541,7 +1560,7 @@ export function queuePendingHomework(
   const resetCycleKey = getHomeworkResetCycleKey(targetItem.resetRule, eventTimestamp);
   // 새 이벤트를 합치기 전에 각 콘텐츠의 리셋 경계를 지난 보류 항목을 제거한다.
   // 이 순서가 바뀌면 이전 주기의 +N이 새 주기의 절대값/증분에 섞일 수 있다.
-  const pendingList = clonePending(cfg.pendingHomeworks).filter(pending => {
+  const pendingList = (cfg.pendingHomeworks || []).filter(pending => {
     const pendingItem = items.find(item => item.id === pending.id);
     if (!pendingItem) return false;
     const expired = isPendingHomeworkExpired(pending, pendingItem.resetRule, eventTimestamp);
