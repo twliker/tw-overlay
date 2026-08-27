@@ -118,6 +118,31 @@ export function getSyncStatus(): GoogleSyncStatus {
   };
 }
 
+/** Drive 목록 메타데이터가 그대로면 검증을 마친 payload도 그대로다. */
+function fingerprintOf(file: googleDriveSync.DriveFileMeta | undefined): string | undefined {
+  if (!file) return undefined;
+  const identity = [file.version, file.md5Checksum, file.modifiedTime]
+    .filter(value => typeof value === 'string' && value.length > 0)
+    .join('|');
+  if (!identity) return undefined;
+  return [file.id, identity, file.size || ''].join('|');
+}
+
+function canReuseValidatedRemoteFile(
+  kind: SyncKind,
+  file: googleDriveSync.DriveFileMeta | undefined,
+  state: cloudState.CloudSyncLocalState,
+): boolean {
+  const fingerprint = fingerprintOf(file);
+  return Boolean(
+    file
+    && fingerprint
+    && state.fileIds[kind] === file.id
+    && state.remoteRevisions[kind]
+    && state.remoteFileFingerprints[kind] === fingerprint,
+  );
+}
+
 /** config/DB 생성 전에 호출해 이 PC의 최초 프로필 상태를 내구 기록한다. */
 export function initializeLocalProfileState(): void {
   cloudState.load();
@@ -225,8 +250,11 @@ async function discoverFiles(): Promise<SyncFiles> {
     }
   }
   cloudState.update(state => {
-    state.fileIds.settings = files.settings?.id;
-    state.fileIds.checklist = files.checklist?.id;
+    for (const kind of ['settings', 'checklist'] as const) {
+      const nextFileId = files[kind]?.id;
+      if (state.fileIds[kind] !== nextFileId) delete state.remoteFileFingerprints[kind];
+      state.fileIds[kind] = nextFileId;
+    }
     state.fileIds.meta = files.meta?.id;
   });
   return files;
@@ -427,11 +455,21 @@ async function receiveKind(
   payload: GoogleSyncPayload,
   manualRestore: boolean,
   requestStartedAt = Date.now(),
-  options: { createBackup?: boolean; freshBootstrap?: boolean } = {},
+  options: {
+    createBackup?: boolean;
+    freshBootstrap?: boolean;
+    remoteFileFingerprint?: string;
+  } = {},
 ): Promise<boolean> {
   const state = cloudState.load();
   const remoteRevision = revisionOf(payload);
-  if (!manualRestore && state.remoteRevisions[kind] === remoteRevision) return false;
+  if (!manualRestore && state.remoteRevisions[kind] === remoteRevision) {
+    const fingerprint = options.remoteFileFingerprint;
+    if (fingerprint && state.remoteFileFingerprints[kind] !== fingerprint) {
+      cloudState.update(next => { next.remoteFileFingerprints[kind] = fingerprint; });
+    }
+    return false;
+  }
 
   const settingsKeysChangedDuringRequest = kind === 'settings'
     ? state.settingsDirtyKeys.filter(key => (state.settingsDirtyAt[key] || 0) > requestStartedAt)
@@ -459,6 +497,9 @@ async function receiveKind(
   await applyConfigFromCloud(nextConfig, options.createBackup !== false);
   cloudState.update(next => {
     next.remoteRevisions[kind] = remoteRevision;
+    if (options.remoteFileFingerprint) {
+      next.remoteFileFingerprints[kind] = options.remoteFileFingerprint;
+    }
     if (kind === 'settings') {
       next.baseSettings = structuredClone(payload.data);
       next.settingsDirtyKeys = manualRestore ? [] : settingsKeysChangedDuringRequest;
@@ -660,6 +701,7 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
     cloudState.update(next => {
       next.fileIds[kind] = fileId;
       next.remoteRevisions[kind] = revisionOf(payload);
+      delete next.remoteFileFingerprints[kind];
       if (kind === 'settings') {
         next.baseSettings = structuredClone(payload.data);
         if (settingsChangeSerial === capturedSerial) {
@@ -846,6 +888,18 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
     const requestStartedAt = Date.now();
     const file = fileForKind(files, kind);
     try {
+      const knownState = cloudState.load();
+      if (!manualRestore && canReuseValidatedRemoteFile(kind, file, knownState)) {
+        results.push({
+          kind,
+          selected: true,
+          status: 'unchanged',
+          fileName: file?.name,
+          revision: knownState.remoteRevisions[kind],
+          lastSyncedAt: config.load().googleSyncLastTime,
+        });
+        continue;
+      }
       const payload = await downloadValidated(kind, file, discoveredGeneration);
       if (!payload) {
         if (kind === 'settings') markSettingsDirty(syncDataHelper.SETTINGS_SYNCABLE_KEYS.map(String));
@@ -864,6 +918,7 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
       }
       const changed = await receiveKind(kind, payload, manualRestore, requestStartedAt, {
         createBackup: false,
+        remoteFileFingerprint: fingerprintOf(file),
       });
       latestAt = Math.max(latestAt, payload.lastSyncedAt);
       applied = changed || applied;
@@ -890,11 +945,13 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
 
   if (latestAt > 0) {
     if (!files.meta) await uploadMeta(files);
-    applyingCloud = true;
-    try {
-      config.saveImmediate({ googleSyncLastTime: latestAt });
-    } finally {
-      applyingCloud = false;
+    if (config.load().googleSyncLastTime !== latestAt) {
+      applyingCloud = true;
+      try {
+        config.saveImmediate({ googleSyncLastTime: latestAt });
+      } finally {
+        applyingCloud = false;
+      }
     }
   }
   const pendingState = cloudState.load();

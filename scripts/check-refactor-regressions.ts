@@ -6957,6 +6957,37 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.equal(cloudSyncState.load().checklistOutbox.length, 0,
     '원격 숙제 적용 직후 파생 설정 저장이 echo outbox를 만들었습니다.');
 
+  // 같은 Drive 파일 지문을 다시 확인할 때는 검증 완료 payload와 동일 로컬 상태를 재사용한다.
+  downloadedFileIds.length = 0;
+  const persistedPaths = new Set([
+    path.join(isolatedUserData, 'config.json').toLowerCase(),
+    cloudStatePath.toLowerCase(),
+  ]);
+  const originalRenameSync = fs.renameSync;
+  const unchangedPullWrites: string[] = [];
+  fs.renameSync = ((oldPath: fs.PathLike, newPath: fs.PathLike) => {
+    const normalizedTarget = path.resolve(String(newPath)).toLowerCase();
+    if (persistedPaths.has(normalizedTarget)) unchangedPullWrites.push(normalizedTarget);
+    return originalRenameSync(oldPath, newPath);
+  }) as typeof fs.renameSync;
+  let unchangedPull: any;
+  try {
+    unchangedPull = await cloudManager.syncFromCloud(false);
+  } finally {
+    fs.renameSync = originalRenameSync;
+  }
+  assert.equal(unchangedPull.success, true);
+  assert.deepEqual(
+    unchangedPull.restoreResults.map((result: any) => result.status),
+    ['unchanged', 'unchanged'],
+  );
+  const metaFileId = Array.from(memoryFiles.values())
+    .find(file => file.name === 'tw_overlay_sync_meta.json')!.id;
+  assert.deepEqual(downloadedFileIds, [metaFileId],
+    '변경 없는 자동 pull이 검증 완료된 설정·숙제 payload를 다시 다운로드했습니다.');
+  assert.deepEqual(unchangedPullWrites, [],
+    '변경 없는 자동 pull이 config 또는 cloud state를 다시 원자 저장했습니다.');
+
   // 실제 매니저 흐름: 회사 PC 업로드가 확인된 직후 집 PC payload가 덮어쓴다.
   const beforeCompanyPayload = structuredClone(uploadedChecklist.payload);
   const baselineOperationIds = new Set((beforeCompanyPayload.operations || []).map((operation: any) => operation.id));

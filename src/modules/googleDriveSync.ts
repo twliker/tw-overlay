@@ -51,6 +51,8 @@ export interface DriveFileMeta {
   name: string;
   modifiedTime?: string;
   size?: string;
+  version?: string;
+  md5Checksum?: string;
 }
 
 /** Google Drive appDataFolder의 모든 파일 목록 조회 (최신 수정순) */
@@ -63,7 +65,7 @@ export async function listSyncFiles(): Promise<DriveFileMeta[]> {
       spaces: 'appDataFolder',
       q: 'trashed = false',
       orderBy: 'modifiedTime desc',
-      fields: 'nextPageToken,files(id,name,modifiedTime,size)',
+      fields: 'nextPageToken,files(id,name,modifiedTime,size,version,md5Checksum)',
       pageSize: '1000',
     });
     if (pageToken) params.set('pageToken', pageToken);
@@ -96,7 +98,7 @@ function escapeDriveQueryLiteral(value: string): string {
 /** Google Drive appDataFolder에서 지정한 파일 검색 (최신 수정순) */
 export async function findSyncFileByName(fileName: string): Promise<DriveFileMeta | null> {
   const query = encodeURIComponent(`name = '${escapeDriveQueryLiteral(fileName)}' and trashed = false`);
-  const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,size)`;
+  const url = `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${query}&orderBy=modifiedTime%20desc&fields=files(id,name,modifiedTime,size,version,md5Checksum)`;
 
   const res = await driveFetch(url);
 

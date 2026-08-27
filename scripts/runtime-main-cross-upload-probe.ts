@@ -11,6 +11,7 @@ interface RemoteFile {
   name: string;
   modifiedTime: string;
   size: string;
+  version: string;
   payload: any;
 }
 
@@ -175,6 +176,7 @@ void app.whenReady().then(() => {
         name: checklistFileName,
         modifiedTime: new Date().toISOString(),
         size: String(Buffer.byteLength(JSON.stringify(payload), 'utf8')),
+        version: '1',
         payload,
       };
       fs.writeFileSync(storePath, JSON.stringify({
@@ -210,7 +212,13 @@ void app.whenReady().then(() => {
   googleAuth.isLoggedIn = () => true;
   googleAuth.loadStoredProfile = () => ({ email: 'cross-upload@example.com' });
   googleDriveSync.listSyncFiles = async () => Object.values(loadStore().files)
-    .map(file => ({ id: file.id, name: file.name, modifiedTime: file.modifiedTime, size: file.size }));
+    .map(file => ({
+      id: file.id,
+      name: file.name,
+      modifiedTime: file.modifiedTime,
+      size: file.size,
+      version: file.version,
+    }));
 
   let firstChecklistDownload = true;
   let firstChecklistRevision: string | null = null;
@@ -243,6 +251,7 @@ void app.whenReady().then(() => {
     }
     const id = existingFileId || `${fileName}-id`;
     updateStore(store => {
+      const previousVersion = Number(store.files[fileName]?.version || 0);
       store.uploadCounts[device] = (store.uploadCounts[device] || 0) + 1;
       store.uploadOrder.push(device);
       if (fileName === checklistFileName) store.checklistUploadOrder.push(device);
@@ -251,6 +260,7 @@ void app.whenReady().then(() => {
         name: fileName,
         modifiedTime: new Date().toISOString(),
         size: String(Buffer.byteLength(JSON.stringify(payload), 'utf8')),
+        version: String(previousVersion + 1),
         payload: structuredClone(payload),
       };
     });
@@ -264,8 +274,14 @@ void app.whenReady().then(() => {
     try {
       const cloudSyncManager = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncManager.js')) as any;
       const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as any;
-      await cloudSyncManager.syncFromCloud(false);
-      await cloudSyncManager.flushPendingSync();
+      try {
+        await cloudSyncManager.syncFromCloud(false);
+        await cloudSyncManager.flushPendingSync();
+      } catch (error) {
+        // 교차 overwrite가 업로드 직후 검증보다 먼저 도착하는 것은 의도한 스트레스 상황이다.
+        // 매니저는 outbox를 유지하므로 deadline까지 다음 pull/repost로 수렴할 기회를 준다.
+        if (!String(error).includes('숙제 업로드 확인에 실패했습니다')) throw error;
+      }
       const state = JSON.parse(fs.readFileSync(path.join(userData, 'cloud-sync-state.json'), 'utf8'));
       const config = configModule.load();
       const store = loadStore();

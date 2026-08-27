@@ -5,6 +5,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isDeepStrictEqual } from 'util';
 import { app } from 'electron';
 import { AppConfig, GoogleChecklistSyncOperation, GoogleSyncFileRestoreResult, GoogleSyncProfileState } from '../shared/types';
 import { log } from './logger';
@@ -41,6 +42,10 @@ export interface CloudSyncLocalState {
     meta?: string;
   };
   remoteRevisions: {
+    settings?: string;
+    checklist?: string;
+  };
+  remoteFileFingerprints: {
     settings?: string;
     checklist?: string;
   };
@@ -109,6 +114,7 @@ function createState(): CloudSyncLocalState {
     profileState: detectProfileState(),
     fileIds: {},
     remoteRevisions: {},
+    remoteFileFingerprints: {},
     settingsDirtyKeys: [],
     settingsDirtyAt: {},
     checklistOutbox: [],
@@ -224,6 +230,11 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
       : 'needs-confirmation',
     fileIds: normalizeStringFields(parsed.fileIds, ['settings', 'checklist', 'meta'], 200),
     remoteRevisions: normalizeStringFields(parsed.remoteRevisions, ['settings', 'checklist'], 500),
+    remoteFileFingerprints: normalizeStringFields(
+      parsed.remoteFileFingerprints,
+      ['settings', 'checklist'],
+      1_000,
+    ),
     baseSettings: parsed.baseSettings,
     baseChecklist: parsed.baseChecklist,
     settingsDirtyKeys,
@@ -289,6 +300,7 @@ export function load(): CloudSyncLocalState {
 export function save(next: CloudSyncLocalState): boolean {
   const normalized = normalizeState(next);
   if (!normalized) return false;
+  if (cachedState && isDeepStrictEqual(cachedState, normalized)) return true;
   try {
     writeAtomic(normalized);
     cachedState = structuredClone(normalized);
