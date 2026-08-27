@@ -39,6 +39,7 @@ PowerShell에서는 아래 명령을 각각 한 줄씩 순서대로 실행합니
 npm ci
 npm run typecheck
 npm test
+npm run test:stress
 git diff --check
 npm audit --omit=dev --audit-level=critical
 ```
@@ -52,6 +53,8 @@ npm audit --omit=dev --audit-level=critical
   1. 전체 빌드
   2. `check-refactor-regressions.ts` 정적·기능 회귀 검사
   3. `check-renderer-behavior.ts` Electron DOM 통합 검사
+- `npm run test:stress`
+  - 초당 100건 이상 burst와 10초간 1,200건 지속 유입에서 채팅·숙제·XP·렌더 DOM 정합성 및 이벤트 루프 지연 검사
 - `npm audit --omit=dev`
   - 실제 설치 패키지에 포함되는 프로덕션 의존성의 알려진 취약점 검사
 - `git diff --check`
@@ -91,9 +94,10 @@ npm run test:zorder:windows
 
 ### 3.4 태그 전 검증 판정
 
-아래 네 묶음이 모두 통과해야 Section 6의 커밋·병합·태그 단계로 진행합니다.
+아래 다섯 묶음이 모두 통과해야 Section 6의 커밋·병합·태그 단계로 진행합니다.
 
 - [ ] 일반 자동 게이트 통과
+- [ ] 고처리량·지속 부하 게이트 통과
 - [ ] 관리자 권한 Windows Z-order 통합 게이트 통과
 - [ ] 사용자 실기 게이트 통과
 - [ ] Section 5의 실제 설치 파일 검증 통과
@@ -167,7 +171,7 @@ git push origin vX.Y.Z
 1. Windows runner에서 저장소 체크아웃
 2. Node.js 24 설치
 3. `npm ci`로 잠금 파일 기준 의존성 설치
-4. `npm run typecheck`, `npm test`, `npm audit --omit=dev --audit-level=critical` 검증
+4. `npm run typecheck`, `npm test`, `npm run test:stress`, `npm audit --omit=dev --audit-level=critical` 검증
 5. GitHub Secrets의 Analytics 값을 `dist/env.json`에 주입
 6. `electron-builder --publish never`로 Windows 설치 파일만 생성
 7. `softprops/action-gh-release`를 한 번 실행하여 Draft Release 하나를 생성

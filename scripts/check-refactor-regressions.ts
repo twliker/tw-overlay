@@ -3135,7 +3135,7 @@ function checkAgentDocumentationLocations(): void {
   ));
 
   const releaseWorkflow = read('.agents/release_workflow.md');
-  ['npm run typecheck', 'npm test', 'npm audit --omit=dev', 'npm run dist', 'npm run build-tools']
+  ['npm run typecheck', 'npm test', 'npm run test:stress', 'npm audit --omit=dev', 'npm run dist', 'npm run build-tools']
     .forEach(command => assert.ok(
       releaseWorkflow.includes(command),
       `릴리즈 워크플로우에 필수 명령이 없습니다: ${command}`,
