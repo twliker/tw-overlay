@@ -81,6 +81,37 @@ async function main(): Promise<void> {
     await window.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`);
     await waitFor(window, "document.querySelectorAll('#doc-content img').length === 2", '초기 가이드 이미지가 준비되지 않았습니다.');
 
+    const galleryState = await window.webContents.executeJavaScript(`(() => ({
+      galleryCount: document.querySelectorAll('#doc-content .guide-gallery').length,
+      imageCount: document.querySelectorAll('#doc-content .guide-gallery-image').length,
+      visibleImageCount: [...document.querySelectorAll('#doc-content .guide-gallery-image')]
+        .filter(image => !image.hidden).length,
+      position: document.querySelector('#doc-content .guide-gallery-position').textContent,
+      afterTitle: document.querySelector('#doc-content h1').nextElementSibling.className,
+    }))()`);
+    assert.deepEqual(galleryState, {
+      galleryCount: 1,
+      imageCount: 2,
+      visibleImageCount: 1,
+      position: '1 / 2',
+      afterTitle: 'guide-gallery',
+    }, '가이드 이미지가 제목 아래 한 장짜리 슬라이드로 묶이지 않습니다.');
+
+    const nextGalleryState = await window.webContents.executeJavaScript(`(() => {
+      document.querySelector('#doc-content .guide-gallery-button.next').click();
+      return {
+        visibleAlt: [...document.querySelectorAll('#doc-content .guide-gallery-image')]
+          .find(image => !image.hidden)?.alt,
+        position: document.querySelector('#doc-content .guide-gallery-position').textContent,
+      };
+    })()`);
+    assert.deepEqual(nextGalleryState, { visibleAlt: '두 번째 화면', position: '2 / 2' },
+      '인라인 슬라이드의 다음 이미지 이동이 동작하지 않습니다.');
+
+    await window.webContents.executeJavaScript(
+      "document.querySelector('#doc-content .guide-gallery-button.previous').click()"
+    );
+
     const opened = await window.webContents.executeJavaScript(`(() => {
       const image = document.querySelector('#doc-content img');
       image.focus();

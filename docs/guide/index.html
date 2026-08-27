@@ -244,6 +244,84 @@
       outline: 3px solid var(--accent);
       outline-offset: 4px;
     }
+    .guide-gallery {
+      margin: 22px 0 32px;
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.72);
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+    }
+    .guide-gallery-stage {
+      position: relative;
+      height: min(440px, 52vw);
+      min-height: 280px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 58px;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(168, 85, 247, 0.12), transparent 58%),
+        rgba(2, 6, 23, 0.55);
+    }
+    .markdown-body .guide-gallery-image {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      margin: 0;
+      border: 0;
+      border-radius: 10px;
+      object-fit: contain;
+      box-shadow: none;
+    }
+    .markdown-body .guide-gallery-image[hidden] {
+      display: none;
+    }
+    .guide-gallery-button {
+      position: absolute;
+      top: 50%;
+      z-index: 1;
+      width: 40px;
+      height: 52px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.88);
+      color: #f8fafc;
+      font-size: 22px;
+      cursor: pointer;
+      transform: translateY(-50%);
+    }
+    .guide-gallery-button:hover,
+    .guide-gallery-button:focus-visible {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.18);
+      outline: none;
+    }
+    .guide-gallery-button.previous { left: 10px; }
+    .guide-gallery-button.next { right: 10px; }
+    .guide-gallery-footer {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--card-border);
+    }
+    .guide-gallery-caption {
+      min-width: 0;
+      color: #cbd5e1;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .guide-gallery-position {
+      color: #7dd3fc;
+      font-size: 12px;
+      font-weight: 700;
+    }
     .image-viewer {
       position: fixed;
       inset: 0 0 0 var(--sidebar-width);
@@ -403,6 +481,15 @@
       .image-viewer-caption {
         max-width: 58vw;
       }
+      .guide-gallery-stage {
+        height: min(360px, 78vw);
+        min-height: 220px;
+        padding: 12px 48px;
+      }
+      .guide-gallery-button {
+        width: 36px;
+        height: 46px;
+      }
       .mobile-menu-btn {
         display: block;
       }
@@ -528,6 +615,8 @@
     const DEFAULT_DOC = 'quickstart';
     let docLoadGeneration = 0;
     let guideImages = [];
+    let galleryImageElements = [];
+    let activeGalleryImageIndex = 0;
     let activeImageIndex = 0;
     let imageViewerReturnFocus = null;
 
@@ -579,11 +668,58 @@
       renderImageViewer();
     }
 
+    function renderInlineGallery() {
+      const gallery = document.querySelector('#doc-content .guide-gallery');
+      if (!gallery || !guideImages[activeGalleryImageIndex]) return;
+      galleryImageElements.forEach((image, index) => {
+        image.hidden = index !== activeGalleryImageIndex;
+      });
+      gallery.querySelector('.guide-gallery-caption').textContent =
+        guideImages[activeGalleryImageIndex].alt || `가이드 이미지 ${activeGalleryImageIndex + 1}`;
+      gallery.querySelector('.guide-gallery-position').textContent =
+        `${activeGalleryImageIndex + 1} / ${guideImages.length}`;
+    }
+
+    function showAdjacentGalleryImage(offset) {
+      if (guideImages.length < 2) return;
+      activeGalleryImageIndex =
+        (activeGalleryImageIndex + offset + guideImages.length) % guideImages.length;
+      renderInlineGallery();
+      galleryImageElements[activeGalleryImageIndex]?.focus();
+    }
+
     function initializeImageGallery() {
       const images = Array.from(document.querySelectorAll('#doc-content img'));
       guideImages = images.map(image => ({ src: image.src, alt: image.alt }));
+      galleryImageElements = images;
+      activeGalleryImageIndex = 0;
       activeImageIndex = 0;
+      if (images.length === 0) return;
+
+      const standaloneContainers = images.map(image => {
+        const parent = image.parentElement;
+        return parent?.tagName === 'P' && parent.children.length === 1 && parent.textContent.trim() === ''
+          ? parent
+          : null;
+      });
+      const gallery = document.createElement('section');
+      gallery.className = 'guide-gallery';
+      gallery.setAttribute('aria-label', '가이드 이미지 슬라이드');
+      const stage = document.createElement('div');
+      stage.className = 'guide-gallery-stage';
+      const previousButton = document.createElement('button');
+      previousButton.className = 'guide-gallery-button previous';
+      previousButton.type = 'button';
+      previousButton.setAttribute('aria-label', '이전 가이드 이미지');
+      previousButton.textContent = '‹';
+      const nextButton = document.createElement('button');
+      nextButton.className = 'guide-gallery-button next';
+      nextButton.type = 'button';
+      nextButton.setAttribute('aria-label', '다음 가이드 이미지');
+      nextButton.textContent = '›';
+
       images.forEach((image, index) => {
+        image.classList.add('guide-gallery-image');
         image.tabIndex = 0;
         image.setAttribute('role', 'button');
         image.setAttribute('aria-label', `${image.alt || `가이드 이미지 ${index + 1}`} 확대`);
@@ -594,7 +730,33 @@
             openImageViewer(index, image);
           }
         });
+        stage.appendChild(image);
+        standaloneContainers[index]?.remove();
       });
+      const footer = document.createElement('div');
+      footer.className = 'guide-gallery-footer';
+      footer.innerHTML = '<div class="guide-gallery-caption"></div><span class="guide-gallery-position"></span>';
+      const hasMultipleImages = images.length > 1;
+      previousButton.hidden = !hasMultipleImages;
+      nextButton.hidden = !hasMultipleImages;
+      previousButton.addEventListener('click', () => showAdjacentGalleryImage(-1));
+      nextButton.addEventListener('click', () => showAdjacentGalleryImage(1));
+      stage.append(previousButton, nextButton);
+      gallery.append(stage, footer);
+      gallery.addEventListener('keydown', event => {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          showAdjacentGalleryImage(-1);
+        }
+        if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          showAdjacentGalleryImage(1);
+        }
+      });
+      const title = document.querySelector('#doc-content h1');
+      if (title) title.insertAdjacentElement('afterend', gallery);
+      else document.getElementById('doc-content').prepend(gallery);
+      renderInlineGallery();
     }
 
     function getDocFromUrl() {
@@ -606,6 +768,8 @@
       const generation = ++docLoadGeneration;
       closeImageViewer(false);
       guideImages = [];
+      galleryImageElements = [];
+      activeGalleryImageIndex = 0;
       activeImageIndex = 0;
       const contentEl = document.getElementById('doc-content');
       contentEl.innerHTML = '<div class="loading-state">문서를 불러오는 중입니다...</div>';
