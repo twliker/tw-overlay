@@ -1,4 +1,4 @@
-# TW-Overlay v3.0.0 사용자 실기 테스트 체크리스트
+# TW-Overlay v3.0.1 사용자 실기 테스트 체크리스트
 
 이 문서는 실제 PC에서 테스트하면서 직접 체크하고 코멘트를 남기는 실행용 문서다. 기술적인 합격 기준과 증거 수집 명령은 [`v3-manual-validation.md`](v3-manual-validation.md)를 참고한다.
 
@@ -15,8 +15,8 @@
 - 테스트 시작일:
 - 테스트 종료일:
 - 검증 커밋:
-- 설치 파일 이름:
-- 설치 파일 SHA-256:
+- 설치 파일 이름: `twOverlay-Setup-3.0.1.exe`
+- 설치 파일 SHA-256: `B6040CB82468CA32EF7F42FC383C231887D1868DCAA2A800999257A5C3836F8B`
 - PC-A 역할/환경:
 - PC-B 역할/환경:
 - 테일즈위버 모드: 창모드 / 창모드 전체화면
@@ -56,18 +56,18 @@ npm run test:zorder:windows
 
 - [x] **FIX-01 — 관리자 권한 실제 HWND 검사가 통과한다.**
   - 합격: 출력의 `passed`와 `elevated`가 모두 `true`이고 종료 코드가 0이다.
-  - 코멘트: 2026-08-27 19:02 KST, v3.0.0 릴리즈 후보에서 관리자 PowerShell로 통과했다.
-  - 증거/로그: `passed: true`, `elevated: true`, 종료 코드 0
+  - 코멘트: v3.0.1 최종 소스에서 관리자 PowerShell로 재검증했다.
+  - 증거/로그: 2026-08-28 `npm run test:zorder:windows` 종료 코드 0, `passed: true`, `elevated: true`.
 
 - [x] **FIX-02 — 창모드 시나리오가 통과한다.**
   - 합격: tracker 탐지, 게임 foreground 보존, 외부 창 우선, 오버레이 순서 복구가 모두 `true`다.
-  - 코멘트: 게임과 외부 창의 foreground를 침범하지 않고 확정된 오버레이 band·내부 순서를 복구했다.
-  - 증거/로그: `gameTopmost: false`, `foregroundPreservedForGame: true`, `foregroundPreservedForExternal: true`, `overlayTopmostWhileGameActive: true`, `externalOrderingPolicyPreserved: true`, `overlayBandsMatchGame: true`, `overlayStackRepaired: true`
+  - 코멘트: 게임·외부 foreground 보존, 외부 순서, overlay band·stack 복구와 명시적 앱 활성화를 확인했다.
+  - 증거/로그: windowed의 `foregroundPreservedForGame`, `foregroundPreservedForExternal`, `externalOrderingPolicyPreserved`, `overlayBandsMatchGame`, `overlayStackRepaired`, `appActivationRaisedGame` 모두 `true`.
 
 - [x] **FIX-03 — 창모드 전체화면 시나리오가 통과한다.**
   - 합격: borderless bounds와 게임 위치·크기·Topmost 불변, 외부 창 우선, 오버레이 순서 복구가 모두 정상이다.
-  - 코멘트: 화면 전체 bounds를 인식했고 게임을 Topmost로 바꾸지 않은 채 외부 창 우선과 오버레이 순서를 보존했다.
-  - 증거/로그: `gameTopmost: false`, `foregroundPreservedForGame: true`, `foregroundPreservedForExternal: true`, `overlayTopmostWhileGameActive: true`, `externalOrderingPolicyPreserved: true`, `overlayBandsMatchGame: true`, `overlayStackRepaired: true`
+  - 코멘트: 2560×1440 borderless bounds와 게임 Topmost 불변을 포함한 동일 정책을 확인했다.
+  - 증거/로그: borderless의 `foregroundPreservedForGame`, `foregroundPreservedForExternal`, `externalOrderingPolicyPreserved`, `overlayBandsMatchGame`, `overlayStackRepaired`, `appActivationRaisedGame` 모두 `true`.
 
 상세 사용법: [`fake-talesweaver-fixture.md`](fake-talesweaver-fixture.md)
 
@@ -354,10 +354,10 @@ npm run test:zorder:windows
 ## 9. Microsoft Store 패키지
 
 - [x] **MST-01 — 제출할 AppX 내부 검증을 통과한다.**
-  - 실행: `npm run verify:appx -- dist_electron/twOverlay-3.0.0.appx`
+  - 실행: `npm run verify:appx -- dist_electron/twOverlay-3.0.1.appx`
   - 합격: `passed: true`이며 TW-Overlay 타일 4개, `runFullTrust`·`allowElevation`, `Microsoft.VCLibs.140.00.UWPDesktop`, 앱 진입점과 Windows x64 네이티브 모듈이 모두 확인된다.
-  - AppX SHA-256: `BC508B7FAD29444DB012DFADA02D31832168BD01E0738D53E4E5B035AB823D80`
-  - 코멘트: 2026-08-27 사용자 공지 이미지 반영 뒤 재생성한 v3.0.0 AppX에서 내부 검증을 통과했다. Store 서명본 설치·실행 검증은 MST-02~04에서 별도로 수행한다.
+  - AppX SHA-256: `A4B28044905FEA4CD35CA3B411C1C51300B3D993AC13DFF5272B08C3F175A1BD`
+  - 코멘트: 2026-08-28 v3.0.1 AppX 생성 직후 자동 검증 통과. Store 서명본 설치·실행 검증은 MST-02~04에서 별도로 수행한다.
 
 - [ ] **MST-02 — 서명된 Store 패키지의 타일이 제품을 올바르게 나타낸다.**
   - 사전 조건: Partner Center 서명본·비공개 flight 또는 제출본 복사본의 테스트 서명 패키지를 사용한다.
@@ -412,9 +412,9 @@ npm run test:zorder:windows
 
 ### 최종 코멘트
 
-- 전체 결과: 조건부 통과 — 사용자 승인으로 남은 실기 검증을 제외하고 긴급 배포
-- 릴리즈 차단 결함: 자동 게이트·스트레스 검사·관리자 windowed/borderless Z-order probe·AppX 내부 검증에서 재현된 차단 결함 없음
-- 미수행 사유와 영향: v2.7.1의 심각한 Z-order 불편을 빠르게 해소하기 위해 최종 NSIS 업데이트 설치, 실제 게임 장시간 소크, 실계정 두 PC 동기화, Windows 로그오프·재부팅, Store 서명본 2회 실행을 배포 전 필수 조건에서 제외했다. 해당 환경에서만 드러나는 결함 위험은 남아 있으며 배포 후 피드백을 우선 관찰한다.
-- 후속 개선 사항: 미수행 실기는 배포 후 회귀 확인으로 유지하고 문제가 보고되면 재현 가능한 최소 수정으로 후속 패치를 준비한다.
-- 최종 확인자: 사용자
-- 확인 시각: 2026-08-27 KST
+- 전체 결과: 사용자 승인에 따른 조건부 릴리즈 진행
+- 릴리즈 차단 결함: 자동 게이트와 관리자 Z-order probe에서 확인된 차단 결함 없음
+- 미수행 사유와 영향: 3.0.0 배포 직후 접수된 사용자 피드백을 빠르게 안정화하는 것을 우선해 NSIS 실제 신규·업데이트 설치, 실제 게임·두 PC Google Drive·Windows 종료/DPI/RDP, Store 서명본 실행 실기를 이번 릴리즈의 필수 범위에서 제외한다. 자동 fixture와 정적 패키지 검증이 다루지 못한 실제 환경 회귀가 남을 수 있다.
+- 후속 개선 사항: 배포 후 사용자 피드백을 즉시 확인하고 재현 가능한 결함은 최소 수정으로 후속 안정화한다. Store 서명본은 Partner Center 제출 뒤 첫 실행·재실행과 VCLibs·타일을 별도 확인한다.
+- 최종 확인자: 사용자(실기 제외 승인), Codex(자동·패키지 정적 검증)
+- 확인 시각: 2026-08-28

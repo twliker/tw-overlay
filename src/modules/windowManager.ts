@@ -1371,6 +1371,20 @@ export function getAllWindowHwnds(): string[] {
   const dockWin = windowRegistry.dock?.ref;
   return focusController.getOrderedWindowHandles(mainWindow, dockWin, gameOverlayWindow);
 }
+
+/**
+ * 외부 앱에서 TW-Overlay 작업표시줄 창을 사용자가 직접 활성화한 경우에만
+ * 최소화되지 않은 게임을 먼저 올리고, 선택한 우리 창을 다시 foreground로 복구한다.
+ * 최종 관계는 `외부 앱 < 게임 < TW-Overlay`이며 자동 표시 경로에서는 호출하지 않는다.
+ */
+export function activateGameBehindAppWindow(focusedAppHwnd: string): boolean {
+  if (!getAllWindowHwnds().includes(focusedAppHwnd)) return false;
+  if (!tracker.focusGameForAppActivation(focusedAppHwnd)) return false;
+  const refocused = focusController.refocusVisibleWindowByHandle(focusedAppHwnd);
+  if (refocused) bringGameAndOverlaysToTop();
+  log(`[WINDOW_FOCUS] Explicit app group activation ${refocused ? 'succeeded' : 'failed'} app=${focusedAppHwnd}`);
+  return refocused;
+}
 export function updateViewBounds(): void {
   if (!overlayWindow || !view) return;
   const b = overlayWindow.getBounds();

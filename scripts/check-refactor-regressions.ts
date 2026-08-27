@@ -1067,10 +1067,10 @@ function checkRendererResources() {
       '앱 동작', '사이드바 & 독', '웹 브라우저 창', '퀵슬롯 관리',
       'HUD 위젯 관리', '게임 상황 & 기믹 알림',
       '채팅 로그 연동', '채팅 오버레이', '득템 & 외치기',
-      '외부 모니터링', '소리 & 볼륨 믹서', '알림 기록',
+      '외부 모니터링', '소리 & 볼륨 믹서', '커스텀 알림음', '알림 기록',
       '단축키 설정', '데이터 관리', '네트워크 최적화', '앱 정보 & 업데이트',
     ],
-    '설정 2depth 메뉴 16개가 의도한 순서와 구성으로 연결되어야 합니다.',
+    '설정 2depth 메뉴 17개가 의도한 순서와 구성으로 연결되어야 합니다.',
   );
   settingsRoutes.forEach(route => {
     assert.match(settingsPage, new RegExp(`id="section-${route.section}"`),
@@ -1096,10 +1096,23 @@ function checkRendererResources() {
     '사이드바/독 설정 바로가기 경로가 없습니다.');
   assert.match(settingsPage, /'display:game-overlay': \{ groupId: 'game', routeIndex: 0 \}/,
     '게임 오버레이 설정 바로가기 경로가 없습니다.');
+  assert.match(settingsPage, /'chatlog:history-sync': \{ groupId: 'chat', routeIndex: 0 \}/,
+    '과거 채팅 로그 동기화 설정 바로가기 경로가 없습니다.');
+  assert.match(settingsPage, /tabId === 'chatlog:history-sync'[\s\S]*?targetId = 'btn-manual-sync'/,
+    '과거 채팅 로그 동기화 바로가기가 실행 버튼을 강조하지 않습니다.');
+  assert.match(settingsPage, /모험일지 보관 기간 안에 남아 있는 모든 채팅 로그/,
+    '과거 채팅 로그 동기화 범위가 사용자에게 올바르게 안내되지 않습니다.');
+  assert.match(settingsPage, /로그가 많으면 분석 중 프로그램이 일시적으로 느려질 수 있습니다/,
+    '과거 채팅 로그 대량 분석 중 성능 안내가 설정 화면에 없습니다.');
+  assert.match(settingsPage, /onChatLogSyncProgress\(renderManualChatLogSyncProgress\)/,
+    '과거 채팅 로그 동기화 진행률을 설정 화면에 연결하지 않았습니다.');
+  assert.match(settingsPage, /info\.failedFiles[\s\S]*?읽기 실패/,
+    '과거 채팅 로그 동기화 중 실패한 파일을 계속 표시하지 않습니다.');
   assert.match(settingsPage, /'data:retention': \{ groupId: 'system', routeIndex: 1 \}/,
     '모험일지 보관 설정 바로가기 경로가 없습니다.');
   const settingsShortcutTargets: Array<[string, string]> = [
     ['src/welcome-guide.html', 'chatlog'],
+    ['src/welcome-guide.html', 'chatlog:history-sync'],
     ['src/welcome-guide.html', 'display:sidebar'],
     ['src/welcome-guide.html', 'display:game-overlay'],
     ['src/welcome-guide.html', 'sound'],
@@ -1193,6 +1206,11 @@ function checkRendererResources() {
   );
   assert.match(settingsPage, /settingsAudioControls\.bindVolumeControl\('contents-checker', volContents\)/);
   assert.match(settingsPage, /settingsAudioControls\.bindVolumeControl\('calculators', volCalc\)/);
+  assert.match(settingsPage,
+    /alerts:\s*\[[\s\S]*?label: '커스텀 알림음'[\s\S]*?subTab: 'sub-tab-custom-sounds'/,
+    '커스텀 알림음 관리가 외부 알림 & 소리 상단 메뉴에서 누락되었습니다.');
+  assert.match(settingsPage, /'sound:custom': \{ groupId: 'alerts', routeIndex: 2 \}/,
+    '커스텀 알림음 딥링크가 전용 상단 메뉴로 연결되지 않습니다.');
   assert.equal(
     (settingsPage.match(/settingsAudioControls\.refreshAlertSoundSelects\(\)/g) || []).length,
     3,
@@ -2089,6 +2107,25 @@ function checkWindowedFullscreenFocusContracts(): void {
     '지연 포커스 복구 예약 시점에 외부 창 포커스를 확인하지 않습니다.');
   assert.match(manager, /canRestoreFocus:[^\n]*tracker\.canAutomaticallyRestoreGameFocus\(\)/,
     '지연 포커스 복구 실행 직전에 외부 창 포커스를 재확인하지 않습니다.');
+  assert.match(read('src/main.ts'), /previousForegroundOwner === 'external'[\s\S]*?foregroundOwner === 'app'[\s\S]*?activateGameBehindAppWindow\(focusedHwndStr\)/,
+    '외부 앱에서 TW-Overlay 작업표시줄 창을 명시적으로 선택했을 때 게임 묶음을 활성화하지 않습니다.');
+  assert.match(manager, /export function activateGameBehindAppWindow\(focusedAppHwnd: string\)[\s\S]*?focusGameForAppActivation\(focusedAppHwnd\)[\s\S]*?refocusVisibleWindowByHandle\(focusedAppHwnd\)/,
+    '명시적 앱 활성화가 게임을 먼저 올린 뒤 사용자가 선택한 TW-Overlay 창으로 포커스를 돌리지 않습니다.');
+  const explicitActivationStart = tracker.indexOf('export function focusGameForAppActivation');
+  const explicitActivationEnd = tracker.indexOf('export function releaseGameZOrder', explicitActivationStart);
+  assert.ok(explicitActivationStart >= 0 && explicitActivationEnd > explicitActivationStart,
+    '명시적 TW-Overlay 활성화용 게임 포커스 함수를 찾지 못했습니다.');
+  const explicitActivationSource = tracker.slice(explicitActivationStart, explicitActivationEnd);
+  assert.match(explicitActivationSource, /foregroundBefore !== expectedAppHwnd/,
+    '예약 뒤 foreground가 바뀐 요청을 폐기하지 않습니다.');
+  assert.match(explicitActivationSource, /win32\.IsIconic && win32\.IsIconic\(cachedHwnd\)[\s\S]*?return false/,
+    '사용자가 최소화한 게임을 TW-Overlay 작업표시줄 활성화로 복원할 수 있습니다.');
+  assert.match(explicitActivationSource, /SetForegroundWindow\(cachedHwnd\)/,
+    '명시적 사용자 활성화에서 게임을 같은 작업 묶음으로 올리지 않습니다.');
+  assert.doesNotMatch(explicitActivationSource, /ShowWindow|BringWindowToTop|keybd_event|SetWindowPos/,
+    '명시적 사용자 활성화가 게임 show state·Topmost 또는 가상 키를 변경합니다.');
+  assert.match(windowsProbe, /appActivationRaisedGame[\s\S]*?explicit app group activation/,
+    'Windows 실제 HWND probe가 작업표시줄 TW-Overlay 활성화 시 게임 동반 상승을 검사하지 않습니다.');
 
   const sandwichStart = manager.indexOf('function bringGameAndOverlaysToTop(): void');
   const sandwichEnd = manager.indexOf('export const isAnyUserDragging', sandwichStart);
@@ -3691,7 +3728,7 @@ function checkTodaySummary(): void {
   assert.equal(summary.totalElso, 3500);
   assert.equal(summary.totalEssence, 3);
   assert.equal(summary.bossKills, 1);
-  assert.equal(summary.totalLootCount, 6);
+  assert.equal(summary.totalLootCount, 3);
   assert.deepEqual(summary.lootItems, [
     { name: '경험의 정수', count: 3 },
     { name: '장비 강화석', count: 3 },
@@ -3708,13 +3745,33 @@ function checkTodaySummary(): void {
   });
 
   assert.match(read('src/modules/chatLogProcessor.ts'),
-    /isAlwaysTrackedItem = data\.itemName === '경험의 정수'[\s\S]*?if \(data\.isOwn && \(matchedKeyword \|\| isAlwaysTrackedItem\)\)/,
-    '경험의 정수가 사용자 득템 키워드와 관계없이 기록되지 않습니다.');
+    /matchesRegisteredLoot\(keywords, data\.itemName\)/,
+    '등록 해제한 아이템이 실시간 모험일지 기록에서 제외되지 않습니다.');
   assert.match(read('src/modules/chatLogProcessor.ts'), /data\.isOwn/,
     '타인의 획득 알림이 모험일지에 기록될 수 있습니다.');
   assert.match(read('src/modules/chatLogProcessor.ts'),
-    /isAlwaysTrackedItem[\s\S]*?formatLootDiaryContent\(data\.itemName\)[\s\S]*?: `\[득템\] \$\{data\.message\}`/,
-    '경험의 정수 외 아이템까지 저장 형식이 변경될 수 있습니다.');
+    /const diaryContent = formatLootDiaryContent\(data\.itemName\)/,
+    '실시간 득템 기록이 정확한 파싱 아이템명으로 저장되지 않습니다.');
+  const lootPolicy = require(path.join(projectRoot, 'dist/shared/lootPolicy.js')) as {
+    matchesRegisteredLoot(keywords: string[], ...candidates: string[]): boolean;
+    countsTowardLootTotal(value: string): boolean;
+  };
+  assert.equal(lootPolicy.matchesRegisteredLoot(['하급 마정석'], '[득템] [하급 마정석]'), true);
+  assert.equal(lootPolicy.matchesRegisteredLoot(['경험의 심장'], '경험의 심장'), true);
+  assert.equal(lootPolicy.matchesRegisteredLoot(['경험의 심장'], '룬 경험의 심장'), false,
+    '등록되지 않은 룬 경험의 심장이 경험의 심장 부분 문자열로 오탐되었습니다.');
+  assert.equal(lootPolicy.matchesRegisteredLoot(
+    ['경험의 심장'],
+    '[득템] [룬 경험의 심장]을(를) 10개 습득했습니다.',
+  ), false, '구버전 원문 형식의 룬 경험의 심장이 등록 아이템으로 오탐되었습니다.');
+  assert.equal(lootPolicy.matchesRegisteredLoot(
+    ['경험의 심장'],
+    '[득템] [경험의 심장]을(를) 3개 습득했습니다.',
+  ), true, '구버전 원문 형식의 경험의 심장을 식별하지 못했습니다.');
+  assert.equal(lootPolicy.matchesRegisteredLoot([], '[득템] [하급 마정석]'), false);
+  assert.equal(lootPolicy.countsTowardLootTotal('하급 마정석'), false);
+  assert.equal(lootPolicy.countsTowardLootTotal('경험의 정수'), false);
+  assert.equal(lootPolicy.countsTowardLootTotal('스페셜 스킬'), true);
   assert.match(read('src/modules/diaryDb.ts'),
     /normalizeExistingLootContent\((?:true)?\)[\s\S]*?if \(!condensed\.includes\('경험의정수'\)\) continue/,
     '기존 비정규 득템 기록을 정리하는 마이그레이션이 누락되었습니다.');
@@ -4032,7 +4089,7 @@ function checkChatLogSyncManagerContracts() {
     diaryDb.initDb();
     const testDate = '2099-12-31';
     const testTime = '23:59:59';
-    const testContent = '[득템] 테스트 동기화 아이템 획득';
+    const testContent = '[득템] 테스트 동기화 아이템';
 
     const firstAdd = diaryDb.addActivityLogIfAbsent(testDate, testTime, 'loot', testContent, 1, false);
     assert.equal(firstAdd, true, '최초 활동 기록 추가는 true여야 합니다.');
@@ -4047,6 +4104,12 @@ function checkChatLogSyncManagerContracts() {
     const firstManualId = diaryDb.addManualActivityLog(testDate, '23:58:00', 'loot', manualContent, 1);
     const secondManualId = diaryDb.addManualActivityLog(testDate, '23:58:01', 'loot', manualContent, 2);
     assert.ok(Number.isSafeInteger(firstManualId) && Number.isSafeInteger(secondManualId));
+    assert.equal(diaryDb.getDiaryByDate(testDate, []).activityLogs
+      .filter((log: { type: string }) => log.type === 'loot').length, 2,
+    '등록 아이템이 없어도 사용자가 직접 추가한 득템은 표시되어야 합니다.');
+    assert.equal(diaryDb.getDiaryByDate(testDate, ['테스트 동기화 아이템']).activityLogs
+      .filter((log: { type: string }) => log.type === 'loot').length, 3,
+    '등록된 자동 득템과 수동 득템이 함께 표시되지 않습니다.');
     assert.equal(diaryDb.removeManualActivityLogById(firstManualId), true,
       '수동 기록을 row ID로 삭제하지 못했습니다.');
     const remainingManual = diaryDb.getDiaryByDate(testDate).activityLogs
@@ -4055,6 +4118,22 @@ function checkChatLogSyncManagerContracts() {
     assert.equal(remainingManual[0].id, secondManualId);
     assert.equal(remainingManual[0].source, 'manual');
     assert.equal(diaryDb.removeManualActivityLogById(secondManualId), true);
+
+    const magicContent = '[득템] [하급 마정석]';
+    assert.equal(diaryDb.addActivityLogIfAbsent(testDate, '23:57:00', 'loot', magicContent, 5_000, false), true);
+    assert.equal(diaryDb.getDiaryByDate(testDate, ['테스트 동기화 아이템']).activityLogs
+      .some((log: { content: string }) => log.content === magicContent), false,
+    '등록 해제한 과거 마정석 기록이 모험일지에 표시됩니다.');
+    const visibleSummary = diaryDb.getMonthlySummary('2099-12', ['테스트 동기화 아이템', '하급 마정석']);
+    assert.equal(visibleSummary.lootList.some((log: { content: string }) => log.content === magicContent), true,
+      '등록한 마정석 과거 기록이 다시 표시되지 않습니다.');
+    assert.equal(visibleSummary.totalLoots, 1,
+      '마정석 수량이 일반 득템 합계를 오염시킵니다.');
+    assert.equal(diaryDb.getLootHistory(testDate, testDate, ['테스트 동기화 아이템']).length, 1,
+      '득템 전용 목록이 등록 해제한 기록을 제외하지 않습니다.');
+    diaryDb.removeActivityLog(testDate, 'loot', magicContent);
+    assert.equal(diaryDb.getDiaryByDate(testDate).activityLogs
+      .some((log: { content: string }) => log.content === magicContent), false);
 
     const automaticLog = diaryDb.getDiaryByDate(testDate).activityLogs
       .find((log: { content: string }) => log.content === testContent);
@@ -7696,7 +7775,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const scheduledPullDelays: number[] = [];
   let clearedPullTimers = 0;
   (globalThis as any).setTimeout = (callback: (...args: any[]) => void, delay?: number, ...args: any[]) => {
-    if (typeof delay === 'number' && delay >= 25_000 && delay <= 1_000_000) {
+    const callbackSource = typeof callback === 'function' ? Function.prototype.toString.call(callback) : '';
+    const isCloudPullTimer = callbackSource.includes('syncFromCloud(false)')
+      && callbackSource.includes('주기적 수신 실패');
+    if (isCloudPullTimer && typeof delay === 'number' && delay >= 25_000 && delay <= 1_000_000) {
       scheduledPullDelays.push(delay);
       return { cloudPullProbeTimer: true };
     }
@@ -8145,7 +8227,7 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
       wait?: (delayMs: number) => Promise<void>,
     ): Promise<Buffer>;
   };
-  const { inspectChatLogFileWithRetry } = require(path.join(
+  const { inspectChatLogFileWithRetry, inspectChatLogFileAsyncWithRetry } = require(path.join(
     projectRoot,
     'dist',
     'modules',
@@ -8161,6 +8243,23 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
         snapshotSize: number;
         encoding: 'utf8' | 'euc-kr';
       },
+      wait: (delayMs: number) => Promise<void>,
+    ): Promise<{
+      fingerprint: string;
+      fingerprintBytes: number;
+      snapshotSize: number;
+      encoding: 'utf8' | 'euc-kr';
+    }>;
+    inspectChatLogFileAsyncWithRetry(
+      filePath: string,
+      dateStr: string,
+      previous: unknown,
+      inspect: () => Promise<{
+        fingerprint: string;
+        fingerprintBytes: number;
+        snapshotSize: number;
+        encoding: 'utf8' | 'euc-kr';
+      }>,
       wait: (delayMs: number) => Promise<void>,
     ): Promise<{
       fingerprint: string;
@@ -8229,13 +8328,39 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
   assert.equal(inspectionAttempts, 3);
   assert.deepEqual(inspectionDelays, [100, 200]);
 
+  let asyncInspectionAttempts = 0;
+  const asyncInspectionDelays: number[] = [];
+  const asyncInspection = await inspectChatLogFileAsyncWithRetry(
+    'locked-async-inspection-fixture.html',
+    '2026-08-26',
+    undefined,
+    async () => {
+      asyncInspectionAttempts++;
+      if (asyncInspectionAttempts < 3) {
+        const error = new Error('locked async inspection') as NodeJS.ErrnoException;
+        error.code = 'EBUSY';
+        throw error;
+      }
+      return {
+        fingerprint: 'async-recovered-inspection',
+        fingerprintBytes: 32,
+        snapshotSize: 64,
+        encoding: 'utf8',
+      };
+    },
+    async delayMs => { asyncInspectionDelays.push(delayMs); },
+  );
+  assert.equal(asyncInspection.fingerprint, 'async-recovered-inspection');
+  assert.equal(asyncInspectionAttempts, 3);
+  assert.deepEqual(asyncInspectionDelays, [100, 200]);
+
   const workerSource = read('src/modules/chatLogSyncWorker.ts');
   const managerSource = read('src/modules/chatLogSyncManager.ts');
   assert.match(workerSource, /failedFiles\.push\([\s\S]*?fileName: file\.fileName[\s\S]*?error: String\(error\)/);
   assert.match(managerSource, /preflightFailedFiles\.push\([\s\S]*?fileName: target\.fileName[\s\S]*?continue;/);
   assert.match(managerSource, /failedFiles = \[\.\.\.preflightFailedFiles, \.\.\.\(doneData\.failedFiles \|\| \[\]\)\]/);
   assert.match(managerSource, /partial = failedFiles\.length > 0/);
-  assert.match(read('src/settings.html'), /일부 동기화 완료/);
+  assert.match(read('src/settings.html'), /일부 복원 완료/);
 }
 
 async function checkChatLogWorkerBatchProtocol(): Promise<void> {
@@ -8244,6 +8369,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
   const protocol = require(path.join(projectRoot, 'dist', 'modules', 'chatLogSyncProtocol.js')) as any;
   const stateModule = require(path.join(projectRoot, 'dist', 'modules', 'chatLogSyncState.js')) as any;
   const diaryDb = require(path.join(projectRoot, 'dist', 'modules', 'diaryDb.js')) as any;
+  const { getHomeworkResetCycleKey } = require(path.join(projectRoot, 'dist', 'shared', 'homeworkResetCycle.js')) as any;
   const workerScript = path.join(projectRoot, 'dist', 'modules', 'chatLogSyncWorker.js');
   const fixtureDirectory = path.join(isolatedUserData, 'chat-sync-worker-fixtures');
   fs.mkdirSync(fixtureDirectory, { recursive: true });
@@ -8254,23 +8380,36 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const filler = Array.from({ length: 1_999 }, (_, index) => `ignored-${index}`);
     const magicTwo = '<font size="2" color="white"> [22시 40분 15초] </font><font>[하급 마정석] 2개를 획득하였습니다.</font></br>';
     const eternalFloor = '<font size="2" color="white"> [17시 11분  8초] </font><font>[이터널 플로어 보상 상자] 아이템을 획득하였습니다.</font></br>';
+    const etaDaily = '<font size="2" color="white"> [18시 11분  8초] </font><font>[루이나 및 제네로 일반 상자] 아이템을 습득했습니다.</font></br>';
     const longSeed = `<font size="2" color="white"> [ 0시 25분 25초] </font> <font size="2" color="#ff64ff">${'A'.repeat(270_000)} 콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>`;
-    const content = [magicOne, ...filler, magicTwo, eternalFloor, longSeed].join('\n') + '\n';
+    const content = [magicOne, ...filler, magicTwo, eternalFloor, etaDaily, longSeed].join('\n') + '\n';
     const encoded = encoding === 'utf8' ? Buffer.from(content, 'utf8') : iconv.encode(content, 'euc-kr');
     fs.writeFileSync(filePath, encoded);
     const fingerprint = crypto.createHash('sha256').update(encoded).digest('hex');
     const jobId = `regression-${encoding}-${crypto.randomUUID()}`;
+    const policyFingerprint = 'regression-policy-v2';
     const batches: any[] = [];
 
     const worker = new Worker(workerScript, {
       workerData: {
         jobId,
-        lootKeywords: [],
+        lootKeywords: ['하급 마정석'],
+        homeworkCycleKeys: {
+          'weekly-eternal-floor': {
+            rule: { type: 'weekly', dayOfWeek: 1, hour: 0 },
+            cycleKey: getHomeworkResetCycleKey({ type: 'weekly', dayOfWeek: 1, hour: 0 }, new Date(2026, 7, 25, 12).getTime()),
+          },
+          'daily-eta-quest': {
+            rule: { type: 'daily', hour: 0 },
+            cycleKey: getHomeworkResetCycleKey({ type: 'daily', hour: 0 }, new Date(2026, 7, 25, 12).getTime()),
+          },
+        },
         targetFiles: [{
           filePath,
           fileName: path.basename(filePath),
           dateStr: encoding === 'utf8' ? '2026-08-24' : '2026-08-25',
           fingerprint,
+          policyFingerprint,
           fingerprintBytes: 4_096,
           startOffset: 0,
           snapshotSize: encoded.length,
@@ -8337,6 +8476,13 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       `${encoding} 다중 바이트 문자가 read chunk 경계에서 손상되었습니다.`);
     assert.equal(finalBatch.aggregate.seedsDetected, 1);
     assert.deepEqual(finalBatch.aggregate.homework['weekly-eternal-floor'], { count: 1, isIncrement: true });
+    if (encoding === 'utf8') {
+      assert.equal(finalBatch.aggregate.homework['daily-eta-quest'], undefined,
+        '이전 일일 리셋 주기의 숙제가 현재 체크리스트 집계에 포함되었습니다.');
+    } else {
+      assert.deepEqual(finalBatch.aggregate.homework['daily-eta-quest'], { count: 1, isIncrement: true },
+        '현재 일일 리셋 주기의 숙제가 동기화 집계에서 누락되었습니다.');
+    }
 
     const { ChatParser } = require(path.join(projectRoot, 'dist', 'modules', 'chatParser.js')) as any;
     const normalizer = require(path.join(projectRoot, 'dist', 'modules', 'chatLogNormalizer.js')) as any;
@@ -8383,19 +8529,31 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     path.basename(utf8First.filePath),
     '2026-08-24',
     initialInspection.fingerprint,
+    'regression-policy-v2',
     initialInspection.fingerprintBytes,
     initialInspection.snapshotSize,
   );
   durable.confirmedOffset = initialInspection.snapshotSize;
-  const localState = { schemaVersion: 1, files: { [stateModule.getChatLogSyncStateKey(utf8First.filePath)]: durable } };
+  const localState = { schemaVersion: 2, files: { [stateModule.getChatLogSyncStateKey(utf8First.filePath)]: durable } };
   stateModule.saveChatLogSyncStateAtPath(fixtureDirectory, localState);
   const reloaded = stateModule.loadChatLogSyncStateAtPath(fixtureDirectory);
   assert.equal(reloaded.files[stateModule.getChatLogSyncStateKey(utf8First.filePath)].confirmedOffset, initialInspection.snapshotSize);
 
+  const manyFiles: Record<string, any> = {};
+  for (let index = 0; index < 40; index++) {
+    const cloned = { ...durable, filePath: `${utf8First.filePath}.${index}`, fileName: `fixture-${index}.html`, updatedAt: index + 1 };
+    manyFiles[stateModule.getChatLogSyncStateKey(cloned.filePath)] = cloned;
+  }
+  stateModule.saveChatLogSyncStateAtPath(fixtureDirectory, { schemaVersion: 2, files: manyFiles });
+  assert.equal(Object.keys(stateModule.loadChatLogSyncStateAtPath(fixtureDirectory).files).length, 40,
+    '과거 로그 내구 상태가 기존 32개 제한으로 잘렸습니다.');
+
   fs.appendFileSync(utf8First.filePath, Buffer.from('append-only\n', 'utf8'));
   const appendInspection = stateModule.inspectChatLogFile(utf8First.filePath, '2026-08-24', durable);
-  assert.equal(stateModule.canResumeChatLogFile(durable, appendInspection, '2026-08-24'), true,
+  assert.equal(stateModule.canResumeChatLogFile(durable, appendInspection, '2026-08-24', 'regression-policy-v2'), true,
     '정상 append 뒤 확정 offset에서 재개하지 못합니다.');
+  assert.equal(stateModule.canResumeChatLogFile(durable, appendInspection, '2026-08-24', 'changed-policy'), false,
+    '득템/숙제 동기화 정책이 바뀌었는데 이전 offset을 재사용합니다.');
   fs.writeFileSync(utf8First.filePath, 'truncated\n', 'utf8');
   const truncateInspection = stateModule.inspectChatLogFile(utf8First.filePath, '2026-08-24', durable);
   assert.equal(stateModule.canResumeChatLogFile(durable, truncateInspection, '2026-08-24'), false,
@@ -8415,11 +8573,22 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
   fs.writeFileSync(managerFile, managerLines.join('\n') + '\n', 'utf8');
   const configModule = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as any;
   const syncManager = require(path.join(projectRoot, 'dist', 'modules', 'chatLogSyncManager.js')) as any;
+  assert.equal(
+    syncManager.getDiaryRetentionStartDate(180, new Date(2026, 7, 27)).getTime(),
+    new Date(2026, 1, 28).getTime(),
+    '과거 로그 기본 시작일이 모험일지 보관 기간과 일치하지 않습니다.',
+  );
   const previousChatLogPath = configModule.load().chatLogPath;
+  const previousLootKeywords = configModule.load().lootKeywords;
+  const previousContentsCheckerItems = structuredClone(configModule.load().contentsCheckerItems || []);
   try {
-    configModule.saveImmediate({ chatLogPath: managerFixtureDirectory, lootKeywords: [] });
+    configModule.saveImmediate({ chatLogPath: managerFixtureDirectory, lootKeywords: ['하급 마정석'] });
     const startDate = new Date(2026, 7, 26);
-    const firstSync = await syncManager.syncWeeklyChatLogs({ startDate, endDate: startDate });
+    const firstSyncPromise = syncManager.syncWeeklyChatLogs({ startDate, endDate: startDate });
+    const duplicateSyncPromise = syncManager.syncWeeklyChatLogs({ startDate, endDate: startDate });
+    assert.equal(duplicateSyncPromise, firstSyncPromise,
+      '동시에 요청된 과거 로그 동기화가 single-flight로 합쳐지지 않았습니다.');
+    const firstSync = await firstSyncPromise;
     assert.equal(firstSync.success, true);
     assert.equal(firstSync.totalFiles, 1);
     assert.equal(firstSync.seedsDetected, 3);
@@ -8441,9 +8610,63 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const managerState = persistedManagerState.files[stateModule.getChatLogSyncStateKey(managerFile)];
     assert.equal(managerState.confirmedOffset, fs.statSync(managerFile).size,
       '메인 ACK 뒤 snapshot 확정 offset이 내구 상태에 저장되지 않았습니다.');
+
+    const now = new Date();
+    const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayFile = path.join(
+      managerFixtureDirectory,
+      `TWChatLog_${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}_${String(now.getDate()).padStart(2, '0')}.html`,
+    );
+    const todayLines = [
+      '<font size="2" color="white"> [10시 00분 00초] </font><font>[루이나 및 제네로 일반 상자] 아이템을 습득했습니다.</font></br>',
+      '<font size="2" color="white"> [10시 00분 01초] </font><font>하급 마정석 2개를 획득 하였습니다.</font></br>',
+      ...Array.from({ length: 2_050 }, (_, index) => `today-ignored-${index}`),
+      '<font size="2" color="white"> [10시 00분 02초] </font><font>콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>',
+    ];
+    fs.writeFileSync(todayFile, `${todayLines.join('\n')}\n`, 'utf8');
+    diaryDb.addActivityLogIfAbsent(todayDate, '08:00:00', 'loot', '[득템] [교체 전 자동 기록]', 1, false);
+    const manualTodayId = diaryDb.addManualActivityLog(todayDate, '08:01:00', 'loot', '[수동] 보존 기록', 1);
+    diaryDb.addActivityLog(todayDate, '08:02:00', 'calc', '[계산기] 보존 기록', 100);
+
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const rebuiltToday = await syncManager.syncWeeklyChatLogs({ startDate: todayStart, endDate: todayStart });
+    assert.equal(rebuiltToday.success, true);
+    assert.equal(rebuiltToday.todayRebuilt, true, '변경 없는 오늘 snapshot을 정확히 재구성하지 않았습니다.');
+    assert.equal(rebuiltToday.homeworkDetected >= 1, true, '현재 일일 주기의 숙제가 과거 로그 복원에서 누락되었습니다.');
+    let todayRows = diaryDb.getDiaryByDate(todayDate).activityLogs;
+    assert.equal(todayRows.some((row: { content: string }) => row.content === '[득템] [교체 전 자동 기록]'), false,
+      '오늘의 이전 자동 채팅 로그 기록이 재구성 뒤 남았습니다.');
+    assert.equal(todayRows.some((row: { id: number }) => row.id === manualTodayId), true,
+      '오늘 자동 기록 재구성이 사용자의 수동 기록을 삭제했습니다.');
+    assert.equal(todayRows.some((row: { content: string }) => row.content === '[계산기] 보존 기록'), true,
+      '오늘 자동 기록 재구성이 채팅 로그와 무관한 자동 계산 기록을 삭제했습니다.');
+
+    diaryDb.addActivityLogIfAbsent(todayDate, '08:03:00', 'loot', '[득템] [동시 기록 보존]', 1, false);
+    let appendedDuringAnalysis = false;
+    const deferredToday = await syncManager.syncWeeklyChatLogs({
+      startDate: todayStart,
+      endDate: todayStart,
+      onProgress: (info: { phase?: string }) => {
+        if (appendedDuringAnalysis || info.phase !== 'analyzing') return;
+        appendedDuringAnalysis = true;
+        fs.appendFileSync(todayFile, '<font size="2" color="white"> [10시 00분 03초] </font><font>분석 중 추가된 로그</font></br>\n', 'utf8');
+      },
+    });
+    assert.equal(appendedDuringAnalysis, true, '오늘 로그 분석 중 append 회귀 조건이 실행되지 않았습니다.');
+    assert.equal(deferredToday.todayRebuildDeferred, true,
+      '분석 중 증가한 오늘 로그에 위험한 전체 교체를 수행했습니다.');
+    todayRows = diaryDb.getDiaryByDate(todayDate).activityLogs;
+    assert.equal(todayRows.some((row: { content: string }) => row.content === '[득템] [동시 기록 보존]'), true,
+      '오늘 snapshot 뒤 실시간 기록이 전체 교체로 삭제되었습니다.');
+
+    for (const row of todayRows) diaryDb.removeActivityLog(todayDate, row.type, row.content);
   } finally {
     diaryDb.removeActivityLog('2026-08-26', 'calc', diaryDb.GOLD_POUCH_DAILY_CONTENT);
-    configModule.saveImmediate({ chatLogPath: previousChatLogPath });
+    configModule.saveImmediate({
+      chatLogPath: previousChatLogPath,
+      lootKeywords: previousLootKeywords,
+      contentsCheckerItems: previousContentsCheckerItems,
+    });
   }
 
   const eventDate = '2099-12-31';

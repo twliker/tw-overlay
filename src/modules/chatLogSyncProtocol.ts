@@ -43,6 +43,7 @@ export interface DurableChatLogFileState extends ChatLogFileAggregate {
   fileName: string;
   dateStr: string;
   fingerprint: string;
+  policyFingerprint: string;
   fingerprintBytes: number;
   confirmedOffset: number;
   snapshotSize: number;
@@ -54,11 +55,14 @@ export interface WorkerSyncTargetFile {
   fileName: string;
   dateStr: string;
   fingerprint: string;
+  policyFingerprint: string;
   fingerprintBytes: number;
   startOffset: number;
   snapshotSize: number;
   encoding: ChatLogEncoding;
   aggregate: ChatLogFileAggregate;
+  /** 오늘 자동 기록은 부분 병합하지 않고 파일 전체 분석 완료 뒤 원자 교체한다. */
+  replaceAutomaticDateOnComplete?: boolean;
 }
 
 export interface ParsedLootEvent {
@@ -103,6 +107,7 @@ export interface ChatLogSyncBatchData {
   fileName: string;
   dateStr: string;
   fingerprint: string;
+  policyFingerprint: string;
   fingerprintBytes: number;
   confirmedOffset: number;
   snapshotSize: number;
@@ -114,6 +119,8 @@ export interface ChatLogSyncBatchData {
   seeds: ParsedSeedEvent[];
   elsoPoints: ParsedElsoEvent[];
   goldPouchSeeds?: ParsedGoldPouchSeedEvent[];
+  /** 지정 날짜의 채팅 로그 유래 automatic row를 이 배치 결과로 원자 교체한다. */
+  replaceAutomaticDate?: string;
 }
 
 export interface WorkerDoneData {

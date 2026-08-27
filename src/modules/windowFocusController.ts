@@ -92,8 +92,32 @@ export class WindowFocusController {
     });
   }
 
+  /** 게임을 먼저 활성화한 직후, 사용자가 선택했던 TW-Overlay 창에 입력 포커스를 돌린다. */
+  refocusVisibleWindowByHandle(hwndText: string): boolean {
+    const target = this.activeWindows.find(win => this.isVisible(win)
+      && this.getWindowHandle(win) === hwndText);
+    if (!target) return false;
+    try {
+      target.focus();
+      return target.isFocused();
+    } catch {
+      return false;
+    }
+  }
+
   private isVisible(win: BrowserWindow): boolean {
     return !win.isDestroyed() && win.isVisible();
+  }
+
+  private getWindowHandle(win: BrowserWindow): string | null {
+    try {
+      const handle = win.getNativeWindowHandle();
+      if (handle.length >= 8) return handle.readBigUint64LE().toString();
+      if (handle.length >= 4) return handle.readUInt32LE(0).toString();
+    } catch {
+      // 폐기 중인 네이티브 창 핸들은 제외합니다.
+    }
+    return null;
   }
 
   private push(win: BrowserWindow): void {

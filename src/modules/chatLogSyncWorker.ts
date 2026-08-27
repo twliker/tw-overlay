@@ -3,6 +3,8 @@ import * as iconv from 'iconv-lite';
 import { parentPort, workerData } from 'worker_threads';
 import { ChatParser } from './chatParser';
 import { parseElsoMessage, formatLootDiaryContent, getGoldPouchSeedAmount } from './itemAcquisition';
+import { matchesRegisteredLoot } from '../shared/lootPolicy';
+import { getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
 import { ChatLogLineNormalizer } from './chatLogNormalizer';
 import { getChatLogReadRetryDelayMs, isRetryableChatLogReadError } from './chatLogFileRetry';
 import {
@@ -44,6 +46,7 @@ interface WorkerInputData {
   jobId: string;
   targetFiles: WorkerSyncTargetFile[];
   lootKeywords: string[];
+  homeworkCycleKeys: Record<string, { rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number }; cycleKey: string }>;
 }
 
 const wait = (delayMs: number) => new Promise(resolve => setTimeout(resolve, delayMs));
@@ -65,7 +68,7 @@ async function runWorker() {
   const port = parentPort;
 
   const data = workerData as WorkerInputData;
-  const { jobId, targetFiles, lootKeywords } = data;
+  const { jobId, targetFiles, lootKeywords, homeworkCycleKeys = {} } = data;
 
   let currentFile: WorkerSyncTargetFile | null = null;
   let aggregate: ChatLogFileAggregate | null = null;
@@ -75,6 +78,7 @@ async function runWorker() {
   let seeds: ParsedSeedEvent[] = [];
   let currentEventOffset = 0;
   let currentEventSequence = 0;
+  let currentEventTimestamp = 0;
   const failedFiles: Array<{ fileName: string; date: string; error: string }> = [];
 
   const syncParser = new ChatParser();
@@ -91,6 +95,10 @@ async function runWorker() {
 
   const recordHomework = (id: string, count: number, isIncrement: boolean) => {
     if (!aggregate) return;
+    const cycle = homeworkCycleKeys[id];
+    // 과거 전체 파일을 읽더라도 현재 일일/주간 리셋 주기의 이벤트만 체크리스트에 반영한다.
+    if (!cycle || currentEventTimestamp <= 0
+      || getHomeworkResetCycleKey(cycle.rule, currentEventTimestamp) !== cycle.cycleKey) return;
     const existing = aggregate.homework[id];
     if (!existing) {
       aggregate.homework[id] = { count, isIncrement };
@@ -335,11 +343,11 @@ async function runWorker() {
       aggregate.seedsDetected++;
     }
 
-    const matchedKeyword = lootKeywords.find(k => evt.message.includes(k));
+    const isRegisteredItem = matchesRegisteredLoot(lootKeywords, evt.itemName);
     const isAlwaysTrackedItem = evt.itemName === '경험의 정수';
     const isMagicStone = evt.itemName.includes('마정석') || evt.message.includes('마정석');
 
-    if (evt.isOwn && !isMagicStone) {
+    if (evt.isOwn && !isMagicStone && isRegisteredItem) {
       const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       if (isAlwaysTrackedItem) {
         essences.push({
@@ -350,12 +358,12 @@ async function runWorker() {
           count: evt.count
         });
         aggregate.essencesDetected += evt.count;
-      } else if (matchedKeyword) {
+      } else {
         loots.push({
           eventId: nextEventId('loot'),
           date: evt.date,
           timeOnly,
-          diaryContent: `[득템] ${evt.message}`,
+          diaryContent: formatLootDiaryContent(evt.itemName),
           count: evt.count
         });
         aggregate.lootsDetected++;
@@ -365,6 +373,7 @@ async function runWorker() {
 
   syncParser.on('MAGIC_STONE_GAIN', (evt) => {
     if (!aggregate) return;
+    if (!matchesRegisteredLoot(lootKeywords, `${evt.grade} 마정석`)) return;
     const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
     const grade = evt.grade.trim();
     if (!aggregate.magicStones[evt.date]) aggregate.magicStones[evt.date] = {};
@@ -378,7 +387,7 @@ async function runWorker() {
 
   syncParser.on('XP_CHANGED', (evt) => {
     if (!aggregate) return;
-    if (evt.amount <= -9_000_000_000) {
+    if (evt.amount <= -9_000_000_000 && matchesRegisteredLoot(lootKeywords, '경험의 정수')) {
       const essenceCount = Math.round(Math.abs(evt.amount) / 10_000_000_000);
       if (essenceCount > 0) {
         const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
@@ -463,8 +472,8 @@ async function runWorker() {
     const sendProgress = (offset: number, completed: boolean): void => {
       const fileProgress = file.snapshotSize > 0 ? Math.min(1, offset / file.snapshotSize) : 1;
       const percent = completed
-        ? Math.round(((fileIdx + 1) / targetFiles.length) * 100)
-        : Math.min(99, Math.round(((fileIdx + fileProgress) / targetFiles.length) * 100));
+        ? 10 + Math.round(((fileIdx + 1) / targetFiles.length) * 85)
+        : Math.min(94, 10 + Math.round(((fileIdx + fileProgress) / targetFiles.length) * 85));
       port.postMessage({
         type: 'progress',
         data: {
@@ -479,6 +488,8 @@ async function runWorker() {
           homeworkUpdated: Object.keys(aggregate?.homework || {}).length,
           seedsAdded: aggregate?.seedsDetected || 0,
           elsoPointsAdded: aggregate?.elsoPointsDetected || 0,
+          phase: 'analyzing',
+          failedFiles: [...failedFiles],
         }
       });
     };
@@ -513,6 +524,7 @@ async function runWorker() {
         fileName: file.fileName,
         dateStr: file.dateStr,
         fingerprint: file.fingerprint,
+        policyFingerprint: file.policyFingerprint,
         fingerprintBytes: file.fingerprintBytes,
         confirmedOffset: offset,
         snapshotSize: file.snapshotSize,
@@ -524,6 +536,9 @@ async function runWorker() {
         seeds: [...seeds],
         elsoPoints: aggregateElso,
         goldPouchSeeds: aggregateGoldPouchSeeds,
+        ...(fileComplete && file.replaceAutomaticDateOnComplete
+          ? { replaceAutomaticDate: file.dateStr }
+          : {}),
       };
       await postBatchAndWaitForAck(batch);
       loots = [];
@@ -544,6 +559,20 @@ async function runWorker() {
       const parseNormalizedLine = (line: string, eventOffset: number): void => {
         currentEventOffset = eventOffset;
         currentEventSequence = 0;
+        const timeMatch = line.match(/(\d{1,2})시\s*(\d{1,2})분\s*(\d{1,2})초/);
+        if (timeMatch) {
+          const [year, month, day] = file.dateStr.split('-').map(Number);
+          currentEventTimestamp = new Date(
+            year,
+            month - 1,
+            day,
+            Number(timeMatch[1]),
+            Number(timeMatch[2]),
+            Number(timeMatch[3]),
+          ).getTime();
+        } else {
+          currentEventTimestamp = 0;
+        }
         if (line && !line.includes('회복되었습니다')) syncParser.parseLine(line);
       };
 
@@ -594,11 +623,19 @@ async function runWorker() {
             lineStartInBuffer = index + 1;
 
             const bufferedEventCount = loots.length + essences.length + shouts.length + seeds.length;
-            if (!normalizer.hasPending()
-              && (linesSinceBatch >= CHAT_SYNC_BATCH_LINE_LIMIT
-                || bufferedEventCount >= CHAT_SYNC_BATCH_EVENT_LIMIT)) {
-              await sendBatch(confirmedOffset, false);
-              sendProgress(confirmedOffset, false);
+            const shouldFlushOrReport = file.replaceAutomaticDateOnComplete
+              ? linesSinceBatch >= CHAT_SYNC_BATCH_LINE_LIMIT
+              : (linesSinceBatch >= CHAT_SYNC_BATCH_LINE_LIMIT
+                || bufferedEventCount >= CHAT_SYNC_BATCH_EVENT_LIMIT);
+            if (!normalizer.hasPending() && shouldFlushOrReport) {
+              if (file.replaceAutomaticDateOnComplete) {
+                // 오늘 기록은 최종 배치 한 번으로 교체해야 하므로 중간에는 진행률만 알린다.
+                sendProgress(confirmedOffset, false);
+                linesSinceBatch = 0;
+              } else {
+                await sendBatch(confirmedOffset, false);
+                sendProgress(confirmedOffset, false);
+              }
             }
           }
           carry = combined.subarray(lineStartInBuffer);
@@ -636,6 +673,7 @@ async function runWorker() {
         date: file.dateStr,
         error: String(error),
       });
+      sendProgress(confirmedOffset, false);
     }
   }
 

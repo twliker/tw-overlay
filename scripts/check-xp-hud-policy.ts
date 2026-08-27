@@ -23,6 +23,7 @@ async function main(): Promise<void> {
       start(): void;
       startSession(): void;
       stopSession(): void;
+      toggleSession(): void;
       getStats(): { isActive?: boolean };
     };
   };
@@ -46,6 +47,14 @@ async function main(): Promise<void> {
   xpModule.xpTracker.stopSession();
   assert.equal(xpModule.xpTracker.getStats().isActive, false, 'XP 세션 중지가 추적 상태를 끄지 못했습니다.');
   assert.equal(config.load().showXpWidget, true, 'XP 세션 중지가 표시 중인 HUD를 강제로 숨겼습니다.');
+
+  xpModule.xpTracker.toggleSession();
+  assert.equal(xpModule.xpTracker.getStats().isActive, true, 'XP 단축키 토글이 세션을 시작하지 못했습니다.');
+  assert.equal(config.load().showXpWidget, true, 'XP 단축키로 세션을 시작할 때 HUD가 표시되지 않았습니다.');
+
+  xpModule.xpTracker.toggleSession();
+  assert.equal(xpModule.xpTracker.getStats().isActive, false, 'XP 단축키 토글이 세션을 일시정지하지 못했습니다.');
+  assert.equal(config.load().showXpWidget, false, 'XP 단축키로 일시정지할 때 HUD가 숨겨지지 않았습니다.');
 
   const gameOverlay = fs.readFileSync(path.join(projectRoot, 'src', 'game-overlay.html'), 'utf8');
   const xpHud = fs.readFileSync(path.join(projectRoot, 'src', 'xp-hud.html'), 'utf8');

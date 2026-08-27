@@ -3,6 +3,7 @@ import * as config from './config';
 import { log } from './logger';
 import * as wm from './windowManager';
 import {
+  broadcastToAllWindows,
   sendToFirstWindowByPage,
 } from './windowMessaging';
 import type { AppConfig, XpStats } from '../shared/types';
@@ -363,6 +364,12 @@ class XpTracker {
     } else {
       this.startSession();
     }
+
+    // Ctrl+Shift+Z의 기존 사용자 계약: 측정 시작 시 HUD를 표시하고,
+    // 일시정지 시 game-overlay에서 HUD도 함께 숨긴다.
+    // 상세 창의 개별 시작/정지는 표시 설정과 독립이므로 이 토글에서만 동기화한다.
+    config.saveImmediate({ showXpWidget: this._isActive });
+    broadcastToAllWindows('config-data', config.load());
   }
 
   private broadcastUpdate(): void {

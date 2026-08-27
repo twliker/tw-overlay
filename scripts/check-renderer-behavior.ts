@@ -823,9 +823,12 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
     { tabId: 'display:game-overlay', expectedGroup: 'game', expectedSection: 'section-game-overlay' },
     { tabId: 'chatlog:sub-tab-today-summary', expectedGroup: 'game', expectedSection: 'section-game-overlay' },
     { tabId: 'chatlog', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
+    { tabId: 'chatlog:history-sync', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
     { tabId: 'chatlog:sub-tab-overlay', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
     { tabId: 'chatlog:sub-tab-loot', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
-    { tabId: 'sound', expectedGroup: 'alerts', expectedSection: 'section-sound' },
+    { tabId: 'sound', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-sound-settings' },
+    { tabId: 'sound:custom', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-custom-sounds' },
+    { tabId: 'sound:log', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-alarm-log' },
     { tabId: 'gallery', expectedGroup: 'alerts', expectedSection: 'section-external' },
     { tabId: 'trade', expectedGroup: 'alerts', expectedSection: 'section-external' },
     { tabId: 'shortcuts', expectedGroup: 'system', expectedSection: 'section-shortcuts' },
@@ -845,22 +848,27 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
           triggerSectionHighlight('${route.tabId}');
           const activeGroup = document.querySelector('.nav-item.active')?.getAttribute('data-settings-group');
           const activeSection = Array.from(document.querySelectorAll('.settings-section')).find(s => !s.classList.contains('hidden'))?.id;
+          const activeSubTab = document.querySelector('#section-sound .sub-tab-content.active')?.id;
           return {
             ok: true,
             targetGroup: target.groupId,
             activeGroup,
-            activeSection
+            activeSection,
+            activeSubTab
           };
         } catch (err) {
           return { ok: false, error: String(err && err.stack ? err.stack : err) };
         }
       })()
-    `) as { ok: boolean; error?: string; targetGroup: string; activeGroup: string; activeSection: string };
+    `) as { ok: boolean; error?: string; targetGroup: string; activeGroup: string; activeSection: string; activeSubTab?: string };
 
     assert.equal(checkResult.ok, true, checkResult.error);
     assert.equal(checkResult.targetGroup, route.expectedGroup, `${route.tabId} group mismatch`);
     assert.equal(checkResult.activeGroup, route.expectedGroup, `${route.tabId} active nav mismatch`);
     assert.equal(checkResult.activeSection, route.expectedSection, `${route.tabId} active section mismatch`);
+    if (route.expectedSubTab) {
+      assert.equal(checkResult.activeSubTab, route.expectedSubTab, `${route.tabId} active sub-tab mismatch`);
+    }
   }
 
   // 빠른 검색 실사용 DOM 인터랙션 테스트
@@ -2654,23 +2662,50 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
       const panel3Active = document.getElementById('panel-3')?.classList.contains('active');
       const componentCards = document.querySelectorAll('#panel-3 .feature-bullet').length;
 
+      const settingsRoutes = [];
+      window.electronAPI = {
+        toggleSettings: (route) => settingsRoutes.push(route)
+      };
+      switchTab(6);
+      openHistoricalChatSyncSettingsDirectly();
+      const panel6Active = document.getElementById('panel-6')?.classList.contains('active');
+      const historyGuideText = document.getElementById('panel-6')?.textContent || '';
+
+      switchTab(7);
+      const panel7Active = document.getElementById('panel-7')?.classList.contains('active');
+      const tabsOverflowX = getComputedStyle(document.querySelector('.guide-tabs')).overflowX;
+
       return {
         tabLabels,
         totalPanels,
         panel3Active,
-        componentCards
+        componentCards,
+        panel6Active,
+        panel7Active,
+        historyGuideText,
+        settingsRoutes,
+        tabsOverflowX
       };
     })()
   `);
 
   assert.deepEqual(
     result.tabLabels,
-    ['시작 마법사', '앱 소개', '필수 설정', '게임 오버레이 HUD', '전체화면 대응 팁', '알람음 설정', '단축키 요약'],
-    '가이드 7개 탭 레이블이 일치하지 않습니다.',
+    ['시작 마법사', '앱 소개', '필수 설정', '게임 오버레이 HUD', '전체화면 대응 팁', '알람음 설정', '과거 로그 복원', '단축키 요약'],
+    '가이드 8개 탭 레이블이 일치하지 않습니다.',
   );
-  assert.equal(result.totalPanels, 7, '가이드 패널이 7개가 아닙니다.');
+  assert.equal(result.totalPanels, 8, '가이드 패널이 8개가 아닙니다.');
   assert.equal(result.panel3Active, true, '게임 오버레이 탭 전환이 동작하지 않습니다.');
   assert.equal(result.componentCards, 5, '게임 오버레이 5개 컴포넌트 설명 카드가 렌더링되지 않았습니다.');
+  assert.equal(result.panel6Active, true, '과거 채팅 로그 복원 탭 전환이 동작하지 않습니다.');
+  assert.match(result.historyGuideText, /과거 채팅 로그에서 누락 기록 복원/,
+    '과거 채팅 로그 동기화 안내가 렌더링되지 않았습니다.');
+  assert.match(result.historyGuideText, /로그 파일이 많으면 분석 중 프로그램이 일시적으로 느려질 수 있습니다/,
+    '과거 채팅 로그 대량 분석 중 성능 안내가 렌더링되지 않았습니다.');
+  assert.deepEqual(result.settingsRoutes, ['chatlog:history-sync'],
+    '과거 채팅 로그 동기화 설정 바로가기가 올바르게 연결되지 않았습니다.');
+  assert.equal(result.panel7Active, true, '마지막 단축키 탭 전환이 동작하지 않습니다.');
+  assert.equal(result.tabsOverflowX, 'auto', '가이드 탭이 늘어날 때 가로 스크롤로 접근할 수 없습니다.');
 }
 
 async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
@@ -3277,13 +3312,23 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
     const hasMonthlyTotalSeed = document.getElementById('monthly-total-seed-badge') !== null;
     const hasMonthlyTotalLoot = document.getElementById('monthly-total-loot-badge') !== null;
     const hasStatsAttendance = document.getElementById('stats-attendance') !== null;
+    const hasLootHistoryTab = document.getElementById('tab-btn-loot') !== null;
+    const hasLootHistoryList = document.getElementById('loot-history-list') !== null;
+    const badge = document.createElement('div');
+    badge.className = 'loot-badge';
+    document.body.appendChild(badge);
+    const badgeStyle = getComputedStyle(badge);
 
     return {
       title,
       hasCalendarGrid,
       hasMonthlyTotalSeed,
       hasMonthlyTotalLoot,
-      hasStatsAttendance
+      hasStatsAttendance,
+      hasLootHistoryTab,
+      hasLootHistoryList,
+      lootBadgeFlexShrink: badgeStyle.flexShrink,
+      lootBadgeMinHeight: badgeStyle.minHeight,
     };
   });
 
@@ -3292,6 +3337,10 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.hasMonthlyTotalSeed, true, '월간 총 SEED 배지가 없습니다.');
   assert.equal(result.hasMonthlyTotalLoot, true, '월간 총 득템 배지가 없습니다.');
   assert.equal(result.hasStatsAttendance, true, '통계 출석 일수 요소가 없습니다.');
+  assert.equal(result.hasLootHistoryTab, true, '주간/월간 득템 기록 탭이 없습니다.');
+  assert.equal(result.hasLootHistoryList, true, '득템 기록 목록 컨테이너가 없습니다.');
+  assert.equal(result.lootBadgeFlexShrink, '0', '달력 득템 행이 항목 수에 따라 찌그러질 수 있습니다.');
+  assert.equal(result.lootBadgeMinHeight, '18px', '달력 득템 행의 최소 높이가 보장되지 않습니다.');
   assert.deepEqual(safetyResult, {
     text: '<img id="injected-diary-xss"></span><svg id="injected-diary-tag">',
     injectedCount: 0,

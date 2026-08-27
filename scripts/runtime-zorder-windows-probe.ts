@@ -43,6 +43,7 @@ interface ScenarioResult {
   externalOrderingPolicyPreserved: boolean;
   overlayBandsMatchGame: boolean;
   overlayStackRepaired: boolean;
+  appActivationRaisedGame: boolean;
 }
 
 interface Win32Runtime {
@@ -76,6 +77,7 @@ interface TrackerRuntime {
   isGameRunning(): boolean;
   getGameHwnd(): string | undefined;
   reconcileGameZOrder(gameHwnd: string, overlayHwnds: string[]): { isGameOrAppFocused: boolean };
+  focusGameForAppActivation(expectedAppHwnd: string): boolean;
 }
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -401,6 +403,21 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
   const gameHwnd = BigInt(detectedHwndText);
   assert.equal(gameHwnd, BigInt(status.hwnd), `${mode} tracker detected a different HWND`);
 
+  if (mode === 'borderless') {
+    await waitFor(
+      () => {
+        const rect = readWindowRect(win32, gameHwnd);
+        return rect.left === status.screenBounds.X
+          && rect.top === status.screenBounds.Y
+          && rect.right === status.screenBounds.X + status.screenBounds.Width
+          && rect.bottom === status.screenBounds.Y + status.screenBounds.Height
+          ? rect
+          : null;
+      },
+      `${mode} native fixture bounds`,
+      5_000,
+    );
+  }
   const gameRectBefore = readWindowRect(win32, gameHwnd);
   const gameTopmostBefore = isTopmost(win32, gameHwnd);
   const gameStyle = win32.GetWindowLongW(gameHwnd, -16);
@@ -513,6 +530,11 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
       && isAbove(win32, externalHwnd, gameHwnd),
     `${mode} external order repair`,
   );
+  // 이후의 명시적 앱 활성화 시나리오는 선택한 TW-Overlay 창을 foreground로
+  // 올리므로 내부 창 순서가 달라질 수 있다. 외부 전경에서 흐트러진 스택을
+  // 복구했는지는 바로 이 시점의 결과를 보존해 별도 정책의 결과와 섞지 않는다.
+  const overlayStackRepaired = getVisibleWindowAbove(win32, gameHwnd) === secondOverlayHwnd
+    && isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd);
   const foregroundPreservedForExternal = parseNativeHwnd(win32.GetForegroundWindow()) === externalHwnd;
   const overlayBandsMatchGame = isTopmost(win32, firstOverlayHwnd) === gameTopmostBefore
     && isTopmost(win32, secondOverlayHwnd) === gameTopmostBefore;
@@ -535,6 +557,30 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
     `${mode} overlay B band mismatch`,
   );
 
+  // 외부 앱이 게임과 TW-Overlay를 모두 가린 뒤 사용자가 작업표시줄의 우리 창을
+  // 선택한 상황을 재현한다. 이 명시적 활성화에서만 게임을 먼저 올린 뒤 선택한
+  // 우리 창을 다시 foreground로 돌려 `외부 < 게임 < TW-Overlay`를 만든다.
+  const gameRaisedForAppActivation = tracker.focusGameForAppActivation(firstOverlayHwnd.toString());
+  assert.equal(gameRaisedForAppActivation, false, `${mode} non-foreground app request was accepted`);
+  await activateBrowserWindowForTest(win32, firstOverlay, firstOverlayHwnd);
+  const explicitGameRaiseSucceeded = tracker.focusGameForAppActivation(firstOverlayHwnd.toString());
+  assert.equal(explicitGameRaiseSucceeded, true, `${mode} explicit app activation did not raise the game`);
+  await activateBrowserWindowForTest(win32, firstOverlay, firstOverlayHwnd);
+  tracker.reconcileGameZOrder(detectedHwndText, [firstOverlayHwnd.toString(), secondOverlayHwnd.toString()]);
+  await waitFor(
+    () => parseNativeHwnd(win32.GetForegroundWindow()) === firstOverlayHwnd
+      && isAbove(win32, firstOverlayHwnd, gameHwnd)
+      && isAbove(win32, secondOverlayHwnd, gameHwnd)
+      && isAbove(win32, gameHwnd, externalHwnd),
+    `${mode} explicit app group activation`,
+  );
+  const appActivationRaisedGame = parseNativeHwnd(win32.GetForegroundWindow()) === firstOverlayHwnd
+    && isAbove(win32, gameHwnd, externalHwnd)
+    && isAbove(win32, firstOverlayHwnd, gameHwnd)
+    && isAbove(win32, secondOverlayHwnd, gameHwnd);
+  assert.deepEqual(readWindowRect(win32, gameHwnd), gameRectBefore, `${mode} app activation changed game bounds`);
+  assert.equal(isTopmost(win32, gameHwnd), gameTopmostBefore, `${mode} app activation changed game Topmost`);
+
   const result: ScenarioResult = {
     mode,
     detectedHwnd: detectedHwndText,
@@ -547,8 +593,8 @@ async function runScenario(mode: FixtureMode, scenarioIndex: number): Promise<Sc
     externalOverlapsGame,
     externalOrderingPolicyPreserved,
     overlayBandsMatchGame,
-    overlayStackRepaired: getVisibleWindowAbove(win32, gameHwnd) === secondOverlayHwnd
-      && isOverlayStackIntact(win32, firstOverlayHwnd, secondOverlayHwnd),
+    overlayStackRepaired,
+    appActivationRaisedGame,
   };
 
   await Promise.all([firstOverlay, secondOverlay, externalWindow].map(closeWindow));

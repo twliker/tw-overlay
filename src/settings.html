@@ -1336,20 +1336,23 @@
               </div>
             </div>
 
-            <!-- 주간 데이터 수동 동기화 카드 -->
+            <!-- 과거 데이터 수동 동기화 카드 -->
             <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
               <div class="flex items-center justify-between gap-4">
                 <div>
                   <label class="section-label flex items-center gap-2">
-                    <i data-lucide="refresh-cw" class="w-4 h-4 text-purple-400"></i> 주간 채팅 로그 데이터 동기화
+                    <i data-lucide="refresh-cw" class="w-4 h-4 text-purple-400"></i> 과거 채팅 로그 데이터 동기화
                   </label>
                   <p class="text-xs text-slate-400 mt-1">
-                    이번 주 월요일(00:00)부터의 채팅 로그를 역추적하여 누락된 득템, 주간 숙제, 외치기, SEED 내역을 안전하게 동기화합니다.
+                    모험일지 보관 기간 안에 남아 있는 모든 채팅 로그를 다시 분석합니다. 과거 모험일지 기록은 날짜별로 복원하고, 숙제 체크리스트에는 현재 일일·주간 주기의 기록만 반영합니다.
+                  </p>
+                  <p class="text-xs text-amber-300/80 mt-1">
+                    로그가 많으면 분석 중 프로그램이 일시적으로 느려질 수 있습니다. 진행이 끝날 때까지 잠시 기다려 주세요.
                   </p>
                 </div>
                 <button onclick="triggerManualSync()" id="btn-manual-sync"
                   class="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl transition-all text-xs flex items-center gap-2 shrink-0 shadow-lg shadow-purple-900/30">
-                  <i data-lucide="sparkles" class="w-4 h-4"></i> 지금 동기화 실행
+                  <i data-lucide="sparkles" class="w-4 h-4"></i> 과거 로그 동기화
                 </button>
               </div>
               <div id="settings-sync-status-box" style="display: none;"
@@ -2851,7 +2854,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                         class="text-purple-400">3.0.0</span></p>
+                         class="text-purple-400">3.0.1</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -3145,6 +3148,29 @@
       alert('챗로그 인식을 시작했습니다.');
     }
 
+    let manualChatLogSyncRunning = false;
+
+    function renderManualChatLogSyncProgress(info) {
+      if (!manualChatLogSyncRunning || !info) return;
+      const box = document.getElementById('settings-sync-status-box');
+      const txt = document.getElementById('settings-sync-status-text');
+      if (box) box.style.display = 'flex';
+      if (!txt) return;
+      const failedNames = (info.failedFiles || []).map(file => file.fileName).join(', ');
+      const failedText = failedNames ? ` · 읽기 실패: ${failedNames}` : '';
+      if (info.phase === 'preparing') {
+        txt.textContent = `파일 확인 중 ${info.currentFileIndex}/${info.totalFiles} (${info.percent}%)${failedText}`;
+      } else if (info.phase === 'finalizing') {
+        txt.textContent = `분석 결과를 정리하고 있습니다...${failedText}`;
+      } else {
+        txt.textContent = `로그 분석 중 ${info.currentFileIndex}/${info.totalFiles} · ${info.currentFile} (${info.percent}%)${failedText}`;
+      }
+    }
+
+    if (window.electronAPI && window.electronAPI.onChatLogSyncProgress) {
+      window.electronAPI.onChatLogSyncProgress(renderManualChatLogSyncProgress);
+    }
+
     async function triggerManualSync() {
       const btn = document.getElementById('btn-manual-sync');
       const box = document.getElementById('settings-sync-status-box');
@@ -3153,10 +3179,11 @@
       if (btn) {
         btn.disabled = true;
         btn.classList.add('opacity-50');
-        btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 분석 중...`;
+        btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 동기화 중...`;
       }
+      manualChatLogSyncRunning = true;
       if (box) box.style.display = 'flex';
-      if (txt) txt.textContent = '이번 주 월요일부터의 채팅 로그 파일을 분석하고 있습니다...';
+      if (txt) txt.textContent = '모험일지 보관 기간 안의 채팅 로그 파일을 확인하고 있습니다...';
       if (window.lucide) lucide.createIcons();
 
       try {
@@ -3166,9 +3193,12 @@
             if (txt) {
               const failedNames = (res.failedFiles || []).map(file => file.fileName).join(', ');
               const prefix = res.partial
-                ? `⚠️ 일부 동기화 완료 (실패: ${failedNames})`
-                : '✅ 동기화 완료!';
-              txt.textContent = `${prefix} (파일 ${res.totalFiles - (res.failedFiles?.length || 0)}/${res.totalFiles}개 | 신규 반영: 득템 ${res.lootsAdded}건, 숙제 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
+                ? `⚠️ 일부 복원 완료 (실패: ${failedNames})`
+                : '✅ 과거 로그 복원 완료!';
+              const todayNote = res.todayRebuildDeferred
+                ? ' · 오늘 로그는 분석 중 새 기록이 생겨 기존 기록을 보존하며 병합했습니다.'
+                : '';
+              txt.textContent = `${prefix}${todayNote} (파일 ${res.totalFiles - (res.failedFiles?.length || 0)}/${res.totalFiles}개 | 반영 결과: 득템 ${res.lootsAdded}건, 숙제 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
             }
           } else {
             if (txt) txt.textContent = `동기화 완료: ${res?.error || '로그 파일 없음'}`;
@@ -3177,10 +3207,11 @@
       } catch (err) {
         if (txt) txt.textContent = `동기화 실패: ${err}`;
       } finally {
+        manualChatLogSyncRunning = false;
         if (btn) {
           btn.disabled = false;
           btn.classList.remove('opacity-50');
-          btn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4"></i> 지금 동기화 실행`;
+          btn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4"></i> 과거 로그 동기화`;
         }
         if (window.lucide) lucide.createIcons();
       }
@@ -4299,6 +4330,7 @@
       alerts: [
         { label: '외부 모니터링', icon: 'store', section: 'external' },
         { label: '소리 & 볼륨 믹서', icon: 'volume-2', section: 'sound', subTab: 'sub-tab-sound-settings' },
+        { label: '커스텀 알림음', icon: 'music', section: 'sound', subTab: 'sub-tab-custom-sounds' },
         { label: '알림 기록', icon: 'history', section: 'sound', subTab: 'sub-tab-alarm-log' },
       ],
       system: [
@@ -4469,7 +4501,7 @@
         groupId: 'chat', routeIndex: 0, targetId: 'chat-log-path-input'
       },
       {
-        title: '주간 채팅 로그 데이터 수동 동기화',
+        title: '과거 채팅 로그 데이터 수동 동기화',
         keywords: ['동기화', '주간동기화', '역추적', '수동동기화', 'sync'],
         category: '채팅 & 로그 > 채팅 로그 연동',
         groupId: 'chat', routeIndex: 0, targetId: 'btn-manual-sync'
@@ -4539,14 +4571,14 @@
       {
         title: '커스텀 알림음 관리 (.mp3 / .wav)',
         keywords: ['커스텀알림음', 'mp3', 'wav', '음원', '사운드추가', 'customsound'],
-        category: '외부 알림 & 소리 > 소리 & 볼륨 믹서',
-        groupId: 'alerts', routeIndex: 1, targetId: 'custom-sounds-list'
+        category: '외부 알림 & 소리 > 커스텀 알림음',
+        groupId: 'alerts', routeIndex: 2, targetId: 'custom-sounds-list'
       },
       {
         title: '알림 발생 이력 기록 및 필터',
         keywords: ['알림기록', '로그', '히스토리', '내역', 'log', 'history'],
         category: '외부 알림 & 소리 > 알림 기록',
-        groupId: 'alerts', routeIndex: 2, targetId: 'alarm-log-filter'
+        groupId: 'alerts', routeIndex: 3, targetId: 'alarm-log-filter'
       },
 
       // 5. 시스템 & 관리 (system)
@@ -4870,6 +4902,7 @@
         // 채팅 & 로그
         'chat': { groupId: 'chat', routeIndex: 0 },
         'chatlog': { groupId: 'chat', routeIndex: 0 },
+        'chatlog:history-sync': { groupId: 'chat', routeIndex: 0 },
         'chatlog:sub-tab-general': { groupId: 'chat', routeIndex: 0 },
         'community': { groupId: 'chat', routeIndex: 0 },
         'chat-overlay': { groupId: 'chat', routeIndex: 1 },
@@ -4884,9 +4917,9 @@
         'trade': { groupId: 'alerts', routeIndex: 0 },
         'sound': { groupId: 'alerts', routeIndex: 1 },
         'sound:settings': { groupId: 'alerts', routeIndex: 1 },
-        'sound:custom': { groupId: 'alerts', routeIndex: 1 },
-        'sound:log': { groupId: 'alerts', routeIndex: 2 },
-        'alarm-log': { groupId: 'alerts', routeIndex: 2 },
+        'sound:custom': { groupId: 'alerts', routeIndex: 2 },
+        'sound:log': { groupId: 'alerts', routeIndex: 3 },
+        'alarm-log': { groupId: 'alerts', routeIndex: 3 },
 
         // 시스템 & 관리
         'system': { groupId: 'system', routeIndex: 0 },
@@ -5371,6 +5404,8 @@
         targetId = 'volume-contents-checker';
       } else if (tabId === 'chatlog' || tabId === 'chat') {
         targetId = 'chat-log-path-input';
+      } else if (tabId === 'chatlog:history-sync') {
+        targetId = 'btn-manual-sync';
       } else if (tabId === 'chatlog:sub-tab-overlay') {
         targetId = 'chat-overlay-settings-card';
       } else if (tabId === 'chatlog:sub-tab-loot') {

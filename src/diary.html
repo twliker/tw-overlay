@@ -48,6 +48,7 @@
 
     .calendar-cell.expanded {
       height: auto;
+      align-self: stretch;
     }
 
     .calendar-cell:hover {
@@ -196,6 +197,9 @@
     .loot-badge {
       display: flex;
       align-items: center;
+      flex: 0 0 18px;
+      min-height: 18px;
+      line-height: 1;
       gap: 4px;
       font-size: 9px;
       font-weight: 700;
@@ -369,6 +373,11 @@
         title="통계 리포트">
         <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
       </button>
+      <button onclick="switchTab('loot')" id="tab-btn-loot"
+        class="tab-btn w-10 h-10 flex items-center justify-center rounded-xl hover:bg-slate-800 text-slate-500 transition-all"
+        title="득템 기록">
+        <i data-lucide="sparkles" class="w-5 h-5"></i>
+      </button>
     </div>
 
     <!-- View: Activity Log -->
@@ -471,6 +480,49 @@
           </div>
 
 
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Loot History -->
+    <div id="view-loot" class="hidden flex-1 flex flex-col bg-[#0f172a] overflow-hidden">
+      <div class="px-7 py-5 border-b border-slate-800/70 bg-[#111827]/70 shrink-0">
+        <div class="flex items-center justify-between gap-5">
+          <div>
+            <h2 class="text-xl font-black text-white flex items-center gap-2.5">
+              <span class="w-8 h-8 bg-amber-500/15 border border-amber-500/25 rounded-lg flex items-center justify-center">
+                <i data-lucide="sparkles" class="w-4.5 h-4.5 text-amber-400"></i>
+              </span>
+              득템 기록
+            </h2>
+            <p class="text-xs text-slate-500 mt-1.5">설정에서 등록한 아이템과 직접 추가한 기록만 표시합니다.</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex items-center bg-slate-900/70 border border-slate-700/60 rounded-xl p-1">
+              <button id="loot-period-week" type="button" onclick="changeLootPeriod('week')" class="px-3 py-1.5 rounded-lg text-xs font-black bg-amber-500/20 text-amber-300">주간</button>
+              <button id="loot-period-month" type="button" onclick="changeLootPeriod('month')" class="px-3 py-1.5 rounded-lg text-xs font-black text-slate-500 hover:text-slate-300">월간</button>
+            </div>
+            <div class="flex items-center gap-1 bg-slate-900/60 border border-slate-700/50 rounded-xl p-1">
+              <button type="button" onclick="shiftLootPeriod(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="이전 기간">
+                <i data-lucide="chevron-left" class="w-4 h-4"></i>
+              </button>
+              <div id="loot-period-label" class="min-w-[150px] text-center text-sm font-black font-mono text-slate-200"></div>
+              <button type="button" onclick="shiftLootPeriod(1)" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="다음 기간">
+                <i data-lucide="chevron-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <span id="loot-history-total" class="min-w-[76px] text-center bg-amber-500/15 border border-amber-500/25 text-amber-300 text-xs font-black px-3 py-2 rounded-xl">0개</span>
+          </div>
+        </div>
+      </div>
+      <div class="px-7 pt-5 pb-7 flex-1 flex flex-col min-h-0">
+        <div class="grid grid-cols-[100px_52px_minmax(0,1fr)_100px] items-center px-4 pb-2 text-[11px] font-black text-slate-500 uppercase tracking-wider shrink-0">
+          <span>날짜</span><span class="text-center">이미지</span><span>아이템명</span><span class="text-right">수량</span>
+        </div>
+        <div id="loot-history-list" class="flex-1 min-h-0 overflow-y-auto custom-scroll border border-slate-800/70 rounded-2xl bg-slate-900/25"></div>
+        <div class="mt-3 flex items-center gap-1.5 text-[11px] text-slate-500 shrink-0">
+          <i data-lucide="info" class="w-3.5 h-3.5"></i>
+          마정석과 경험의 정수는 목록에는 표시되지만 일반 득템 개수 합계에서는 제외됩니다.
         </div>
       </div>
     </div>
@@ -646,6 +698,7 @@
   <script src="assets/ui-utils.js"></script>
   <script src="assets/request-generation.js"></script>
   <script src="renderer/diary/log-utils.js"></script>
+  <script src="renderer/diary/calendar-loot-grouping.js"></script>
   <script src="renderer/diary/calendar-cell-expansion.js"></script>
   <script>
     const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
@@ -668,11 +721,14 @@
     let monthlyData = [];
     let currentSummary = null;
     let currentTab = 'log';
+    let lootPeriod = 'week';
+    let lootAnchorDate = new Date();
     let revenueChart = null;
     let allItems = [];
     const detailRequests = window.createViewRequestGeneration();
     const monthRequests = window.createViewRequestGeneration();
     const statisticsRequests = window.createViewRequestGeneration();
+    const lootHistoryRequests = window.createViewRequestGeneration();
 
     async function loadItemsData() {
       try {
@@ -700,24 +756,17 @@
       let name = clean;
       let count = resolveLootCount(content, amount);
 
-      // 1단계: 대괄호 포함 획득 문구 (예: "[아이템명] 아이템을 획득하였습니다", "[아이템명]을(를) [1]개 획득하였습니다")
-      const bracketMatch = clean.match(/^\[(.*?)\](?:\s*(?:을\(를\)|아이템을))?\s*(?:\[?(\d+)\]?개)?\s*획득\s*하였/u);
-      if (bracketMatch) {
-        name = bracketMatch[1].trim();
-        count = resolveLootCount(content, amount || bracketMatch[2]);
+      // 1단계: 획득/습득 문구에서 아이템명과 수량을 분리합니다.
+      const acquisition = window.diaryCalendarLootGrouping.parseAcquisition(clean);
+      if (acquisition) {
+        name = acquisition.name;
+        count = resolveLootCount(content, amount || acquisition.countText);
       } else {
-        // 2단계: 대괄호 없는 획득 문구 (예: "스페셜 스킬 (ⓟ 무기 연마) 아이템을 획득 하였습니다")
-        const sentenceMatch = clean.match(/^(.*?)(?:\s+아이템을)?\s*(?:\[?(\d+)\]?개)?\s*획득\s*하였/u);
-        if (sentenceMatch && sentenceMatch[1].trim()) {
-          name = sentenceMatch[1].trim();
-          count = resolveLootCount(content, amount || sentenceMatch[2]);
-        } else {
-          // 3단계: 단순 아이템명 + 수량 (예: "경험의 정수 5개", "아크론 요새의 문양")
-          const simpleMatch = clean.match(/^(.*?)\s*(\d+개)?$/u);
-          if (simpleMatch) {
-            name = simpleMatch[1].trim();
-            count = resolveLootCount(content, amount || (simpleMatch[2] ? simpleMatch[2].replace('개', '') : 0));
-          }
+        // 2단계: 단순 아이템명 + 수량 (예: "경험의 정수 5개", "아크론 요새의 문양")
+        const simpleMatch = clean.match(/^(.*?)\s*(\d+개)?$/u);
+        if (simpleMatch) {
+          name = simpleMatch[1].trim();
+          count = resolveLootCount(content, amount || (simpleMatch[2] ? simpleMatch[2].replace('개', '') : 0));
         }
       }
 
@@ -933,6 +982,7 @@
     function switchTab(tabId) {
       currentTab = tabId;
       if (tabId !== 'stats') statisticsRequests.invalidate();
+      if (tabId !== 'loot') lootHistoryRequests.invalidate();
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('bg-teal-500/20', 'text-teal-400', 'border-teal-500/30', 'shadow-lg', 'shadow-teal-500/10');
         btn.classList.add('hover:bg-slate-800', 'text-slate-500');
@@ -941,7 +991,101 @@
       
       document.getElementById('view-log').classList.toggle('hidden', tabId !== 'log');
       document.getElementById('view-stats').classList.toggle('hidden', tabId !== 'stats');
+      document.getElementById('view-loot').classList.toggle('hidden', tabId !== 'loot');
       if (tabId === 'stats') loadStatistics();
+      if (tabId === 'loot') {
+        lootAnchorDate = new Date(currentDate);
+        void loadLootHistory();
+      }
+    }
+
+    function formatDateKey(date) {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    function getLootPeriodRange() {
+      const anchor = new Date(lootAnchorDate);
+      if (lootPeriod === 'month') {
+        return {
+          start: new Date(anchor.getFullYear(), anchor.getMonth(), 1),
+          end: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0),
+        };
+      }
+      const mondayOffset = (anchor.getDay() + 6) % 7;
+      const start = new Date(anchor);
+      start.setDate(anchor.getDate() - mondayOffset);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      return { start, end };
+    }
+
+    function changeLootPeriod(period) {
+      if (period !== 'week' && period !== 'month') return;
+      lootPeriod = period;
+      document.getElementById('loot-period-week').className = period === 'week'
+        ? 'px-3 py-1.5 rounded-lg text-xs font-black bg-amber-500/20 text-amber-300'
+        : 'px-3 py-1.5 rounded-lg text-xs font-black text-slate-500 hover:text-slate-300';
+      document.getElementById('loot-period-month').className = period === 'month'
+        ? 'px-3 py-1.5 rounded-lg text-xs font-black bg-amber-500/20 text-amber-300'
+        : 'px-3 py-1.5 rounded-lg text-xs font-black text-slate-500 hover:text-slate-300';
+      void loadLootHistory();
+    }
+
+    function shiftLootPeriod(offset) {
+      if (lootPeriod === 'month') lootAnchorDate.setMonth(lootAnchorDate.getMonth() + offset);
+      else lootAnchorDate.setDate(lootAnchorDate.getDate() + (offset * 7));
+      void loadLootHistory();
+    }
+
+    async function loadLootHistory() {
+      const range = getLootPeriodRange();
+      const startDate = formatDateKey(range.start);
+      const endDate = formatDateKey(range.end);
+      const request = lootHistoryRequests.begin(`${lootPeriod}:${startDate}:${endDate}`);
+      const label = lootPeriod === 'month'
+        ? `${range.start.getFullYear()}. ${String(range.start.getMonth() + 1).padStart(2, '0')}`
+        : `${startDate.slice(5).replace('-', '.')} - ${endDate.slice(5).replace('-', '.')}`;
+      document.getElementById('loot-period-label').textContent = label;
+      const list = document.getElementById('loot-history-list');
+      list.innerHTML = '<div class="h-full min-h-[180px] flex items-center justify-center text-sm text-slate-600">득템 기록을 불러오는 중...</div>';
+
+      try {
+        const rows = await window.electronAPI.diaryGetLootHistory(startDate, endDate);
+        if (!lootHistoryRequests.isCurrent(request) || currentTab !== 'loot') return;
+        const grouped = {};
+        (rows || []).forEach(row => {
+          const parsed = parseLootItem(row.content, row.amount);
+          if (!parsed.name) return;
+          const key = `${row.date}|${parsed.name}`;
+          if (!grouped[key]) {
+            grouped[key] = { date: row.date, name: parsed.name, count: 0, img: parsed.img };
+          }
+          grouped[key].count += parsed.count;
+        });
+        const items = Object.values(grouped)
+          .sort((left, right) => right.date.localeCompare(left.date) || left.name.localeCompare(right.name, 'ko'));
+        const total = items.reduce((sum, item) => (
+          item.name === '경험의 정수' || item.name.includes('마정석') ? sum : sum + item.count
+        ), 0);
+        document.getElementById('loot-history-total').textContent = `${total.toLocaleString()}개`;
+        list.innerHTML = items.map(item => {
+          const imgHtml = item.img
+            ? `<img src="${safeAssetPath(item.img)}" class="w-8 h-8 object-contain select-none" onerror="this.style.display='none'">`
+            : '<i data-lucide="package" class="w-5 h-5 text-slate-600"></i>';
+          return `
+            <div class="grid grid-cols-[100px_52px_minmax(0,1fr)_100px] items-center min-h-[54px] px-4 border-b border-white/5 last:border-0 hover:bg-white/[0.025]">
+              <span class="text-xs font-mono text-slate-500">${escapeHtml(item.date)}</span>
+              <span class="w-9 h-9 rounded-lg bg-black/20 border border-white/5 flex items-center justify-center">${imgHtml}</span>
+              <span class="min-w-0 pr-3 text-sm font-bold text-slate-200 truncate">${escapeHtml(item.name)}</span>
+              <span class="text-right text-sm font-black font-mono text-amber-300">${Number(item.count).toLocaleString()}개</span>
+            </div>`;
+        }).join('') || '<div class="h-full min-h-[180px] flex flex-col items-center justify-center gap-2 text-slate-600"><i data-lucide="package-open" class="w-8 h-8"></i><span class="text-sm font-bold">이 기간에 표시할 득템 기록이 없습니다.</span></div>';
+        lucide.createIcons();
+      } catch (error) {
+        if (!lootHistoryRequests.isCurrent(request)) return;
+        console.error(error);
+        list.innerHTML = '<div class="h-full min-h-[180px] flex items-center justify-center text-sm font-bold text-red-400/80">득템 기록을 불러오지 못했습니다.</div>';
+      }
     }
 
     async function loadStatistics() {
@@ -1206,6 +1350,7 @@
         const div = document.createElement('div');
         div.className = `calendar-cell ${isOther ? 'other-month' : ''} level-${level} ${dStr === todayStr ? 'today' : ''} ${dStr === selectedDateStr ? 'active' : ''}`;
         div.dataset.calendarDay = dStr;
+        div.dataset.calendarRow = String(weekIndex);
         div.onclick = () => selectDate(dStr, div);
 
         let cellHtml = `
@@ -1219,19 +1364,14 @@
         if (currentSummary && currentSummary.lootList) {
           const dayLoots = currentSummary.lootList.filter(l => l.date === dStr);
           
-          // 동일 아이템 이름별로 수량 누적 집계
-          const lootMap = {};
-          dayLoots.forEach(loot => {
+          // 타임라인 원본은 유지하고 달력에서만 같은 의미의 아이템을 한 줄로 합산합니다.
+          const groupedLoots = window.diaryCalendarLootGrouping.group(dayLoots.map(loot => {
             const parsed = parseLootItem(loot.content, loot.amount);
-            const amt = parsed.count;
-            if (lootMap[parsed.name]) {
-              lootMap[parsed.name].count += amt;
-            } else {
-              lootMap[parsed.name] = { count: amt, img: parsed.img };
-            }
-          });
+            return { name: parsed.name, count: parsed.count, img: parsed.img };
+          }));
 
-          Object.entries(lootMap).forEach(([name, info]) => {
+          groupedLoots.forEach(info => {
+            const { name } = info;
             const imgHtml = info.img ? `<img src="${safeAssetPath(info.img)}" class="w-3.5 h-3.5 object-contain shrink-0 select-none pointer-events-none" onerror="this.style.display='none'">` : '';
             const countStr = info.count > 1 ? ` <span class="text-white/60 ml-0.5 pointer-events-none">${info.count}</span>` : '';
             
@@ -1277,6 +1417,7 @@
           const myWeekIdx = weekIndex++;
           const myHwDone = weekWDone, myHwTotal = weekWTotal;
           wDiv.className = 'calendar-cell week flex flex-col items-center justify-center cursor-pointer transition-all'; 
+          wDiv.dataset.calendarRow = String(myWeekIdx);
           wDiv.innerHTML = myHwTotal > 0 ? `<div class="text-xs font-black text-center ${myHwDone === myHwTotal ? 'text-purple-400' : 'text-slate-400'}">주간<br/><span class="text-xs">${myHwDone}/${myHwTotal}</span></div>` : `<div class="text-xs font-bold text-slate-600">주간<br/>상세</div>`;
           wDiv.onclick = (e) => { e.stopPropagation(); selectWeek(myWeekIdx, myWeekDates, wDiv, myHwDone, myHwTotal); };
           grid.appendChild(wDiv); 
@@ -1560,6 +1701,7 @@
     if (window.electronAPI && window.electronAPI.onDiaryUpdated) {
       window.electronAPI.onDiaryUpdated(() => {
         loadMonthData().then(() => { if (selectedDateStr) selectDate(selectedDateStr, Array.from(document.querySelectorAll('.calendar-cell')).find(c => c.classList.contains('active'))); });
+        if (currentTab === 'loot') void loadLootHistory();
       });
     }
 

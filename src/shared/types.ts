@@ -683,6 +683,7 @@ export interface GoogleSyncResult {
 }
 
 export interface SyncProgressInfo {
+    phase?: 'preparing' | 'analyzing' | 'finalizing';
     currentFile: string;
     currentFileIndex: number;
     totalFiles: number;
@@ -694,6 +695,7 @@ export interface SyncProgressInfo {
     homeworkUpdated: number;
     seedsAdded: number;
     elsoPointsAdded: number;
+    failedFiles?: Array<{ fileName: string; date: string; error: string }>;
 }
 
 export interface SyncResultReport {
@@ -716,6 +718,10 @@ export interface SyncResultReport {
     seedsDetected: number;
     elsoPointsDetected: number;
     essencesDetected: number;
+    /** 오늘 파일 snapshot이 분석 중 바뀌지 않아 자동 기록을 정확히 재구성했는지 여부. */
+    todayRebuilt?: boolean;
+    /** 분석 중 오늘 파일이 추가 기록되어 안전을 위해 기존 row를 보존하고 병합했는지 여부. */
+    todayRebuildDeferred?: boolean;
     partial?: boolean;
     failedFiles?: Array<{ fileName: string; date: string; error: string }>;
     error?: string;

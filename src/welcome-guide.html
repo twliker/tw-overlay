@@ -102,7 +102,7 @@
       color: #ef4444;
     }
     
-    /* Tab Buttons (7 Tabs) */
+    /* Tab Buttons */
     .guide-tabs {
       -webkit-app-region: no-drag;
       display: flex;
@@ -110,7 +110,12 @@
       gap: 4px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       background: rgba(15, 23, 42, 0.5);
-      overflow-x: hidden;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .guide-tabs::-webkit-scrollbar {
+      display: none;
     }
     
     .tab-btn {
@@ -501,7 +506,7 @@
       </button>
     </header>
     
-    <!-- Tab Controls (7 Tabs) -->
+    <!-- Tab Controls -->
     <nav class="guide-tabs">
       <button class="tab-btn active" onclick="switchTab(0)">
         <i data-lucide="sparkles" style="width:16px;height:16px;"></i>시작 마법사
@@ -522,6 +527,9 @@
         <i data-lucide="volume-2" style="width:16px;height:16px;"></i>알람음 설정
       </button>
       <button class="tab-btn" onclick="switchTab(6)">
+        <i data-lucide="history" style="width:16px;height:16px;"></i>과거 로그 복원
+      </button>
+      <button class="tab-btn" onclick="switchTab(7)">
         <i data-lucide="keyboard" style="width:16px;height:16px;"></i>단축키 요약
       </button>
     </nav>
@@ -603,7 +611,7 @@
         <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 12px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
           <div>
             <div style="font-size: 14px; font-weight: 700; color: #e9d5ff;">준비 완료! ✨</div>
-            <div style="font-size: 12px; color: #cbd5e1; margin-top: 1px;">추천 득템 세트와 주간 동기화가 자동 적용됩니다.</div>
+            <div style="font-size: 12px; color: #cbd5e1; margin-top: 1px;">추천 득템 세트가 적용되며, 과거 로그 복원은 설정에서 언제든 실행할 수 있습니다.</div>
           </div>
           <button class="primary-btn" onclick="finishWizardAndStart()" style="padding: 8px 18px; font-size: 14px;">
             <i data-lucide="rocket" style="width:16px;height:16px;"></i>
@@ -925,8 +933,60 @@
         </div>
       </div>
 
-      <!-- Tab 6: 단축키 요약 -->
+      <!-- Tab 6: 과거 채팅 로그 동기화 -->
       <div id="panel-6" class="content-panel">
+        <div>
+          <div class="section-title">
+            <i data-lucide="history" style="width:20px;height:20px;color:#a855f7;"></i>
+            과거 채팅 로그에서 누락 기록 복원
+          </div>
+          <div class="section-desc">
+            앱을 꺼둔 동안 쌓인 채팅 로그도 설정 화면에서 다시 분석할 수 있습니다.
+          </div>
+        </div>
+
+        <div class="card" style="gap: 12px;">
+          <div style="font-size: 14px; font-weight: 800; color: #f1f5f9; display: flex; align-items: center; gap: 7px;">
+            <i data-lucide="file-search" style="width:17px;height:17px;color:#c084fc;"></i>
+            이럴 때 사용하세요
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px;">
+            <div style="padding:12px; border-radius:10px; background:rgba(168,85,247,0.08); border:1px solid rgba(168,85,247,0.18);">
+              <div style="font-size:12.5px; font-weight:800; color:#e9d5ff; margin-bottom:5px;">앱을 늦게 실행했을 때</div>
+              <div style="font-size:12px; color:#94a3b8; line-height:1.5;">이미 저장된 로그에서 빠진 자동 기록을 찾아 복원합니다.</div>
+            </div>
+            <div style="padding:12px; border-radius:10px; background:rgba(59,130,246,0.07); border:1px solid rgba(59,130,246,0.18);">
+              <div style="font-size:12.5px; font-weight:800; color:#bfdbfe; margin-bottom:5px;">기록이 누락된 것 같을 때</div>
+              <div style="font-size:12px; color:#94a3b8; line-height:1.5;">설정 화면에 표시된 기간의 로그를 안전하게 다시 확인합니다.</div>
+            </div>
+            <div style="padding:12px; border-radius:10px; background:rgba(16,185,129,0.07); border:1px solid rgba(16,185,129,0.18);">
+              <div style="font-size:12.5px; font-weight:800; color:#a7f3d0; margin-bottom:5px;">진행 상태를 확인할 때</div>
+              <div style="font-size:12px; color:#94a3b8; line-height:1.5;">동기화 진행 여부와 처리 결과를 같은 화면에서 확인합니다.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="gap: 9px; border-color: rgba(251,191,36,0.22); background: rgba(251,191,36,0.04);">
+          <div style="font-size: 13.5px; font-weight: 800; color: #fde68a; display:flex; align-items:center; gap:6px;">
+            <i data-lucide="info" style="width:16px;height:16px;"></i> 알아두세요
+          </div>
+          <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.65;">
+            • 테일즈위버의 원본 채팅 로그 파일이 PC에 남아 있어야 합니다.<br>
+            • 로그 파일이 많으면 분석 중 프로그램이 일시적으로 느려질 수 있습니다. 진행이 끝날 때까지 잠시 기다려 주세요.<br>
+            • 이 기능은 PC의 채팅 로그를 모험일지 등에 반영하는 기능이며, Google Drive 기기 간 동기화와는 별개입니다.<br>
+            • <strong style="color:#fff;">설정 → 채팅 &amp; 로그 → 채팅 로그 연동</strong>에서 언제든 다시 실행할 수 있습니다.
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:center;">
+          <button class="submit-btn" onclick="openHistoricalChatSyncSettingsDirectly()" style="font-size:14.5px; padding:9px 22px;">
+            <i data-lucide="external-link" style="width:16px;height:16px;"></i> 과거 채팅 로그 동기화 열기
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab 7: 단축키 요약 -->
+      <div id="panel-7" class="content-panel">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <div class="section-title">
@@ -1020,7 +1080,7 @@
     lucide.createIcons();
     
     let currentTabIdx = 0;
-    const totalTabs = 7;
+    const totalTabs = 8;
     let selectedUserServer = 7; // 기본값 하이아칸 (7)
     let currentChatLogPath = '';
     let wizardLootKeywords = [];
@@ -1131,6 +1191,11 @@
       
       tabs.forEach((tab, i) => tab.classList.toggle('active', i === index));
       panels.forEach((panel, i) => panel.classList.toggle('active', i === index));
+
+      const activeTab = tabs[index];
+      if (activeTab && typeof activeTab.scrollIntoView === 'function') {
+        activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
       
       updateFooterButtons();
     }
@@ -1220,6 +1285,12 @@
     function openChatlogSettingsDirectly() {
       if (window.electronAPI && window.electronAPI.toggleSettings) {
         window.electronAPI.toggleSettings('chatlog');
+      }
+    }
+
+    function openHistoricalChatSyncSettingsDirectly() {
+      if (window.electronAPI && window.electronAPI.toggleSettings) {
+        window.electronAPI.toggleSettings('chatlog:history-sync');
       }
     }
 

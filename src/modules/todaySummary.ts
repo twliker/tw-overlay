@@ -7,6 +7,7 @@ import type {
 import { DEFAULT_CHAR_NAME, MAIN_CHAR_ID } from '../shared/types';
 import { parseItemAcquisition } from './itemAcquisition';
 import { formatLocalDateKey } from '../shared/localDate';
+import { countsTowardLootTotal } from '../shared/lootPolicy';
 
 const MAX_REMAINING_HOMEWORK_ITEMS = 5;
 
@@ -69,7 +70,7 @@ export function buildTodaySummary(
       if (name === '경험의 정수') {
         totalEssence += count;
       }
-      totalLootCount += count;
+      if (countsTowardLootTotal(name)) totalLootCount += count;
       lootCounts.set(name, (lootCounts.get(name) || 0) + count);
     }
   }

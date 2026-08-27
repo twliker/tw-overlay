@@ -387,6 +387,39 @@ export function focusGameWindow(): boolean {
     }
 }
 
+/**
+ * 외부 앱에 가려진 상태에서 사용자가 TW-Overlay 창을 명시적으로 활성화했을 때만
+ * 게임을 같은 작업 묶음으로 한 번 올린다. 자동 복구와 달리 호출 원인이 명확한 경로이며,
+ * 사용자가 최소화한 게임의 show state와 Topmost 스타일은 절대 변경하지 않는다.
+ */
+export function focusGameForAppActivation(expectedAppHwndText: string): boolean {
+    if (!cachedHwnd || !isHwndValid(cachedHwnd) || !win32.GetForegroundWindow) return false;
+    try {
+        const expectedAppHwnd = parseHwnd(expectedAppHwndText);
+        const foregroundBefore = parseHwnd(win32.GetForegroundWindow());
+        if (expectedAppHwnd === 0n || foregroundBefore !== expectedAppHwnd) {
+            log(`[TRACKER] Explicit app activation skipped: foreground changed expected=${expectedAppHwnd} current=${foregroundBefore}`);
+            return false;
+        }
+        if (win32.IsIconic && win32.IsIconic(cachedHwnd)) {
+            log('[TRACKER] Explicit app activation skipped: game is minimized');
+            return false;
+        }
+
+        const requested = win32.SetForegroundWindow
+            ? !!win32.SetForegroundWindow(cachedHwnd)
+            : false;
+        const foregroundAfter = parseHwnd(win32.GetForegroundWindow());
+        const focused = foregroundAfter === cachedHwnd;
+        log(`[TRACKER] Explicit app activation game raise ${focused ? 'succeeded' : 'failed'} requested=${requested} app=${expectedAppHwnd} game=${cachedHwnd} current=${foregroundAfter}`);
+        return focused;
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        log(`[TRACKER] Explicit app activation game raise failed: ${message}`);
+        return false;
+    }
+}
+
 /** 앱 종료·게임 숨김 시 TW-Overlay 창에 남은 일시 Topmost 상태만 정리한다. */
 export function releaseGameZOrder(): void {
     try {

@@ -204,9 +204,25 @@ app.whenReady().then(() => {
 
     analytics.trackEvent('app_open');
     tracker.start();
+    type ForegroundOwner = 'game' | 'app' | 'external';
+    let previousForegroundOwner: ForegroundOwner | null = null;
     tracker.setForegroundChangeListener((isGameFocused, focusedHwndStr) => {
       const electronHwnds = wm.getAllWindowHwnds();
       const isAppFocused = electronHwnds.includes(focusedHwndStr);
+      const foregroundOwner: ForegroundOwner = isGameFocused
+        ? 'game'
+        : isAppFocused
+          ? 'app'
+          : 'external';
+      const shouldActivateGameGroup = previousForegroundOwner === 'external'
+        && foregroundOwner === 'app';
+      previousForegroundOwner = foregroundOwner;
+
+      // 작업표시줄/Alt+Tab으로 우리 창을 명시적으로 선택한 경우에만 게임을 함께 올린다.
+      // 외부 앱이 계속 foreground인 자동 폴링·창 생성 경로에서는 절대 실행하지 않는다.
+      if (shouldActivateGameGroup) {
+        setImmediate(() => wm.activateGameBehindAppWindow(focusedHwndStr));
+      }
       sm.updateFocusState(isGameFocused || isAppFocused);
       const isExternalFocused = !isGameFocused && !isAppFocused;
       const gameHwnd = tracker.getGameHwnd();

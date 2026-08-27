@@ -38,6 +38,7 @@ import {
 import {
   syncWeeklyChatLogs,
   getRecentMonday,
+  getDiaryRetentionStartDate,
   getSyncTargetLogFiles
 } from './chatLogSyncManager';
 
@@ -50,6 +51,10 @@ const isFiniteInRange = (value: unknown, min: number, max: number): value is num
 const isLimitedString = (value: unknown, maxLength: number, allowEmpty = true): value is string => (
   typeof value === 'string' && value.length <= maxLength && (allowEmpty || value.trim().length > 0)
 );
+const getDiaryLootKeywords = (): string[] => {
+  const { lootKeywords } = config.loadFields(['lootKeywords'] as const);
+  return Array.isArray(lootKeywords) ? lootKeywords : [];
+};
 const isSafeId = (value: unknown): value is string => (
   isLimitedString(value, 128, false) && /^[A-Za-z0-9][A-Za-z0-9:_-]*$/.test(value)
 );
@@ -264,7 +269,7 @@ export function register(): void {
     wm.createWelcomeGuideWindow();
   });
 
-  // ── 주간 채팅 로그 동기화 & 온보딩 마법사 IPC ──
+  // ── 과거 채팅 로그 동기화 & 온보딩 마법사 IPC ──
   ipcMain.handle('start-chat-log-sync', async () => {
     try {
       return await syncWeeklyChatLogs();
@@ -297,7 +302,10 @@ export function register(): void {
   ipcMain.handle('get-sync-target-files', async () => {
     const cfg = config.load();
     if (!cfg.chatLogPath) return [];
-    return await getSyncTargetLogFiles(cfg.chatLogPath);
+    return await getSyncTargetLogFiles(
+      cfg.chatLogPath,
+      getDiaryRetentionStartDate(cfg.diaryKeepDays ?? 180),
+    );
   });
 
   ipcMain.on('complete-setup-wizard', (_e, wizardConfig?: { chatLogPath?: string; userServer?: number; chatLogAutoDeleteDays?: number; diaryKeepDays?: number; lootKeywords?: string[] }) => {
@@ -477,6 +485,9 @@ export function register(): void {
         analytics.trackEvent('diary_data_cleanup', { keepDays, trigger: 'settings_change' });
         diaryDb.cleanOldDiaryData(keepDays);
       }
+    }
+    if (sanitizedPatch.lootKeywords !== undefined) {
+      broadcastToAllWindows('diary-updated');
     }
   });
 
@@ -768,7 +779,7 @@ export function register(): void {
 
   ipcMain.handle('diary-get-by-date', (_e, date: string) => {
     if (!isValidDateKey(date)) return { diary: null, homeworkLogs: [], activityLogs: [] };
-    return diaryDb.getDiaryByDate(date);
+    return diaryDb.getDiaryByDate(date, getDiaryLootKeywords());
   });
   ipcMain.handle('diary-get-by-month', (_e, yearMonth: string) => {
     if (!isValidYearMonthKey(yearMonth)) return [];
@@ -776,11 +787,19 @@ export function register(): void {
   });
   ipcMain.handle('diary-get-monthly-summary', (_e, yearMonth: string) => {
     if (!isValidYearMonthKey(yearMonth)) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
-    return diaryDb.getMonthlySummary(yearMonth);
+    return diaryDb.getMonthlySummary(yearMonth, getDiaryLootKeywords());
   });
   ipcMain.handle('diary-get-statistics', (_e, yearMonth: string) => {
     if (!isValidYearMonthKey(yearMonth)) return null;
-    return diaryDb.getMonthlyStatistics(yearMonth);
+    return diaryDb.getMonthlyStatistics(yearMonth, getDiaryLootKeywords());
+  });
+  ipcMain.handle('diary-get-loot-history', (_e, startDate: string, endDate: string) => {
+    if (!isValidDateKey(startDate) || !isValidDateKey(endDate) || startDate > endDate) return [];
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T00:00:00`);
+    const rangeDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+    if (!Number.isFinite(rangeDays) || rangeDays > 366) return [];
+    return diaryDb.getLootHistory(startDate, endDate, getDiaryLootKeywords());
   });
   ipcMain.handle('diary-get-monthly-revenue', (_e, yearMonth: string) => {
     if (!isValidYearMonthKey(yearMonth)) return [];
@@ -1188,7 +1207,8 @@ export function register(): void {
   });
   ipcMain.handle('today-summary-get', () => {
     const date = getLocalDateKey();
-    return buildTodaySummary(config.load(), diaryDb.getDiaryByDate(date), date);
+    const cfg = config.load();
+    return buildTodaySummary(cfg, diaryDb.getDiaryByDate(date, cfg.lootKeywords || []), date);
   });
 
   ipcMain.handle('focused-chat-get-history', async () => {

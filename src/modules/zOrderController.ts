@@ -96,6 +96,9 @@ export function resolveZOrderPolicyState(input: ZOrderPolicyInput): ZOrderPolicy
  *    게임의 원래 band로 즉시 내리고 `게임 < TW-Overlay < 기존 외부 창`을 복원한다.
  * 3. 강등 전에 게임 위의 첫 보이는 외부 HWND를 anchor로 읽어 외부 창 순서를 보존한다.
  * 4. 게임·외부 HWND에는 절대 SetWindowPos/Topmost/NotTopmost 쓰기를 수행하지 않는다.
+ * 5. 외부 앱에서 사용자가 TW-Overlay 작업표시줄 창을 명시적으로 선택할 때만,
+ *    이 관리자 밖의 전용 경로가 최소화되지 않은 게임을 SetForegroundWindow로 한 번
+ *    올린 뒤 선택한 우리 창에 포커스를 돌린다. 자동 폴링에는 이 예외를 적용하지 않는다.
  *
  * 이 정책은 창모드·창모드 전체화면 및 다중 모니터 실게임에서 확정됐다.
  * 새 증상에 대응한다는 이유로 모니터별/창 rect별 Topmost 예외를 다시 추가하지 말고,

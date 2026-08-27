@@ -17,31 +17,67 @@
     if (label) label.textContent = expanded ? '접기' : '더보기';
   }
 
-  function measureCell(cell: HTMLElement): void {
+  function measureCell(cell: HTMLElement): boolean {
     const parts = getParts(cell);
-    if (!parts) return;
+    if (!parts) return false;
 
-    const wasExpanded = cell.classList.contains('expanded');
-    if (wasExpanded) cell.classList.remove('expanded');
+    cell.classList.remove('expanded');
     const overflowing = parts.stack.scrollHeight > COLLAPSED_LOOT_HEIGHT + 1;
-    if (wasExpanded && overflowing) cell.classList.add('expanded');
 
     cell.classList.toggle('has-overflow', overflowing);
     parts.button.hidden = !overflowing;
-    if (!overflowing) cell.classList.remove('expanded');
-    syncButton(cell, parts.button);
+    return overflowing;
+  }
+
+  function getRowCells(cell: HTMLElement): HTMLElement[] {
+    const row = cell.dataset.calendarRow;
+    const root = cell.parentElement;
+    if (!row || !root) return [cell];
+    return Array.from(root.querySelectorAll<HTMLElement>('.calendar-cell[data-calendar-row]'))
+      .filter(candidate => candidate.dataset.calendarRow === row);
+  }
+
+  function setRowExpanded(cells: readonly HTMLElement[], expanded: boolean): void {
+    cells.forEach(cell => {
+      cell.classList.toggle('expanded', expanded);
+      const parts = getParts(cell);
+      if (parts) syncButton(cell, parts.button);
+    });
   }
 
   function refresh(root: ParentNode = document): void {
-    root.querySelectorAll<HTMLElement>('.calendar-cell[data-calendar-day]').forEach(measureCell);
+    const cells = Array.from(root.querySelectorAll<HTMLElement>('.calendar-cell[data-calendar-row]'));
+    const expandedRows = new Set(
+      cells.filter(cell => cell.classList.contains('expanded'))
+        .map(cell => cell.dataset.calendarRow)
+        .filter((row): row is string => Boolean(row)),
+    );
+    const overflowingRows = new Set<string>();
+
+    cells.forEach(cell => {
+      if (measureCell(cell) && cell.dataset.calendarRow) overflowingRows.add(cell.dataset.calendarRow);
+    });
+
+    const rows = new Map<string, HTMLElement[]>();
+    cells.forEach(cell => {
+      const row = cell.dataset.calendarRow;
+      if (!row) return;
+      const rowCells = rows.get(row) ?? [];
+      rowCells.push(cell);
+      rows.set(row, rowCells);
+    });
+    rows.forEach((rowCells, row) => setRowExpanded(
+      rowCells,
+      expandedRows.has(row) && overflowingRows.has(row),
+    ));
   }
 
   function toggle(button: HTMLButtonElement, event?: Event): void {
     event?.stopPropagation();
     const cell = button.closest<HTMLElement>('.calendar-cell[data-calendar-day]');
     if (!cell || button.hidden) return;
-    cell.classList.toggle('expanded');
-    syncButton(cell, button);
+    const rowCells = getRowCells(cell);
+    setRowExpanded(rowCells, !cell.classList.contains('expanded'));
   }
 
   function scheduleRefresh(root: ParentNode = document): void {

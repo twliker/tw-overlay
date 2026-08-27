@@ -8,6 +8,7 @@ import { DiaryEntry, HomeworkLog, ActivityLog, DiaryData, AlarmLog, TimerRecord 
 import { broadcastToAllWindows } from './windowMessaging';
 import { formatLootDiaryContent, parseItemAcquisition } from './itemAcquisition';
 import { formatLocalDateKey } from '../shared/localDate';
+import { countsTowardLootTotal, matchesRegisteredLoot } from '../shared/lootPolicy';
 
 let db: Database.Database | null = null;
 
@@ -810,6 +811,19 @@ export function getMonthDateRange(yearMonth: string): { start: string; end: stri
   return { start, end };
 }
 
+function isVisibleLootLog(log: Pick<ActivityLog, 'type' | 'content' | 'source'>, lootKeywords?: readonly string[]): boolean {
+  if (log.type !== 'loot' || lootKeywords === undefined) return true;
+  if (log.source === 'manual') return true;
+  return matchesRegisteredLoot(lootKeywords, log.content);
+}
+
+function filterVisibleLootLogs<T extends Pick<ActivityLog, 'type' | 'content' | 'source'>>(
+  logs: T[],
+  lootKeywords?: readonly string[],
+): T[] {
+  return lootKeywords === undefined ? logs : logs.filter(log => isVisibleLootLog(log, lootKeywords));
+}
+
 /** 데이터베이스 연결을 명시적으로 닫습니다 (백업 복구용). */
 export function closeDb(): boolean {
   const elsoFlushed = flushPendingElso();
@@ -832,7 +846,7 @@ function ensureDiaryExists(date: string): void {
 }
 
 /** 날짜별 일지 데이터를 모두 가져옵니다. (메모리 대기 중인 엘소 포인트도 디스크 I/O 없이 실시간 병합) */
-export function getDiaryByDate(date: string): DiaryData {
+export function getDiaryByDate(date: string, lootKeywords?: readonly string[]): DiaryData {
   if (!db) initDb();
   if (!db) return { diary: null, homeworkLogs: [], activityLogs: [] };
 
@@ -895,7 +909,7 @@ export function getDiaryByDate(date: string): DiaryData {
     }
   }
 
-  return { diary, homeworkLogs, activityLogs };
+  return { diary, homeworkLogs, activityLogs: filterVisibleLootLogs(activityLogs, lootKeywords) };
 }
 
 /** 특정 월의 달력 렌더링을 위해 요약 데이터 목록을 가져옵니다. (주변 날짜 포함) */
@@ -1198,14 +1212,15 @@ export function updateDiaryMonster(date: string, monsterId: string): boolean {
 }
 
 /** 특정 월의 요약 정보 (득템 수, 누적 시드, 상세 목록)를 가져옵니다. */
-export function getMonthlySummary(yearMonth: string): { totalLoots: number, totalSeed: number, lootList: any[], seedList: any[] } {
+export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly string[]): { totalLoots: number, totalSeed: number, lootList: any[], seedList: any[] } {
   flushPendingElso();
   flushPendingGoldPouchSeed();
   if (!db) initDb();
   if (!db) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
 
   const { start, end } = getMonthDateRange(yearMonth);
-  const logs = getStmt("SELECT date, type, content, amount FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('loot', 'calc') ORDER BY date DESC, time DESC").all(start, end) as { date: string, type: string, content: string, amount: number }[];
+  const rawLogs = getStmt("SELECT date, type, content, amount, source FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('loot', 'calc') ORDER BY date DESC, time DESC").all(start, end) as ActivityLog[];
+  const logs = filterVisibleLootLogs(rawLogs, lootKeywords);
 
   let totalLoots = 0;
   let totalSeed = 0;
@@ -1215,7 +1230,7 @@ export function getMonthlySummary(yearMonth: string): { totalLoots: number, tota
   logs.forEach(log => {
     if (log.type === 'loot') {
       lootList.push({ date: log.date, content: log.content, amount: log.amount || 1 });
-      if (!log.content.includes('경험의 정수')) {
+      if (countsTowardLootTotal(log.content)) {
         totalLoots += log.amount || 1;
       }
     } else if (log.type === 'calc') {
@@ -1228,7 +1243,7 @@ export function getMonthlySummary(yearMonth: string): { totalLoots: number, tota
 }
 
 /** 월간 통계 데이터를 추출합니다 (인포그래픽용). */
-export function getMonthlyStatistics(yearMonth: string): any {
+export function getMonthlyStatistics(yearMonth: string, lootKeywords?: readonly string[]): any {
   flushPendingElso();
   flushPendingGoldPouchSeed();
   if (!db) initDb();
@@ -1239,7 +1254,8 @@ export function getMonthlyStatistics(yearMonth: string): any {
   const { start, end } = getMonthDateRange(yearMonth);
 
   // 1. 기본 로그 가져오기 (인덱스 Range Scan 활용)
-  const logs = getStmt("SELECT date, time, type, content, amount FROM activity_logs WHERE date >= ? AND date <= ?").all(start, end) as { date: string, time: string, type: string, content: string, amount: number }[];
+  const rawLogs = getStmt("SELECT date, time, type, content, amount, source FROM activity_logs WHERE date >= ? AND date <= ?").all(start, end) as ActivityLog[];
+  const logs = filterVisibleLootLogs(rawLogs, lootKeywords);
 
   // 2. 출석일수 (활동 로그가 있는 고유 날짜 수)
   const attendanceDays = new Set(logs.map(l => l.date)).size;
@@ -1290,7 +1306,7 @@ export function getMonthlyStatistics(yearMonth: string): any {
     } else if (log.type === 'loot') {
       if (log.content.includes('경험의 정수')) {
         totalEssences += log.amount || 1;
-      } else {
+      } else if (countsTowardLootTotal(log.content)) {
         totalLoots += log.amount || 1;
       }
     } else if (log.type === 'calc') {
@@ -1336,6 +1352,34 @@ export function getMonthlyStatistics(yearMonth: string): any {
     grade,
     hourlyActivity
   };
+}
+
+export interface LootHistoryRow {
+  date: string;
+  time: string;
+  content: string;
+  amount: number;
+  source: ActivityLog['source'];
+}
+
+/** 주간/월간 득템 전용 목록을 위한 날짜 범위 조회입니다. */
+export function getLootHistory(
+  startDate: string,
+  endDate: string,
+  lootKeywords?: readonly string[],
+): LootHistoryRow[] {
+  if (!db) initDb();
+  if (!db) return [];
+  const rows = getStmt(`
+    SELECT date, time, content, amount, source
+    FROM activity_logs
+    WHERE date >= ? AND date <= ? AND type = 'loot'
+    ORDER BY date DESC, time DESC
+  `).all(startDate, endDate) as LootHistoryRow[];
+  return filterVisibleLootLogs(
+    rows.map(row => ({ ...row, type: 'loot' as const })),
+    lootKeywords,
+  ).map(({ type: _type, ...row }) => row);
 }
 
 /**
@@ -1477,6 +1521,7 @@ export interface BatchSyncData {
   elsoPoints: Array<{ date: string; timeOnly: string; amount: number }>;
   goldPouchSeeds?: Array<{ date: string; timeOnly: string; amount: number }>;
   shouts: Array<{ eventId?: string; fullTimestamp: number; sender: string; message: string }>;
+  replaceAutomaticDate?: string;
 }
 
 interface GoldPouchRecoveryJournal {
@@ -1665,7 +1710,7 @@ function createFailedBatchSyncResult(error: string): BatchSyncResult {
 }
 
 /**
- * 주간 동기화 결과물을 단 1회의 트랜잭션으로 초고속 일괄 커밋합니다. (0.01초 미만 완료, UI 멈춤 제로)
+ * 과거 로그 동기화 결과물을 작은 유한 배치 단위 트랜잭션으로 커밋합니다.
  */
 export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   flushPendingElso();
@@ -1687,6 +1732,18 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   const updateElso = db.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
   const selectGoldPouchSeed = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'calc' AND content = ? ORDER BY id ASC LIMIT 1");
   const updateGoldPouchSeed = db.prepare('UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?');
+  const countAutomaticCalcRows = db.prepare(`
+    SELECT COUNT(*) AS count FROM activity_logs
+    WHERE date = ? AND source = 'automatic' AND type = 'calc' AND content LIKE '[자동] %'
+  `);
+  const deleteAutomaticLogRows = db.prepare(`
+    DELETE FROM activity_logs
+    WHERE date = ? AND source = 'automatic' AND (
+      type = 'loot'
+      OR type = 'elso'
+      OR (type = 'calc' AND content LIKE '[자동] %')
+    )
+  `);
 
   const selectStone = db.prepare(`
     SELECT id, amount FROM activity_logs 
@@ -1700,7 +1757,28 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   `);
 
   const runBatch = db.transaction(() => {
+    const replaceDate = data.replaceAutomaticDate;
+    if (replaceDate) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(replaceDate)) {
+        throw new Error('자동 채팅 로그 기록 교체 날짜가 유효하지 않습니다.');
+      }
+      const invalidDate = [
+        ...data.loots,
+        ...(data.essences || []),
+        ...data.seeds,
+        ...data.elsoPoints,
+        ...(data.goldPouchSeeds || []),
+      ].some(item => item.date !== replaceDate);
+      if (invalidDate) throw new Error('자동 채팅 로그 기록 교체 배치에 다른 날짜가 포함되어 있습니다.');
+
+      const previousCalcCount = (countAutomaticCalcRows.get(replaceDate) as { count: number } | undefined)?.count || 0;
+      if (previousCalcCount > 0) subtractScore(replaceDate, previousCalcCount * POINTS.CALC_RECORD);
+      deleteAutomaticLogRows.run(replaceDate);
+    }
+
     const claimEvent = (eventId?: string): boolean => {
+      // 오늘 전체 재구성은 기존 event claim과 무관하게 완성된 snapshot을 그대로 기록한다.
+      if (data.replaceAutomaticDate) return true;
       if (!eventId) return true;
       return insertCommittedEvent.run(eventId, Date.now()).changes > 0;
     };

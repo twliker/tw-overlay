@@ -18,6 +18,7 @@ import type { ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from
 import { showSupportedDesktopNotification } from './desktopNotification';
 import { formatLootDiaryContent, getGoldPouchSeedAmount, parseElsoMessage } from './itemAcquisition';
 import { normalizeNotificationKeyword, normalizeNotificationKeywords } from '../shared/keywordSanitizer';
+import { matchesRegisteredLoot } from '../shared/lootPolicy';
 export { parseElsoMessage };
 const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = require('../shared/chatChannels') as ChatChannelConstants;
 
@@ -503,16 +504,11 @@ class ChatLogProcessor {
       }
 
       const keywords = normalizeNotificationKeywords(cfg.lootKeywords);
-      // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
-      const matchedKeyword = keywords.find(k => data.message.includes(k));
-      // 경험의 정수는 기존 전용 기록 동작을 보존하되 공통 아이템 경로에서 한 번만 기록합니다.
-      const isAlwaysTrackedItem = data.itemName === '경험의 정수';
-      if (data.isOwn && (matchedKeyword || isAlwaysTrackedItem)) {
+      const isRegisteredItem = matchesRegisteredLoot(keywords, data.itemName);
+      if (data.isOwn && isRegisteredItem) {
         if (!data.itemName.includes('마정석') && !data.message.includes('마정석')) {
           const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
-          const diaryContent = isAlwaysTrackedItem
-            ? formatLootDiaryContent(data.itemName)
-            : `[득템] ${data.message}`;
+          const diaryContent = formatLootDiaryContent(data.itemName);
           diaryDb.addActivityLog(
             data.date,
             timeOnly,
@@ -520,7 +516,7 @@ class ChatLogProcessor {
             diaryContent,
             data.count,
           );
-          if (!isAlwaysTrackedItem) {
+          if (data.itemName !== '경험의 정수') {
             showSupportedDesktopNotification('아이템 획득 알림', data.message);
           }
         }
@@ -538,6 +534,8 @@ class ChatLogProcessor {
 
     // 2-1. 마정석 획득 처리 (모험일지 일일 누적 기록)
     chatParser.on('MAGIC_STONE_GAIN', (data) => {
+      const cfg = config.loadFields(ITEM_LOOT_CONFIG_KEYS);
+      if (!matchesRegisteredLoot(cfg.lootKeywords, `${data.grade} 마정석`)) return;
       const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       diaryDb.addMagicStoneDaily(data.date, timeOnly, data.grade, data.count);
     });
@@ -546,7 +544,8 @@ class ChatLogProcessor {
     chatParser.on('XP_CHANGED', (data) => {
       // 100억 단위 경험치 차감(경험의 정수 수동/자동 교환) 시 모험일지 및 요약에 기록합니다.
       const essenceCount = getEssenceExchangeCount(data.amount);
-      if (essenceCount > 0) {
+      const cfg = config.loadFields(ITEM_LOOT_CONFIG_KEYS);
+      if (essenceCount > 0 && matchesRegisteredLoot(cfg.lootKeywords, '경험의 정수')) {
         const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
         diaryDb.addActivityLog(
           data.date,

@@ -134,6 +134,8 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleXpSession, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle XP Session');
+      // 사용자에게 약속된 결합 동작이다: 시작하면 HUD 표시, 일시정지하면 HUD 숨김.
+      // 앱 시작/자동 시작 정책과 혼동해 세션만 토글하도록 분리하지 않는다.
       import('./xpTracker').then(mod => mod.xpTracker.toggleSession())
         .catch(err => log(`[SHORTCUT] xpTracker 로드 실패: ${err}`));
     });
