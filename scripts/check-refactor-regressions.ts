@@ -3149,6 +3149,7 @@ function checkAgentDocumentationLocations(): void {
     'npm ci',
     'npm run typecheck',
     'npm test',
+    'npm run test:stress',
     'npm audit --omit=dev',
     'npm exec electron-builder -- --win --publish never',
     'softprops/action-gh-release@v3',

@@ -30,6 +30,9 @@ jobs:
       - name: Run regression tests
         run: npm test
 
+      - name: Run throughput and sustained-load tests
+        run: npm run test:stress
+
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=critical
 
