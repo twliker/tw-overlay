@@ -82,7 +82,7 @@ TW-Overlay는 한쪽 PC의 체크리스트를 다른 쪽에 통째로 덮어쓰�
 
 | 기능 | 동기화 항목 | 내부 설정 키 |
 |---|---|---|
-| 숙제 체크리스트 표시 | 기능 사용 여부, 자동 열기, 마지막 선택 캐릭터, 알림 음량 | `contentsCheckerEnabled`, `autoOpenContentsChecker`, `selectedCharacterId`, `volumeContentsChecker` |
+| 숙제 체크리스트 표시 | 기능 사용 여부, 자동 열기, 마지막 선택 캐릭터, 알림 음량, 단일 후보 자동 체크 여부 | `contentsCheckerEnabled`, `autoOpenContentsChecker`, `selectedCharacterId`, `volumeContentsChecker`, `contentsAutoAssignSingleCandidate` |
 | 사이드바·메뉴 | 퀵슬롯, 단축키, 숨김/표시 메뉴, 사이드바 방향·독 위치, 오버레이 토스트 표시 | `quickSlots`, `shortcuts`, `hiddenMenuIds`, `visibleMenuIds`, `sidebarPosition`, `showSidebarToastOnOverlay` |
 | 갤러리 모니터 | 전체 알림 사용 여부, 갤러리 키워드 | `galleryNotify`, `galleryKeywords` |
 | 거래 게시판 모니터 | 서버, 알림 사용 여부, 거래 키워드 | `tradeServer`, `tradeNotify`, `tradeKeywords` |

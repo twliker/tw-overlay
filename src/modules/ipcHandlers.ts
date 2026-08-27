@@ -627,6 +627,10 @@ export function register(): void {
     if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.selectCharacter(id));
   });
+  ipcMain.on('contents-set-auto-assign-single-candidate', (_e, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') return;
+    import('./contentsChecker').then(mod => mod.setAutoAssignSingleCandidate(enabled));
+  });
 
   // 특별 인수가 필요한 토글 핸들러 개별 등록
   ipcMain.on('toggle-settings', (_event, tabId?: string) => {

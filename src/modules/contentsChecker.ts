@@ -367,6 +367,14 @@ export function getPendingHomeworkCandidateIds(
   })).map(character => character.id);
 }
 
+/** 후보가 한 명일 때 사용자 설정에 따라 자동 귀속할지 판정한다. */
+export function shouldAutoAssignSinglePendingCandidate(
+  autoAssignSingleCandidate: boolean | undefined,
+  candidateCharacterIds: string[],
+): boolean {
+  return autoAssignSingleCandidate !== false && candidateCharacterIds.length === 1;
+}
+
 /** 보류 이벤트 발생 뒤 해당 숙제의 리셋 경계를 지났는지 판정한다. */
 export function isPendingHomeworkExpired(
   pending: PendingHomework,
@@ -1518,10 +1526,10 @@ export function queuePendingHomework(
     log(`[Contents Checker] 비정상적으로 큰 보류 대기열을 최근 ${maxPendingItems}개로 제한했습니다.`);
   }
 
-  // 완료·제외 캐릭터를 빼고 실제 반영 가능한 캐릭터가 하나뿐이면 선택 팝업을 생략한다.
-  // 이 정책은 본캐가 같은 숙제를 끝낸 뒤 부캐로 플레이하는 기존 자동 귀속 UX를 보존한다.
+  // 완료·제외 캐릭터를 빼고 실제 반영 가능한 캐릭터가 하나뿐인 경우에도
+  // 차감권 사용 여부처럼 앱이 알 수 없는 상황이 있으므로 사용자 선택을 따른다.
   const candidateCharacterIds = getPendingHomeworkCandidateIds(presets, items, pendingList);
-  if (candidateCharacterIds.length === 1) {
+  if (shouldAutoAssignSinglePendingCandidate(cfg.contentsAutoAssignSingleCandidate, candidateCharacterIds)) {
     const targetCharId = candidateCharacterIds[0];
     const targetCharacter = presets.find(character => character.id === targetCharId);
     log(`[Contents Checker] 자동 반영 - 미완료 후보가 '${targetCharacter?.name || targetCharId}' (${targetCharId}) 한 명뿐입니다.`);
@@ -1530,7 +1538,17 @@ export function queuePendingHomework(
     return;
   }
 
+  if (candidateCharacterIds.length === 1) {
+    log('[Contents Checker] 단일 미완료 후보 자동 반영이 꺼져 있어 캐릭터 선택을 기다립니다.');
+  }
+
   config.saveImmediate({ pendingHomeworks: pendingList });
+  refreshUI();
+}
+
+/** 캐릭터가 한 명만 남았을 때의 보류 숙제 자동 귀속 여부를 저장한다. */
+export function setAutoAssignSingleCandidate(enabled: boolean): void {
+  config.saveImmediate({ contentsAutoAssignSingleCandidate: enabled });
   refreshUI();
 }
 

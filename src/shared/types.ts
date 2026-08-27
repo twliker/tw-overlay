@@ -402,6 +402,7 @@ export interface AppConfig {
     characterPresets?: CharacterPreset[];
     selectedCharacterId?: string;
     pendingHomeworks?: PendingHomework[];
+    contentsAutoAssignSingleCandidate?: boolean;
     lastContentsResetCheck?: number;
     shortcuts?: ShortcutsConfig;
     customAlerts?: CustomAlert[];

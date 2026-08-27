@@ -104,6 +104,7 @@ const captures: CaptureDefinition[] = [
   { name: 'main-sidebar.png', html: 'index.html', width: 320, height: 900, events: [['active-windows', ['contentsChecker']]] },
   { name: 'main-dock.png', html: 'dock.html', width: 900, height: 380, events: [['active-windows', ['contentsChecker', 'swordEnhance']], ['google-sync-status-changed', linkedSyncStatus]] },
   { name: 'contents-checker-overview.png', html: 'contents-checker.html', width: 620, height: 900 },
+  { name: 'contents-checker-characters.png', html: 'contents-checker.html', width: 620, height: 900, setup: `document.getElementById('btn-char-mgmt')?.click()` },
   { name: 'contents-checker-pending.png', html: 'contents-checker.html', width: 620, height: 900, setup: `checkAndRenderPendingModal({ pendingHomeworks: [{ id: 'guide-weekly', count: 1, isIncrement: true }], characterPresets: ${JSON.stringify(characters)}, contentsCheckerItems: ${JSON.stringify(checklistItems)} })` },
   { name: 'google-sync-login.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSection('data', document.querySelector('[data-settings-group="system"]')); updateGoogleSyncUI(${JSON.stringify({ isLinked: false, autoSync: false })})` },
   { name: 'google-sync-connected.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSection('data', document.querySelector('[data-settings-group="system"]')); updateGoogleSyncUI(${JSON.stringify(linkedSyncStatus)})` },

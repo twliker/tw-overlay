@@ -4689,6 +4689,7 @@ function checkPendingHomeworkOrdering(): void {
     isPendingHomeworkExpired,
     getHomeworkResetCycleKey,
     getPendingHomeworkCandidateIds,
+    shouldAutoAssignSinglePendingCandidate,
   } = require(path.join(projectRoot, 'dist', 'modules', 'contentsChecker.js')) as {
     mergePendingHomeworkEvent(
       existing: { id: string; count: number; isIncrement: boolean; timestamp: number } | undefined,
@@ -4733,6 +4734,10 @@ function checkPendingHomeworkOrdering(): void {
       }>,
       pendingList: Array<{ id: string; count: number; isIncrement: boolean; timestamp: number }>,
     ): string[];
+    shouldAutoAssignSinglePendingCandidate(
+      autoAssignSingleCandidate: boolean | undefined,
+      candidateCharacterIds: string[],
+    ): boolean;
   };
 
   const incrementFirst = mergePendingHomeworkEvent(undefined, 'weekly-test', 1, true, 100);
@@ -4795,8 +4800,15 @@ function checkPendingHomeworkOrdering(): void {
   assert.deepEqual(
     getPendingHomeworkCandidateIds(candidatePresets, candidateItems, candidatePending),
     ['char-alt'],
-    '본캐가 완료한 숙제는 미완료 부캐 한 명에게 자동 귀속되어야 합니다.',
+    '본캐가 완료한 숙제의 미완료 후보를 정확히 계산해야 합니다.',
   );
+  assert.equal(shouldAutoAssignSinglePendingCandidate(undefined, ['char-alt']), true,
+    '기존 설정이 없는 사용자는 단일 후보 자동 반영 동작을 유지해야 합니다.');
+  assert.equal(shouldAutoAssignSinglePendingCandidate(true, ['char-alt']), true);
+  assert.equal(shouldAutoAssignSinglePendingCandidate(false, ['char-alt']), false,
+    '직접 선택 설정에서는 후보가 한 명이어도 자동 반영하면 안 됩니다.');
+  assert.equal(shouldAutoAssignSinglePendingCandidate(true, ['char-main', 'char-alt']), false,
+    '후보가 둘 이상이면 자동 반영 설정과 무관하게 선택 팝업을 사용해야 합니다.');
   candidateItems[0].completedState['char-main'] = { isCompleted: false, currentCount: 0 };
   assert.deepEqual(
     getPendingHomeworkCandidateIds(candidatePresets, candidateItems, candidatePending),
@@ -5464,6 +5476,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     pendingHomeworks: [
       { id: 'pending-1', contentId: 'daily-abyss', detectedAt: 900 },
     ],
+    contentsAutoAssignSingleCandidate: false,
   };
 
   const extracted = syncDataHelper.extractSyncData(sampleLocalConfig);
@@ -5485,7 +5498,11 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const checklistData = syncDataHelper.extractChecklistSyncData(sampleLocalConfig);
   assert.equal(settingsData.contentsCheckerItems, undefined, '설정 파일에 숙제 상태가 섞였습니다.');
   assert.equal(settingsData.characterPresets, undefined, '설정 파일에 캐릭터 프리셋이 섞였습니다.');
+  assert.equal(settingsData.contentsAutoAssignSingleCandidate, false,
+    '단일 후보 자동 반영 설정이 PC 간 일반 설정 동기화에서 누락되었습니다.');
   assert.equal(checklistData.userServer, undefined, '숙제 파일에 일반 설정이 섞였습니다.');
+  assert.equal(checklistData.contentsAutoAssignSingleCandidate, undefined,
+    '단일 후보 자동 반영 설정이 숙제 진행 파일에 섞였습니다.');
   assert.deepEqual(checklistData.contentsCheckerItems, sampleLocalConfig.contentsCheckerItems);
   assert.deepEqual(checklistData.characterPresets, sampleLocalConfig.characterPresets);
   assert.deepEqual(checklistData.pendingHomeworks, sampleLocalConfig.pendingHomeworks);

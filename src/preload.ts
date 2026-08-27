@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   contentsRemoveCharacter: (id: string) => ipcRenderer.send('contents-remove-character', id),
   contentsRenameCharacter: (id: string, name: string) => ipcRenderer.send('contents-rename-character', id, name),
   contentsSelectCharacter: (id: string) => ipcRenderer.send('contents-select-character', id),
+  contentsSetAutoAssignSingleCandidate: (enabled: boolean) => ipcRenderer.send('contents-set-auto-assign-single-candidate', enabled),
   contentsApplyPending: (characterId: string) => ipcRenderer.send('contents-apply-pending', characterId),
   contentsClearPending: () => ipcRenderer.send('contents-clear-pending'),
   setIgnoreMouseEvents: (ignore: boolean, options: { forward?: boolean }) => ipcRenderer.send('set-ignore-mouse-events', ignore, options),

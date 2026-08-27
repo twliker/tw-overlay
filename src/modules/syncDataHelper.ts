@@ -137,6 +137,7 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'chatOverlayNicknameColorShout',
   'focusedChatSelfNickname',
   'showSidebarToastOnOverlay',
+  'contentsAutoAssignSingleCandidate',
 ];
 
 /** 숙제 진행 파일에만 저장하는 필드. */

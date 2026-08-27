@@ -511,6 +511,15 @@
                 <!-- Rendered by JS -->
             </div>
 
+            <label class="flex items-start gap-3 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3.5 mb-4 cursor-pointer no-drag">
+                <input id="auto-assign-single-candidate-input" type="checkbox"
+                    class="mt-0.5 w-4 h-4 accent-violet-500 shrink-0">
+                <span class="min-w-0">
+                    <span class="block text-xs font-black text-violet-100">남은 캐릭터가 한 명이면 자동 체크</span>
+                    <span class="block mt-1 text-[10px] leading-relaxed text-slate-400">끄면 한 명만 남아도 캐릭터 선택창을 표시합니다. 차감권을 사용한다면 직접 선택을 권장합니다.</span>
+                </span>
+            </label>
+
             <div class="pt-4 border-t border-white/10">
                 <div class="flex gap-2">
                     <input id="new-char-name" type="text" placeholder="새 캐릭터 이름..." class="form-input flex-1">
@@ -1364,6 +1373,8 @@
         function renderCharList() {
             const list = document.getElementById('char-list');
             const presets = configData?.characterPresets || [];
+            const autoAssignInput = document.getElementById('auto-assign-single-candidate-input');
+            autoAssignInput.checked = configData?.contentsAutoAssignSingleCandidate !== false;
             list.innerHTML = '';
 
             presets.forEach((char, idx) => {
@@ -1410,6 +1421,10 @@
         document.getElementById('btn-char-mgmt').onclick = () => {
             document.getElementById('char-modal').classList.remove('hidden');
             renderCharList();
+        };
+
+        document.getElementById('auto-assign-single-candidate-input').onchange = (event) => {
+            window.electronAPI.contentsSetAutoAssignSingleCandidate(event.target.checked);
         };
 
         document.getElementById('btn-sound-settings').onclick = () => {

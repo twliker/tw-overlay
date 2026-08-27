@@ -127,6 +127,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   gameExitReminderEnabled: false,
   gameExitReminderMessage: '',
   contentsCheckerItems: [],
+  contentsAutoAssignSingleCandidate: true,
   lastContentsResetCheck: 0,
   shortcuts: {
     toggleClickThrough: 'CommandOrControl+Shift+T',

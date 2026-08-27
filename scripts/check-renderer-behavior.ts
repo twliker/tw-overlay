@@ -279,12 +279,16 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
     },
   });
   const applyCalls: string[] = [];
+  const autoAssignCalls: boolean[] = [];
   let clearCalls = 0;
   const onApplyPending = (_event: Electron.IpcMainEvent, characterId: string) => {
     applyCalls.push(characterId);
   };
   const onClearPending = () => {
     clearCalls++;
+  };
+  const onSetAutoAssign = (_event: Electron.IpcMainEvent, enabled: boolean) => {
+    autoAssignCalls.push(enabled);
   };
   const onDefaultConfig = (event: Electron.IpcMainEvent) => {
     event.returnValue = {};
@@ -294,6 +298,7 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
   ipcMain.handle('google-sync-get-status', async () => ({ isLinked: false }));
   ipcMain.on('contents-apply-pending', onApplyPending);
   ipcMain.on('contents-clear-pending', onClearPending);
+  ipcMain.on('contents-set-auto-assign-single-candidate', onSetAutoAssign);
 
   const makeConfig = (characterCount: number, hasPending: boolean) => ({
     characterPresets: [
@@ -321,6 +326,7 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
       sourceEventIds: ['cloud-pending-event'],
       resetCycleKey: 'weekly:2026-08-24',
     }] : [],
+    contentsAutoAssignSingleCandidate: true,
   });
 
   try {
@@ -344,6 +350,34 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
     assert.equal(firstRender.characterButtons.length, 2);
     assert.match(firstRender.characterButtons[0], /회사 캐릭터/);
     assert.match(firstRender.characterButtons[1], /집 캐릭터/);
+
+    // 캐릭터 관리 화면에서 단일 후보 자동 반영 여부를 직접 바꿀 수 있다.
+    const characterPolicy = await pendingWindow.webContents.executeJavaScript(`(() => {
+      document.getElementById('btn-char-mgmt').click();
+      const input = document.getElementById('auto-assign-single-candidate-input');
+      const label = input.closest('label');
+      const initiallyChecked = input.checked;
+      input.click();
+      return {
+        initiallyChecked,
+        checkedAfterClick: input.checked,
+        labelText: label.textContent,
+        modalVisible: !document.getElementById('char-modal').classList.contains('hidden'),
+      };
+    })()`);
+    const policyStartedAt = Date.now();
+    while (autoAssignCalls.length === 0 && Date.now() - policyStartedAt < 2_000) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.equal(characterPolicy.initiallyChecked, true);
+    assert.equal(characterPolicy.checkedAfterClick, false);
+    assert.equal(characterPolicy.modalVisible, true);
+    assert.match(characterPolicy.labelText, /남은 캐릭터가 한 명이면 자동 체크/);
+    assert.match(characterPolicy.labelText, /차감권/);
+    assert.deepEqual(autoAssignCalls, [false]);
+    await pendingWindow.webContents.executeJavaScript(
+      "document.getElementById('char-modal').classList.add('hidden')",
+    );
 
     // 나중에 하기는 로컬 모달만 닫으므로 동일 pending을 다시 수신하면 팝업이 재표시된다.
     await pendingWindow.webContents.executeJavaScript(`
@@ -412,6 +446,7 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
     ipcMain.removeHandler('google-sync-get-status');
     ipcMain.removeListener('contents-apply-pending', onApplyPending);
     ipcMain.removeListener('contents-clear-pending', onClearPending);
+    ipcMain.removeListener('contents-set-auto-assign-single-candidate', onSetAutoAssign);
     if (!pendingWindow.isDestroyed()) pendingWindow.destroy();
   }
 }
