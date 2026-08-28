@@ -781,6 +781,7 @@ export function init(): boolean {
     } else {
       const merged: ContentsCheckerItem = {
         ...def,
+        category: exists.category ?? def.category,
         isVisible: exists.isVisible ?? true,
         isCustom: exists.isCustom ?? false,
         completedState: exists.completedState || {}

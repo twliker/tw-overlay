@@ -5128,9 +5128,51 @@ function checkContentsInitializationContracts(): void {
   };
   const appConfig = require(path.join(projectRoot, 'dist', 'modules', 'config.js')) as {
     load(): Record<string, unknown>;
+    saveImmediate(patch: Record<string, unknown>): boolean;
   };
 
+  appConfig.saveImmediate({
+    contentsCheckerItems: [
+      {
+        id: 'weekly-eclipse-boss-matias',
+        name: '이클립스 (마티아)',
+        category: '사용자 분류',
+        isVisible: true,
+        isCustom: false,
+        resetRule: { type: 'weekly', dayOfWeek: 1, hour: 0 },
+        maxCount: 7,
+        auto: true,
+        completedState: {},
+      },
+      {
+        id: 'weekly-eclipse-boss-ethos',
+        name: '이클립스 (에토스)',
+        category: '보스',
+        isVisible: true,
+        isCustom: false,
+        resetRule: { type: 'weekly', dayOfWeek: 1, hour: 0 },
+        maxCount: 7,
+        auto: true,
+        completedState: {},
+      },
+    ],
+  });
+
   assert.equal(contentsChecker.init(), true, '숙제 체크리스트 최초 초기화가 실패했습니다.');
+  const initializedItems = (appConfig.load().contentsCheckerItems as Array<{
+    id: string;
+    category: string;
+  }>) || [];
+  assert.deepEqual(
+    initializedItems.slice(0, 2).map(item => item.id),
+    ['weekly-eclipse-boss-matias', 'weekly-eclipse-boss-ethos'],
+    '앱 재시작 초기화가 사용자가 바꾼 AUTO 숙제 순서를 되돌렸습니다.',
+  );
+  assert.equal(
+    initializedItems.find(item => item.id === 'weekly-eclipse-boss-matias')?.category,
+    '사용자 분류',
+    '앱 재시작 초기화가 AUTO 숙제의 사용자 카테고리를 기본값으로 덮어썼습니다.',
+  );
   const firstSnapshot = JSON.stringify(appConfig.load());
   assert.equal(contentsChecker.init(), true, '숙제 체크리스트 중복 초기화가 실패로 보고되었습니다.');
   assert.equal(JSON.stringify(appConfig.load()), firstSnapshot,
@@ -5141,6 +5183,13 @@ function checkContentsInitializationContracts(): void {
   const processorStartPosition = mainSource.indexOf('chatLogProcessor.start()');
   assert.ok(initPosition >= 0 && processorStartPosition > initPosition,
     '숙제 체크리스트가 채팅 자동 감지보다 먼저 초기화되지 않습니다.');
+
+  const { DEFAULT_CONFIG } = require(path.join(projectRoot, 'dist', 'modules', 'constants.js')) as {
+    DEFAULT_CONFIG: Record<string, unknown>;
+  };
+  assert.equal(DEFAULT_CONFIG.ethosAlertEnabled, true, '에토스 기믹 알림 신규 기본값이 켜짐이 아닙니다.');
+  assert.equal(DEFAULT_CONFIG.abyssApostleAlertEnabled, true, '심연의 제2사도 기믹 알림 신규 기본값이 켜짐이 아닙니다.');
+  assert.equal(DEFAULT_CONFIG.lokagosAlertEnabled, true, '로카고스 기믹 알림 신규 기본값이 켜짐이 아닙니다.');
 }
 
 function checkXpExchangeContracts(): void {
