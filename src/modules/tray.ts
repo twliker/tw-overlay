@@ -14,6 +14,7 @@ import { log } from './logger';
 import { appState } from './constants';
 import { SIDEBAR_MENUS, getSidebarMenuAction } from '../shared/sidebarMenus';
 import { getTrayMenuHandler } from './trayMenuActions';
+import { analytics } from './analytics';
 
 let tray: Tray | null = null;
 
@@ -88,7 +89,10 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
   // 4. 기본 관리 메뉴 추가 (설정, 종료)
   menuTemplate.push({
     label: '환경 설정',
-    click: () => wm.toggleSettingsWindow()
+    click: () => {
+      analytics.trackEvent('toggle_settings');
+      wm.toggleSettingsWindow();
+    }
   });
   menuTemplate.push({
     label: '앱 종료',
@@ -123,6 +127,7 @@ export function createTray(): Tray {
 
     const sidebar = wm.getMainWindow();
     if (sidebar) {
+      analytics.trackEvent('toggle_sidebar');
       if (sidebar.isMinimized()) sidebar.restore();
       sidebar.show();
       sidebar.focus();

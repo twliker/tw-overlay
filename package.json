@@ -6,12 +6,13 @@
   "scripts": {
     "build-tools": "tsc -p tsconfig.scripts.json",
     "build": "npm run build-tools && node dist-tools/copy-resources.js && tsc",
+    "build:store-helper": "npm run build-tools && node dist-tools/build-store-update-helper.js",
     "start": "npm run build && electron .",
     "only-dev": "electron . --dev",
     "dev": "npm run build && electron . --dev",
     "dev:tools": "npm run build && electron . --dev --devtools",
     "dist": "npm run build && electron-builder --win",
-    "dist:appx": "npm run build && electron-builder --win appx && node dist-tools/verify-appx-package.js",
+    "dist:appx": "npm run build && npm run build:store-helper && electron-builder --win appx && node dist-tools/verify-appx-package.js",
     "verify:appx": "npm run build-tools && node dist-tools/verify-appx-package.js",
     "postinstall": "electron-builder install-app-deps",
     "parse-equipment": "npm run build-tools && node dist-tools/parse-equipment.js",
@@ -45,7 +46,8 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/better-sqlite3/**",
-      "node_modules/koffi/**"
+      "node_modules/koffi/**",
+      "dist/store-update-helper/**"
     ],
     "win": {
       "target": [

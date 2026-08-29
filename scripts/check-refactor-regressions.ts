@@ -771,6 +771,7 @@ function checkAnalyticsProtocol(): void {
     normalizeGaEventParams(
       params: Record<string, unknown>,
     ): Record<string, unknown>;
+    resolveDistributionSource(isWindowsStore: boolean): 'ms_store' | 'github';
     shouldTransmitAnalytics(
       isPackaged: boolean,
       explicitlyDisabled?: boolean,
@@ -786,6 +787,8 @@ function checkAnalyticsProtocol(): void {
   assert.equal(analyticsProtocol.isValidGaClientId('123456789.1722150000'), true);
   assert.equal(analyticsProtocol.isValidGaClientId('123456789'), false);
   assert.equal(analyticsProtocol.isValidGaClientId(crypto.randomUUID()), false);
+  assert.equal(analyticsProtocol.resolveDistributionSource(true), 'ms_store');
+  assert.equal(analyticsProtocol.resolveDistributionSource(false), 'github');
   assert.equal(
     analyticsProtocol.shouldTransmitAnalytics(true),
     true,
@@ -852,6 +855,37 @@ function checkAnalyticsProtocol(): void {
       enabled: true,
     },
   );
+
+  const analyticsSource = read('src/modules/analytics.ts');
+  assert.match(
+    analyticsSource,
+    /flatParams\.distribution_source\s*=\s*resolveDistributionSource\(Boolean\(process\.windowsStore\)\)/,
+    '모든 GA 이벤트에 패키지 배포 채널이 공통 파라미터로 추가되지 않습니다.',
+  );
+
+  const ipcSource = read('src/modules/ipcHandlers.ts');
+  for (const eventName of [
+    'go_home', 'toggle_welcome_guide', 'toggle_update_notice',
+    'trigger_jellyppy_rain_global', 'toggle_chat_overlay_sub',
+  ]) {
+    assert.ok(ipcSource.includes(`analytics.trackEvent('${eventName}'`),
+      `직접 IPC 기능 경로의 GA 이벤트가 누락되었습니다: ${eventName}`);
+  }
+
+  const trayActionSource = read('src/modules/trayMenuActions.ts');
+  assert.match(trayActionSource, /analytics\.trackEvent[\s\S]*?handler\(\)/,
+    '트레이 메뉴의 기능 실행이 GA 이벤트를 우회합니다.');
+
+  const shortcutSource = read('src/modules/shortcutManager.ts');
+  for (const eventName of [
+    'toggle_click_through', 'toggle_contents_checker', 'toggle_buff_hud',
+    'cycle_today_summary_hud', 'toggle_abandoned_hud', 'toggle_dock',
+    'toggle_chat_overlay', 'reset_xp_session', 'toggle_xp_session',
+    'clear_all_buffs', 'toggle_stopwatch',
+  ]) {
+    assert.ok(shortcutSource.includes(`analytics.trackEvent('${eventName}'`),
+      `전역 단축키 기능 경로의 GA 이벤트가 누락되었습니다: ${eventName}`);
+  }
 }
 
 function checkDevtoolsInitializationIsIdempotent() {
@@ -1967,6 +2001,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       thesisCoreCalculator: ['thesis-core-calculator.html', 850, 880, false], magicStoneCalculator: ['magic-stone-calculator.html', 400, 800, false],
       customAlert: ['custom-alert.html', 580, 640, false], diary: ['diary.html', 1400, 920, false],
       uniformColor: ['uniform-color.html', 360, 800, false], swordEnhance: ['sword-enhance.html', 1300, 850, false],
+      qteChallenge: ['qte-challenge.html', 980, 780, false],
       shoutHistory: ['shout-history.html', 450, 600, false], gameOverlay: ['game-overlay.html', 0, 0, false],
       buffTimer: ['buff-timer.html', 900, 850, false], xpHud: ['xp-hud.html', 420, 1050, false],
       scamDetector: ['scam-detector.html', 480, 780, false], sienaAura: ['siena-aura.html', 1230, 930, false],
@@ -2222,15 +2257,102 @@ function checkSidebarMenuRegistryContracts(): void {
     ['monitoring', 'information', 'calculators'],
   );
   assert.deepEqual(
-    ['contents-checker-btn', 'sword-enhance-btn'].map(id => ({
+    ['contents-checker-btn', 'sword-enhance-btn', 'qte-challenge-btn'].map(id => ({
       category: menuById(id)?.category,
       isOneDepth: menuById(id)?.isOneDepth,
     })),
     [
       { category: 'homework', isOneDepth: undefined },
-      { category: 'minigame', isOneDepth: true },
+      { category: 'minigame', isOneDepth: undefined },
+      { category: 'minigame', isOneDepth: undefined },
     ],
   );
+
+  const qte = require(path.join(projectRoot, 'dist', 'shared', 'qteChallenge.js')) as {
+    createQteRound: (randomness: { position: number; blueSweep: number; yellowSweep: number }, difficulty: {
+      durationMs: number;
+      blueSweepDeg: number;
+      blueSweepVarianceDeg: number;
+      yellowSweepDeg: number;
+      yellowSweepVarianceDeg: number;
+    }) => {
+      blueStartDeg: number; blueSweepDeg: number; yellowStartDeg: number; yellowSweepDeg: number; durationMs: number;
+    };
+    getPracticeDifficulty: () => {
+      durationMs: number; blueSweepDeg: number; blueSweepVarianceDeg: number;
+      yellowSweepDeg: number; yellowSweepVarianceDeg: number;
+    };
+    getQteChallengeDifficulty: (stage: number) => {
+      durationMs: number; blueSweepDeg: number; blueSweepVarianceDeg: number;
+      yellowSweepDeg: number; yellowSweepVarianceDeg: number;
+    };
+    classifyQteHit: (angle: number, round: object) => string;
+    calculateQteScore: (result: string, combo: number, fever: boolean) => number;
+    sanitizeQteChallengeRecords: (value: unknown) => Record<string, unknown>;
+  };
+  const practiceRound = qte.createQteRound({ position: 0.98, blueSweep: 0.1, yellowSweep: 0.9 }, qte.getPracticeDifficulty());
+  assert.equal(practiceRound.durationMs, 1200, '실전 QTE 한 바퀴 시간이 영상 기준값과 다릅니다.');
+  assert.ok(practiceRound.blueSweepDeg > practiceRound.yellowSweepDeg,
+    'QTE 파란색 일반 성공 영역이 노란색 대성공 영역보다 넓지 않습니다.');
+  assert.ok(practiceRound.blueStartDeg >= 10
+    && practiceRound.yellowStartDeg + practiceRound.yellowSweepDeg <= 350,
+  'QTE 색상 판정 영역이 한 바퀴 시작·종료 경계를 벗어납니다.');
+  const generatedBlueSweeps = new Set<number>();
+  const generatedYellowSweeps = new Set<number>();
+  for (let sample = 0; sample <= 1_000; sample += 1) {
+    const generatedRound = qte.createQteRound({
+      position: sample / 1_000,
+      blueSweep: ((sample * 37) % 1_001) / 1_000,
+      yellowSweep: ((sample * 73) % 1_001) / 1_000,
+    }, qte.getPracticeDifficulty());
+    generatedBlueSweeps.add(generatedRound.blueSweepDeg);
+    generatedYellowSweeps.add(generatedRound.yellowSweepDeg);
+    assert.ok(generatedRound.blueSweepDeg > generatedRound.yellowSweepDeg,
+      '무작위 QTE 파란색 영역이 노란색 영역보다 넓지 않습니다.');
+    assert.ok(generatedRound.blueStartDeg >= 10,
+      `QTE 색상 영역이 시작 경계를 벗어났습니다: ${generatedRound.blueStartDeg}`);
+    assert.ok(generatedRound.yellowStartDeg >= generatedRound.blueStartDeg + generatedRound.blueSweepDeg,
+      'QTE 노란색 영역이 파란색 영역과 역방향으로 겹칩니다.');
+    assert.ok(generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg <= 350,
+      `QTE 색상 영역이 종료 경계를 벗어났습니다: ${generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg}`);
+  }
+  assert.ok(generatedBlueSweeps.size > 10 && generatedYellowSweeps.size > 10,
+    'QTE 파란색·노란색 영역 크기가 매 라운드 무작위로 바뀌지 않습니다.');
+  assert.equal(
+    qte.classifyQteHit(practiceRound.blueStartDeg + practiceRound.blueSweepDeg / 2, practiceRound),
+    'success',
+    '파란색 판정 영역이 일반 성공으로 처리되지 않습니다.',
+  );
+  assert.equal(
+    qte.classifyQteHit(practiceRound.yellowStartDeg + practiceRound.yellowSweepDeg / 2, practiceRound),
+    'great',
+    '노란색 판정 영역이 대성공으로 처리되지 않습니다.',
+  );
+  assert.equal(qte.classifyQteHit(180, practiceRound), 'fail', '색상 영역 밖 클릭이 실패로 처리되지 않습니다.');
+  assert.equal(qte.calculateQteScore('great', 1, false), 300);
+  assert.equal(qte.calculateQteScore('great', 10, true), 900,
+    '대성공·콤보·피버 점수 배율이 올바르지 않습니다.');
+  const hardDifficulty = qte.getQteChallengeDifficulty(50);
+  assert.ok(hardDifficulty.durationMs >= 650 && hardDifficulty.blueSweepDeg > hardDifficulty.yellowSweepDeg,
+    '고단계 챌린지에서 속도 하한 또는 파란색 영역 우위가 깨집니다.');
+  assert.deepEqual(qte.sanitizeQteChallengeRecords({ bestScore: -1, bestCombo: 4.9, soundEnabled: false }), {
+    bestScore: 0, bestCombo: 4, bestStage: 0, totalAttempts: 0, totalSuccess: 0, totalGreat: 0, soundEnabled: false,
+  }, '손상된 QTE 로컬 기록을 안전하게 복구하지 못합니다.');
+
+  const managerSource = read('src/modules/windowManager.ts');
+  const indexSource = read('src/index.html');
+  const dockSource = read('src/dock.html');
+  const qteHtml = read('src/qte-challenge.html');
+  assert.match(managerSource, /toggleQteChallengeWindow\(\)[\s\S]*?createToggleableWindow\('qteChallenge'\)/,
+    'QTE 챌린지가 별도 관리 창으로 연결되지 않았습니다.');
+  assert.match(managerSource, /toggleSwordEnhanceWindow\(\)[\s\S]*?new EmbeddedWebTool/,
+    '메뉴 depth 변경 과정에서 기존 검 강화 별도 창 구현이 제거되었습니다.');
+  assert.match(indexSource, /menu\.image[\s\S]*?<img src="\$\{menu\.image\}"/,
+    '사이드바 2depth에서 기존 검 강화 이미지 아이콘을 표시하지 않습니다.');
+  assert.match(dockSource, /menu\.image[\s\S]*?<img src="\$\{menu\.image\}"/,
+    '독 2depth에서 기존 검 강화 이미지 아이콘을 표시하지 않습니다.');
+  assert.match(qteHtml, /shared\/qteChallenge\.js[\s\S]*?qte-challenge-renderer\.js/,
+    'QTE 판정 엔진과 전용 렌더러가 신규 창에 연결되지 않았습니다.');
 
   const traySource = read('src/modules/tray.ts');
   const actionSource = read('src/modules/trayMenuActions.ts');
@@ -5170,6 +5292,7 @@ function checkCorruptedConfigResilience(): void {
     null,
     '알 수 없는 창 키가 화면 좌표 설정으로 허용되었습니다.',
   );
+
 }
 
 function checkShoutSuffixStripping(): void {
@@ -7396,7 +7519,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '커스텀 사운드 절대경로', '창 위치·크기', '일지 DB', '채팅 로그', '알람 이력',
     '종단간 암호화', '이메일은 로컬 계정 표시에만 사용', '세 동기화 JSON에는 저장하지 않습니다',
     'google-drive-sync.md',
-    'Google Analytics 사용 통계', '가명 설치 식별자', '사용 통계 전송',
+    'Google Analytics 사용 통계', '가명 설치 식별자', '배포 채널(Microsoft Store 또는 GitHub)', '사용 통계 전송',
   ];
   for (const term of privacyParityTerms) {
     assert.ok(privacyPolicyMarkdown.includes(term),
@@ -8676,6 +8799,67 @@ function checkLargeChatLogReadBoundary(): void {
   );
 }
 
+function checkStoreUpdateLogic(): void {
+  const policy = require(path.join(projectRoot, 'dist', 'modules', 'storeUpdatePolicy.js')) as {
+    resolveStoreUpdateStartupAction: (mandatory: boolean, autoUpdateEnabled: boolean) => string;
+    normalizeStorePackageVersion: (version: string | undefined) => string | undefined;
+  };
+  assert.equal(policy.resolveStoreUpdateStartupAction(false, true), 'install-on-splash');
+  assert.equal(policy.resolveStoreUpdateStartupAction(false, false), 'notify-only');
+  assert.equal(policy.resolveStoreUpdateStartupAction(true, true), 'install-on-splash');
+  assert.equal(policy.resolveStoreUpdateStartupAction(true, false), 'install-on-splash');
+  assert.equal(policy.normalizeStorePackageVersion('3.0.3.0'), '3.0.3');
+  assert.equal(policy.normalizeStorePackageVersion('3.0.3.4'), '3.0.3.4');
+
+  const storeUpdater = require(path.join(projectRoot, 'dist', 'modules', 'storeUpdater.js')) as {
+    parseStoreUpdateHelperEvent: (line: string) => any;
+  };
+  assert.deepEqual(
+    storeUpdater.parseStoreUpdateHelperEvent('{"type":"check-result","updateAvailable":true,"mandatory":true,"canSilentlyInstall":false,"version":"3.0.3.0"}'),
+    { type: 'check-result', updateAvailable: true, mandatory: true, canSilentlyInstall: false, version: '3.0.3.0' },
+  );
+  assert.deepEqual(
+    storeUpdater.parseStoreUpdateHelperEvent('{"type":"progress","phase":"downloading","percent":105}'),
+    { type: 'progress', phase: 'downloading', percent: 100 },
+  );
+  assert.deepEqual(
+    storeUpdater.parseStoreUpdateHelperEvent('{"type":"install-result","state":"completed","completed":true,"mandatory":false,"noUpdate":false}'),
+    { type: 'install-result', state: 'completed', completed: true, mandatory: false, noUpdate: false },
+  );
+  assert.throws(
+    () => storeUpdater.parseStoreUpdateHelperEvent('{"type":"check-result","updateAvailable":"yes"}'),
+    /올바르지 않습니다/,
+  );
+
+  const updaterSource = read('src/modules/updater.ts');
+  const helperSource = read('native/store-update-helper/Program.cs');
+  const splashSource = read('src/splash.html');
+  const packageJson = JSON.parse(read('package.json')) as {
+    scripts?: Record<string, string>;
+    build?: { asarUnpack?: string[] };
+  };
+  assert.match(updaterSource, /process\.windowsStore[\s\S]*?checkStoreUpdatePolicy\(notifyReady\)/,
+    'Store 설치본 실행 시 실제 Store 업데이트 확인이 시작되지 않습니다.');
+  assert.match(updaterSource, /resolveStoreUpdateStartupAction/,
+    'Store 강제/자동 업데이트 정책 연결이 누락되었습니다.');
+  assert.match(updaterSource, /pendingStoreReadyToLaunch[\s\S]*?releaseStoreReadyToLaunch/,
+    '필수 Store 업데이트 재시도 뒤 최초 앱 실행 콜백을 복구하는 경로가 누락되었습니다.');
+  assert.match(updaterSource, /restoreSettingsAfterManualStoreAttempt/,
+    '수동 Store 업데이트 실패 뒤 숨겨진 설정 창을 복구하는 경로가 누락되었습니다.');
+  assert.match(helperSource, /update\.Mandatory/,
+    'Partner Center 강제 업데이트 플래그 조회가 누락되었습니다.');
+  assert.match(helperSource, /TrySilentDownloadStorePackageUpdatesAsync/,
+    'Store 무음 다운로드 경로가 누락되었습니다.');
+  assert.match(helperSource, /RequestDownloadAndInstallStorePackageUpdatesAsync/,
+    'Store 사용자 승인 설치 경로가 누락되었습니다.');
+  assert.match(splashSource, /retryStoreUpdate[\s\S]*?openStoreUpdates/,
+    '필수 Store 업데이트 실패 시 재시도 UI가 누락되었습니다.');
+  assert.match(packageJson.scripts?.['dist:appx'] || '', /build:store-helper/,
+    'AppX 패키징 전에 Store 업데이트 도우미를 빌드하지 않습니다.');
+  assert.ok(packageJson.build?.asarUnpack?.includes('dist/store-update-helper/**'),
+    'Store 업데이트 도우미가 ASAR unpack 대상이 아닙니다.');
+}
+
 async function checkChatSearchSizeBoundaries(): Promise<void> {
   const { readInitialChatLogSnapshot } = require(
     path.join(projectRoot, 'dist', 'modules', 'chatLogFileReader.js'),
@@ -9728,6 +9912,7 @@ async function runRegressionChecks(): Promise<void> {
   checkCorruptedConfigResilience();
   checkShoutSuffixStripping();
   checkMandatoryUpdateLogic();
+  checkStoreUpdateLogic();
   checkCustomTabHistoryContracts();
   checkLargeChatLogReadBoundary();
   await checkChatTailRecoveryBoundary();

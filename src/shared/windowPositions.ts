@@ -21,6 +21,7 @@ export const DEFAULT_WINDOW_POSITIONS: Record<WindowPositionKey, WindowPosition>
   diary: { offsetX: -850, offsetY: 40 },
   uniformColor: { offsetX: -360, offsetY: 40 },
   swordEnhance: { offsetX: -1300, offsetY: 40 },
+  qteChallenge: { offsetX: -980, offsetY: 40 },
   shoutHistory: { offsetX: -460, offsetY: 40 },
   gameOverlay: { offsetX: 0, offsetY: 0 },
   buffTimer: { offsetX: -900, offsetY: 40 },

@@ -115,6 +115,12 @@ function verifyPackagedApplication(entries: Map<string, AdmZip.IZipEntry>): void
     'AppX에 Windows x64 Koffi 네이티브 모듈이 없습니다.');
   assert.ok(entryNames.some(name => /app\/resources\/app\.asar\.unpacked\/node_modules\/better-sqlite3\/prebuilds\/win32-x64\.node$/i.test(name)),
     'AppX에 Windows x64 better-sqlite3 네이티브 모듈이 없습니다.');
+  const storeHelperEntryName = entryNames.find(name =>
+    /app\/resources\/app\.asar\.unpacked\/dist\/store-update-helper\/twoverlay\.storeupdatehelper\.exe$/i.test(name));
+  assert.ok(storeHelperEntryName, 'AppX에 Microsoft Store 업데이트 도우미가 없습니다.');
+  const storeHelperBinary = entries.get(storeHelperEntryName)!.getData();
+  assert.ok(storeHelperBinary.length > 1_000_000, 'Store 업데이트 도우미가 비정상적으로 작습니다.');
+  assert.equal(storeHelperBinary.subarray(0, 2).toString('ascii'), 'MZ', 'Store 업데이트 도우미가 Windows 실행 파일이 아닙니다.');
 
   const koffiBinary = entries.get(koffiEntryName)!.getData();
   for (const runtimeDll of ['MSVCP140.dll', 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll']) {
@@ -136,7 +142,14 @@ function verifyPackagedApplication(entries: Map<string, AdmZip.IZipEntry>): void
 
     const updaterSource = extractAsarFile(asarPath, 'dist/modules/updater.js').toString('utf8');
     assert.match(updaterSource, /process\.windowsStore/,
-      'AppX 실행 시 GitHub 자동 업데이트를 차단하는 Windows Store 분기가 누락되었습니다.');
+      'AppX 실행 시 Store 업데이트로 분기하는 조건이 누락되었습니다.');
+    assert.match(updaterSource, /checkStoreUpdatePolicy/,
+      'AppX 실행 시 Microsoft Store 업데이트 정책을 확인하는 경로가 누락되었습니다.');
+    const storeUpdaterSource = extractAsarFile(asarPath, 'dist/modules/storeUpdater.js').toString('utf8');
+    assert.match(storeUpdaterSource, /app\.asar\.unpacked/,
+      'Store 업데이트 도우미를 ASAR 밖에서 실행하는 경로가 누락되었습니다.');
+    assert.match(storeUpdaterSource, /installStoreUpdates/,
+      'Store 업데이트 설치 프로토콜이 누락되었습니다.');
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
@@ -169,7 +182,7 @@ function main(): void {
     capabilities: ['runFullTrust', 'allowElevation'],
     frameworkDependencies: ['Microsoft.VCLibs.140.00.UWPDesktop >= 14.0.24217.0'],
     verifiedAssets: [...expectedAssets.keys()],
-    verifiedNativeModules: ['koffi-win32-x64', 'better-sqlite3-win32-x64'],
+    verifiedNativeModules: ['koffi-win32-x64', 'better-sqlite3-win32-x64', 'store-update-helper-win-x64'],
   }, null, 2)}\n`);
 }
 

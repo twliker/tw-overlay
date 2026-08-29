@@ -51,6 +51,22 @@ export const SetPriorityClass = kernel32.func('__stdcall', 'SetPriorityClass', '
 export const CloseHandle = kernel32.func('__stdcall', 'CloseHandle', 'bool', ['intptr']);
 export const GetProcessId = kernel32.func('__stdcall', 'GetProcessId', 'uint32', ['intptr']);
 export const QueryFullProcessImageNameW = kernel32.func('__stdcall', 'QueryFullProcessImageNameW', 'bool', ['intptr', 'uint32', koffi.out(koffi.pointer('char16')), koffi.out(koffi.pointer('uint32'))]);
+const RegisterApplicationRestart = kernel32.func('__stdcall', 'RegisterApplicationRestart', 'int', ['str16', 'uint32']);
+
+/**
+ * Store가 실행 중인 패키지를 교체하며 앱을 종료할 때 Windows Restart Manager가 최신 패키지를
+ * 다시 실행하도록 등록한다. crash/hang 재시작은 제외하지만 patch/update 재시작은 허용한다.
+ */
+export function registerApplicationRestartForStoreUpdate(): boolean {
+    try {
+        const RESTART_NO_CRASH = 0x1;
+        const RESTART_NO_HANG = 0x2;
+        return RegisterApplicationRestart('--store-update-restart', RESTART_NO_CRASH | RESTART_NO_HANG) === 0;
+    } catch (error) {
+        console.error('[WIN32] RegisterApplicationRestart failed:', error);
+        return false;
+    }
+}
 
 // --- Constants ---
 // GDI 관련 미사용 상수 제거됨 (SRCCOPY, DIB_RGB_COLORS, BI_RGB)

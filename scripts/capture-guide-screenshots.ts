@@ -134,6 +134,7 @@ const captures: CaptureDefinition[] = [
   { name: 'siena-aura.png', html: 'siena-aura.html', width: 1230, height: 930 },
   { name: 'abbreviation.png', html: 'abbreviation.html', width: 620, height: 760 },
   { name: 'sword-enhance.png', url: 'https://twliker.github.io/tw-sword-enhance/', width: 1300, height: 850 },
+  { name: 'qte-challenge.png', html: 'qte-challenge.html', width: 980, height: 780, setup: `document.getElementById('challenge-tab')?.click(); document.getElementById('start-button')?.click(); await new Promise(resolve => setTimeout(resolve, 620))` },
   { name: 'hunting-path-simulator.png', html: 'hunting-path-simulator.html', width: 900, height: 820 },
   { name: 'word-alarm.png', html: 'word-alarm.html', width: 520, height: 900 },
   { name: 'discord-alarm.png', html: 'discord-alarm.html', width: 520, height: 900 },
@@ -294,7 +295,16 @@ async function main(): Promise<void> {
   fs.mkdirSync(outputDirectory, { recursive: true });
   registerMockIpc();
   try {
-    for (const definition of captures) await capture(definition);
+    const requestedNames = new Set(process.argv.slice(2));
+    const selectedCaptures = requestedNames.size > 0
+      ? captures.filter(definition => requestedNames.has(definition.name))
+      : captures;
+    if (requestedNames.size > 0 && selectedCaptures.length !== requestedNames.size) {
+      const knownNames = new Set(captures.map(definition => definition.name));
+      const unknownNames = Array.from(requestedNames).filter(name => !knownNames.has(name));
+      throw new Error(`Unknown guide capture: ${unknownNames.join(', ')}`);
+    }
+    for (const definition of selectedCaptures) await capture(definition);
   } finally {
     keeperWindow.destroy();
   }

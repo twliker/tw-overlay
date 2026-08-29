@@ -5,6 +5,8 @@ const GA_CLIENT_ID_RANDOM_MAX = 2_147_483_647;
 const GA_EVENT_NAME_MAX_LENGTH = 40;
 const GA_EVENT_PARAM_STRING_MAX_LENGTH = 100;
 
+export type DistributionSource = 'ms_store' | 'github';
+
 export interface NormalizedGaClientId {
   clientId: string;
   migrated: boolean;
@@ -16,6 +18,11 @@ export function shouldTransmitAnalytics(
   userEnabled: boolean = true,
 ): boolean {
   return isPackaged && userEnabled && !explicitlyDisabled;
+}
+
+/** 패키지 형식에 따라 GA4 공통 배포 채널 값을 반환합니다. */
+export function resolveDistributionSource(isWindowsStore: boolean): DistributionSource {
+  return isWindowsStore ? 'ms_store' : 'github';
 }
 
 export function isValidGaClientId(value: unknown): value is string {

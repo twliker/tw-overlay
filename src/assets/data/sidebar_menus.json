@@ -178,8 +178,16 @@
     "tooltip": "테일즈위버 무기 강화하기 게임",
     "color": "amber-400",
     "api": "toggleSwordEnhance",
-    "category": "minigame",
-    "isOneDepth": true
+    "category": "minigame"
+  },
+  {
+    "id": "qte-challenge-btn",
+    "label": "QTE 챌린지",
+    "icon": "crosshair",
+    "tooltip": "테일즈위버 QTE 실전 연습 및 챌린지",
+    "color": "cyan-400",
+    "api": "toggleQteChallenge",
+    "category": "minigame"
   },
   {
     "id": "scam-detector-btn",

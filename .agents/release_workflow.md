@@ -238,8 +238,8 @@ npm run dist:appx
   - `runFullTrust`, `allowElevation`, 최소 Windows 버전
   - Koffi의 `MSVCP140.dll`·`VCRUNTIME140.dll`·`VCRUNTIME140_1.dll`을 제공하는 `Microsoft.VCLibs.140.00.UWPDesktop` framework 의존성
   - TW-Overlay 전용 타일 이미지 4개의 승인된 SHA-256과 패키지 내부 원본 일치
-  - ASAR의 앱 버전·main 진입점·Windows Store 업데이트 차단 분기
-  - Windows x64용 Koffi·better-sqlite3 네이티브 모듈
+  - ASAR의 앱 버전·main 진입점·Windows Store 업데이트 정책 분기
+  - Windows x64용 Koffi·better-sqlite3 네이티브 모듈과 Store 업데이트 도우미
 * 이미 생성된 특정 파일은 다음과 같이 독립 검증합니다.
 
 ```powershell
@@ -266,6 +266,10 @@ Store 제출용 AppX는 로컬에서 의도적으로 서명하지 않으며 Micr
 - [ ] 첫 실행과 완전 종료 후 두 번째 실행 모두 `A JavaScript error occurred in the main process` 대화상자가 없다.
 - [ ] 주요 오버레이 하나와 숙제 체크리스트를 열고 종료할 수 있다.
 - [ ] Store 빌드에서 GitHub 자체 업데이트 다운로드가 시작되지 않는다.
+- [ ] Store 일반 업데이트에서 `자동 업데이트`를 켜면 스플래시 다운로드·설치·재실행이 진행된다.
+- [ ] Store 일반 업데이트에서 `자동 업데이트`를 끄면 앱이 시작되고 앱 정보 메뉴에 레드닷이 표시된다.
+- [ ] Partner Center 강제 업데이트는 `자동 업데이트` 설정과 관계없이 스플래시를 잠그고 설치를 진행한다.
+- [ ] Store 자동 설치가 허용되지 않은 환경에서는 Windows 동의 UI 또는 Store 열기·재시도 안내가 표시된다.
 - [ ] AppX SHA-256, Windows 빌드, 설치 시각과 실행 결과를 릴리즈 체크리스트에 기록한다.
 
 위 실행 게이트는 정적 AppX 검증으로 대체하지 않습니다. 서명된 설치본을 실제로 실행하지 못했으면 Microsoft Store 제출 준비 완료로 표시하지 않습니다.
@@ -285,6 +289,9 @@ Store 제출용 AppX는 로컬에서 의도적으로 서명하지 않으며 Micr
 
 ### 4. MS Store 업데이트 동작 특이사항
 
-* MS Store를 통해 설치한 사용자는 **Windows OS의 Microsoft Store 서비스가 백그라운드에서 자동으로 최신 버전 패키지를 갱신**합니다.
-* 앱 내부의 자체 GitHub 업데이터는 MS Store 환경(`process.windowsStore === true`)에서 안전하게 비활성화되어 스토어 샌드박스 충돌 및 앱 중복 설치를 원천 방지합니다.
+* MS Store를 통해 설치한 사용자는 Windows의 백그라운드 자동 업데이트와 함께 앱 실행 시 `Windows.Services.Store` 업데이트 확인을 사용합니다.
+* 일반 업데이트는 로컬 `자동 업데이트` 설정을 따릅니다. 켜져 있으면 스플래시에서 Store 패키지를 내려받아 설치하고 재실행하며, 꺼져 있으면 앱을 시작한 뒤 앱 정보 메뉴에 레드닷만 표시합니다.
+* Partner Center에서 강제로 지정한 패키지는 로컬 설정에 관계없이 스플래시를 잠그고 설치합니다. `StorePackageUpdate.Mandatory` 값은 Windows가 대신 강제하지 않으므로 앱 정책으로 직접 적용합니다.
+* Store의 무음 설치는 Microsoft Store 자동 업데이트가 허용되고 데이터 통신 제한이 없을 때 사용합니다. 허용되지 않으면 Windows 동의 UI를 사용하고, 실패하거나 취소하면 재시도와 `ms-windows-store://downloadsandupdates` 진입 경로를 제공합니다.
+* Store 패키지에서 GitHub `electron-updater`는 계속 비활성화합니다. Store API만 사용해 NSIS 중복 설치와 패키지 ID 충돌을 방지합니다.
 

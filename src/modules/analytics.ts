@@ -9,6 +9,7 @@ import {
   normalizeGaClientId,
   normalizeGaEventName,
   normalizeGaEventParams,
+  resolveDistributionSource,
   shouldTransmitAnalytics,
 } from './analyticsProtocol';
 
@@ -89,6 +90,7 @@ function getStoredClientId(): string | undefined {
  *   같은 값을 사용합니다. 세션 ID와 세션 번호는 재실행마다 갱신됩니다.
  * - 이벤트 이름과 파라미터는 analyticsProtocol allowlist/정규화 경계를 통과해야 하며,
  *   채팅 내용·Google 토큰·사용자 파일 원문 같은 개인정보를 파라미터로 추가하지 않습니다.
+ * - 모든 이벤트에는 배포 채널(`ms_store` 또는 `github`)이 공통 파라미터로 포함됩니다.
  * - 데이터는 앱 운영자의 자체 수집 서버가 아니라 Google Analytics로 직접 전송됩니다.
  */
 export class Analytics {
@@ -189,6 +191,7 @@ export class Analytics {
     
     // GA4 필수 예약 파라미터 추가
     flatParams.app_version = app.getVersion();
+    flatParams.distribution_source = resolveDistributionSource(Boolean(process.windowsStore));
     flatParams.ga_session_id = this.sessionId;
     flatParams.ga_session_number = this.sessionNumber;
     // 1ms 이상이어야 GA4가 유효한 체류 시간으로 인식

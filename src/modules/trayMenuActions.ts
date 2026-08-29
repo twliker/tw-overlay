@@ -1,5 +1,6 @@
 import * as wm from './windowManager';
 import type { SidebarMenuAction } from '../shared/sidebarMenus';
+import { analytics } from './analytics';
 
 type TrayMenuHandler = () => void;
 type TrayMenuAction = Exclude<SidebarMenuAction, 'goHome'>;
@@ -25,6 +26,7 @@ const TRAY_MENU_ACTIONS = {
   toggleSienaAura: wm.toggleSienaAuraWindow,
   toggleUniformColor: wm.toggleUniformColorWindow,
   toggleSwordEnhance: wm.toggleSwordEnhanceWindow,
+  toggleQteChallenge: wm.toggleQteChallengeWindow,
   toggleScamDetector: wm.toggleScamDetectorWindow,
   toggleEtaRanking: wm.toggleEtaRankingWindow,
   toggleHuntingPathSimulator: wm.toggleHuntingPathSimulatorWindow,
@@ -42,5 +44,10 @@ const TRAY_MENU_ACTIONS = {
 
 export function getTrayMenuHandler(action: SidebarMenuAction): TrayMenuHandler | undefined {
   if (action === 'goHome') return undefined;
-  return TRAY_MENU_ACTIONS[action];
+  const handler = TRAY_MENU_ACTIONS[action];
+  return () => {
+    const normalizedAction = action.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+    analytics.trackEvent(normalizedAction === 'open_gallery' ? 'toggle_gallery' : normalizedAction);
+    handler();
+  };
 }

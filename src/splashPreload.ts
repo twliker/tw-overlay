@@ -4,5 +4,7 @@ import type { UpdateStatusInfo } from './shared/types';
 contextBridge.exposeInMainWorld('splashAPI', {
     onUpdateStatus: (callback: (data: UpdateStatusInfo) => void) => {
         ipcRenderer.on('update-status', (_e, data: UpdateStatusInfo) => callback(data));
-    }
+    },
+    retryStoreUpdate: () => ipcRenderer.send('start-update-download'),
+    openStoreUpdatesPage: () => ipcRenderer.send('open-store-updates-page'),
 });

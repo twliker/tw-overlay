@@ -283,6 +283,7 @@ export function register(): void {
   });
 
   ipcMain.on('welcome-guide-open', () => {
+    analytics.trackEvent('toggle_welcome_guide');
     wm.createWelcomeGuideWindow();
   });
 
@@ -374,6 +375,7 @@ export function register(): void {
   });
 
   ipcMain.on('update-notice-open', () => {
+    analytics.trackEvent('toggle_update_notice');
     wm.createUpdateNoticeWindow();
   });
 
@@ -426,6 +428,7 @@ export function register(): void {
   });
 
   ipcMain.on('trigger-jellyppy-rain-global', () => {
+    analytics.trackEvent('trigger_jellyppy_rain_global');
     triggerGameOverlayEffect('trigger-jellyppy-rain');
   });
 
@@ -471,6 +474,7 @@ export function register(): void {
   });
 
   ipcMain.on('go-home', () => {
+    analytics.trackEvent('go_home');
     const cfg = config.load();
     wm.setOverlayVisible(true, cfg.homeUrl);
   });
@@ -555,6 +559,7 @@ export function register(): void {
     'toggle-custom-alert': wm.toggleCustomAlertWindow,
     'toggle-uniform-color': wm.toggleUniformColorWindow,
     'toggle-sword-enhance': wm.toggleSwordEnhanceWindow,
+    'toggle-qte-challenge': wm.toggleQteChallengeWindow,
     'toggle-diary': wm.toggleDiaryWindow,
     'toggle-buff-timer': wm.toggleBuffTimerWindow,
     'toggle-xp-hud': wm.toggleXpHudWindow,
@@ -579,6 +584,14 @@ export function register(): void {
 
   ipcMain.on('open-and-highlight', (_e, key: string) => {
     if (!isLimitedString(key, 128, false)) return;
+    const analyticsEvents: Record<string, string> = {
+      bossSettings: 'toggle_boss_settings',
+      wordAlarm: 'toggle_word_alarm',
+      buffTimer: 'toggle_buff_timer',
+      xpHud: 'toggle_xp_hud',
+    };
+    const eventName = analyticsEvents[key];
+    if (eventName) analytics.trackEvent(eventName);
     wm.openAndHighlightWindow(key);
   });
 
@@ -677,6 +690,7 @@ export function register(): void {
   });
 
   ipcMain.on('open-coefficient-calculator', () => {
+    analytics.trackEvent('toggle_coefficient_calculator');
     wm.openCoefficientCalculatorWindow();
   });
 
@@ -711,6 +725,9 @@ export function register(): void {
   });
   ipcMain.on('start-update-download', () => {
     import('./updater').then(mod => mod.startDownload());
+  });
+  ipcMain.on('open-store-updates-page', () => {
+    import('./updater').then(mod => mod.openMicrosoftStoreUpdatesPage());
   });
   ipcMain.on('quit-and-install', () => {
     import('./updater').then(mod => mod.quitAndInstall());
@@ -1294,6 +1311,7 @@ export function register(): void {
 
   ipcMain.on('toggle-chat-overlay-sub', (_e, subNum: number) => {
     if (subNum !== 1 && subNum !== 2) return;
+    analytics.trackEvent('toggle_chat_overlay_sub', { subNum });
     wm.toggleSubWindow(subNum as 1 | 2);
   });
   ipcMain.handle('chat-fetch-eta-rankings', async () => {

@@ -113,14 +113,18 @@
       transform: translateY(-1px);
     }
 
-    .submenu-chip i {
+    .submenu-chip i,
+    .submenu-chip img {
       width: 14px;
       height: 14px;
-      color: var(--theme-color, #cbd5e1);
       transition: all 0.2s;
     }
 
-    .submenu-chip:hover i {
+    .submenu-chip i { color: var(--theme-color, #cbd5e1); }
+    .submenu-chip img { object-fit: contain; }
+
+    .submenu-chip:hover i,
+    .submenu-chip:hover img {
       filter: drop-shadow(0 0 4px var(--theme-color));
     }
 
@@ -404,10 +408,10 @@
               const colorClass = menu.color ? `color-${menu.color}` : 'color-slate-400';
               chip.classList.add(colorClass);
 
-              chip.innerHTML = `
-                <i data-lucide="${menu.icon}"></i>
-                <span>${menu.label}</span>
-              `;
+              const menuIcon = menu.image
+                ? `<img src="${menu.image}" alt="">`
+                : `<i data-lucide="${menu.icon}"></i>`;
+              chip.innerHTML = `${menuIcon}<span>${menu.label}</span>`;
 
               if (menu.id === 'gallery-btn') {
                 chip.innerHTML += `<span id="noti-badge" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full hidden"></span>`;

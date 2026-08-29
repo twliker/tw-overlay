@@ -37,6 +37,7 @@ const STATIC_WINDOW_DEFINITIONS: readonly StaticWindowDefinition[] = [
   { key: 'diary', html: 'diary.html', width: 1400, height: 920 },
   { key: 'uniformColor', html: 'uniform-color.html', width: 360, height: 800 },
   { key: 'swordEnhance', html: 'sword-enhance.html', width: 1300, height: 850 },
+  { key: 'qteChallenge', html: 'qte-challenge.html', width: 980, height: 780 },
   { key: 'shoutHistory', html: 'shout-history.html', width: 450, height: 600 },
   { key: 'gameOverlay', html: 'game-overlay.html', width: 0, height: 0 },
   { key: 'buffTimer', html: 'buff-timer.html', width: 900, height: 850 },

@@ -21,6 +21,7 @@ export const SIDEBAR_MENU_ACTIONS = [
   'toggleSienaAura',
   'toggleUniformColor',
   'toggleSwordEnhance',
+  'toggleQteChallenge',
   'toggleScamDetector',
   'toggleEtaRanking',
   'toggleHuntingPathSimulator',

@@ -2,14 +2,26 @@
  * 업데이트 관리 모듈 - 필수 업데이트(Mandatory Update) 지원
  */
 import { autoUpdater } from 'electron-updater';
-import { BrowserWindow, app, Notification } from 'electron';
+import { BrowserWindow, app, Notification, shell } from 'electron';
 import { log } from './logger';
 import * as config from './config';
 import * as path from 'path';
+import { checkForStoreUpdates, installStoreUpdates, StoreUpdateHelperEvent } from './storeUpdater';
+import { normalizeStorePackageVersion, resolveStoreUpdateStartupAction } from './storeUpdatePolicy';
+import { registerApplicationRestartForStoreUpdate } from './win32';
 
 let isSetup = false;
 let isMandatory = false;
 let isFeedSwitched = false;
+let storeInstallInProgress = false;
+let pendingStoreReadyToLaunch: (() => void) | null = null;
+
+interface PendingStoreUpdate {
+  version?: string;
+  mandatory: boolean;
+}
+
+let pendingStoreUpdate: PendingStoreUpdate | null = null;
 
 import type { UpdateStatusInfo } from '../shared/types';
 
@@ -155,6 +167,220 @@ function resetDefaultFeed() {
   }
 }
 
+function showUpdateNotification(version?: string) {
+  try {
+    const notification = new Notification({
+      title: 'TW-Overlay 업데이트 알림',
+      body: version
+        ? `새로운 버전 v${version}이(가) 출시되었습니다.`
+        : '새로운 버전이 Microsoft Store에 출시되었습니다.',
+      icon: path.join(__dirname, '..', 'icons', 'icon.ico')
+    });
+    notification.show();
+    notification.on('click', () => {
+      import('./windowManager').then(wm => wm.toggleSettingsWindow());
+    });
+  } catch (error) {
+    log(`Notification error: ${error}`);
+  }
+}
+
+/**
+ * 필수 업데이트 실패 후 스플래시의 재시도 버튼은 최초 setupUpdater 호출의 콜백을 직접
+ * 전달받지 못한다. 앱 진입 콜백을 모듈에 보관했다가 업데이트가 없어졌거나 일반 오류로
+ * 우회할 때 정확히 한 번만 실행한다.
+ */
+function releaseStoreReadyToLaunch(explicitCallback?: () => void): boolean {
+  const callback = explicitCallback || pendingStoreReadyToLaunch;
+  pendingStoreReadyToLaunch = null;
+  callback?.();
+  return !!callback;
+}
+
+/** 설정 화면에서 시작한 수동 Store 업데이트가 실패하면 잠금 전에 보던 설정 창을 복구한다. */
+function restoreSettingsAfterManualStoreAttempt(wm: typeof import('./windowManager')): void {
+  wm.toggleSettingsWindow();
+}
+
+/** Store 설치 실패 시 강제 여부에 따라 스플래시 잠금 또는 앱 정상 진입으로 분기한다. */
+async function handleStoreInstallFailure(
+  message: string,
+  mandatory: boolean,
+  notifyReady?: () => void,
+) {
+  _isUpdaterQuitting = false;
+  storeInstallInProgress = false;
+  const wm = await import('./windowManager');
+
+  if (mandatory) {
+    isMandatory = true;
+    wm.setMandatoryUpdateLock(true);
+    broadcastStatus({
+      state: 'error',
+      source: 'store',
+      version: pendingStoreUpdate?.version,
+      isMandatory: true,
+      actionRequired: true,
+      message,
+    });
+    return;
+  }
+
+  isMandatory = false;
+  wm.setMandatoryUpdateLock(false);
+  broadcastStatus({
+    state: 'available',
+    source: 'store',
+    version: pendingStoreUpdate?.version,
+    isMandatory: false,
+    actionRequired: true,
+    message,
+  });
+  if (!releaseStoreReadyToLaunch(notifyReady)) {
+    restoreSettingsAfterManualStoreAttempt(wm);
+  }
+}
+
+/**
+ * Store 패키지 다운로드·설치는 별도 도우미가 수행한다. Store가 패키지 프로세스를 직접
+ * 종료하는 경로와 결과를 반환하는 경로가 모두 있으므로, 설치 전 재시작 등록과 종료 플래그를
+ * 먼저 설정하고 완료 이벤트가 돌아온 경우에만 Electron의 안전 종료 절차를 시작한다.
+ */
+async function startStoreUpdateInstallation(notifyReady?: () => void) {
+  if (storeInstallInProgress) return;
+  if (!pendingStoreUpdate) {
+    await checkStoreUpdatePolicy(notifyReady);
+    return;
+  }
+
+  storeInstallInProgress = true;
+  _isUpdaterQuitting = true;
+  const restartRegistered = registerApplicationRestartForStoreUpdate();
+  log(`[STORE_UPDATE] RegisterApplicationRestart=${restartRegistered}`);
+
+  const wm = await import('./windowManager');
+  const ownerWindow = wm.getSplashWindow() || wm.getSettingsWindow() || wm.getMainWindow();
+  wm.setMandatoryUpdateLock(true);
+  broadcastStatus({
+    state: pendingStoreUpdate.mandatory ? 'mandatory' : 'available',
+    source: 'store',
+    version: pendingStoreUpdate.version,
+    isMandatory: pendingStoreUpdate.mandatory,
+  });
+
+  try {
+    const outcome = await installStoreUpdates(ownerWindow, {
+      onEvent: (event: StoreUpdateHelperEvent) => {
+        if (event.type !== 'progress') return;
+        broadcastStatus({
+          state: 'downloading',
+          source: 'store',
+          version: pendingStoreUpdate?.version,
+          percent: event.percent,
+          isMandatory: pendingStoreUpdate?.mandatory === true,
+        });
+      },
+    });
+
+    if (outcome.type === 'permission-required') {
+      await handleStoreInstallFailure(
+        'Microsoft Store의 업데이트 설치 승인이 필요합니다.',
+        outcome.mandatory || pendingStoreUpdate.mandatory,
+        notifyReady,
+      );
+      return;
+    }
+
+    if (!outcome.completed) {
+      await handleStoreInstallFailure(
+        `Microsoft Store 업데이트가 완료되지 않았습니다. (${outcome.state})`,
+        outcome.mandatory || pendingStoreUpdate.mandatory,
+        notifyReady,
+      );
+      return;
+    }
+
+    if (outcome.noUpdate) {
+      pendingStoreUpdate = null;
+      isMandatory = false;
+      _isUpdaterQuitting = false;
+      storeInstallInProgress = false;
+      wm.setMandatoryUpdateLock(false);
+      broadcastStatus({ state: 'latest', source: 'store' });
+      if (!releaseStoreReadyToLaunch(notifyReady)) {
+        restoreSettingsAfterManualStoreAttempt(wm);
+      }
+      return;
+    }
+
+    broadcastStatus({
+      state: 'ready',
+      source: 'store',
+      version: pendingStoreUpdate.version,
+      percent: 100,
+      isMandatory: pendingStoreUpdate.mandatory,
+    });
+    log('[STORE_UPDATE] Store package deployment completed. Quitting for package activation.');
+    setTimeout(() => app.quit(), 500);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`[STORE_UPDATE] Installation failed: ${message}`);
+    await handleStoreInstallFailure(message, pendingStoreUpdate?.mandatory === true, notifyReady);
+  }
+}
+
+/** GitHub updater와 동일한 자동/강제 조건으로 Store 업데이트의 시작 시점을 결정한다. */
+async function checkStoreUpdatePolicy(notifyReady?: () => void) {
+  if (notifyReady) pendingStoreReadyToLaunch = notifyReady;
+  broadcastStatus({ state: 'checking', source: 'store' });
+  try {
+    const result = await checkForStoreUpdates();
+    if (!result.updateAvailable) {
+      pendingStoreUpdate = null;
+      isMandatory = false;
+      broadcastStatus({ state: 'latest', source: 'store' });
+      setTimeout(() => releaseStoreReadyToLaunch(notifyReady), 600);
+      return;
+    }
+
+    const version = normalizeStorePackageVersion(result.version);
+    pendingStoreUpdate = { version, mandatory: result.mandatory };
+    isMandatory = result.mandatory;
+    const autoUpdateEnabled = config.load().autoUpdateEnabled !== false;
+    const action = resolveStoreUpdateStartupAction(result.mandatory, autoUpdateEnabled);
+    log(`[STORE_UPDATE] Update available: version=${version || 'unknown'}, mandatory=${result.mandatory}, auto=${autoUpdateEnabled}, silent=${result.canSilentlyInstall}, action=${action}`);
+
+    if (action === 'notify-only') {
+      broadcastStatus({
+        state: 'available',
+        source: 'store',
+        version,
+        isMandatory: false,
+      });
+      releaseStoreReadyToLaunch(notifyReady);
+      showUpdateNotification(version);
+      return;
+    }
+
+    await startStoreUpdateInstallation(notifyReady);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    pendingStoreUpdate = null;
+    isMandatory = false;
+    _isUpdaterQuitting = false;
+    log(`[STORE_UPDATE] Check failed: ${message}`);
+    broadcastStatus({ state: 'error', source: 'store', message });
+    setTimeout(() => releaseStoreReadyToLaunch(notifyReady), 600);
+  }
+}
+
+/** Store 설치가 막혔을 때 사용자가 Windows의 업데이트·다운로드 화면에서 직접 재시도할 수 있다. */
+export function openMicrosoftStoreUpdatesPage() {
+  shell.openExternal('ms-windows-store://downloadsandupdates').catch(error => {
+    log(`[STORE_UPDATE] Failed to open Microsoft Store updates page: ${error}`);
+  });
+}
+
 export function setupUpdater(onReadyToLaunch?: () => void) {
   if (isSetup) {
     if (currentUpdateInfo) {
@@ -177,11 +403,17 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     }
   };
 
-  if (!app.isPackaged || process.windowsStore) {
-    log(`[UPDATER] ${process.windowsStore ? 'Windows Store (AppX)' : 'Development'} mode: skipping internal GitHub update check`);
+  if (!app.isPackaged) {
+    log('[UPDATER] Development mode: skipping update check');
     setTimeout(() => {
       notifyReady();
     }, 1200);
+    return;
+  }
+
+  if (process.windowsStore) {
+    log('[UPDATER] Windows Store mode: checking Store package updates');
+    void checkStoreUpdatePolicy(notifyReady);
     return;
   }
 
@@ -426,8 +658,8 @@ export async function manualCheckForUpdate(mainWindow: BrowserWindow | null) {
   }
 
   if (process.windowsStore) {
-    log('[UPDATER] Manual check requested in Windows Store mode. Reporting latest.');
-    broadcastStatus({ state: 'latest' });
+    log('[UPDATER] Manual check requested in Windows Store mode.');
+    await checkStoreUpdatePolicy();
     return;
   }
 
@@ -444,6 +676,11 @@ export async function manualCheckForUpdate(mainWindow: BrowserWindow | null) {
 
 /** 업데이트 다운로드 시작 */
 export function startDownload() {
+  if (process.windowsStore) {
+    log('[STORE_UPDATE] User requested Store update installation.');
+    void startStoreUpdateInstallation();
+    return;
+  }
   log('Starting update download...');
   resetDefaultFeed();
   autoUpdater.downloadUpdate();
@@ -452,5 +689,9 @@ export function startDownload() {
 /** 재시작 및 설치 */
 export function quitAndInstall() {
   _isUpdaterQuitting = true;
+  if (process.windowsStore) {
+    app.quit();
+    return;
+  }
   autoUpdater.quitAndInstall();
 }

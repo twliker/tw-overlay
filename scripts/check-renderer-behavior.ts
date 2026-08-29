@@ -3802,6 +3802,51 @@ async function checkEtaRankingRenderer(window: BrowserWindow): Promise<void> {
   assert.ok(result.title.includes('에타 랭킹'), '에타 랭킹 창 타이틀이 일치하지 않습니다.');
 }
 
+async function checkQteChallengeRenderer(window: BrowserWindow): Promise<void> {
+  await window.loadFile(path.join(projectRoot, 'dist', 'qte-challenge.html'));
+  await waitForSelector(window, '#qte-stage');
+
+  const result = await evaluate(window, () => {
+    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
+    const practiceTab = document.getElementById('practice-tab') as HTMLButtonElement | null;
+    const challengeTab = document.getElementById('challenge-tab') as HTMLButtonElement | null;
+    const speed = document.getElementById('practice-speed') as HTMLSelectElement | null;
+    const start = document.getElementById('start-button') as HTMLButtonElement | null;
+    const stop = document.getElementById('stop-button') as HTMLButtonElement | null;
+    const blueArc = document.getElementById('blue-arc');
+    const yellowArc = document.getElementById('yellow-arc');
+
+    challengeTab?.click();
+    const challengeStartLabel = start?.textContent?.trim();
+    const challengeModeActive = challengeTab?.classList.contains('active');
+    const speedHiddenInChallenge = speed?.classList.contains('hidden');
+    start?.click();
+    const stopVisibleWhileRunning = stop ? !stop.classList.contains('hidden') : false;
+    stop?.click();
+    practiceTab?.click();
+
+    return {
+      title,
+      challengeStartLabel,
+      challengeModeActive,
+      speedHiddenInChallenge,
+      stopVisibleWhileRunning,
+      practiceModeRestored: practiceTab?.classList.contains('active'),
+      hasSeparateArcs: blueArc !== null && yellowArc !== null,
+      qteApiReady: typeof (globalThis as any).qteChallenge?.classifyQteHit === 'function',
+    };
+  });
+
+  assert.ok(result.title.includes('QTE 챌린지'), '신규 QTE 별도 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasSeparateArcs, true, 'QTE 일반 성공·대성공 판정 영역이 분리되어 있지 않습니다.');
+  assert.equal(result.qteApiReady, true, 'QTE 순수 판정 엔진이 전용 렌더러에 연결되지 않았습니다.');
+  assert.equal(result.challengeModeActive, true, 'QTE 챌린지 모드 전환이 동작하지 않습니다.');
+  assert.match(result.challengeStartLabel || '', /챌린지 시작/);
+  assert.equal(result.speedHiddenInChallenge, true, '챌린지에서 실전 연습 속도 선택이 노출됩니다.');
+  assert.equal(result.stopVisibleWhileRunning, true, 'QTE 세션 시작 후 중지 제어가 표시되지 않습니다.');
+  assert.equal(result.practiceModeRestored, true, 'QTE 실전 연습 모드로 돌아오지 못합니다.');
+}
+
 async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   const dockPath = path.join(projectRoot, 'dist', 'dock.html');
   const dockSource = fs.readFileSync(dockPath, 'utf8');
@@ -3839,6 +3884,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       window.electronAPI = {
         toggleContentsChecker: () => calls.push('contentsChecker'),
         toggleSwordEnhance: () => calls.push('swordEnhance'),
+        toggleQteChallenge: () => calls.push('qteChallenge'),
         toggleSettings: (...args) => calls.push(['settings', ...args]),
         setIgnoreMouseEvents: (ignore, options) => mousePassThroughCalls.push({
           ignore,
@@ -3855,12 +3901,14 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
 
       configCallbacks[0]({ sidebarPosition: 'dock', hiddenMenuIds: [] });
       const homework = document.getElementById('dock-contents-checker-btn');
-      const swordEnhance = document.getElementById('dock-sword-enhance-btn');
+      const swordEnhance = document.getElementById('dock-chip-sword-enhance-btn');
+      const qteChallenge = document.getElementById('dock-chip-qte-challenge-btn');
       homework?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
       homework?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
       homework?.click();
       swordEnhance?.click();
-      activeCallbacks[0](['contentsChecker', 'swordEnhance']);
+      qteChallenge?.click();
+      activeCallbacks[0](['contentsChecker', 'swordEnhance', 'qteChallenge']);
       document.body.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
 
       const syncItem = document.getElementById('dock-cloud-sync-status');
@@ -3890,11 +3938,15 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
 
       const visibleResult = {
         homeworkLabel: homework?.querySelector('.dock-tooltip')?.textContent,
-        swordEnhanceLabel: swordEnhance?.querySelector('.dock-tooltip')?.textContent,
+        swordEnhanceLabel: swordEnhance?.querySelector('span')?.textContent,
+        qteChallengeLabel: qteChallenge?.querySelector('span')?.textContent,
         homeworkIcon: homework?.querySelector('[data-lucide]')?.getAttribute('data-lucide'),
         swordEnhanceImage: swordEnhance?.querySelector('img')?.getAttribute('src'),
+        qteChallengeIcon: qteChallenge?.querySelector('[data-lucide]')?.getAttribute('data-lucide'),
         homeworkActive: homework?.classList.contains('active'),
         swordEnhanceActive: swordEnhance?.classList.contains('active'),
+        qteChallengeActive: qteChallenge?.classList.contains('active'),
+        minigameActive: document.querySelector('#dock-cat-minigame > .dock-item')?.classList.contains('active'),
         hiddenWhenUnlinked,
         normalState,
         normalHasVisibleDot,
@@ -3922,17 +3974,22 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
         mousePassThroughCalls,
         topDockClass: document.body.classList.contains('dock-pos-top'),
         homeworkStillVisible: document.getElementById('dock-contents-checker-btn') !== null,
-        hiddenSwordAbsent: document.getElementById('dock-sword-enhance-btn') === null,
+        hiddenSwordHidden: getComputedStyle(document.getElementById('dock-chip-sword-enhance-btn')).display === 'none',
+        qteStillVisible: getComputedStyle(document.getElementById('dock-chip-qte-challenge-btn')).display !== 'none',
       };
     })()
   `) as {
     hasBody: boolean;
     homeworkLabel?: string;
     swordEnhanceLabel?: string;
+    qteChallengeLabel?: string;
     homeworkIcon?: string;
     swordEnhanceImage?: string;
+    qteChallengeIcon?: string;
     homeworkActive?: boolean;
     swordEnhanceActive?: boolean;
+    qteChallengeActive?: boolean;
+    minigameActive?: boolean;
     hiddenWhenUnlinked?: boolean;
     normalState?: string;
     normalHasVisibleDot?: boolean;
@@ -3950,15 +4007,20 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
     mousePassThroughCalls: Array<{ ignore: boolean; forward: boolean }>;
     topDockClass: boolean;
     homeworkStillVisible: boolean;
-    hiddenSwordAbsent: boolean;
+    hiddenSwordHidden: boolean;
+    qteStillVisible: boolean;
   };
 
   assert.equal(result.hasBody, true, '사이드바 독 바디가 렌더링되지 않았습니다.');
   assert.equal(result.homeworkLabel, '숙제 체크 리스트', '독에 숙제 체크리스트 메뉴가 표시되지 않았습니다.');
   assert.equal(result.swordEnhanceLabel, '테일즈위버 무기 강화하기', '독에 검 강화하기 메뉴가 표시되지 않았습니다.');
+  assert.equal(result.qteChallengeLabel, 'QTE 챌린지', '독 미니게임 서브메뉴에 QTE 챌린지가 표시되지 않았습니다.');
   assert.equal(result.homeworkIcon, 'check-square', '독 숙제 아이콘이 사이드바 카테고리 아이콘과 다릅니다.');
-  assert.equal(result.swordEnhanceImage, 'assets/img/검강화하기.png', '독 검 강화 아이콘이 사이드바 전용 이미지와 다릅니다.');
-  assert.deepEqual(result.calls.slice(0, 2), ['contentsChecker', 'swordEnhance'], '독 1단 메뉴 동작이 연결되지 않았습니다.');
+  assert.equal(result.swordEnhanceImage, 'assets/img/검강화하기.png',
+    '독 미니게임 서브메뉴가 기존 검 강화하기 이미지 아이콘을 유지하지 않습니다.');
+  assert.equal(result.qteChallengeIcon, 'crosshair', '독 미니게임 서브메뉴의 QTE 아이콘이 다릅니다.');
+  assert.deepEqual(result.calls.slice(0, 3), ['contentsChecker', 'swordEnhance', 'qteChallenge'],
+    '독의 숙제 직접 메뉴 또는 미니게임 2depth 동작이 연결되지 않았습니다.');
   assert.equal(result.hiddenWhenUnlinked, true, '미연결 상태에서 독 동기화 아이콘이 보입니다.');
   assert.equal(result.normalState, 'normal');
   assert.equal(result.normalHasVisibleDot, true, '정상 상태가 실제 크기를 가진 초록색 점으로 표시되지 않았습니다.');
@@ -3981,9 +4043,12 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   ], '독의 투명 여백과 실제 UI 사이 마우스 투과 전환이 올바르지 않습니다.');
   assert.equal(result.homeworkActive, true, '숙제 체크리스트 독 활성 상태가 표시되지 않았습니다.');
   assert.equal(result.swordEnhanceActive, true, '검 강화하기 독 활성 상태가 표시되지 않았습니다.');
-  assert.equal(result.topDockClass, true, '상단 독 설정이 1단 메뉴 재렌더링 뒤 유지되지 않았습니다.');
+  assert.equal(result.qteChallengeActive, true, 'QTE 챌린지 독 활성 상태가 표시되지 않았습니다.');
+  assert.equal(result.minigameActive, true, '미니게임 자식 창 활성 상태가 부모 1depth에 표시되지 않았습니다.');
+  assert.equal(result.topDockClass, true, '상단 독 설정이 메뉴 재렌더링 뒤 유지되지 않았습니다.');
   assert.equal(result.homeworkStillVisible, true, '다른 메뉴 숨김 설정이 숙제 체크리스트까지 숨겼습니다.');
-  assert.equal(result.hiddenSwordAbsent, true, '검 강화하기 숨김 설정이 독에 반영되지 않았습니다.');
+  assert.equal(result.hiddenSwordHidden, true, '검 강화하기 숨김 설정이 독 미니게임 서브메뉴에 반영되지 않았습니다.');
+  assert.equal(result.qteStillVisible, true, '검 강화하기 숨김 설정이 QTE 챌린지까지 숨겼습니다.');
 }
 
 async function checkIndexRenderer(window: BrowserWindow): Promise<void> {
@@ -4344,6 +4409,8 @@ async function main(): Promise<void> {
     await checkEquipmentDicRenderer(window);
     console.log('[TEST] checkEtaRankingRenderer');
     await checkEtaRankingRenderer(window);
+    console.log('[TEST] checkQteChallengeRenderer');
+    await checkQteChallengeRenderer(window);
     console.log('[TEST] checkDockRenderer');
     await checkDockRenderer(window);
     console.log('[TEST] checkIndexRenderer');

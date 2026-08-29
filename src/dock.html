@@ -306,14 +306,18 @@
       transform: scale(1.05) translateY(-1px);
     }
 
-    .dock-submenu-chip i {
+    .dock-submenu-chip i,
+    .dock-submenu-chip img {
       width: 14px;
       height: 14px;
-      color: var(--theme-color, #cbd5e1);
       transition: all 0.2s;
     }
+
+    .dock-submenu-chip i { color: var(--theme-color, #cbd5e1); }
+    .dock-submenu-chip img { object-fit: contain; }
     
-    .dock-submenu-chip:hover i {
+    .dock-submenu-chip:hover i,
+    .dock-submenu-chip:hover img {
       filter: drop-shadow(0 0 4px var(--theme-color));
     }
   </style>
@@ -438,7 +442,7 @@
       const hiddenMenuIds = (appConfig && appConfig.hiddenMenuIds) || [];
 
       // 3. 카테고리별 그룹화 렌더링
-      const dockCategories = window.sidebarCategories.filter(cat => cat.id !== 'homework' && cat.id !== 'minigame');
+      const dockCategories = window.sidebarCategories.filter(cat => cat.id !== 'homework');
 
       dockCategories.forEach(cat => {
         const catItem = document.createElement('div');
@@ -479,10 +483,10 @@
           const camelKey = windowKey ? windowKey.charAt(0).toLowerCase() + windowKey.slice(1) : '';
           chip.dataset.winKey = camelKey;
 
-          chip.innerHTML = `
-            <i data-lucide="${menu.icon}"></i>
-            <span>${menu.label}</span>
-          `;
+          const menuIcon = menu.image
+            ? `<img src="${menu.image}" alt="">`
+            : `<i data-lucide="${menu.icon}"></i>`;
+          chip.innerHTML = `${menuIcon}<span>${menu.label}</span>`;
 
           if (isHidden) {
             chip.style.display = 'none';
@@ -527,11 +531,11 @@
         }
       });
 
-      // 숙제 체크리스트와 1단 메뉴는 사이드바와 동일하게 바로 실행 가능한 독 아이콘으로 표시합니다.
+      // 숙제 체크리스트만 사이드바와 동일하게 바로 실행 가능한 독 아이콘으로 표시합니다.
       const directMenus = menuData.filter(menu =>
         !menu.isSystem
         && !menu.isComment
-        && (menu.category === 'homework' || menu.isOneDepth)
+        && menu.category === 'homework'
       );
       directMenus.forEach(menu => {
         if (hiddenMenuIds.includes(menu.id)) return;
@@ -737,7 +741,7 @@
 
       // 2. 서브메뉴 칩 및 부모 카테고리 active 상태 갱신
       const dockCategoryIds = window.sidebarCategories
-        .filter(cat => cat.id !== 'homework' && cat.id !== 'minigame')
+        .filter(cat => cat.id !== 'homework')
         .map(cat => cat.id);
       dockCategoryIds.forEach(catId => {
         const catItem = document.getElementById(`dock-cat-${catId}`);

@@ -150,6 +150,10 @@
         <span id="statusLabel" class="text-[9px] text-slate-400 font-bold tracking-wider uppercase">Auto Updater</span>
         <span id="statusAction" class="text-[9px] text-purple-400 font-black tracking-wider uppercase">Checking</span>
       </div>
+      <div id="storeUpdateActions" class="hidden grid grid-cols-2 gap-2 pt-1">
+        <button id="retryStoreUpdate" class="rounded-xl bg-purple-600/90 hover:bg-purple-500 px-3 py-2 text-[10px] font-black text-white">다시 시도</button>
+        <button id="openStoreUpdates" class="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-[10px] font-black text-slate-200">Store 열기</button>
+      </div>
     </div>
   </div>
 
@@ -160,12 +164,21 @@
     const updateProgressFill = document.getElementById('updateProgressFill');
     const statusLabel = document.getElementById('statusLabel');
     const statusAction = document.getElementById('statusAction');
+    const storeUpdateActions = document.getElementById('storeUpdateActions');
+    document.getElementById('retryStoreUpdate').addEventListener('click', () => {
+      storeUpdateActions.classList.add('hidden');
+      window.splashAPI?.retryStoreUpdate();
+    });
+    document.getElementById('openStoreUpdates').addEventListener('click', () => {
+      window.splashAPI?.openStoreUpdatesPage();
+    });
 
     if (window.splashAPI) {
       window.splashAPI.onUpdateStatus((data) => {
+        storeUpdateActions.classList.add('hidden');
         if (data.state === 'checking') {
           statusText.textContent = '업데이트 확인 중...';
-          statusLabel.textContent = 'Auto Updater';
+          statusLabel.textContent = data.source === 'store' ? 'Microsoft Store' : 'Auto Updater';
           statusAction.textContent = 'Checking';
         }
 
@@ -177,7 +190,7 @@
 
         if (data.state === 'mandatory' || data.state === 'available') {
           statusText.textContent = `새 버전 v${data.version || ''} 발견! 다운로드 준비 중...`;
-          statusLabel.textContent = data.isMandatory ? 'Mandatory Update' : 'Auto Update';
+          statusLabel.textContent = data.isMandatory ? 'Mandatory Update' : (data.source === 'store' ? 'Microsoft Store' : 'Auto Update');
           statusAction.textContent = 'Updating';
         }
 
@@ -202,9 +215,16 @@
         }
 
         if (data.state === 'error') {
-          statusText.textContent = '업데이트 확인 완료 — 앱을 시작합니다';
-          statusLabel.textContent = 'System Engine';
-          statusAction.textContent = 'Starting';
+          if (data.source === 'store' && data.isMandatory && data.actionRequired) {
+            statusText.textContent = '필수 업데이트를 설치해야 앱을 사용할 수 있습니다';
+            statusLabel.textContent = 'Mandatory Update';
+            statusAction.textContent = 'Action Required';
+            storeUpdateActions.classList.remove('hidden');
+          } else {
+            statusText.textContent = '업데이트 확인 완료 — 앱을 시작합니다';
+            statusLabel.textContent = 'System Engine';
+            statusAction.textContent = 'Starting';
+          }
         }
       });
     }

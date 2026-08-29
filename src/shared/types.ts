@@ -140,7 +140,7 @@ export type WindowPositionKey =
     | 'overlay' | 'settings' | 'gallery' | 'abbreviation' | 'equipmentDic' | 'buffs'
     | 'bossSettings' | 'etaRanking' | 'trade' | 'coefficientCalculator' | 'contentsChecker'
     | 'focusedChat' | 'evolutionCalculator' | 'thesisCoreCalculator' | 'magicStoneCalculator'
-    | 'customAlert' | 'diary' | 'uniformColor' | 'swordEnhance' | 'shoutHistory'
+    | 'customAlert' | 'diary' | 'uniformColor' | 'swordEnhance' | 'qteChallenge' | 'shoutHistory'
     | 'gameOverlay' | 'buffTimer' | 'xpHud' | 'scamDetector' | 'sienaAura' | 'wordAlarm'
     | 'discordAlarm' | 'huntingPathSimulator' | 'stopwatch' | 'chatOverlay'
     | 'chatOverlaySub' | 'chatOverlaySub2' | 'huntingExpCalculator' | 'relicCalculator' | 'equipmentSimulator' | 'dock';
@@ -787,7 +787,11 @@ export interface GalleryActivity {
 
 export interface UpdateStatusInfo {
     state: 'checking' | 'available' | 'latest' | 'downloading' | 'ready' | 'error' | 'dev-mode' | 'mandatory';
+    /** 업데이트 공급자. 생략 시 기존 GitHub 설치본으로 간주한다. */
+    source?: 'github' | 'store';
     isMandatory?: boolean;
+    /** 자동 설치가 중단되어 사용자의 재시도 또는 Store 열기 동작이 필요한 상태. */
+    actionRequired?: boolean;
     version?: string;
     percent?: number;
     message?: string;

@@ -21,6 +21,7 @@ import { chatLogProcessor } from './chatLogProcessor';
 import { buffTimerManager } from './buffTimerManager';
 import { broadcastToAllWindows } from './windowMessaging';
 import { abandonedTracker } from './abandonedTracker';
+import { analytics } from './analytics';
 
 let _isFocused = false;
 let _registrationActive = false;
@@ -42,6 +43,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleClickThrough, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Click-Through');
+      analytics.trackEvent('toggle_click_through');
       const isClickThrough = wm.toggleClickThrough();
       if (isClickThrough) {
         // 투과 활성화 시 게임창에 포커스 주어 조작 편의성 제공
@@ -60,6 +62,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleContentsChecker, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Contents Checker');
+      analytics.trackEvent('toggle_contents_checker');
       wm.toggleContentsCheckerWindow();
     });
     if (!registered) {
@@ -72,6 +75,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleBuffHud, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Buff HUD');
+      analytics.trackEvent('toggle_buff_hud');
       const current = config.load();
       wm.applySettings({ showBuffHud: !current.showBuffHud });
     });
@@ -85,6 +89,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleTodaySummaryHud, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Cycle Today Summary HUD');
+      analytics.trackEvent('cycle_today_summary_hud');
       const current = config.load();
       if (current.showTodaySummaryHud === false) {
         wm.applySettings({ showTodaySummaryHud: true, todaySummaryCollapsed: true });
@@ -104,6 +109,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleAbandonedHud, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Abandoned HUD');
+      analytics.trackEvent('toggle_abandoned_hud');
       abandonedTracker.toggleVisibility();
     });
     if (!registered) {
@@ -116,6 +122,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleDock, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Dock');
+      analytics.trackEvent('toggle_dock');
       wm.toggleDockWindow();
     });
     if (!registered) {
@@ -128,6 +135,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleChatOverlaySync, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Chat Overlay');
+      analytics.trackEvent('toggle_chat_overlay');
       wm.toggleChatOverlayWindow();
     });
     if (!registered) {
@@ -140,6 +148,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.resetXpSession, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Reset XP Session');
+      analytics.trackEvent('reset_xp_session');
       chatLogProcessor.resetXp();
     });
     if (!registered) {
@@ -152,6 +161,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleXpSession, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle XP Session');
+      analytics.trackEvent('toggle_xp_session');
       // 사용자에게 약속된 결합 동작이다: 시작하면 HUD 표시, 일시정지하면 HUD 숨김.
       // 앱 시작/자동 시작 정책과 혼동해 세션만 토글하도록 분리하지 않는다.
       import('./xpTracker').then(mod => mod.xpTracker.toggleSession())
@@ -167,6 +177,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.clearAllBuffs, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Clear All Buffs');
+      analytics.trackEvent('clear_all_buffs');
       buffTimerManager.clearAllBuffs();
     });
     if (!registered) {
@@ -179,6 +190,7 @@ export function registerAll(): void {
     const registered = globalShortcut.register(shortcuts.toggleTimer, () => {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Timer');
+      analytics.trackEvent('toggle_stopwatch');
       broadcastToAllWindows('timer-toggle', 'toggle');
     });
     if (!registered) {

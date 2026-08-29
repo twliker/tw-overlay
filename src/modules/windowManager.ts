@@ -671,6 +671,7 @@ export function setMandatoryUpdateLock(lock: boolean): void {
     }
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.setIgnoreMouseEvents(false);
+      splashWindow.setFocusable(true);
       splashWindow.setAlwaysOnTop(true);
       splashWindow.show();
       splashWindow.focus();
@@ -1260,6 +1261,7 @@ export function toggleHuntingExpCalculatorWindow(): boolean { return createToggl
 export function toggleRelicCalculatorWindow(): boolean { return createToggleableWindow('relicCalculator'); }
 export function toggleEquipmentSimulatorWindow(): boolean { return createToggleableWindow('equipmentSimulator'); }
 export function toggleCustomAlertWindow(): boolean { return createToggleableWindow('customAlert'); }
+export function toggleQteChallengeWindow(): boolean { return createToggleableWindow('qteChallenge'); }
 export function toggleUniformColorWindow(): void {
   const winCfg = windowRegistry['uniformColor'];
   if (winCfg && winCfg.ref && !winCfg.ref.isDestroyed()) {
