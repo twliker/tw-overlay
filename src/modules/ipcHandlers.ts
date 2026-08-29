@@ -416,6 +416,7 @@ export function register(): void {
       xpWidgetPos: { ...DEFAULT_HUD_POSITIONS.xp },
       buffTimerHudPos: { ...DEFAULT_HUD_POSITIONS.buffTimer },
       abandonedWidgetPos: { ...DEFAULT_HUD_POSITIONS.abandoned },
+      digsiteWidgetPos: { ...DEFAULT_HUD_POSITIONS.digsite },
       forgeQuestHudPos: { ...DEFAULT_HUD_POSITIONS.quest },
       todaySummaryHudPos: { ...DEFAULT_HUD_POSITIONS.todaySummary },
     };
@@ -972,6 +973,12 @@ export function register(): void {
   ipcMain.handle('abandoned-get-state', async () => {
     const { chatLogProcessor } = await import('./chatLogProcessor');
     return chatLogProcessor.getAbandonedState();
+  });
+
+  // 발굴지 현황판 상태 요청 — renderer 재로드 시에도 진행 중인 한 판을 복원합니다.
+  ipcMain.handle('digsite-get-state', async () => {
+    const { chatLogProcessor } = await import('./chatLogProcessor');
+    return chatLogProcessor.getDigsiteState();
   });
 
   // 어벤던로드 오버레이 강제 표시/숨김

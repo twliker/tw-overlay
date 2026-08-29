@@ -160,7 +160,9 @@ export function start(): void {
             const gameJustStarted = _currentStatus !== 'running';
             if (isNewGameSession) {
                 const { abandonedTracker } = await import('./abandonedTracker');
+                const { digsiteTracker } = await import('./digsiteTracker');
                 abandonedTracker.beginGameSession();
+                digsiteTracker.beginGameSession();
             }
             wm.syncOverlay(currentRect as GameRect);
             lastRect = currentRect;

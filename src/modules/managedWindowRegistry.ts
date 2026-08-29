@@ -30,7 +30,7 @@ const STATIC_WINDOW_DEFINITIONS: readonly StaticWindowDefinition[] = [
   { key: 'coefficientCalculator', html: 'coefficient-calculator.html', width: 1420, height: 860 },
   { key: 'contentsChecker', html: 'contents-checker.html', width: 400, height: 1200 },
   { key: 'focusedChat', html: 'focused-chat.html', width: 460, height: 720 },
-  { key: 'evolutionCalculator', html: 'evolution-calculator.html', width: 600, height: 720 },
+  { key: 'evolutionCalculator', html: 'evolution-calculator.html', width: 1040, height: 820 },
   { key: 'thesisCoreCalculator', html: 'thesis-core-calculator.html', width: 850, height: 880 },
   { key: 'magicStoneCalculator', html: 'magic-stone-calculator.html', width: 400, height: 800 },
   { key: 'customAlert', html: 'custom-alert.html', width: 580, height: 640 },

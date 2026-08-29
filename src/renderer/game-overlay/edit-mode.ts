@@ -2,7 +2,7 @@
 (() => {
   interface HudDragItem {
     id: string;
-    settingKey: 'xpWidgetPos' | 'buffTimerHudPos' | 'abandonedWidgetPos' | 'forgeQuestHudPos' | 'todaySummaryHudPos';
+    settingKey: 'xpWidgetPos' | 'buffTimerHudPos' | 'abandonedWidgetPos' | 'digsiteWidgetPos' | 'forgeQuestHudPos' | 'todaySummaryHudPos';
     label: string;
     useTop?: boolean; // top/left 기준 (true) vs bottom/left 기준 (false)
   }
@@ -24,6 +24,7 @@
     { id: 'today-summary-hud', settingKey: 'todaySummaryHudPos', label: '📋 오늘의 요약 HUD', useTop: true },
     { id: 'xp-hud', settingKey: 'xpWidgetPos', label: '📈 경험치 HUD', useTop: false },
     { id: 'abandoned-widget', settingKey: 'abandonedWidgetPos', label: '💎 어벤던로드 HUD', useTop: false },
+    { id: 'digsite-widget', settingKey: 'digsiteWidgetPos', label: '⛏️ 발굴지 현황 HUD', useTop: false },
     { id: 'buff-hud', settingKey: 'buffTimerHudPos', label: '🧪 버프 HUD', useTop: false },
   ];
 

@@ -390,6 +390,68 @@
       display: none !important;
     }
 
+    /* ── 발굴지 한 판 현황판 ── */
+    .digsite-widget {
+      position: fixed;
+      min-width: 176px;
+      padding: 10px 12px;
+      background: linear-gradient(155deg, rgba(8, 20, 27, 0.92), rgba(11, 15, 29, 0.9));
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(34, 211, 238, 0.32);
+      border-radius: 12px;
+      box-shadow: 0 8px 26px rgba(0, 0, 0, 0.52), 0 0 18px rgba(34, 211, 238, 0.08);
+      color: #e2e8f0;
+      z-index: 51;
+      pointer-events: none;
+    }
+
+    .digsite-widget.hidden {
+      display: none !important;
+    }
+
+    .digsite-summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.45;
+    }
+
+    .digsite-summary-row strong {
+      color: #ffffff;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+    }
+
+    .digsite-portals {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      margin: 6px 0;
+    }
+
+    .digsite-portal {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 5px;
+      padding: 3px 5px;
+      border: 1px solid rgba(148, 163, 184, 0.13);
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.48);
+      color: #64748b;
+      font-size: 9px;
+      font-weight: 800;
+    }
+
+    .digsite-portal.visited {
+      border-color: rgba(52, 211, 153, 0.28);
+      background: rgba(16, 185, 129, 0.09);
+      color: #6ee7b7;
+    }
+
     .region-item {
       display: flex;
       justify-content: space-between;
@@ -1843,6 +1905,26 @@
     </div>
   </div>
 
+  <!-- 발굴지 현황판: 입장 로그부터 30분 동안만 실시간 표시 -->
+  <div id="digsite-widget" class="digsite-widget hidden" aria-label="발굴지 현황판">
+    <div class="flex items-center justify-between gap-3 mb-1.5">
+      <div class="flex items-center gap-1.5">
+        <i data-lucide="pickaxe" class="w-3 h-3 text-cyan-300"></i>
+        <span class="text-xs font-black text-cyan-300">발굴지 현황</span>
+      </div>
+      <span id="digsite-remaining" class="text-[9px] font-black text-slate-500 font-mono">30:00</span>
+    </div>
+    <div class="digsite-summary-row"><span class="text-slate-300">일반 지역</span><strong id="digsite-normal-count">0/8</strong></div>
+    <div class="digsite-summary-row"><span class="text-slate-300">포탈 보상</span><strong id="digsite-portal-count">0/4</strong></div>
+    <div class="digsite-portals">
+      <div id="digsite-portal-1" class="digsite-portal"><span>포탈 1</span><span>미방문</span></div>
+      <div id="digsite-portal-2" class="digsite-portal"><span>포탈 2</span><span>미방문</span></div>
+      <div id="digsite-portal-3" class="digsite-portal"><span>포탈 3</span><span>미방문</span></div>
+      <div id="digsite-portal-4" class="digsite-portal"><span>포탈 4</span><span>미방문</span></div>
+    </div>
+    <div class="digsite-summary-row"><span class="text-slate-300">이공간</span><strong id="digsite-alternate-count">0/1</strong></div>
+  </div>
+
   <!-- 어벤던로드 10회 화면 플래시 -->
   <div id="abandoned-flash" class="abandoned-flash"></div>
 
@@ -2215,6 +2297,7 @@
       const positionSpecs = [
         ['xp-hud', config.xpWidgetPos || window.electronAPI.DEFAULT_CONFIG.xpWidgetPos],
         ['abandoned-widget', config.abandonedWidgetPos || window.electronAPI.DEFAULT_CONFIG.abandonedWidgetPos],
+        ['digsite-widget', config.digsiteWidgetPos || window.electronAPI.DEFAULT_CONFIG.digsiteWidgetPos],
         ['buff-hud', config.buffTimerHudPos || window.electronAPI.DEFAULT_CONFIG.buffTimerHudPos],
         ['quest-hud', config.forgeQuestHudPos || window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos],
       ];
@@ -2240,6 +2323,7 @@
 
     window.__isTimerRunning = () => timerIsRunning;
     window.__isAbandonedActive = () => abandonedActive;
+    window.__isDigsiteActive = () => currentDigsiteState?.isActive === true;
     window.__isQuestActive = () => isQuestActive;
 
     // 1초마다 경과 시간 실시간 업데이트 (XP 위젯 표시 상태일 때만 연산)
@@ -2480,6 +2564,57 @@
     window.electronAPI.onAbandonedUpdate((state) => {
       updateAbandonedUI(state);
     });
+
+    // ── 발굴지 한 판 현황판 ──
+    let currentDigsiteState = null;
+
+    function updateDigsiteRemaining() {
+      const widget = document.getElementById('digsite-widget');
+      const remaining = document.getElementById('digsite-remaining');
+      if (!widget || !remaining || !currentDigsiteState?.isActive) return;
+
+      const remainingMs = Math.max(0, Number(currentDigsiteState.expiresAt || 0) - Date.now());
+      if (remainingMs <= 0) {
+        widget.classList.add('hidden');
+        return;
+      }
+      const totalSeconds = Math.ceil(remainingMs / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      remaining.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    function updateDigsiteUI(state) {
+      const widget = document.getElementById('digsite-widget');
+      if (!widget) return;
+      currentDigsiteState = state || null;
+
+      if (!state?.isActive || Number(state.expiresAt || 0) <= Date.now()) {
+        widget.classList.add('hidden');
+        return;
+      }
+
+      widget.classList.remove('hidden');
+      const normalCount = document.getElementById('digsite-normal-count');
+      const portalCount = document.getElementById('digsite-portal-count');
+      const alternateCount = document.getElementById('digsite-alternate-count');
+      if (normalCount) normalCount.textContent = `${Math.min(8, Math.max(0, Number(state.normalRewards) || 0))}/8`;
+      if (portalCount) portalCount.textContent = `${Math.min(4, Math.max(0, Number(state.portalRewards) || 0))}/4`;
+      if (alternateCount) alternateCount.textContent = `${Math.min(1, Math.max(0, Number(state.alternateRewards) || 0))}/1`;
+
+      for (let portal = 1; portal <= 4; portal += 1) {
+        const item = document.getElementById(`digsite-portal-${portal}`);
+        if (!item) continue;
+        const visited = state.portalVisits?.[portal] === true;
+        item.classList.toggle('visited', visited);
+        const status = item.lastElementChild;
+        if (status) status.textContent = visited ? '방문' : '미방문';
+      }
+      updateDigsiteRemaining();
+    }
+
+    setInterval(updateDigsiteRemaining, 1000);
+    window.electronAPI.onDigsiteUpdate((state) => updateDigsiteUI(state));
 
     // 메인 추적기도 수동 숨김 억제를 보존하며, 이 이벤트는 renderer를 즉시 숨긴다.
     if (window.electronAPI.onAbandonedHideNow) {
@@ -3279,6 +3414,11 @@
         window.electronAPI.abandonedGetState().then(state => {
           updateAbandonedUI(state);
         }).catch(err => console.error('Failed to get abandoned state:', err));
+      }
+      if (window.electronAPI && window.electronAPI.digsiteGetState) {
+        window.electronAPI.digsiteGetState().then(state => {
+          updateDigsiteUI(state);
+        }).catch(err => console.error('Failed to get digsite state:', err));
       }
 
       // 경험치 초기 데이터 가져오기 (경과 시간 시작 시점 동기화)

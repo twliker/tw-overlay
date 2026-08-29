@@ -308,6 +308,7 @@ interface Window {
   gameOverlayEditMode?: GameOverlayEditMode;
   __isTimerRunning?: () => boolean;
   __isAbandonedActive?: () => boolean;
+  __isDigsiteActive?: () => boolean;
   __isQuestActive?: () => boolean;
   settingsSoundPreview: SettingsSoundPreview;
   settingsListRendering: SettingsListRendering;

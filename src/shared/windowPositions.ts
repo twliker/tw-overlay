@@ -14,7 +14,7 @@ export const DEFAULT_WINDOW_POSITIONS: Record<WindowPositionKey, WindowPosition>
   coefficientCalculator: { offsetX: -1430, offsetY: 40 },
   contentsChecker: { offsetX: -400, offsetY: 40 },
   focusedChat: { offsetX: -470, offsetY: 40 },
-  evolutionCalculator: { offsetX: -580, offsetY: 40 },
+  evolutionCalculator: { offsetX: -1040, offsetY: 40 },
   thesisCoreCalculator: { offsetX: -850, offsetY: 40 },
   magicStoneCalculator: { offsetX: -400, offsetY: 40 },
   customAlert: { offsetX: -580, offsetY: 40 },
@@ -42,10 +42,11 @@ export const DEFAULT_WINDOW_POSITIONS: Record<WindowPositionKey, WindowPosition>
 };
 
 /** 게임 오버레이 내부 HUD 위치의 단일 기본값 원본입니다. */
-export const DEFAULT_HUD_POSITIONS: Record<'xp' | 'buffTimer' | 'abandoned' | 'quest' | 'todaySummary', HudPosition> = {
+export const DEFAULT_HUD_POSITIONS: Record<'xp' | 'buffTimer' | 'abandoned' | 'digsite' | 'quest' | 'todaySummary', HudPosition> = {
   xp: { left: 200, bottom: 0 },
   buffTimer: { left: 350, bottom: 0 },
   abandoned: { left: 200, bottom: 63 },
+  digsite: { left: 380, bottom: 63 },
   quest: { left: 50, bottom: 215 },
   todaySummary: { left: 0, top: 200 },
 };

@@ -52,7 +52,7 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'abandonedAlertEnabled', 'pittaHillAlertEnabled', 'questCompleteAlertEnabled',
   'questCompleteAlertSound', 'questCompleteAlertVolume', 'abyssTreasureAlertEnabled',
   'abyssTreasureAlertSound', 'abyssTreasureAlertVolume',
-  'abandonedAutoHideMinutes', 'abandonedEnabled', 'abandonedWidgetPos', 'scamDetectorEnabled',
+  'abandonedAutoHideMinutes', 'abandonedEnabled', 'abandonedWidgetPos', 'digsiteWidgetPos', 'scamDetectorEnabled',
   'msgerLogPath', 'scamAlertSound', 'scamGpuVariant', 'scamLlmDisabled', 'discordWebhookUrl',
   'discordAlertEnabled', 'discordKeywords', 'discordRules', 'volumeContentsChecker',
   'volumeCalculators', 'sidebarPosition', 'chatOverlayEnabled', 'chatOverlaySubEnabled',

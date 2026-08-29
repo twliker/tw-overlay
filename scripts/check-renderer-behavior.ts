@@ -2754,6 +2754,10 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
     /(function applyConfiguredHudPositions\(config\) \{[\s\S]*?\r?\n    \})\r?\n\r?\n    window\.__isTimerRunning/,
   );
   assert.ok(positionFunctionMatch, '게임 오버레이 HUD 위치 적용 함수를 추출하지 못했습니다.');
+  const digsiteFunctionMatch = fullHtml.match(
+    /(function updateDigsiteRemaining\(\) \{[\s\S]*?\r?\n    \}\r?\n\r?\n    function updateDigsiteUI\(state\) \{[\s\S]*?\r?\n    \})\r?\n\r?\n    setInterval\(updateDigsiteRemaining/,
+  );
+  assert.ok(digsiteFunctionMatch, '발굴지 현황판 렌더링 함수를 추출하지 못했습니다.');
   const html = cleanHtmlForTest(gameOverlayPath);
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   window.setContentSize(1200, 800);
@@ -2772,6 +2776,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
         DEFAULT_CONFIG: {
           xpWidgetPos: { left: 200, bottom: 0 },
           abandonedWidgetPos: { left: 200, bottom: 0 },
+          digsiteWidgetPos: { left: 380, bottom: 63 },
           buffTimerHudPos: { left: 350, bottom: 0 },
           forgeQuestHudPos: { left: 200, bottom: 0 },
         },
@@ -2780,6 +2785,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
       window.__hudPositionConfig = {
         xpWidgetPos: { left: 910, bottom: 70 },
         abandonedWidgetPos: { left: 820, bottom: 60 },
+        digsiteWidgetPos: { left: 760, bottom: 120 },
         buffTimerHudPos: { left: 980, bottom: 80 },
         forgeQuestHudPos: { left: 870, bottom: 90 },
       };
@@ -2790,6 +2796,8 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
         hasContainer: document.getElementById('game-overlay-container') !== null || document.body.children.length > 0,
         buffLeft: document.getElementById('buff-hud')?.style.left,
         buffBottom: document.getElementById('buff-hud')?.style.bottom,
+        digsiteLeft: document.getElementById('digsite-widget')?.style.left,
+        digsiteBottom: document.getElementById('digsite-widget')?.style.bottom,
         settingWrites: window.__hudPositionSettingWrites.length,
       };
       } catch (error) {
@@ -2803,6 +2811,8 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
     hasContainer: boolean;
     buffLeft?: string;
     buffBottom?: string;
+    digsiteLeft?: string;
+    digsiteBottom?: string;
     settingWrites: number;
   };
 
@@ -2812,12 +2822,58 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
   assert.deepEqual({
     buffLeft: initialResult.buffLeft,
     buffBottom: initialResult.buffBottom,
+    digsiteLeft: initialResult.digsiteLeft,
+    digsiteBottom: initialResult.digsiteBottom,
     settingWrites: initialResult.settingWrites,
   }, {
     buffLeft: '980px',
     buffBottom: '80px',
+    digsiteLeft: '760px',
+    digsiteBottom: '120px',
     settingWrites: 0,
   }, '게임 오버레이 버프 HUD의 저장 좌표가 그대로 적용되지 않았습니다.');
+
+  await window.webContents.executeJavaScript(`
+    let currentDigsiteState = null;
+    ${digsiteFunctionMatch[1]}
+    window.__testUpdateDigsiteUI = updateDigsiteUI;
+    true;
+  `);
+  const digsiteResult = await window.webContents.executeJavaScript(`
+    (() => {
+      window.__testUpdateDigsiteUI({
+        isActive: true,
+        normalRewards: 3,
+        portalRewards: 2,
+        portalVisits: { 1: true, 2: false, 3: true, 4: false },
+        alternateRewards: 1,
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      });
+      const portal1 = document.getElementById('digsite-portal-1');
+      const portal2 = document.getElementById('digsite-portal-2');
+      return {
+        hidden: document.getElementById('digsite-widget')?.classList.contains('hidden'),
+        normal: document.getElementById('digsite-normal-count')?.textContent,
+        portal: document.getElementById('digsite-portal-count')?.textContent,
+        alternate: document.getElementById('digsite-alternate-count')?.textContent,
+        portal1Visited: portal1?.classList.contains('visited'),
+        portal1Text: portal1?.lastElementChild?.textContent,
+        portal2Visited: portal2?.classList.contains('visited'),
+        portal2Text: portal2?.lastElementChild?.textContent,
+      };
+    })()
+  `);
+  assert.deepEqual(digsiteResult, {
+    hidden: false,
+    normal: '3/8',
+    portal: '2/4',
+    alternate: '1/1',
+    portal1Visited: true,
+    portal1Text: '방문',
+    portal2Visited: false,
+    portal2Text: '미방문',
+  }, '발굴지 현황판이 실시간 상태를 올바르게 표시하지 않습니다.');
 
   // 재접속·해상도 전환 중 game-overlay viewport가 잠시 작아지는 상황을 실제 renderer resize로 재현합니다.
   window.setContentSize(500, 350);
@@ -2910,7 +2966,7 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
   );
   assert.equal(result.totalPanels, 8, '가이드 패널이 8개가 아닙니다.');
   assert.equal(result.panel3Active, true, '게임 오버레이 탭 전환이 동작하지 않습니다.');
-  assert.equal(result.componentCards, 5, '게임 오버레이 5개 컴포넌트 설명 카드가 렌더링되지 않았습니다.');
+  assert.equal(result.componentCards, 6, '게임 오버레이 6개 컴포넌트 설명 카드가 렌더링되지 않았습니다.');
   assert.equal(result.panel6Active, true, '과거 채팅 로그 복원 탭 전환이 동작하지 않습니다.');
   assert.match(result.historyGuideText, /과거 채팅 로그에서 누락 기록 복원/,
     '과거 채팅 로그 동기화 안내가 렌더링되지 않았습니다.');
@@ -4141,15 +4197,83 @@ async function checkScamDetectorRenderer(window: BrowserWindow): Promise<void> {
 }
 
 async function checkEvolutionCalculatorRenderer(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'evolution-calculator.html'));
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  await window.loadFile(path.join(projectRoot, 'dist', 'evolution-calculator.html'));
+  await window.webContents.executeJavaScript('localStorage.clear()');
+  await window.reload();
+  await waitForSelector(window, '.material-row');
 
-  const result = await evaluate(window, () => {
+  const result = await evaluate(window, async () => {
+    const setInput = (id: string, value: string) => {
+      const input = document.getElementById(id) as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const from = document.getElementById('step-from') as HTMLSelectElement;
+    const to = document.getElementById('step-to') as HTMLSelectElement;
+    from.value = '3';
+    from.dispatchEvent(new Event('change', { bubbles: true }));
+    to.value = '4';
+    to.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    setInput('enchant-scroll-count', '2');
+    setInput('enchant-scroll-unit-price', '100');
+    setInput('enchant-attempt-cost', '200');
+    setInput('magic-reform-cost', '300');
+    setInput('additional-option-cost', '400');
+    setInput('eclipse-base-cost', '500');
+    setInput('moon-mineral-cost', '600');
+    setInput('rune-stone-cost', '700');
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
-    return { title };
+    const eclipseVisible = !document.getElementById('eclipse-cost-card')?.classList.contains('hidden');
+    const materialNames = Array.from(document.querySelectorAll('.material-name'), element => element.textContent?.trim());
+    const visibleMaterialImages = Array.from(document.querySelectorAll<HTMLImageElement>('.material-image img'))
+      .filter(image => !image.classList.contains('hidden')).length;
+    const totalBeforeSave = document.getElementById('total-cost')?.textContent?.trim();
+
+    const historyTitle = document.getElementById('history-title') as HTMLInputElement;
+    historyTitle.value = '이클립스 무기 제작안';
+    (document.getElementById('save-history-button') as HTMLButtonElement).click();
+    const firstCard = document.querySelector<HTMLElement>('.history-card');
+    firstCard?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.click();
+    const editLoadedTitle = historyTitle.value;
+    historyTitle.value = '이클립스 무기 수정안';
+    (document.getElementById('save-history-button') as HTMLButtonElement).click();
+    const cardsAfterEdit = document.querySelectorAll('.history-card').length;
+    const editedTitle = document.querySelector('.history-title')?.textContent?.trim();
+    (globalThis as any).confirm = () => true;
+    document.querySelector<HTMLButtonElement>('.history-card [data-action="delete"]')?.click();
+    const cardsAfterDelete = document.querySelectorAll('.history-card').length;
+
+    return {
+      title,
+      eclipseVisible,
+      materialNames,
+      visibleMaterialImages,
+      totalBeforeSave,
+      editLoadedTitle,
+      cardsAfterEdit,
+      editedTitle,
+      cardsAfterDelete,
+      hasBothBaseTypes: (document.getElementById('eclipse-base-type') as HTMLSelectElement).options.length === 2,
+      fixedHerbLabel: document.getElementById('seal-self-fields')?.textContent?.includes('6억 5,000만 시드'),
+    };
   });
 
   assert.ok(result.title.includes('진화'), '진화 재료 계산기 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.eclipseVisible, true, '어비스→이클립스 선택에서 전용 비용 입력이 표시되지 않습니다.');
+  assert.equal(result.hasBothBaseTypes, true, '가짜 달여왕 군단의 무구와 어비스 장비 비용 선택이 없습니다.');
+  assert.equal(result.fixedHerbLabel, true, '직접 제작 달의 약초 6.5억 고정 비용이 표시되지 않습니다.');
+  assert.equal(result.materialNames.includes('달의 약초'), false,
+    '직접·대리 제작 분기 재료가 일반 재료에도 중복 표시됩니다.');
+  assert.ok(result.visibleMaterialImages >= 1, '기존 소스의 진화 재료 이미지가 계산기에 표시되지 않습니다.');
+  assert.equal(result.totalBeforeSave, '6억 7,900만 시드', '추가 비용을 포함한 화면 최종 계산값이 다릅니다.');
+  assert.equal(result.editLoadedTitle, '이클립스 무기 제작안', '계산 이력 수정 시 저장값을 불러오지 못합니다.');
+  assert.equal(result.cardsAfterEdit, 1, '계산 이력 수정이 새 이력을 중복 생성합니다.');
+  assert.equal(result.editedTitle, '이클립스 무기 수정안', '계산 이력 제목 수정이 저장되지 않습니다.');
+  assert.equal(result.cardsAfterDelete, 0, '계산 이력 삭제가 동작하지 않습니다.');
 }
 
 async function checkSienaAuraRenderer(window: BrowserWindow): Promise<void> {

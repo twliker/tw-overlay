@@ -19,6 +19,7 @@ import * as config from './config';
 import { log } from './logger';
 import { getEssenceExchangeCount, xpTracker } from './xpTracker';
 import { abandonedTracker } from './abandonedTracker';
+import { digsiteTracker } from './digsiteTracker';
 import * as contentsChecker from './contentsChecker';
 import { discordNotifier } from './discordNotifier';
 import { etaCacheManager } from './etaCacheManager';
@@ -114,7 +115,7 @@ export function parseHomeworkSourceTimestamp(data: HomeworkSourceEvent): number 
 /**
  * 파싱된 채팅 데이터를 실제 앱 기능(DB 저장, 알림 등)으로 연결하는 프로세서
  *
- * XP 추적은 xpTracker, 어벤던로드는 abandonedTracker에 위임합니다.
+ * XP 추적은 xpTracker, 어벤던로드는 abandonedTracker, 발굴지 현황은 digsiteTracker에 위임합니다.
  * 이 클래스는 SEED/아이템/외치기 핸들러와 외부 API를 관리합니다.
  */
 class ChatLogProcessor {
@@ -1046,6 +1047,9 @@ class ChatLogProcessor {
 
     // 어벤던로드 추적 (abandonedTracker에 위임)
     abandonedTracker.start();
+
+    // 발굴지 한 판 현황 추적 (digsiteTracker에 위임)
+    digsiteTracker.start();
   }
 
   // ── 외부 API (기존 호출자 호환성 유지) ──
@@ -1068,6 +1072,10 @@ class ChatLogProcessor {
 
   public getAbandonedState() {
     return abandonedTracker.getState();
+  }
+
+  public getDigsiteState() {
+    return digsiteTracker.getState();
   }
 
   public forceAbandonedVisible(visible: boolean): void {

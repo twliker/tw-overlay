@@ -42,6 +42,10 @@ export interface ChatParserEventMap {
     ABYSS_TREASURE_COMPLETE: { date: string; timestamp: string; message: string };
     FORTRESS_GHOST_CLEAR: { date: string; timestamp: string; count: number; message: string };
     DIGSITE_ENTRY: { date: string; timestamp: string; count?: number; message: string };
+    DIGSITE_NORMAL_REWARD: { date: string; timestamp: string; message: string };
+    DIGSITE_PORTAL_VISIT: { date: string; timestamp: string; portal: 1 | 2 | 3 | 4; message: string };
+    DIGSITE_PORTAL_REWARD: { date: string; timestamp: string; message: string };
+    DIGSITE_ALTERNATE_REWARD: { date: string; timestamp: string; message: string };
     CONTENT_SHINJO_NEST_CLEAR: { date: string; timestamp: string; count: number; message: string };
     ABYSS_DUNGEON_CLEAR: { date: string; timestamp: string; depth: string; count: number; message: string };
     ABYSS_BOSS_EX_CLEAR: { date: string; timestamp: string; count: number; message: string };
@@ -107,6 +111,17 @@ export interface WatchedPost {
 export interface WindowPosition {
     offsetX: number;
     offsetY: number;
+}
+
+/** 한 번의 발굴지 입장에서만 유지되는 게임 오버레이 현황판 상태입니다. */
+export interface DigsiteBoardState {
+    isActive: boolean;
+    normalRewards: number;
+    portalRewards: number;
+    portalVisits: Record<1 | 2 | 3 | 4, boolean>;
+    alternateRewards: number;
+    startedAt: number | null;
+    expiresAt: number | null;
 }
 
 /** 게임 창 따라가기를 끈 동안 유지하는 화면 절대 좌표입니다. */
@@ -507,6 +522,7 @@ export interface AppConfig {
     abandonedAutoHideMinutes?: number;
     abandonedEnabled?: boolean;
     abandonedWidgetPos?: HudPosition;
+    digsiteWidgetPos?: HudPosition;
 
     // --- Scam Detector Settings ---
     scamDetectorEnabled?: boolean;

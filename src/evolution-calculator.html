@@ -1,698 +1,166 @@
 <!DOCTYPE html>
 <html lang="ko">
-
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>진화 재료 비용 계산기</title>
   <link rel="stylesheet" href="style.css">
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
   <style>
-    body {
-      font-family: 'Pretendard', sans-serif;
-      letter-spacing: -0.02em;
-    }
-
-    input[type="number"]::-webkit-inner-spin-button,
-    input[type="number"]::-webkit-outer-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
-    }
-
-    .drag {
-      -webkit-app-region: drag;
-    }
-
-    .no-drag {
-      -webkit-app-region: no-drag;
-    }
-
-    .tab-btn {
-      padding: 10px 16px;
-      font-size: 13px;
-      font-weight: 800;
-      color: #64748b;
-      border-bottom: 2px solid transparent;
-      transition: all 0.2s;
-      white-space: nowrap;
-    }
-
-    .tab-btn.active {
-      color: #84cc16;
-      border-bottom-color: #84cc16;
-      background-color: rgba(249, 115, 22, 0.05);
-    }
-
-    .tab-btn:hover:not(.active) {
-      color: #94a3b8;
-      background-color: rgba(255, 255, 255, 0.03);
-    }
-
-    .part-btn {
-      padding: 6px 10px;
-      font-size: 11px;
-      font-weight: 700;
-      border-radius: 8px;
-      border: 1px solid rgba(51, 65, 85, 1);
-      color: #64748b;
-      background: rgba(15, 23, 42, 1);
-      /* cursor: pointer removed, handled by style.css */
-      transition: all 0.15s;
-    }
-
-    .part-btn.active {
-      color: #84cc16;
-      border-color: rgba(249, 115, 22, 0.5);
-      background: rgba(249, 115, 22, 0.08);
-    }
-
-    .part-btn:hover:not(.active) {
-      color: #94a3b8;
-      border-color: rgba(100, 116, 139, 0.5);
-    }
-
-    .step-select {
-      background: rgba(15, 23, 42, 1);
-      border: 1px solid rgba(51, 65, 85, 1);
-      border-radius: 8px;
-      padding: 6px 10px;
-      color: #f1f5f9;
-      font-size: 12px;
-      font-weight: 600;
-      outline: none;
-      flex: 1;
-    }
-
-    .step-select:focus {
-      border-color: rgba(249, 115, 22, 0.5);
-    }
-
-    .price-input {
-      background: rgba(30, 41, 59, 1);
-      border: 1px solid rgba(51, 65, 85, 1);
-      border-radius: 6px;
-      padding: 4px 8px;
-      color: #84cc16;
-      font-size: 11px;
-      font-weight: 700;
-      text-align: right;
-      width: 90px;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-
-    .price-input:focus {
-      border-color: rgba(249, 115, 22, 0.5);
-    }
-
-    .price-input::placeholder {
-      color: rgba(249, 115, 22, 0.3);
-      font-size: 10px;
-    }
-
-    .custom-scroll::-webkit-scrollbar {
-      width: 4px;
-    }
-
-    .custom-scroll::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 4px;
-    }
-
-    .material-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 10px;
-      background: rgba(15, 23, 42, 0.6);
-      border: 1px solid rgba(51, 65, 85, 0.6);
-      transition: border-color 0.15s;
-    }
-
-    .material-row:hover {
-      border-color: rgba(100, 116, 139, 0.5);
-    }
-
-    .step-badge {
-      font-size: 9px;
-      font-weight: 900;
-      padding: 2px 6px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
+    :root { color-scheme: dark; --lime: #a3e635; --panel: rgba(15, 23, 42, .82); }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Pretendard', sans-serif; letter-spacing: -.02em; overflow: hidden; }
+    button, input, select { -webkit-app-region: no-drag; }
+    input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { appearance: none; margin: 0; }
+    .app-shell { height: calc(100vh - 48px); display: grid; grid-template-columns: minmax(0, 1fr) 330px; background: radial-gradient(circle at 28% 0%, rgba(132, 204, 22, .08), transparent 30%), #020617; }
+    .calculator-pane { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #1e293b; }
+    .scroll-area { min-height: 0; flex: 1; overflow-y: auto; padding: 14px; }
+    .scroll-area::-webkit-scrollbar, .history-list::-webkit-scrollbar { width: 5px; }
+    .scroll-area::-webkit-scrollbar-thumb, .history-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    .card { border: 1px solid rgba(51, 65, 85, .78); border-radius: 14px; background: var(--panel); box-shadow: inset 0 1px rgba(255,255,255,.02); }
+    .card + .card { margin-top: 12px; }
+    .section-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .section-title h2 { margin: 0; font-size: 12px; font-weight: 900; color: #e2e8f0; }
+    .section-title span { font-size: 9px; font-weight: 800; color: #475569; letter-spacing: .1em; }
+    .mode-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 12px; padding: 13px 14px; border-bottom: 1px solid #1e293b; background: rgba(15,23,42,.78); }
+    .segmented { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid #334155; border-radius: 10px; background: #020617; }
+    .tab-btn { border: 0; border-radius: 7px; padding: 8px; color: #64748b; background: transparent; font-size: 11px; font-weight: 900; cursor: pointer; }
+    .tab-btn.active { color: #d9f99d; background: rgba(101,163,13,.22); box-shadow: inset 0 0 0 1px rgba(163,230,53,.22); }
+    .part-row { display: flex; align-items: center; gap: 5px; overflow-x: auto; }
+    .part-btn { flex: 0 0 auto; border: 1px solid #334155; border-radius: 8px; padding: 7px 9px; color: #64748b; background: #0f172a; font-size: 10px; font-weight: 800; cursor: pointer; }
+    .part-btn.active { color: #d9f99d; border-color: rgba(163,230,53,.45); background: rgba(101,163,13,.14); }
+    .evolution-route { display: grid; grid-template-columns: minmax(0,1fr) 34px minmax(0,1fr); align-items: center; gap: 8px; padding: 14px; border-bottom: 1px solid #1e293b; }
+    .tier-card { min-width: 0; height: 70px; display: grid; grid-template-columns: 52px minmax(0,1fr); align-items: center; gap: 10px; padding: 8px; border: 1px solid #334155; border-radius: 12px; background: linear-gradient(135deg, rgba(30,41,59,.92), rgba(15,23,42,.72)); }
+    .tier-image { width: 50px; height: 50px; display: grid; place-items: center; overflow: hidden; border-radius: 10px; border: 1px solid #475569; background: #020617; }
+    .tier-image img { width: 100%; height: 100%; object-fit: cover; }
+    .tier-image i { color: #475569; }
+    .tier-card small { display: block; color: #64748b; font-size: 9px; font-weight: 900; letter-spacing: .08em; }
+    .tier-card strong { display: block; margin-top: 3px; overflow: hidden; color: #f1f5f9; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .tier-card select { width: 100%; margin-top: 5px; border: 0; outline: 0; color: #a3e635; background: transparent; font-size: 10px; font-weight: 800; }
+    .route-arrow { display: grid; place-items: center; color: #a3e635; }
+    .material-header, .material-row { display: grid; grid-template-columns: minmax(0,1fr) 50px 105px 110px; align-items: center; gap: 8px; }
+    .material-header { padding: 0 10px 6px; color: #475569; font-size: 9px; font-weight: 900; }
+    .material-row { min-height: 58px; padding: 8px 10px; border: 1px solid rgba(51,65,85,.62); border-radius: 11px; background: rgba(2,6,23,.45); }
+    .material-row + .material-row { margin-top: 6px; }
+    .material-info { min-width: 0; display: flex; align-items: center; gap: 9px; }
+    .material-image { flex: 0 0 38px; width: 38px; height: 38px; display: grid; place-items: center; overflow: hidden; border: 1px solid #334155; border-radius: 9px; background: #020617; }
+    .material-image img { width: 100%; height: 100%; object-fit: contain; }
+    .material-image i { width: 16px; color: #475569; }
+    .material-name { min-width: 0; color: #e2e8f0; font-size: 11px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .step-tags { display: flex; gap: 3px; margin-top: 3px; overflow: hidden; }
+    .step-tag { padding: 2px 5px; border-radius: 4px; color: #94a3b8; background: #1e293b; font-size: 8px; font-weight: 800; white-space: nowrap; }
+    .number-input, .text-input, .select-input { width: 100%; border: 1px solid #334155; border-radius: 8px; outline: 0; color: #d9f99d; background: #0f172a; font-size: 11px; font-weight: 800; }
+    .number-input, .text-input { padding: 8px 9px; }
+    .select-input { padding: 8px; color: #e2e8f0; }
+    .number-input:focus, .text-input:focus, .select-input:focus { border-color: rgba(163,230,53,.55); box-shadow: 0 0 0 2px rgba(132,204,22,.08); }
+    .money { text-align: right; color: #a3e635; font-size: 11px; font-weight: 900; }
+    .muted { color: #475569; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
+    .field { min-width: 0; padding: 10px; border: 1px solid rgba(51,65,85,.55); border-radius: 10px; background: rgba(2,6,23,.38); }
+    .field label { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; color: #94a3b8; font-size: 10px; font-weight: 800; }
+    .field label span { color: #475569; font-size: 8px; }
+    .inline-fields { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 6px; }
+    .eclipse-card { border-color: rgba(250,204,21,.22); background: linear-gradient(145deg, rgba(113,63,18,.12), rgba(15,23,42,.86)); }
+    .seal-method { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 9px 0; }
+    .choice-btn { display: flex; align-items: center; gap: 6px; padding: 8px; border: 1px solid #334155; border-radius: 9px; color: #64748b; background: #0f172a; font-size: 10px; font-weight: 800; cursor: pointer; }
+    .choice-btn:has(input:checked) { color: #fde68a; border-color: rgba(250,204,21,.42); background: rgba(113,63,18,.2); }
+    .fixed-cost { display: flex; justify-content: space-between; padding: 9px 10px; border: 1px dashed rgba(250,204,21,.25); border-radius: 9px; color: #94a3b8; background: rgba(113,63,18,.1); font-size: 10px; font-weight: 800; }
+    .summary-footer { flex: 0 0 auto; padding: 12px 14px; border-top: 1px solid #1e293b; background: rgba(15,23,42,.96); }
+    .summary-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .summary-total { color: #a3e635; font-size: 23px; font-weight: 1000; }
+    .save-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 7px; margin-top: 9px; }
+    .primary-btn, .secondary-btn { border: 0; border-radius: 8px; padding: 9px 12px; font-size: 10px; font-weight: 900; cursor: pointer; }
+    .primary-btn { color: #172103; background: #a3e635; }
+    .primary-btn:hover { background: #bef264; }
+    .secondary-btn { color: #cbd5e1; background: #334155; }
+    .history-pane { min-width: 0; display: flex; flex-direction: column; background: rgba(2,6,23,.72); }
+    .history-head { padding: 15px; border-bottom: 1px solid #1e293b; }
+    .history-head h2 { margin: 0; color: #f8fafc; font-size: 14px; font-weight: 1000; }
+    .history-head p { margin: 4px 0 0; color: #475569; font-size: 9px; font-weight: 700; }
+    .history-list { min-height: 0; flex: 1; overflow-y: auto; padding: 10px; }
+    .history-card { padding: 11px; border: 1px solid #1e293b; border-radius: 11px; background: rgba(15,23,42,.72); }
+    .history-card + .history-card { margin-top: 7px; }
+    .history-title { color: #e2e8f0; font-size: 11px; font-weight: 900; overflow-wrap: anywhere; }
+    .history-route { margin-top: 5px; color: #84cc16; font-size: 10px; font-weight: 800; }
+    .history-total { margin-top: 7px; color: #f8fafc; font-size: 16px; font-weight: 1000; }
+    .history-meta { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: #475569; font-size: 8px; }
+    .history-actions { display: flex; gap: 5px; }
+    .history-actions button { border: 0; padding: 4px 7px; border-radius: 6px; color: #94a3b8; background: #1e293b; font-size: 8px; font-weight: 900; cursor: pointer; }
+    .empty-state { display: grid; place-items: center; min-height: 150px; padding: 24px; color: #475569; text-align: center; font-size: 10px; font-weight: 800; }
+    .hidden { display: none !important; }
+    @media (max-width: 820px) { .app-shell { grid-template-columns: minmax(0,1fr) 285px; } .material-header, .material-row { grid-template-columns: minmax(0,1fr) 42px 92px; } .material-header > :last-child, .material-row > :last-child { display: none; } }
   </style>
-
-  <script>
-    window.bindElectronListenerCleanup();
-</script>
 </head>
-
-<body class="bg-slate-950 text-slate-100 select-none h-screen flex flex-col border border-slate-800">
-
-  <!-- Header -->
+<body class="bg-slate-950 text-slate-100 select-none border border-slate-800">
   <div class="win-header">
     <div class="win-title-area">
-      <div class="win-icon-box bg-lime-500/10 border-lime-500/20">
-        <i data-lucide="trending-up" class="w-5 h-5 text-lime-500"></i>
-      </div>
-      <div class="win-title-text">
-        <span class="win-title-main">진화 재료 계산기</span>
-        <span class="win-title-sub">Evolution Cost Calc</span>
-      </div>
+      <div class="win-icon-box bg-lime-500/10 border-lime-500/20"><i data-lucide="trending-up" class="w-5 h-5 text-lime-400"></i></div>
+      <div class="win-title-text"><span class="win-title-main">진화 재료 비용 계산기</span><span class="win-title-sub">TOTAL EVOLUTION BUDGET</span></div>
     </div>
-    <div class="win-controls">
-      <button onclick="window.close()" class="win-btn win-close-btn" title="닫기">
-        <i data-lucide="x" class="w-5 h-5"></i>
-      </button>
-    </div>
+    <div class="win-controls"><button id="close-button" class="win-btn win-close-btn" title="닫기"><i data-lucide="x" class="w-5 h-5"></i></button></div>
   </div>
 
-  <!-- Category Tabs -->
-  <div class="flex bg-slate-900 px-4 no-drag border-b border-slate-800 shrink-0">
-    <button class="tab-btn active" data-category="weapon" onclick="selectCategory('weapon')">
-      ⚔️ 무기
-    </button>
-    <button class="tab-btn" data-category="equipment" onclick="selectCategory('equipment')">
-      🛡️ 장비
-    </button>
-  </div>
-
-  <!-- Equipment Part Selector (only for equipment) -->
-  <div id="part-selector" class="hidden px-4 pt-3 pb-2 bg-slate-900/50 border-b border-slate-800 no-drag shrink-0">
-    <div class="flex items-center gap-1.5 flex-wrap">
-      <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest mr-1">부위</span>
-      <button class="part-btn active" data-part="helm" onclick="selectPart('helm')">투구</button>
-      <button class="part-btn" data-part="armor" onclick="selectPart('armor')">갑옷</button>
-      <button class="part-btn" data-part="gloves" onclick="selectPart('gloves')">손</button>
-      <button class="part-btn" data-part="boots" onclick="selectPart('boots')">다리</button>
-      <button class="part-btn" data-part="wings" onclick="selectPart('wings')">몸</button>
-      <button class="part-btn" data-part="amulet" onclick="selectPart('amulet')">머리</button>
-      <button class="part-btn" data-part="shield" onclick="selectPart('shield')">손목</button>
-    </div>
-  </div>
-
-  <!-- Step Range Selector -->
-  <div class="px-4 py-3 bg-slate-950 border-b border-slate-800 no-drag shrink-0">
-    <div class="flex items-center gap-3">
-      <span class="text-xs font-black text-slate-500 uppercase tracking-widest shrink-0">진화 범위</span>
-      <div class="flex items-center gap-2 flex-1">
-        <select id="step-from" class="step-select" onchange="updateMaterials()"></select>
-        <i data-lucide="arrow-right" class="w-4 h-4 text-lime-400 shrink-0"></i>
-        <select id="step-to" class="step-select" onchange="updateMaterials()"></select>
-      </div>
-    </div>
-  </div>
-
-  <!-- Materials List -->
-  <div class="flex-1 overflow-y-auto custom-scroll no-drag p-4 space-y-2" id="material-list">
-    <div class="text-center text-slate-600 text-xs font-bold py-10">데이터를 불러오는 중...</div>
-  </div>
-
-  <!-- Total Cost Footer -->
-  <div class="shrink-0 border-t border-slate-800 bg-slate-900 px-5 py-4 no-drag">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <i data-lucide="coins" class="w-4 h-4 text-yellow-400"></i>
-        <span class="text-xs font-black text-slate-400 uppercase tracking-widest">총 예상 비용</span>
-      </div>
-      <div class="flex flex-col items-end gap-1">
-        <div class="flex items-baseline gap-2">
-          <span id="total-cost" class="text-2xl font-black text-lime-400">0</span>
-          <span class="text-xs font-bold text-slate-500">시드</span>
-        </div>
-        <div class="flex items-baseline gap-1" id="total-elso-container" style="display: none;">
-          <span class="text-xs font-bold text-slate-500">+</span>
-          <span id="total-elso" class="text-sm font-black text-purple-400">0</span>
-          <span class="text-xs font-bold text-slate-500">엘소</span>
+  <main class="app-shell">
+    <section class="calculator-pane">
+      <div class="mode-row">
+        <div class="segmented"><button class="tab-btn active" data-category="weapon">무기</button><button class="tab-btn" data-category="equipment">장비</button></div>
+        <div id="part-selector" class="part-row hidden">
+          <button class="part-btn active" data-part="helm">투구</button><button class="part-btn" data-part="armor">갑옷</button><button class="part-btn" data-part="gloves">손</button><button class="part-btn" data-part="boots">다리</button><button class="part-btn" data-part="wings">몸</button><button class="part-btn" data-part="amulet">머리</button><button class="part-btn" data-part="shield">손목</button>
         </div>
       </div>
-    </div>
-    <div class="mt-1.5 flex items-center justify-between">
-      <span class="text-xs text-slate-600">단가 미입력 항목은 계산에서 제외됩니다</span>
-      <button onclick="resetPrices()"
-        class="text-xs text-slate-500 hover:text-red-400 transition-colors font-bold flex items-center gap-1">
-        <i data-lucide="rotate-ccw" class="w-3 h-3"></i> 단가 초기화
-      </button>
-    </div>
-  </div>
 
-  <script>
-    let evolutionData = null;
-    let currentCategory = 'weapon';
-    let currentPart = 'helm';
+      <div class="evolution-route">
+        <article class="tier-card"><div class="tier-image"><i class="tier-fallback" data-lucide="shield"></i><img id="start-item-image" class="hidden" alt="진화 시작 장비"></div><div><small>EVOLUTION START</small><strong id="start-tier-name">-</strong><select id="step-from" aria-label="진화 시작 단계"></select></div></article>
+        <div class="route-arrow"><i data-lucide="arrow-right"></i></div>
+        <article class="tier-card"><div class="tier-image"><i class="tier-fallback" data-lucide="sparkles"></i><img id="end-item-image" class="hidden" alt="진화 목표 장비"></div><div><small>EVOLUTION TARGET</small><strong id="end-tier-name">-</strong><select id="step-to" aria-label="진화 목표 단계"></select></div></article>
+      </div>
 
-    const STEP_COLORS = {
-      'EnkiriaToShinEnkiria': { bg: 'bg-slate-700/40', text: 'text-slate-300', label: '엔키라→칼라그' },
-      'ShinEnkiriaToInfernal': { bg: 'bg-purple-900/30', text: 'text-purple-300', label: '칼라그→인퍼널' },
-      'AcadToInfernal': { bg: 'bg-purple-900/30', text: 'text-purple-300', label: '아카드→인퍼널' },
-      'InfernalToAquilus': { bg: 'bg-blue-900/30', text: 'text-blue-300', label: '인퍼널→아퀼루스' },
-      'AquilusToAbyss': { bg: 'bg-red-900/30', text: 'text-red-300', label: '아퀼루스→어비스' },
-      'AbyssToEclipse': { bg: 'bg-yellow-900/30', text: 'text-yellow-300', label: '어비스→이클립스' },
-    };
+      <div class="scroll-area">
+        <section class="card" style="padding:12px">
+          <div class="section-title"><h2>필수 진화 재료</h2><div style="display:flex;align-items:center;gap:8px"><span id="step-summary">MATERIALS</span><button id="reset-prices-button" style="border:0;color:#64748b;background:transparent;font-size:9px;font-weight:900;cursor:pointer">단가 초기화</button></div></div>
+          <div class="material-header"><span>재료</span><span style="text-align:right">수량</span><span style="text-align:right">단가(만원)</span><span style="text-align:right">소계</span></div>
+          <div id="material-list"><div class="empty-state">재료 데이터를 불러오는 중입니다.</div></div>
+        </section>
 
-    const STEP_ORDER_EQUIPMENT = [
-      'EnkiriaToShinEnkiria',
-      'ShinEnkiriaToInfernal',
-      'InfernalToAquilus',
-      'AquilusToAbyss',
-      'AbyssToEclipse',
-    ];
-    const STEP_ORDER_WEAPON = [
-      'AcadToInfernal',
-      'InfernalToAquilus',
-      'AquilusToAbyss',
-      'AbyssToEclipse',
-    ];
-
-    function getPriceKey(materialName) {
-      return `evo_price_${materialName}`;
-    }
-
-    function savePrice(materialName, price) {
-      localStorage.setItem(getPriceKey(materialName), price);
-    }
-
-    function loadPrice(materialName) {
-      return localStorage.getItem(getPriceKey(materialName)) || '';
-    }
-
-    function saveElsoOption(enabled) {
-      localStorage.setItem('evo_elso_enabled', enabled ? 'true' : 'false');
-    }
-
-    function loadElsoOption() {
-      return localStorage.getItem('evo_elso_enabled') === 'true';
-    }
-
-    function resetPrices() {
-      if (!evolutionData) return;
-      const allMaterials = new Set();
-      const eq = evolutionData.evolutionSystem.equipment;
-      Object.values(eq.parts).forEach(part => {
-        Object.values(part).forEach(step => {
-          step.materials.forEach(m => allMaterials.add(m.name));
-        });
-      });
-      const wp = evolutionData.evolutionSystem.weapon;
-      Object.values(wp.recipes).forEach(step => {
-        step.materials.forEach(m => allMaterials.add(m.name));
-      });
-      allMaterials.forEach(name => localStorage.removeItem(getPriceKey(name)));
-      localStorage.setItem('evo_price_unit', 'man');
-      updateMaterials();
-    }
-
-    // 단가 단위 변경(시드→만원) 마이그레이션: 기존 시드 단위 데이터 자동 초기화
-    function migratePriceUnit() {
-      if (localStorage.getItem('evo_price_unit') !== 'man') {
-        // 기존 저장 데이터가 시드 단위일 수 있으므로 모두 제거
-        const keys = Object.keys(localStorage).filter(k => k.startsWith('evo_price_'));
-        keys.forEach(k => { if (k !== 'evo_price_unit') localStorage.removeItem(k); });
-        localStorage.setItem('evo_price_unit', 'man');
-      }
-    }
-
-    function selectCategory(cat) {
-      currentCategory = cat;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelector(`[data-category="${cat}"]`).classList.add('active');
-
-      const partSel = document.getElementById('part-selector');
-      if (cat === 'equipment') {
-        partSel.classList.remove('hidden');
-      } else {
-        partSel.classList.add('hidden');
-      }
-      rebuildStepSelectors();
-      updateMaterials();
-    }
-
-    function selectPart(part) {
-      currentPart = part;
-      document.querySelectorAll('.part-btn').forEach(b => b.classList.remove('active'));
-      document.querySelector(`[data-part="${part}"]`).classList.add('active');
-      rebuildStepSelectors();
-      updateMaterials();
-    }
-
-    function getStepOrder() {
-      return currentCategory === 'weapon' ? STEP_ORDER_WEAPON : STEP_ORDER_EQUIPMENT;
-    }
-
-    function getChain() {
-      if (!evolutionData) return [];
-      const sys = evolutionData.evolutionSystem;
-      return currentCategory === 'weapon'
-        ? sys.weapon.evolutionChain
-        : sys.equipment.evolutionChain;
-    }
-
-    function rebuildStepSelectors() {
-      const chain = getChain();
-      const stepOrder = getStepOrder();
-      const fromSel = document.getElementById('step-from');
-      const toSel = document.getElementById('step-to');
-
-      // from: 첫 번째 ~ 마지막 전전 (마지막 step 시작점)
-      const fromOptions = chain.slice(0, chain.length - 1);
-      // to: 두 번째 ~ 마지막
-      const toOptions = chain.slice(1);
-
-      const prevFrom = fromSel.value || fromOptions[0];
-      const prevTo = toSel.value || toOptions[toOptions.length - 1];
-
-      fromSel.innerHTML = fromOptions.map((v, i) =>
-        `<option value="${i}">${v}</option>`
-      ).join('');
-      toSel.innerHTML = toOptions.map((v, i) =>
-        `<option value="${i + 1}">${v}</option>`
-      ).join('');
-
-      // 이전 값 복원 시도
-      const fromIdx = fromOptions.indexOf(prevFrom);
-      fromSel.value = fromIdx >= 0 ? fromIdx : 0;
-      toSel.value = toOptions.length; // 기본: 마지막
-    }
-
-    function getSelectedSteps() {
-      const fromSel = document.getElementById('step-from');
-      const toSel = document.getElementById('step-to');
-      const fromIdx = parseInt(fromSel.value);
-      const toIdx = parseInt(toSel.value);
-
-      if (fromIdx >= toIdx) return [];
-
-      const stepOrder = getStepOrder();
-      // fromIdx ~ toIdx-1 번째 step들 선택
-      return stepOrder.slice(fromIdx, toIdx);
-    }
-
-    function getMaterialsForSteps(steps) {
-      if (!evolutionData) return {};
-      const sys = evolutionData.evolutionSystem;
-      const recipes = currentCategory === 'weapon'
-        ? sys.weapon.recipes
-        : sys.equipment.parts[currentPart];
-
-      // 재료 집계: name -> { quantity, steps[] }
-      const agg = {};
-      steps.forEach(stepKey => {
-        const stepData = recipes[stepKey];
-        if (!stepData) return;
-        stepData.materials.forEach(m => {
-          if (!agg[m.name]) {
-            agg[m.name] = { quantity: 0, steps: [] };
-          }
-          agg[m.name].quantity += m.quantity;
-          if (!agg[m.name].steps.includes(stepKey)) {
-            agg[m.name].steps.push(stepKey);
-          }
-        });
-      });
-      return agg;
-    }
-
-    function formatKoreanWon(value) {
-      if (!value || value <= 0) return '0';
-      const units = [
-        { value: 1000000000000, name: '조' },
-        { value: 100000000, name: '억' },
-        { value: 10000, name: '만' }
-      ];
-      let result = '';
-      let remain = value;
-      for (const unit of units) {
-        const quotient = Math.floor(remain / unit.value);
-        if (quotient > 0) {
-          result += quotient + unit.name + ' ';
-          remain %= unit.value;
-        }
-      }
-      if (remain > 0) {
-        result += remain;
-      }
-      return result.trim();
-    }
-
-    function updateTotalCost() {
-      let totalSeed = 0;
-      let totalElso = 0;
-      document.querySelectorAll('.price-input').forEach(input => {
-        const qty = parseInt(input.dataset.qty || '0');
-        const price = parseFloat(input.value.replace(/,/g, '')) || 0;
-
-        if (input.dataset.name === '태청금액신단' && loadElsoOption()) {
-          // 시드 단가 입력 무시, 엘소로 합산
-          totalElso += qty * 23000;
-        } else {
-          if (price > 0) totalSeed += Math.round(qty * price * 10000);
-        }
-      });
-      document.getElementById('total-cost').textContent = formatKoreanWon(totalSeed);
-
-      const elsoContainer = document.getElementById('total-elso-container');
-      if (totalElso > 0) {
-        document.getElementById('total-elso').textContent = window.formatLocaleNumber(totalElso);
-        elsoContainer.style.display = 'flex';
-      } else {
-        elsoContainer.style.display = 'none';
-      }
-    }
-
-    function updateMaterials() {
-      const steps = getSelectedSteps();
-      const list = document.getElementById('material-list');
-
-      if (steps.length === 0) {
-        list.innerHTML = `<div class="text-center text-slate-600 text-xs font-bold py-10">올바른 진화 범위를 선택해주세요<br><span class="text-xs">(From < To)</span></div>`;
-        document.getElementById('total-cost').textContent = '0';
-        return;
-      }
-
-      const agg = getMaterialsForSteps(steps);
-      const entries = Object.entries(agg);
-
-      if (entries.length === 0) {
-        list.innerHTML = `<div class="text-center text-slate-600 text-xs font-bold py-10">해당 단계의 재료 데이터가 없습니다</div>`;
-        return;
-      }
-
-      list.innerHTML = '';
-
-      // 단계 구분 헤더
-      const stepsLabel = steps.map(s => STEP_COLORS[s]?.label || s).join(' + ');
-      const headerEl = document.createElement('div');
-      headerEl.className = 'flex items-center gap-2 mb-1 px-1';
-      headerEl.innerHTML = `
-        <i data-lucide="layers" class="w-3 h-3 text-lime-400"></i>
-        <span class="text-xs font-black text-lime-400 uppercase tracking-widest">${steps.length}단계 진화</span>
-        <span class="text-xs text-slate-600 font-medium truncate">${stepsLabel}</span>
-      `;
-      list.appendChild(headerEl);
-
-      // 컬럼 헤더
-      const colHeader = document.createElement('div');
-      colHeader.className = 'flex items-center gap-2 px-3 mb-1';
-      colHeader.innerHTML = `
-        <span class="flex-1 text-[9px] font-black text-slate-600 uppercase tracking-widest text-left">재료명</span>
-        <span class="w-12 text-[9px] font-black text-slate-600 uppercase tracking-widest text-right shrink-0">수량</span>
-        <span class="w-24 text-[9px] font-black text-slate-600 uppercase tracking-widest text-right shrink-0">단가(만원)</span>
-        <span class="w-28 text-[9px] font-black text-slate-600 uppercase tracking-widest text-right shrink-0">소계</span>
-      `;
-      list.appendChild(colHeader);
-
-      entries.forEach(([name, data]) => {
-        const savedPrice = loadPrice(name);
-        const row = document.createElement('div');
-        row.className = 'material-row';
-
-        const isTaecheong = name === '태청금액신단';
-        const isElsoSelected = loadElsoOption();
-
-        let subtotal = '-';
-        let subtotalColor = 'text-slate-700';
-
-        if (isTaecheong && isElsoSelected) {
-          subtotal = window.formatLocaleNumber(data.quantity * 23000) + ' 엘소';
-          subtotalColor = 'text-purple-400 flex flex-col text-right !text-xs leading-none mt-1';
-        } else if (savedPrice) {
-          subtotal = formatKoreanWon(Math.round(data.quantity * parseFloat(savedPrice) * 10000));
-          subtotalColor = 'text-lime-400';
-        }
-
-        row.innerHTML = `
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <div class="text-xs font-bold text-slate-200 truncate">${name}</div>
-            </div>
-            ${isTaecheong ? `
-              <div class="mt-1">
-                <label class="inline-flex items-center gap-1 cursor-pointer bg-slate-800/80 px-1.5 py-0.5 rounded border border-purple-500/20 hover:border-purple-500/50 transition-colors">
-                  <input type="checkbox" class="w-2.5 h-2.5 accent-purple-600 elso-checkbox" ${isElsoSelected ? 'checked' : ''}>
-                  <span class="text-[9px] font-bold text-purple-300">엘소 구입 (23,000)</span>
-                </label>
-              </div>
-            ` : ''}
-            <div class="flex gap-1 mt-1 flex-wrap">
-              ${data.steps.map(s => {
-          const c = STEP_COLORS[s] || { bg: 'bg-slate-700/40', text: 'text-slate-400', label: s };
-          return `<span class="step-badge ${c.bg} ${c.text}">${c.label}</span>`;
-        }).join('')}
-            </div>
+        <section class="card" style="padding:12px">
+          <div class="section-title"><h2>장비 후처리 비용</h2><span>OPTIONAL COSTS</span></div>
+          <div class="field-grid">
+            <div class="field"><label>인챈트 주문서 <span>개수 × 단가</span></label><div class="inline-fields"><input id="enchant-scroll-count" class="number-input" type="number" min="0" placeholder="개수"><input id="enchant-scroll-unit-price" class="number-input" type="number" min="0" placeholder="단가(만)"></div></div>
+            <div class="field"><label>인챈트 시도 비용 <span>총액</span></label><input id="enchant-attempt-cost" class="number-input" type="number" min="0" placeholder="비용(만원)"></div>
+            <div class="field"><label>매직리폼 비용 <span>총액</span></label><input id="magic-reform-cost" class="number-input" type="number" min="0" placeholder="비용(만원)"></div>
+            <div class="field"><label>부가옵션 비용 <span>총액</span></label><input id="additional-option-cost" class="number-input" type="number" min="0" placeholder="비용(만원)"></div>
           </div>
-          <div class="w-12 text-right shrink-0">
-            <span class="text-xs font-black text-slate-300">×${window.formatLocaleNumber(data.quantity)}</span>
+        </section>
+
+        <section id="eclipse-cost-card" class="card eclipse-card hidden" style="padding:12px">
+          <div class="section-title"><h2>어비스 → 이클립스 전용 비용</h2><span>ECLIPSE</span></div>
+          <div class="field-grid">
+            <div class="field"><label>진화 재료 장비 <span>택 1</span></label><select id="eclipse-base-type" class="select-input"><option value="fake-armament">가짜 달여왕 군단의 무구</option><option value="abyss-equipment">어비스 장비</option></select></div>
+            <div class="field"><label>재료 장비 비용 <span>총액</span></label><input id="eclipse-base-cost" class="number-input" type="number" min="0" placeholder="비용(만원)"></div>
           </div>
-          <div class="w-24 shrink-0 flex justify-end">
-            <input
-              type="number"
-              class="price-input ${isTaecheong && isElsoSelected ? 'opacity-30' : ''}"
-              placeholder="단가 (만)"
-              data-name="${name}"
-              data-qty="${data.quantity}"
-              value="${savedPrice}"
-              ${isTaecheong && isElsoSelected ? 'disabled' : ''}
-            >
+          <div class="seal-method"><label class="choice-btn"><input type="radio" name="seal-method" value="self" checked> 인장 6개 직접 제작</label><label class="choice-btn"><input type="radio" name="seal-method" value="proxy"> 인장 6개 대리 제작</label></div>
+          <div id="seal-self-fields" class="field-grid">
+            <div class="field"><label>달의 광물 비용 <span>총액</span></label><input id="moon-mineral-cost" class="number-input" type="number" min="0" placeholder="비용(만원)"></div>
+            <div class="field"><label>룬의 원석 비용 <span>총액</span></label><input id="rune-stone-cost" class="number-input" type="number" min="0" placeholder="비용(만원)"></div>
+            <div class="fixed-cost" style="grid-column:1/-1"><span>달의 약초 비용</span><strong>6억 5,000만 시드 · 고정</strong></div>
           </div>
-          <div class="w-28 text-right shrink-0">
-            <span class="subtotal text-xs lg:text-sm font-black tracking-tight ${subtotalColor}">${subtotal}</span>
-          </div>
-        `;
-        list.appendChild(row);
-      });
+          <div id="seal-proxy-fields" class="hidden"><div class="field"><label>대리 제작 지불 비용 <span>총액</span></label><input id="seal-proxy-fee" class="number-input" type="number" min="0" placeholder="비용(만원)"></div></div>
+        </section>
+      </div>
 
-      lucide.createIcons();
+      <footer class="summary-footer">
+        <div class="summary-line"><div><div style="color:#64748b;font-size:9px;font-weight:900;letter-spacing:.08em">TOTAL ESTIMATED COST</div><div id="cost-breakdown" style="margin-top:3px;color:#64748b;font-size:9px">필수 재료와 추가 비용을 합산합니다.</div></div><div style="text-align:right"><div id="total-cost" class="summary-total">0</div><div id="total-elso" class="hidden" style="color:#c084fc;font-size:10px;font-weight:900"></div></div></div>
+        <div class="save-row"><input id="history-title" class="text-input" maxlength="80" placeholder="이력 제목 (비우면 진화 범위로 저장)"><button id="cancel-edit-button" class="secondary-btn hidden">수정 취소</button><button id="save-history-button" class="primary-btn">계산 이력 저장</button></div>
+      </footer>
+    </section>
 
-      // 가격 입력 이벤트 등록
-      list.querySelectorAll('.price-input').forEach(input => {
-        input.addEventListener('input', () => {
-          const name = input.dataset.name;
-          const qty = parseInt(input.dataset.qty);
-          const price = parseFloat(input.value) || 0;
+    <aside class="history-pane"><div class="history-head"><h2>계산 이력</h2><p>계산 당시 모든 단가와 선택값을 함께 저장합니다.</p></div><div id="history-list" class="history-list"><div class="empty-state">저장된 계산 이력이 없습니다.</div></div></aside>
+  </main>
 
-          savePrice(name, input.value);
-
-          const isTaecheong = name === '태청금액신단';
-          const isElsoSelected = loadElsoOption();
-
-          // 엘소 옵션 켜져있으면 가격 입력 시에도 소계 UI 업데이트 무시(어차피 disabled됨)
-          if (!(isTaecheong && isElsoSelected)) {
-            const subtotalEl = input.closest('.material-row').querySelector('.subtotal');
-            if (price > 0) {
-              subtotalEl.textContent = formatKoreanWon(Math.round(qty * price * 10000));
-              subtotalEl.className = 'subtotal text-sm font-black text-lime-400';
-            } else {
-              subtotalEl.textContent = '-';
-              subtotalEl.className = 'subtotal text-sm font-black text-slate-700';
-            }
-          }
-          updateTotalCost();
-        });
-      });
-
-      // 엘소 체크박스 이벤트 등록
-      list.querySelectorAll('.elso-checkbox').forEach(chk => {
-        chk.addEventListener('change', (e) => {
-          saveElsoOption(e.target.checked);
-          updateMaterials(); // 재렌더링하여 UI 갱신 (input 활성/비활성, 소계표시)
-        });
-      });
-
-      updateTotalCost();
-    }
-
-    function handleAutoSelect(data) {
-      if (!data) return;
-
-      try {
-        // Rebuild category selection
-        currentCategory = data.category;
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        const activeTab = document.querySelector(`[data-category="${currentCategory}"]`);
-        if (activeTab) activeTab.classList.add('active');
-
-        const partSel = document.getElementById('part-selector');
-        if (currentCategory === 'equipment') {
-          partSel.classList.remove('hidden');
-          currentPart = data.part;
-          document.querySelectorAll('.part-btn').forEach(b => b.classList.remove('active'));
-          const activePart = document.querySelector(`[data-part="${currentPart}"]`);
-          if (activePart) activePart.classList.add('active');
-        } else {
-          partSel.classList.add('hidden');
-        }
-
-        rebuildStepSelectors();
-
-        // Auto-detect step-from based on name
-        const itemName = data.itemName || '';
-        let matchedTierIndex = -1;
-        const chain = getChain();
-        const sortedChain = [...chain]
-          .map((name, index) => ({ name, originalIndex: index }))
-          .sort((a, b) => b.name.length - a.name.length);
-        
-        for (let entry of sortedChain) {
-          if (itemName.includes(entry.name)) {
-            matchedTierIndex = entry.originalIndex;
-            break;
-          }
-        }
-        
-        if (matchedTierIndex >= 0 && matchedTierIndex < chain.length - 1) {
-          const fromSel = document.getElementById('step-from');
-          if (fromSel) {
-            fromSel.value = matchedTierIndex.toString();
-          }
-        }
-        updateMaterials();
-      } catch (e) {
-        console.error('Failed to handle auto select:', e);
-      }
-    }
-
-    let pendingEvoData = null;
-
-    // 초기화
-    async function init() {
-      migratePriceUnit();
-      try {
-        const res = await fetch('./assets/data/evolution_data.json');
-        evolutionData = await res.json();
-        rebuildStepSelectors();
-        updateMaterials();
-
-        if (pendingEvoData) {
-          handleAutoSelect(pendingEvoData);
-          pendingEvoData = null;
-        }
-        if (window.electronAPI && window.electronAPI.sendRendererReady) {
-          window.electronAPI.sendRendererReady('evolutionCalculator');
-        }
-      } catch (e) {
-        document.getElementById('material-list').innerHTML =
-          `<div class="text-center text-red-400 text-xs font-bold py-10">데이터 로드 실패<br><span class="text-xs text-slate-600">${e.message}</span></div>`;
-      }
-    }
-
-    if (window.electronAPI && window.electronAPI.onAutoSelectEvolution) {
-      window.electronAPI.onAutoSelectEvolution((data) => {
-        if (!evolutionData) {
-          pendingEvoData = data;
-        } else {
-          handleAutoSelect(data);
-        }
-      });
-    }
-
-    window.bindEscapeClose();
-    lucide.createIcons();
-    init();
-</script>
+  <script src="shared/evolutionCalculator.js"></script>
+  <script src="evolution-calculator-renderer.js"></script>
 </body>
-
 </html>

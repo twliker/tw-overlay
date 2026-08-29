@@ -1997,7 +1997,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       buffs: ['buffs.html', 1080, 740, false], bossSettings: ['boss-settings.html', 460, 780, false],
       etaRanking: ['eta-ranking.html', 680, 720, false], trade: ['trade.html', 450, 600, false],
       coefficientCalculator: ['coefficient-calculator.html', 1420, 860, false], contentsChecker: ['contents-checker.html', 400, 1200, false],
-      focusedChat: ['focused-chat.html', 460, 720, false], evolutionCalculator: ['evolution-calculator.html', 600, 720, false],
+      focusedChat: ['focused-chat.html', 460, 720, false], evolutionCalculator: ['evolution-calculator.html', 1040, 820, false],
       thesisCoreCalculator: ['thesis-core-calculator.html', 850, 880, false], magicStoneCalculator: ['magic-stone-calculator.html', 400, 800, false],
       customAlert: ['custom-alert.html', 580, 640, false], diary: ['diary.html', 1400, 920, false],
       uniformColor: ['uniform-color.html', 360, 800, false], swordEnhance: ['sword-enhance.html', 1300, 850, false],
@@ -2269,7 +2269,7 @@ function checkSidebarMenuRegistryContracts(): void {
   );
 
   const qte = require(path.join(projectRoot, 'dist', 'shared', 'qteChallenge.js')) as {
-    createQteRound: (randomness: { position: number; blueSweep: number; yellowSweep: number }, difficulty: {
+    createQteRound: (randomness: { position: number; yellowPosition?: number; blueSweep: number; yellowSweep: number }, difficulty: {
       durationMs: number;
       blueSweepDeg: number;
       blueSweepVarianceDeg: number;
@@ -2290,34 +2290,53 @@ function checkSidebarMenuRegistryContracts(): void {
     calculateQteScore: (result: string, combo: number, fever: boolean) => number;
     sanitizeQteChallengeRecords: (value: unknown) => Record<string, unknown>;
   };
-  const practiceRound = qte.createQteRound({ position: 0.98, blueSweep: 0.1, yellowSweep: 0.9 }, qte.getPracticeDifficulty());
+  const practiceRound = qte.createQteRound({ position: 0.98, yellowPosition: 0.1, blueSweep: 0.1, yellowSweep: 0.9 }, qte.getPracticeDifficulty());
   assert.equal(practiceRound.durationMs, 1200, '실전 QTE 한 바퀴 시간이 영상 기준값과 다릅니다.');
   assert.ok(practiceRound.blueSweepDeg > practiceRound.yellowSweepDeg,
     'QTE 파란색 일반 성공 영역이 노란색 대성공 영역보다 넓지 않습니다.');
   assert.ok(practiceRound.blueStartDeg >= 10
+    && practiceRound.blueStartDeg + practiceRound.blueSweepDeg <= 350
+    && practiceRound.yellowStartDeg >= 10
     && practiceRound.yellowStartDeg + practiceRound.yellowSweepDeg <= 350,
   'QTE 색상 판정 영역이 한 바퀴 시작·종료 경계를 벗어납니다.');
   const generatedBlueSweeps = new Set<number>();
   const generatedYellowSweeps = new Set<number>();
+  const generatedBlueStarts = new Set<number>();
+  const generatedYellowStarts = new Set<number>();
+  let yellowBeforeBlueCount = 0;
+  let yellowAfterBlueCount = 0;
   for (let sample = 0; sample <= 1_000; sample += 1) {
     const generatedRound = qte.createQteRound({
       position: sample / 1_000,
+      yellowPosition: ((sample * 97) % 1_001) / 1_000,
       blueSweep: ((sample * 37) % 1_001) / 1_000,
       yellowSweep: ((sample * 73) % 1_001) / 1_000,
     }, qte.getPracticeDifficulty());
     generatedBlueSweeps.add(generatedRound.blueSweepDeg);
     generatedYellowSweeps.add(generatedRound.yellowSweepDeg);
+    generatedBlueStarts.add(Math.round(generatedRound.blueStartDeg));
+    generatedYellowStarts.add(Math.round(generatedRound.yellowStartDeg));
     assert.ok(generatedRound.blueSweepDeg > generatedRound.yellowSweepDeg,
       '무작위 QTE 파란색 영역이 노란색 영역보다 넓지 않습니다.');
     assert.ok(generatedRound.blueStartDeg >= 10,
       `QTE 색상 영역이 시작 경계를 벗어났습니다: ${generatedRound.blueStartDeg}`);
-    assert.ok(generatedRound.yellowStartDeg >= generatedRound.blueStartDeg + generatedRound.blueSweepDeg,
-      'QTE 노란색 영역이 파란색 영역과 역방향으로 겹칩니다.');
+    assert.ok(generatedRound.blueStartDeg + generatedRound.blueSweepDeg <= 350,
+      `QTE 파란색 영역이 종료 경계를 벗어났습니다: ${generatedRound.blueStartDeg + generatedRound.blueSweepDeg}`);
+    const yellowIsBeforeBlue = generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg <= generatedRound.blueStartDeg;
+    const yellowIsAfterBlue = generatedRound.yellowStartDeg >= generatedRound.blueStartDeg + generatedRound.blueSweepDeg;
+    assert.ok(yellowIsBeforeBlue || yellowIsAfterBlue,
+      'QTE 파란색·노란색 영역이 서로 겹칩니다.');
+    if (yellowIsBeforeBlue) yellowBeforeBlueCount += 1;
+    if (yellowIsAfterBlue) yellowAfterBlueCount += 1;
     assert.ok(generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg <= 350,
       `QTE 색상 영역이 종료 경계를 벗어났습니다: ${generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg}`);
   }
   assert.ok(generatedBlueSweeps.size > 10 && generatedYellowSweeps.size > 10,
     'QTE 파란색·노란색 영역 크기가 매 라운드 무작위로 바뀌지 않습니다.');
+  assert.ok(generatedBlueStarts.size > 10 && generatedYellowStarts.size > 10,
+    'QTE 파란색·노란색 영역 위치가 매 라운드 무작위로 바뀌지 않습니다.');
+  assert.ok(yellowBeforeBlueCount > 0 && yellowAfterBlueCount > 0,
+    'QTE 노란색 영역이 항상 파란색의 같은 방향에만 배치됩니다.');
   assert.equal(
     qte.classifyQteHit(practiceRound.blueStartDeg + practiceRound.blueSweepDeg / 2, practiceRound),
     'success',
@@ -2339,6 +2358,61 @@ function checkSidebarMenuRegistryContracts(): void {
     bestScore: 0, bestCombo: 4, bestStage: 0, totalAttempts: 0, totalSuccess: 0, totalGreat: 0, soundEnabled: false,
   }, '손상된 QTE 로컬 기록을 안전하게 복구하지 못합니다.');
 
+  const evolution = require(path.join(projectRoot, 'dist', 'shared', 'evolutionCalculator.js')) as {
+    EVOLUTION_MOON_HERB_FIXED_COST_SEED: number;
+    calculateEvolutionCost: (input: unknown) => {
+      materialSeed: number; enchantScrollSeed: number; otherEnhancementSeed: number;
+      eclipseBaseSeed: number; eclipseSealSeed: number; totalSeed: number; totalElso: number;
+    };
+    sanitizeEvolutionHistory: (value: unknown) => unknown[];
+    getEvolutionItemImagePath: (name: string) => string;
+  };
+  assert.equal(evolution.EVOLUTION_MOON_HERB_FIXED_COST_SEED, 650_000_000,
+    '직접 제작 달의 약초 고정 비용이 6.5억 시드가 아닙니다.');
+  const selfCraftEvolutionCost = evolution.calculateEvolutionCost({
+    materials: [
+      { name: '테스트 재료', quantity: 2, unitPriceMan: 100, payment: 'seed' },
+      { name: '태청금액신단', quantity: 6, unitPriceMan: 0, payment: 'elso', elsoUnitPrice: 23_000 },
+    ],
+    extras: {
+      enchantScrollCount: 3, enchantScrollUnitPriceMan: 200,
+      enchantAttemptCostMan: 300, magicReformCostMan: 400, additionalOptionCostMan: 500,
+    },
+    eclipse: {
+      enabled: true, baseType: 'fake-armament', baseEquipmentCostMan: 1_000,
+      sealMethod: 'self', proxyFeeMan: 2_000, moonMineralCostMan: 600, runeStoneCostMan: 700,
+    },
+  });
+  assert.deepEqual(selfCraftEvolutionCost, {
+    materialSeed: 2_000_000,
+    enchantScrollSeed: 6_000_000,
+    otherEnhancementSeed: 12_000_000,
+    eclipseBaseSeed: 10_000_000,
+    eclipseSealSeed: 663_000_000,
+    totalSeed: 693_000_000,
+    totalElso: 138_000,
+  }, '진화 재료·후처리·직접 제작 비용 합산이 올바르지 않습니다.');
+  const proxyEvolutionCost = evolution.calculateEvolutionCost({
+    materials: [{ name: '테스트 재료', quantity: 2, unitPriceMan: 100, payment: 'seed' }],
+    extras: {
+      enchantScrollCount: 3, enchantScrollUnitPriceMan: 200,
+      enchantAttemptCostMan: 300, magicReformCostMan: 400, additionalOptionCostMan: 500,
+    },
+    eclipse: {
+      enabled: true, baseType: 'abyss-equipment', baseEquipmentCostMan: 1_000,
+      sealMethod: 'proxy', proxyFeeMan: 2_000, moonMineralCostMan: 600, runeStoneCostMan: 700,
+    },
+  });
+  assert.equal(proxyEvolutionCost.totalSeed, 50_000_000,
+    '인장 대리 제작에서 직접 제작 재료비가 중복 합산됩니다.');
+  assert.deepEqual(evolution.sanitizeEvolutionHistory([{ id: '', title: '손상', selection: {} }, null]), [],
+    '손상된 진화 계산 이력이 안전하게 제외되지 않습니다.');
+  assert.equal(
+    decodeURIComponent(evolution.getEvolutionItemImagePath('고대 기사의 건틀릿 파편')),
+    'assets/items/고대기사의건틀렛파편.png',
+    '기존 재료 이미지의 명칭 차이 alias가 적용되지 않습니다.',
+  );
+
   const managerSource = read('src/modules/windowManager.ts');
   const indexSource = read('src/index.html');
   const dockSource = read('src/dock.html');
@@ -2353,6 +2427,17 @@ function checkSidebarMenuRegistryContracts(): void {
     '독 2depth에서 기존 검 강화 이미지 아이콘을 표시하지 않습니다.');
   assert.match(qteHtml, /shared\/qteChallenge\.js[\s\S]*?qte-challenge-renderer\.js/,
     'QTE 판정 엔진과 전용 렌더러가 신규 창에 연결되지 않았습니다.');
+  const evolutionHtml = read('src/evolution-calculator.html');
+  assert.match(evolutionHtml, /shared\/evolutionCalculator\.js[\s\S]*?evolution-calculator-renderer\.js/,
+    '진화 비용 순수 계산 엔진과 이력 렌더러가 계산기 창에 연결되지 않았습니다.');
+  for (const requiredEvolutionLabel of [
+    '인챈트 주문서', '인챈트 시도 비용', '매직리폼 비용', '부가옵션 비용',
+    '가짜 달여왕 군단의 무구', '어비스 장비', '인장 6개 직접 제작', '인장 6개 대리 제작',
+    '달의 광물 비용', '룬의 원석 비용', '6억 5,000만 시드', '계산 이력',
+  ]) {
+    assert.ok(evolutionHtml.includes(requiredEvolutionLabel),
+      `진화 재료 계산기 고도화 항목이 누락되었습니다: ${requiredEvolutionLabel}`);
+  }
 
   const traySource = read('src/modules/tray.ts');
   const actionSource = read('src/modules/trayMenuActions.ts');
@@ -3360,7 +3445,7 @@ function checkPreloadDefaultConfigCompatibility() {
     'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
     'scam-alert', 'scam-analysis-result', 'scam-progress', 'scam-session-update',
     'scam-analysis-token', 'auto-select-equipment', 'auto-select-evolution',
-    'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'chat-updated',
+    'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'chat-updated',
     'chat-history-cleared', 'chat-overlay-mode', 'chat-log-status-changed',
     'alarm-logs-updated', 'timer-toggle', 'timer-updated',
     'game-overlay-edit-mode', 'game-overlay-reset-positions',
@@ -6029,6 +6114,67 @@ function checkAbandonedFeeMatchingContracts(): void {
   assert.equal(state.regionDetails['후도착 지역'].totalFee, 200,
     '도전 횟수 뒤에 도착한 입장료가 가까운 지역에 귀속되지 않았습니다.');
   abandonedTracker.reset();
+}
+
+function checkDigsiteBoardContracts(): void {
+  const {
+    DIGSITE_BOARD_VISIBLE_MS,
+    applyDigsiteBoardEvent,
+    createDigsiteBoardState,
+    digsiteTracker,
+  } = require(path.join(projectRoot, 'dist', 'modules', 'digsiteTracker.js')) as {
+    DIGSITE_BOARD_VISIBLE_MS: number;
+    applyDigsiteBoardEvent: (state: any, event: any, now: number) => any;
+    createDigsiteBoardState: () => any;
+    digsiteTracker: { start(): void; reset(): void; getState(): any };
+  };
+  const { chatParser } = require(path.join(projectRoot, 'dist', 'modules', 'chatParser.js'));
+
+  assert.equal(DIGSITE_BOARD_VISIBLE_MS, 30 * 60 * 1_000,
+    '발굴지 현황판의 고정 표시 시간이 30분이 아닙니다.');
+  const startedAt = 1_000;
+  const initial = applyDigsiteBoardEvent(createDigsiteBoardState(), { type: 'entry' }, startedAt);
+  assert.equal(initial.expiresAt, startedAt + DIGSITE_BOARD_VISIBLE_MS);
+  assert.equal(
+    applyDigsiteBoardEvent(initial, { type: 'normal-reward' }, initial.expiresAt - 1).isActive,
+    true,
+    '발굴지 현황판이 고정 표시 시간이 끝나기 전에 종료됩니다.',
+  );
+  const expired = applyDigsiteBoardEvent(initial, { type: 'normal-reward' }, initial.expiresAt);
+  assert.equal(expired.isActive, false, '발굴지 현황판이 고정 표시 시간 뒤에도 활성 상태입니다.');
+  assert.equal(expired.normalRewards, 0, '만료 시점에 도착한 로그가 지난 세션에 반영되었습니다.');
+
+  digsiteTracker.start();
+  digsiteTracker.reset();
+  const line = (message: string, second = 0) =>
+    `<font size="2" color="white"> [1시 2분 ${second}초] </font><font size="2" color="#ff64ff">${message}</font></br>`;
+
+  // 입장 전 상자 로그는 다음 판에 이월되면 안 됩니다.
+  chatParser.parseLine(line('지역 보상상자를 열었습니다.'));
+  assert.equal(digsiteTracker.getState().normalRewards, 0);
+
+  chatParser.parseLine(line('무료 입장 횟수 7회 중 1회째 입장합니다.', 1));
+  let state = digsiteTracker.getState();
+  assert.equal(state.isActive, true, '기존 발굴지 입장 로그가 현황판을 시작하지 못했습니다.');
+  assert.deepEqual(state.portalVisits, { 1: false, 2: false, 3: false, 4: false });
+
+  for (let index = 0; index < 10; index += 1) chatParser.parseLine(line('지역 보상상자를 열었습니다.', 2));
+  for (let index = 0; index < 6; index += 1) chatParser.parseLine(line('포탈 전용 상자를 열었습니다.', 3));
+  chatParser.parseLine(line('포탈 3지역으로 이동합니다.', 4));
+  chatParser.parseLine(line('포탈 1지역으로 이동합니다.', 5));
+  chatParser.parseLine(line('포탈 3지역으로 이동합니다.', 6));
+  chatParser.parseLine(line('이공간 보물상자를 열었습니다.', 7));
+  chatParser.parseLine(line('이공간 보물상자를 열었습니다.', 8));
+
+  state = digsiteTracker.getState();
+  assert.equal(state.normalRewards, 8, '일반 지역 보상이 8개 상한에서 멈추지 않습니다.');
+  assert.equal(state.portalRewards, 4, '포탈 보상이 4개 상한에서 멈추지 않습니다.');
+  assert.equal(state.alternateRewards, 1, '이공간 보상이 1개 상한에서 멈추지 않습니다.');
+  assert.deepEqual(state.portalVisits, { 1: true, 2: false, 3: true, 4: false },
+    '포탈별 방문 상태가 로그와 일치하지 않습니다.');
+  assert.equal(state.expiresAt - state.startedAt, DIGSITE_BOARD_VISIBLE_MS,
+    '보상·방문 로그가 들어올 때 발굴지 현황판 만료 시각이 연장되었습니다.');
+  digsiteTracker.reset();
 }
 
 async function checkMissedMinuteSchedulerContracts(): Promise<void> {
@@ -9934,6 +10080,7 @@ async function runRegressionChecks(): Promise<void> {
   checkMainPartialRestoreConfirmationGate();
   checkXpExchangeContracts();
   checkAbandonedFeeMatchingContracts();
+  checkDigsiteBoardContracts();
   checkMissedCustomAlertContracts();
   checkMissedBossAlertContracts();
   checkViewRequestGenerationContracts();

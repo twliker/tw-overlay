@@ -12,7 +12,7 @@ interface QteRoundDefinition {
   /** 12시를 0도로 삼아 시계 방향으로 측정한 파란색 판정 구간 시작점. */
   blueStartDeg: number;
   blueSweepDeg: number;
-  /** 노란색 대성공 구간은 파란색 뒤에 인접해서 배치한다. */
+  /** 노란색 대성공 구간은 파란색과 별개 위치에 배치한다. */
   yellowStartDeg: number;
   yellowSweepDeg: number;
   durationMs: number;
@@ -28,7 +28,10 @@ interface QteDifficulty {
 }
 
 interface QteRoundRandomness {
+  /** 파란색 구간 위치. 이전 호출부와의 호환성을 위해 position 이름을 유지한다. */
   position: number;
+  /** 노란색 구간 위치. 생략하면 position에서 별도의 결정값을 파생한다. */
+  yellowPosition?: number;
   blueSweep: number;
   yellowSweep: number;
 }
@@ -80,10 +83,10 @@ function sanitizeRandomUnit(randomValue: number): number {
 }
 
 /**
- * 테일즈위버처럼 매 라운드 두 구간의 크기와 묶음 위치를 각각 무작위로 정한다.
+ * 테일즈위버처럼 매 라운드 두 구간의 크기와 위치를 각각 무작위로 정한다.
  * 크기가 달라져도 파란색은 항상 노란색보다 넓게 유지한다.
- * 두 구간이 360도를 넘어 시작점으로 감기면 한 판정 영역이 첫 순간과 마지막 순간으로 쪼개지므로,
- * 합산 폭과 시작·종료 반응 여유를 제외한 범위에서만 시작 각도를 선택한다.
+ * 두 구간은 서로 겹치지 않으며, 360도를 넘어 시작점으로 감겨 한 판정 영역이
+ * 첫 순간과 마지막 순간으로 쪼개지지 않도록 시작·종료 반응 여유 안에 배치한다.
  * renderer와 테스트가 같은 라운드 생성 규칙을 사용하도록 순수 함수로 분리한다.
  */
 function randomizeQteSweep(centerDeg: number, varianceDeg: number, randomValue: number): number {
@@ -104,13 +107,30 @@ function createQteRound(randomness: QteRoundRandomness, difficulty: QteDifficult
     difficulty.blueSweepVarianceDeg,
     randomness.blueSweep,
   )));
-  const totalSweepDeg = blueSweepDeg + yellowSweepDeg;
-  const availableStartRange = Math.max(0, 360 - totalSweepDeg - QTE_START_END_GUARD_DEG * 2);
-  const blueStartDeg = QTE_START_END_GUARD_DEG + sanitizeRandomUnit(randomness.position) * availableStartRange;
+  const usableStartDeg = QTE_START_END_GUARD_DEG;
+  const usableEndDeg = 360 - QTE_START_END_GUARD_DEG;
+  const blueStartRange = Math.max(0, usableEndDeg - usableStartDeg - blueSweepDeg);
+  const blueStartDeg = usableStartDeg + sanitizeRandomUnit(randomness.position) * blueStartRange;
+
+  // 노란색은 파란색의 앞 또는 뒤에 독립적으로 놓는다. 가능한 두 구간의 길이를 합친 뒤
+  // 하나의 무작위 값을 매핑하면 재시도 없이도 균등하게 위치를 고를 수 있고 겹침도 생기지 않는다.
+  const yellowBeforeStart = usableStartDeg;
+  const yellowBeforeEnd = blueStartDeg - yellowSweepDeg;
+  const yellowAfterStart = blueStartDeg + blueSweepDeg;
+  const yellowAfterEnd = usableEndDeg - yellowSweepDeg;
+  const yellowBeforeRange = Math.max(0, yellowBeforeEnd - yellowBeforeStart);
+  const yellowAfterRange = Math.max(0, yellowAfterEnd - yellowAfterStart);
+  const yellowTotalRange = yellowBeforeRange + yellowAfterRange;
+  const derivedYellowPosition = (sanitizeRandomUnit(randomness.position) + 0.61803398875) % 1;
+  const yellowPosition = sanitizeRandomUnit(randomness.yellowPosition ?? derivedYellowPosition);
+  const yellowOffset = yellowPosition * yellowTotalRange;
+  const yellowStartDeg = yellowBeforeRange > 0 && yellowOffset < yellowBeforeRange
+    ? yellowBeforeStart + yellowOffset
+    : yellowAfterStart + (yellowOffset - yellowBeforeRange);
   return {
     blueStartDeg,
     blueSweepDeg,
-    yellowStartDeg: blueStartDeg + blueSweepDeg,
+    yellowStartDeg,
     yellowSweepDeg,
     durationMs,
   };

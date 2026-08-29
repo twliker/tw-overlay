@@ -420,6 +420,46 @@ export class ChatParser extends EventEmitter {
       return;
     }
 
+    // 발굴지는 종료 로그가 없으므로 입장 뒤 발생하는 상자·포탈 로그를 전용 HUD 상태로 조립합니다.
+    // 문구가 비슷한 일반 아이템 획득 로그까지 넓게 잡지 않도록 게임의 완결 문장을 정확히 비교합니다.
+    if (cleanMsg.includes('지역 보상상자를 열었습니다.')) {
+      this.emit('DIGSITE_NORMAL_REWARD', {
+        date: this._currentDate,
+        timestamp,
+        message: cleanMsg,
+      });
+      return;
+    }
+
+    const digsitePortalMatch = cleanMsg.match(/포탈 ([1-4])지역으로 이동합니다\./);
+    if (digsitePortalMatch) {
+      this.emit('DIGSITE_PORTAL_VISIT', {
+        date: this._currentDate,
+        timestamp,
+        portal: parseInt(digsitePortalMatch[1], 10) as 1 | 2 | 3 | 4,
+        message: cleanMsg,
+      });
+      return;
+    }
+
+    if (cleanMsg.includes('포탈 전용 상자를 열었습니다.')) {
+      this.emit('DIGSITE_PORTAL_REWARD', {
+        date: this._currentDate,
+        timestamp,
+        message: cleanMsg,
+      });
+      return;
+    }
+
+    if (cleanMsg.includes('이공간 보물상자를 열었습니다.')) {
+      this.emit('DIGSITE_ALTERNATE_REWARD', {
+        date: this._currentDate,
+        timestamp,
+        message: cleanMsg,
+      });
+      return;
+    }
+
     // 12. 신조의 둥지 주간 보상 획득
     const shinjoNestMatch = cleanMsg.match(
       /이번\s*주\s*신조\s*보상을\s*(\d+)회\s*획득\s*하셨습니다\.\s*한\s*주에\s*7회까지\s*획득\s*할\s*수\s*있습니다\./,

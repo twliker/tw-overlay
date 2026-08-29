@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, ChatItem, TimerRecord, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
+import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, DigsiteBoardState, ChatItem, TimerRecord, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
 
 // sandbox preload은 로컬 모듈 require가 제한되므로 메인 프로세스의 단일 기본값 원본을 동기 조회합니다.
@@ -386,6 +386,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('abandoned-alert', callback),
   onAbandonedHideNow: (callback: () => void) =>
     bindIpcListener('abandoned-hide-now', callback),
+  onDigsiteUpdate: (callback: (state: DigsiteBoardState) => void) =>
+    bindIpcListener('digsite-update', callback),
   onChatUpdated: (callback: (chatItem: ChatItem) => void) =>
     bindIpcListener('chat-updated', callback),
   onChatHistoryCleared: (callback: () => void) =>
@@ -395,6 +397,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onChatLogStatusChanged: (callback: (isValid: boolean) => void) =>
     bindIpcListener('chat-log-status-changed', callback),
   abandonedGetState: () => ipcRenderer.invoke('abandoned-get-state'),
+  digsiteGetState: (): Promise<DigsiteBoardState> => ipcRenderer.invoke('digsite-get-state'),
   abandonedForceVisible: (visible: boolean) => ipcRenderer.send('abandoned-force-visible', visible),
   abandonedSetEnabled: (enabled: boolean) => ipcRenderer.send('abandoned-set-enabled', enabled),
   abandonedHideNow: () => ipcRenderer.send('abandoned-hide-now'),
@@ -455,7 +458,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'boss-times-data', 'play-sound', 'trade-posts', 'trade-new-activity',
       'trade-connection-status', 'open-settings-tab', 'toolbar-hover', 'reminder-message',
       'incomplete-contents', 'diary-updated', 'xp-update', 'shout-history-updated',
-      'buff-timer-update', 'buff-timer-warning', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
+      'buff-timer-update', 'buff-timer-warning', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
       'scam-alert', 'scam-progress', 'scam-session-update', 'scam-analysis-token', 'scam-analysis-result', 'wave-warning-alert', 'lokagos-alert', 'chat-updated', 'chat-overlay-mode', 'chat-history-cleared',
       'auto-select-equipment', 'auto-select-evolution',
       'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',

@@ -209,6 +209,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   abandonedAutoHideMinutes: 10,
   abandonedEnabled: true,
   abandonedWidgetPos: { ...DEFAULT_HUD_POSITIONS.abandoned },
+  digsiteWidgetPos: { ...DEFAULT_HUD_POSITIONS.digsite },
   abyssApostleAlertEnabled: true,
   abyssApostleStartSound: '제2사도_반사_패턴_시작.mp3',
   abyssApostleEndSound: '제2사도_반사_패턴_종료.mp3',
