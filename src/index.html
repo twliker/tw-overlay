@@ -9,6 +9,7 @@
   <script src="assets/ui-utils.js"></script>
   <script src="assets/audio-playback.js"></script>
   <script src="shared/sidebarCategories.js"></script>
+  <script src="shared/sidebarMenuActivation.js"></script>
   <script src="shared/cloudSyncPresentation.js"></script>
 
   <script>
@@ -155,9 +156,9 @@
 <body>
   <div id="wrapper" class="sidebar-wrapper">
     <!-- 사이드바 접기/펴기 -->
-    <div class="toggle-btn cursor-pointer" onclick="window.electronAPI.toggleSidebar()" title="사이드바 토글">
+    <button type="button" class="toggle-btn cursor-pointer" onclick="window.electronAPI.toggleSidebar()" title="사이드바 토글" aria-label="사이드바 토글">
       <i id="toggle-icon" data-lucide="chevron-left"></i>
-    </div>
+    </button>
 
     <!-- 스크롤 가능한 중간 메뉴 영역 -->
     <div class="flex-1 overflow-y-auto overflow-x-hidden sidebar-scroll-area flex flex-col w-full items-center">
@@ -332,19 +333,19 @@
 
           if (cat.id === 'homework') {
             catItem.innerHTML = `
-              <div class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" 
+              <button type="button" class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" aria-label="${cat.label}"
                    onclick="window.electronAPI.toggleContentsChecker()"
                    onmouseenter="showTooltip('${cat.label}', this)"
                    onmouseleave="hideTooltip()">
                 <i data-lucide="${cat.icon}" class="w-4 h-4"></i>
-              </div>
+              </button>
             `;
           } else if (subMenus.length > 0) {
             catItem.innerHTML = `
-              <div class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" title="${cat.label}">
+              <button type="button" class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" title="${cat.label}" aria-label="${cat.label}" aria-expanded="false">
                 <i data-lucide="${cat.icon}" class="w-4 h-4"></i>
-              </div>
-              <div class="flyout-submenu hidden" id="flyout-${cat.id}"></div>
+              </button>
+              <div class="flyout-submenu hidden" id="flyout-${cat.id}" role="menu"></div>
             `;
 
             catItem.onmouseenter = () => {
@@ -353,6 +354,7 @@
                 // 먼저 렌더링되게 하여 offsetHeight를 측정할 수 있도록 함
                 flyout.classList.remove('hidden');
                 flyout.style.display = 'flex';
+                catItem.querySelector('.category-btn')?.setAttribute('aria-expanded', 'true');
                 
                 const rect = catItem.getBoundingClientRect();
                 const flyoutHeight = flyout.offsetHeight;
@@ -377,8 +379,14 @@
               if (flyout) {
                 flyout.classList.add('hidden');
                 flyout.style.display = 'none';
+                catItem.querySelector('.category-btn')?.setAttribute('aria-expanded', 'false');
               }
             };
+
+            catItem.addEventListener('focusin', () => catItem.onmouseenter?.(new MouseEvent('mouseenter')));
+            catItem.addEventListener('focusout', event => {
+              if (!catItem.contains(event.relatedTarget)) catItem.onmouseleave?.(new MouseEvent('mouseleave'));
+            });
 
             const flyout = catItem.querySelector('.flyout-submenu');
             if (flyout) {
@@ -387,8 +395,10 @@
             }
 
             subMenus.forEach(menu => {
-              const chip = document.createElement('div');
+              const chip = document.createElement('button');
+              chip.type = 'button';
               chip.className = `submenu-chip`;
+              chip.setAttribute('role', 'menuitem');
               chip.id = menu.id;
               
               const colorClass = menu.color ? `color-${menu.color}` : 'color-slate-400';
@@ -403,10 +413,11 @@
                 chip.innerHTML += `<span id="noti-badge" class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full hidden"></span>`;
               }
 
-              chip.onclick = () => {
+              const activateMenu = () => {
                 if (menu.action === 'openGallery') openGallery();
                 else if (menu.api && window.electronAPI[menu.api]) window.electronAPI[menu.api]();
               };
+              window.sidebarMenuActivation.bind(chip, activateMenu);
 
               // 호버 시 부모 서브메뉴 전체 테두리/글로우 색상 실시간 연동
               chip.onmouseenter = () => {
@@ -436,7 +447,9 @@
           if (subMenus.length > 0) dynamicContainer.appendChild(catItem);
 
           oneDepthMenus.forEach(menu => {
-            const btn = document.createElement('div');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.setAttribute('aria-label', menu.label || menu.tooltip || menu.id);
             btn.id = menu.id;
             btn.className = `category-item one-depth-menu p-2 cursor-pointer text-slate-400 hover:text-${menu.color} relative`;
             btn.innerHTML = menu.image
@@ -454,7 +467,9 @@
         // 2. 시스템 고정 메뉴 렌더링
         allMenus.forEach(menu => {
           if (!menu.isSystem) return;
-          const btn = document.createElement('div');
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.setAttribute('aria-label', menu.label || menu.tooltip || menu.id);
           btn.id = menu.id;
           btn.className = `p-2 cursor-pointer text-slate-400 hover:text-${menu.color} relative`;
           btn.innerHTML = `<i data-lucide="${menu.icon}" class="${menu.id.includes('icon') ? '' : 'w-4 h-4'}"></i>`;
@@ -819,7 +834,9 @@
       const container = document.getElementById('slot-container');
       container.innerHTML = '';
       (config.quickSlots || []).forEach(slot => {
-        const btn = document.createElement('div');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('aria-label', slot.label || '바로가기');
         btn.className = 'tw-slot';
         btn.innerHTML = slot.iconType === 'text' && slot.textChar ? `<span class="tw-slot-text">${slot.textChar}</span>` : `<i data-lucide="${slot.icon || 'link'}"></i>`;
         if (slot.external) { const dot = document.createElement('div'); dot.className = 'external-dot'; btn.appendChild(dot); }

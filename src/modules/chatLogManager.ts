@@ -1,3 +1,17 @@
+/**
+ * 기능 계약 — 실시간 채팅 로그 파일 입력
+ *
+ * - 사용자가 지정한 채팅 로그 경로가 없을 때만 설치 경로를 자동 탐색하고, 오늘 파일을 tail하여
+ *   인코딩 디코딩과 줄 정규화를 거친 완전한 줄만 `chatParser`에 전달합니다.
+ * - 시작 시 오늘 로그의 기존 구간을 재생해 HUD/채팅 상태를 복원하지만, 장기 누락 기록의 DB 복구는
+ *   `chatLogSyncManager`/worker가 담당합니다. 두 경로가 같은 활동을 처리할 수 있으므로 하위 저장소의
+ *   event ID와 중복 방지 계약을 제거하면 안 됩니다.
+ * - 파일 교체·날짜 변경·watch 오류에서는 기존 watcher를 해제하고 제한된 지수 재시도로 다시 붙습니다.
+ *   실패한 watcher를 남겨 동일 줄이 두 번 들어오게 해서는 안 됩니다.
+ * - 대형 파일은 메모리 상한을 위해 최근 구간만 유지하되, 채팅 화면별 읽기 인덱스도 같은 만큼
+ *   보정해야 합니다. 잘라낸 앞부분 때문에 새 줄을 건너뛰거나 과거 줄을 다시 보내면 안 됩니다.
+ * - 원시 로그와 채팅 내용은 로컬 기능에만 사용하며 GA 사용 통계 payload로 전달하지 않습니다.
+ */
 import { Tail } from 'tail';
 import * as fs from 'fs';
 import { promises as fsp } from 'fs';
@@ -26,6 +40,30 @@ const { COLORS: CHAT_COLORS, stripShoutSuffix, getSystemColorGroup } = require('
 type HistoryCategory = 'General' | 'Team' | 'Club' | 'Whisper' | 'System';
 type HistoryMessageType = 'general' | 'team' | 'club' | 'whisper' | 'system';
 const MAX_TAIL_RETRY_ATTEMPTS = 5;
+const SYNC_PAUSE_DRAIN_TIMEOUT_MS = 5_000;
+const SYNC_PAUSE_DRAIN_POLL_MS = 10;
+const SYNC_CATCH_UP_CHUNK_BYTES = 256 * 1024;
+
+interface TailRuntimeState {
+  currentCursorPos?: number;
+  queue?: Array<{ start: number; end: number }>;
+  buffer?: string;
+  change?: () => void;
+}
+
+export interface ChatLogSyncPauseToken {
+  id: number;
+  filePath: string;
+  /** 중지 전에 실시간 파서가 확실히 처리한 마지막 완전한 물리 줄 다음 byte 위치. */
+  resumeOffset: number;
+  encoding: ChatLogEncoding;
+}
+
+export interface ChatLogSyncCatchUpResult {
+  startOffset: number;
+  handoffOffset: number;
+  processedBytes: number;
+}
 
 export function getTailRetryDelayMs(attempt: number): number {
   return Math.min(16000, 1000 * (2 ** Math.max(0, attempt - 1)));
@@ -114,7 +152,7 @@ export function classifyHistoryMessage(
   return { category, type, sender, message, color };
 }
 
-class ChatLogManager {
+export class ChatLogManager {
   private _tail: Tail | null = null;
   private _currentFilePath: string | null = null;
   private _watchTimer: NodeJS.Timeout | null = null;
@@ -128,11 +166,18 @@ class ChatLogManager {
   private _chatLogEncoding: ChatLogEncoding = 'euc-kr';
   private _recentHistoryMode = false;
   private _todayLineChars = 0;
+  private _syncPaused = false;
+  private _syncPauseSequence = 0;
+  private _syncCatchUpActive = false;
 
   /**
    * 스트리밍 시작
    */
   public start(): void {
+    if (this._syncPaused) {
+      log('[CHAT_LOG] 과거 로그 동기화 catch-up 중이므로 중복 감시 시작을 건너뜁니다.');
+      return;
+    }
     this.stop();
     this.initWatch();
     this.cleanupOldLogs().catch(e => log(`[CHAT_LOG] Cleanup error: ${e}`));
@@ -171,7 +216,186 @@ class ChatLogManager {
     this._recentHistoryMode = false;
     this._lastReadIndex = {};
     this._initialReadIndex = {};
+    this._syncPaused = false;
+    this._syncCatchUpActive = false;
     log('[CHAT_LOG] 매니저 중지됨');
+  }
+
+  /**
+   * 오늘 로그 전체 재구성 전 실시간 tail을 완전한 줄 경계에서 일시 정지합니다.
+   *
+   * tail 내부 읽기 queue가 비기 전에 watcher를 끊으면 이미 파일에는 기록됐지만 아직 parser에 전달되지
+   * 않은 줄을 잃을 수 있습니다. 현재 EOF를 한 번 강제로 확인하고 queue가 모두 소비된 뒤, tail 내부의
+   * 미완성 물리 줄만 resume offset에서 제외합니다. 동기화 중 새 로그는 파일에 계속 append되며 파일
+   * 자체가 내구성 있는 queue 역할을 합니다.
+   */
+  public async pauseForHistoricalSync(expectedFilePath: string): Promise<ChatLogSyncPauseToken | null> {
+    if (this._syncPaused) throw new Error('실시간 채팅 로그가 이미 동기화 대기 상태입니다.');
+    if (!this._tail || !this._currentFilePath) return null;
+    if (path.resolve(this._currentFilePath) !== path.resolve(expectedFilePath)) return null;
+
+    this._syncPaused = true;
+    const tail = this._tail;
+    const runtime = tail as Tail & TailRuntimeState;
+    try {
+      runtime.change?.();
+      const startedAt = Date.now();
+      while ((runtime.queue?.length || 0) > 0) {
+        if (Date.now() - startedAt >= SYNC_PAUSE_DRAIN_TIMEOUT_MS) {
+          throw new Error('실시간 채팅 로그의 남은 읽기 작업이 제한 시간 안에 끝나지 않았습니다.');
+        }
+        await new Promise(resolve => setTimeout(resolve, SYNC_PAUSE_DRAIN_POLL_MS));
+      }
+
+      if (this._normalizerFlushTimer) {
+        clearTimeout(this._normalizerFlushTimer);
+        this._normalizerFlushTimer = null;
+      }
+      this.flushPendingNormalizedLine();
+
+      const cursor = Math.max(0, Math.trunc(runtime.currentCursorPos || 0));
+      const incompletePhysicalBytes = Buffer.byteLength(runtime.buffer || '', 'binary');
+      const resumeOffset = Math.max(0, cursor - incompletePhysicalBytes);
+      tail.unwatch();
+      if (this._tail === tail) this._tail = null;
+      if (this._tailRetryTimer) {
+        clearTimeout(this._tailRetryTimer);
+        this._tailRetryTimer = null;
+      }
+
+      const token: ChatLogSyncPauseToken = {
+        id: ++this._syncPauseSequence,
+        filePath: expectedFilePath,
+        resumeOffset,
+        encoding: this._chatLogEncoding,
+      };
+      log(`[CHAT_LOG] 과거 로그 동기화 대기 시작: offset=${resumeOffset}`);
+      return token;
+    } catch (error) {
+      this._syncPaused = false;
+      log(`[CHAT_LOG] 과거 로그 동기화 대기 실패: ${error}`);
+      throw error;
+    }
+  }
+
+  /** 지정 byte 범위의 완전한 물리 줄을 실시간 parser에 순서대로 전달하고 남은 반쪽 줄을 반환합니다. */
+  private catchUpRange(
+    filePath: string,
+    startOffset: number,
+    endOffset: number,
+    encoding: ChatLogEncoding,
+  ): Buffer {
+    if (endOffset <= startOffset) return Buffer.alloc(0);
+    const fd = fs.openSync(filePath, 'r');
+    let carry = Buffer.alloc(0);
+    try {
+      let position = startOffset;
+      while (position < endOffset) {
+        const readLength = Math.min(SYNC_CATCH_UP_CHUNK_BYTES, endOffset - position);
+        const chunk = Buffer.allocUnsafe(readLength);
+        const bytesRead = fs.readSync(fd, chunk, 0, readLength, position);
+        if (bytesRead === 0) break;
+        const bytes = chunk.subarray(0, bytesRead);
+        const combined = carry.length > 0 ? Buffer.concat([carry, bytes]) : bytes;
+        let lineStart = 0;
+        for (let index = 0; index < combined.length; index++) {
+          if (combined[index] !== 0x0a) continue;
+          let rawLine = combined.subarray(lineStart, index);
+          if (rawLine.length > 0 && rawLine[rawLine.length - 1] === 0x0d) {
+            rawLine = rawLine.subarray(0, rawLine.length - 1);
+          }
+          this.consumeDecodedLine(iconv.decode(rawLine, encoding));
+          lineStart = index + 1;
+        }
+        carry = Buffer.from(combined.subarray(lineStart));
+        position += bytesRead;
+      }
+
+      if (carry.length > 0 && /<\/br>\s*$/i.test(iconv.decode(carry, encoding).trimEnd())) {
+        this.consumeDecodedLine(iconv.decode(carry, encoding));
+        carry = Buffer.alloc(0);
+      }
+      return carry;
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  /**
+   * 전체 재구성 snapshot 이후에 append된 오늘 로그를 따라잡고 일반 tail로 빈틈없이 인계합니다.
+   *
+   * 새 tail은 생성 시점 EOF부터 먼저 감시하기 시작합니다. 그 뒤 snapshot offset부터 그 EOF까지를
+   * 동기적으로 빠르게 재생하므로, 재생 도중 추가된 bytes는 tail queue에 남고 인계 순간의 누락 구간이
+   * 생기지 않습니다. EOF가 물리 줄 중간이면 남은 raw bytes를 첫 tail line 앞에 붙여 다중 byte 문자와
+   * HTML 행이 손상되지 않게 합니다.
+   */
+  public resumeAfterHistoricalSync(
+    token: ChatLogSyncPauseToken,
+    startOffset: number,
+    encoding: ChatLogEncoding = token.encoding,
+  ): ChatLogSyncCatchUpResult {
+    if (!this._syncPaused || token.id !== this._syncPauseSequence) {
+      throw new Error('실시간 채팅 로그 동기화 대기 토큰이 유효하지 않습니다.');
+    }
+    if (!fs.existsSync(token.filePath)) throw new Error('오늘 채팅 로그 파일이 사라졌습니다.');
+
+    const fileSize = fs.statSync(token.filePath).size;
+    const safeStartOffset = Math.max(0, Math.min(fileSize, Math.trunc(startOffset)));
+    this._chatLogEncoding = encoding;
+    this._syncCatchUpActive = true;
+
+    let tail: Tail | null = null;
+    try {
+      tail = new Tail(token.filePath, {
+        fromBeginning: false,
+        follow: true,
+        useWatchFile: true,
+        fsWatchOptions: { interval: 1000 },
+        encoding: 'binary',
+      });
+      const runtime = tail as Tail & TailRuntimeState;
+      const handoffOffset = Math.max(safeStartOffset, Math.trunc(runtime.currentCursorPos ?? fileSize));
+      let incompleteRawLine = this.catchUpRange(token.filePath, safeStartOffset, handoffOffset, encoding);
+
+      // catch-up 범위는 handoff 시점의 확정된 물리 줄까지만 읽습니다. 마지막 논리 줄을 일반 tail처럼
+      // 100ms 뒤에 처리하면 동기화 완료 응답 직후 오늘의 요약/모험일지를 조회했을 때 추가분이 잠시
+      // 빠져 보입니다. 반쪽 물리 줄은 incompleteRawLine에 따로 보존되므로 여기서는 정규화 대기분을
+      // 즉시 확정해도 이후 tail과 중복되거나 잘린 HTML 행을 처리할 위험이 없습니다.
+      this.flushPendingNormalizedLine();
+
+      tail.on('line', (data: string) => {
+        this._tailRetryAttempts = 0;
+        let rawLine = Buffer.from(data, 'binary');
+        if (incompleteRawLine.length > 0) {
+          rawLine = Buffer.concat([incompleteRawLine, rawLine]);
+          incompleteRawLine = Buffer.alloc(0);
+        }
+        this.consumeDecodedLine(iconv.decode(rawLine, this._chatLogEncoding));
+      });
+      tail.on('error', (error) => {
+        log(`[CHAT_LOG] Tail 오류: ${error}`);
+        if (this._tail !== tail) return;
+        this._tail = releaseFailedTail(tail!);
+        this.scheduleTailReconnect(token.filePath);
+      });
+
+      this._tail = tail;
+      this._currentFilePath = token.filePath;
+      this._syncPaused = false;
+      this._syncCatchUpActive = false;
+      log(`[CHAT_LOG] 과거 로그 동기화 catch-up 완료: ${safeStartOffset} -> ${handoffOffset}`);
+      return {
+        startOffset: safeStartOffset,
+        handoffOffset,
+        processedBytes: handoffOffset - safeStartOffset,
+      };
+    } catch (error) {
+      if (tail) tail.unwatch();
+      if (this._tail === tail) this._tail = null;
+      this._syncCatchUpActive = false;
+      log(`[CHAT_LOG] 과거 로그 동기화 catch-up 실패: ${error}`);
+      throw error;
+    }
   }
 
   /**
@@ -194,6 +418,7 @@ class ChatLogManager {
    * 파일 감시 초기화
    */
   private initWatch(replayExisting = true): void {
+    if (this._syncPaused) return;
     const filePath = this.getTodayFilePath();
     if (!filePath) {
       log('[CHAT_LOG] 로그 폴더가 설정되지 않았거나 유효하지 않습니다.');
@@ -273,6 +498,7 @@ class ChatLogManager {
   }
 
   private scheduleTailReconnect(filePath: string): void {
+    if (this._syncPaused) return;
     if (this._tailRetryTimer || this._tail || this._tailRetryAttempts >= MAX_TAIL_RETRY_ATTEMPTS) return;
     const attempt = ++this._tailRetryAttempts;
     const delayMs = getTailRetryDelayMs(attempt);
@@ -295,7 +521,7 @@ class ChatLogManager {
       this._normalizerFlushTimer = null;
     }
     this._lineNormalizer.push(decodedLine).forEach(line => this.processNormalizedLine(line));
-    if (this._lineNormalizer.hasPending()) {
+    if (this._lineNormalizer.hasPending() && !this._syncCatchUpActive) {
       this._normalizerFlushTimer = setTimeout(() => {
         this._normalizerFlushTimer = null;
         this.flushPendingNormalizedLine();
@@ -792,6 +1018,7 @@ class ChatLogManager {
    * 날짜 변경 또는 파일 생성 감지
    */
   private checkFileChange(): void {
+    if (this._syncPaused) return;
     let cfg = config.load();
 
     // 설정값이 비어 있을 때만 자동 탐색합니다. 지정 경로의 일시 장애는 설정을 바꾸지 않습니다.

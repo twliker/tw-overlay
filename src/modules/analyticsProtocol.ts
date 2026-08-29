@@ -13,8 +13,9 @@ export interface NormalizedGaClientId {
 export function shouldTransmitAnalytics(
   isPackaged: boolean,
   explicitlyDisabled: boolean = false,
+  userEnabled: boolean = true,
 ): boolean {
-  return isPackaged && !explicitlyDisabled;
+  return isPackaged && userEnabled && !explicitlyDisabled;
 }
 
 export function isValidGaClientId(value: unknown): value is string {

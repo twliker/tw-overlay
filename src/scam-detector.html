@@ -651,9 +651,11 @@
           if (toggle) { toggle.disabled = false; toggle.title = ''; }
         } else {
           _modelReady = false;
-          statusEl.textContent = !status.serverBinaryReady
-            ? '⬇️ 모델 및 llama-server 다운로드 필요'
-            : '⬇️ llama-server 바이너리 다운로드 필요';
+          statusEl.textContent = status.serverBinaryPresent && !status.serverBinaryReady
+            ? '⬇️ llama-server 안전 재설치 필요'
+            : !status.serverBinaryReady
+              ? '⬇️ 모델 및 llama-server 다운로드 필요'
+              : '⬇️ AI 모델 다운로드 필요';
           statusEl.style.color = '#94a3b8';
           downloadArea.classList.remove('hidden');
           document.getElementById('progress-area').classList.add('hidden');

@@ -1,5 +1,16 @@
 /**
- * 일일/주간 컨텐츠 체크 리스트 로직 모듈
+ * 기능 계약 — 캐릭터별 일일/주간 숙제 체크리스트
+ *
+ * - 배포 기본 목록은 `contents.json`과 `contents.meta.json`을 함께 검증한 뒤 기존 사용자 목록과
+ *   ID 기준으로 병합합니다. 리소스가 불완전하면 일부 기본 항목으로 덮어쓰지 않고 안전하게 실패합니다.
+ * - 완료/제외 상태는 항목 하나의 전역 값이 아니라 `completedState[characterId]`에 저장합니다. 선택
+ *   캐릭터를 바꿔도 다른 캐릭터 상태를 잃지 않아야 하며, 구버전 전역 상태는 마이그레이션합니다.
+ * - 일일·주간 초기화는 단순 날짜가 아니라 각 항목의 reset rule로 만든 주기 키를 비교합니다.
+ *   앱이 리셋 시각에 꺼져 있었어도 다음 검사에서 정확히 한 번 초기화하고 모험일지에 반영합니다.
+ * - 드래그 정렬은 일일 항목끼리, 주간 항목끼리만 허용합니다. 같은 주기 안에서는 카테고리 이동과
+ *   순서 변경이 가능하며 저장된 배열 순서가 재시작·Drive 동기화 후에도 유지되어야 합니다.
+ * - 자동 완료 로그와 수동 체크는 동일 상태를 갱신할 수 있으므로 source event ID를 사용해 재생·동기화
+ *   중복을 막습니다. 설정 원본은 `contentsCheckerItems`이고 일지/HUD는 이 값을 읽어 표시합니다.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -913,11 +924,18 @@ function shouldReset(rule: ResetRule, lastCompleted: Date, now: Date): boolean {
   return false;
 }
 
-/** 일지(다이어리) 통계 동기화 */
-function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
-  const cfg = config.load();
-  const presets = cfg.characterPresets || [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
-  
+export interface DiaryHomeworkStats {
+  dailyDone: number;
+  dailyTotal: number;
+  weeklyDone: number;
+  weeklyTotal: number;
+}
+
+/** 현재 숙제·캐릭터 구성으로 모험일지에 표시할 완료/전체 스냅샷을 계산합니다. */
+export function calculateDiaryHomeworkStats(
+  items: ContentsCheckerItem[],
+  presets: Array<{ id: string }>,
+): DiaryHomeworkStats {
   let dailyTotal = 0;
   let dailyDone = 0;
   let weeklyTotal = 0;
@@ -943,14 +961,23 @@ function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
       return i.resetRule.type === 'weekly' && (i.completedState?.[charId]?.isCompleted);
     }).length;
   });
+
+  return { dailyDone, dailyTotal, weeklyDone, weeklyTotal };
+}
+
+/** 일지(다이어리) 통계 동기화 */
+function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
+  const cfg = config.load();
+  const presets = cfg.characterPresets || [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
+  const stats = calculateDiaryHomeworkStats(items, presets);
   
   const date = getLocalDateKey();
   return runDiaryWriteWithRetry(`homework-stats:${date}`, () => diaryDb.updateHomeworkStats(
     date,
-    dailyDone,
-    dailyTotal,
-    weeklyDone,
-    weeklyTotal,
+    stats.dailyDone,
+    stats.dailyTotal,
+    stats.weeklyDone,
+    stats.weeklyTotal,
   ));
 }
 
@@ -1288,7 +1315,16 @@ export function moveItem(id: string, direction: MoveDirection): void {
   refreshUI();
 }
 
-/** 같은 또는 다른 카테고리로 숙제를 드롭 위치로 이동하고 카테고리를 변경합니다. */
+/**
+ * 숙제 카드 드래그 정렬 계약입니다.
+ *
+ * - 일간 숙제는 일간 영역 안에서만, 주간 숙제는 주간 영역 안에서만 이동할 수 있습니다.
+ * - 같은 리셋 유형 안에서는 같은 카테고리 순서 변경과 다른 카테고리 이동을 모두 허용합니다.
+ * - 다른 리셋 유형 위에 드롭해도 resetRule, maxCount, 완료 상태를 변환하지 않고 아무 작업도
+ *   하지 않습니다. 일간↔주간 변환은 리셋 주기와 누적 횟수 의미를 바꾸므로 정렬 동작이 아닙니다.
+ * - 사용자가 바꾼 category와 배열 순서는 `contentsCheckerItems`에 즉시 저장되어 재시작 뒤에도
+ *   유지됩니다. 초기화 시 기본 리소스를 병합할 때도 사용자 category를 덮어쓰면 안 됩니다.
+ */
 export function reorderItem(sourceId: string, targetId: string, position: DropPosition): void {
   if (sourceId === targetId || (position !== 'before' && position !== 'after')) return;
 
@@ -1297,6 +1333,7 @@ export function reorderItem(sourceId: string, targetId: string, position: DropPo
   const source = items.find(item => item.id === sourceId);
   const target = items.find(item => item.id === targetId);
   if (!source || !target) return;
+  if (source.resetRule.type !== target.resetRule.type) return;
 
   const sameCategory = source.resetRule.type === target.resetRule.type && getCategoryName(source) === getCategoryName(target);
 
@@ -1317,25 +1354,6 @@ export function reorderItem(sourceId: string, targetId: string, position: DropPo
     });
   } else {
     source.category = target.category;
-    if (source.resetRule.type !== target.resetRule.type) {
-      source.resetRule = {
-        ...source.resetRule,
-        type: target.resetRule.type,
-        hour: target.resetRule.hour ?? source.resetRule.hour ?? 0,
-        dayOfWeek: target.resetRule.dayOfWeek ?? source.resetRule.dayOfWeek ?? 1,
-      };
-      if (source.resetRule.type === 'weekly') {
-        source.maxCount = source.maxCount || 1;
-      } else {
-        delete source.maxCount;
-        if (source.completedState) {
-          Object.keys(source.completedState).forEach(charId => {
-            const state = source.completedState[charId];
-            state.currentCount = state.isCompleted ? 1 : 0;
-          });
-        }
-      }
-    }
     const sourceIndex = items.findIndex(item => item.id === sourceId);
     if (sourceIndex === -1) return;
     const [movedItem] = items.splice(sourceIndex, 1);
@@ -1434,11 +1452,14 @@ export function updateItemCount(id: string, characterId: string, count: number):
   }
 }
 
-/** 주간/과거 로그 동기화 시 완료 횟수를 안전하게 병합 (Math.max) */
+/**
+ * 과거 로그 동기화의 숙제 횟수를 안전하게 병합합니다.
+ * 과거 로그에는 수행 캐릭터 정보가 없으므로 호출자가 캐릭터를 주지 않으면 반드시 메인 캐릭터를 사용합니다.
+ * 선택 중인 캐릭터나 프리셋 배열 첫 항목으로 추정하면 PC·정렬 상태에 따라 다른 캐릭터가 체크됩니다.
+ */
 export function mergeHomeworkCountFromSync(id: string, detectedCount: number, characterId?: string): boolean {
   const cfg = config.load();
-  const presets = clonePresets(cfg.characterPresets);
-  const targetCharId = characterId || presets[0]?.id || cfg.selectedCharacterId || MAIN_CHAR_ID;
+  const targetCharId = characterId || MAIN_CHAR_ID;
 
   const context = getItemStateContext(id, targetCharId);
   if (!context) return false;

@@ -1,3 +1,15 @@
+/**
+ * 기능 계약 — Fast Ping 네트워크 최적화
+ *
+ * - 이 기능은 현재 활성 Windows 네트워크 어댑터의 레지스트리에서 `TcpAckFrequency`와
+ *   `TCPNoDelay`를 함께 1로 설정하거나, 해제 시 두 값을 제거해 Windows 기본 동작으로 돌립니다.
+ * - 시스템 레지스트리를 변경하므로 관리자 권한이 필수입니다. 앱의 `requireAdministrator` 정책과
+ *   별개로 실행 직전에도 권한을 확인하며, 권한이 없으면 변경을 시도하지 않습니다.
+ * - 사용자가 명시적으로 켜거나 끈 경우에만 `setOptimization`을 호출해야 합니다. 상태 조회는
+ *   읽기 전용이며 한 활성 어댑터라도 두 값이 모두 1일 때 enabled로 보고합니다.
+ * - PowerShell 본문은 UTF-16LE Base64 `EncodedCommand`로 전달하고 사용자 문자열을 스크립트에
+ *   보간하지 않습니다. 적용 범위를 모든 인터페이스나 다른 TCP 값으로 임의 확대하지 않습니다.
+ */
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { log } from './logger';

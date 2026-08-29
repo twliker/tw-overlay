@@ -1,3 +1,15 @@
+/**
+ * 기능 계약 — 어벤던로드 세션 추적
+ *
+ * - `ABANDONED_ENTRY`, `ABANDONED_FEE`, `MAGIC_STONE_GAIN/LOSS` 로그를 한 세션의 지역별 도전,
+ *   입장료, 마정석 증감과 추정 수익으로 조립합니다. 일반 득템 키워드와는 독립된 전용 로그입니다.
+ * - 입장료와 지역 진입 로그의 순서는 일정하지 않으므로 15초 범위에서 앞/뒤 도착을 모두 매칭합니다.
+ *   매칭되지 않은 입장료도 전체 수익에서 즉시 빼고 `unassignedFee`로 보존해 금액을 잃지 않습니다.
+ * - 10회 도달 알림은 설정이 켜졌을 때만 Windows/HUD에 보내며, 통계 상태는 모든 관련 창에
+ *   브로드캐스트합니다. 자동 숨김은 통계 수집을 중단하지 않습니다.
+ * - 사용자가 직접 숨긴 상태는 활동으로 자동 해제하지 않고 명시적 표시 또는 다음 게임 세션에서만
+ *   해제합니다. `reset()`은 통계를 초기화하되 기능 활성 설정은 유지합니다.
+ */
 import { chatParser } from './chatParser';
 import * as config from './config';
 import { log } from './logger';
@@ -12,9 +24,6 @@ export function isAbandonedFeeMatchWithinWindow(firstDetectedAt: number, secondD
   return elapsed >= 0 && elapsed < ABANDONED_FEE_MATCH_WINDOW_MS;
 }
 
-/**
- * 어벤던로드 추적 모듈 — 지역별 통계, 마정석 수익, 자동 숨기기 타이머
- */
 class AbandonedTracker {
   private _started = false;
   private _abandonedState: AbandonedRoadState = {

@@ -262,6 +262,12 @@ void app.whenReady().then(() => {
           app.quit();
           return;
         }
+        const immediatePull = await cloudSyncManager.syncFromCloud(false);
+        if (!immediatePull.success) {
+          probeError = immediatePull.error || 'automatic pull after selective restore failed';
+          app.quit();
+          return;
+        }
         configModule.saveImmediate({ userServer: 17 });
         const deadline = Date.now() + 5_000;
         const poll = setInterval(() => {

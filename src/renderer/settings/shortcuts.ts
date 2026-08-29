@@ -94,7 +94,7 @@
   function handleKeyDown(event: KeyboardEvent): boolean {
     if (!recordingKey) return false;
     event.preventDefault();
-    event.stopPropagation();
+    event.stopImmediatePropagation();
     const shortcut = electronShortcutKey(event);
     if (!shortcut) return true;
 

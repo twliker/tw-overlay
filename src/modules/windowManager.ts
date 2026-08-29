@@ -1,5 +1,21 @@
 /**
- * 창 관리 모듈 - WebContentsView + 동적 Z-Order 스택 버전
+ * 기능 계약 — Electron 창 생명주기·배치·오버레이 상태
+ *
+ * - 모든 기능 창은 이 모듈과 `managedWindowRegistry`를 통해 하나의 창 참조, 크기 정책, 저장 위치를
+ *   공유합니다. 같은 기능 창을 중복 생성하거나 renderer에서 별도 BrowserWindow 상태를 만들지 않습니다.
+ * - 게임 기준 배치는 `tracker`가 제공한 물리 좌표를 사용하고 DPI 변환은 한 번만 적용합니다. 사용자가
+ *   직접 드래그한 위치와 프로그램이 재배치한 위치를 구분해 자동 이동을 사용자 설정으로 저장하지 않습니다.
+ * - 사용자가 옮긴 보조 창은 일반 창모드와 창모드 전체화면의 상대 오프셋을 분리하고, Electron 화면
+ *   기준 절대 좌표도 함께 저장합니다. 게임 창의 테두리·해상도가 바뀌는 짧은 전환 구간에는 보조 창과
+ *   화면 이탈 복구를 동결하여 중간 좌표가 사용자 설정을 덮지 않게 합니다. 게임 HUD·사이드바·독은
+ *   전환 중에도 항상 게임에 붙습니다.
+ * - 게임/TW-Overlay가 전경일 때만 게임 바로 위에 오버레이를 샌드위치 배치하고, 다른 앱이 전경이면
+ *   그 앱을 가리지 않아야 합니다. 이 계약은 관리자 권한의 게임과 같은 무결성 수준에서 Win32 z-order를
+ *   제어하는 전제이므로 `package.json`의 `requireAdministrator`를 유지합니다.
+ * - 창 닫힘과 기능 비활성화는 다릅니다. 게임 상태 변화로 일시적으로 닫힌 창이 사용자 가시성 설정을
+ *   false로 덮어쓰지 않도록, 영구 설정 변경은 명시적인 toggle/apply 경로에서만 수행합니다.
+ * - 설정 적용은 기존 창과 새 창 모두 같은 config를 받게 해야 하며, 소리·토스트는 여러 창에 표시해도
+ *   실제 오디오는 한 번만 재생해야 합니다.
  */
 import { BrowserWindow, WebContentsView, screen } from 'electron';
 import type { WebContents } from 'electron';
@@ -13,7 +29,7 @@ import * as tracker from './tracker';
 import { log } from './logger';
 import { buffTimerManager } from './buffTimerManager';
 import * as diaryDb from './diaryDb';
-import type { EquipmentDictionaryItem, WindowPositionKey } from '../shared/types';
+import type { EquipmentDictionaryItem, EvolutionCalculatorSelection, ScreenPosition, WindowPositionKey } from '../shared/types';
 import { copyDefaultWindowPosition } from '../shared/windowPositions';
 import { collectIncompleteContents } from './contentsSummary';
 import { getStandardOptions, isValidCoordinate } from './windowOptions';
@@ -26,6 +42,9 @@ import { ProgrammaticMoveTracker } from './programmaticMoveTracker';
 import { EmbeddedWebTool } from './embeddedWebTool';
 import { OverlayToolbarController } from './overlayToolbarController';
 import { createDisplayTopologySignature, DisplayTopologyStabilizer } from './displayTopologyStabilizer';
+import { resolveFixedScreenPosition, supportsFixedScreenPosition, toRelativePosition, toScreenPosition } from './windowPositionPolicy';
+import { GameWindowModeController } from './gameWindowModePolicy';
+import type { GameWindowMode } from './gameWindowModePolicy';
 import {
   calculateAttachedWindowPosition,
   calculateBrowserOverlayPosition,
@@ -33,7 +52,6 @@ import {
   calculateSidebarResizeBounds,
   hasBoundsChanged,
   hasPositionChanged,
-  isFullscreenBounds,
   resizeBounds,
   resolvePhysicalGameRect,
 } from './windowLayout';
@@ -41,7 +59,7 @@ import {
 
 // --- 상태 관리 ---
 let pendingCoefficientItem: EquipmentDictionaryItem | null = null;
-let pendingEvolutionItem: EquipmentDictionaryItem | null = null;
+let pendingEvolutionItem: EvolutionCalculatorSelection | null = null;
 let pendingSettingsTab: string | null = null;
 
 /** 게임/TW-Overlay가 전경일 때 우리 창만 게임 바로 위에 샌드위치로 배치한다. */
@@ -218,6 +236,9 @@ let lastKnownGameRect: GameRect | null = null;
 let physicalGameRect: GameRect | null = null;
 let lastForegroundSize: { width: number; height: number } | null = null;
 let isGameFullscreen = false;
+const gameWindowModeController = new GameWindowModeController();
+let activeGameWindowMode: GameWindowMode | null = null;
+let gameWindowModeTransitioning = false;
 // 독 상/하단 전환은 표시 중인 투명 창을 곧바로 이동하면 Windows Shell의
 // 전체화면 판정과 내부 Z-order가 흔들릴 수 있으므로 게임이 전경으로 돌아온 뒤 적용합니다.
 let pendingDockLayoutChange = false;
@@ -294,12 +315,203 @@ function init() {
 }
 init();
 
+type RelativeWindowPositionMap = Partial<Record<WindowPositionKey, WindowPosition>>;
+
+function getModePositions(cfg: AppConfig, mode: GameWindowMode): RelativeWindowPositionMap {
+  return mode === 'windowed-fullscreen'
+    ? { ...(cfg.windowedFullscreenPositions || {}) }
+    : { ...(cfg.positions || {}) };
+}
+
+function createModePositionsPatch(
+  mode: GameWindowMode,
+  positions: RelativeWindowPositionMap,
+): Partial<AppConfig> {
+  return mode === 'windowed-fullscreen'
+    ? { windowedFullscreenPositions: positions }
+    : { positions };
+}
+
+function getActiveMode(): GameWindowMode {
+  return activeGameWindowMode || 'windowed';
+}
+
+/** 선택한 게임 화면 모드의 상대 위치를 모든 런타임 창 설정에 한 번에 반영합니다. */
+function applyRuntimeModePositions(positions: RelativeWindowPositionMap): void {
+  if (positions.overlay) overlayPos = { ...positions.overlay };
+  Object.keys(windowRegistry).forEach(rawKey => {
+    const key = rawKey as WindowPositionKey;
+    const position = positions[key];
+    if (position) windowRegistry[key].pos = { ...position };
+  });
+}
+
+/**
+ * 전체화면 프로필을 처음 만들 때는 직전 안정 모드의 저장 위치를 실제 화면 좌표로 바꾼 뒤 새 게임
+ * 좌표 기준으로 변환합니다. 현재 BrowserWindow 좌표를 읽지 않으므로 게임이 없거나 최소화된 동안
+ * 중앙에 임시 표시한 창을 옮겨도 그 좌표가 게임용 프로필에 섞이지 않습니다.
+ */
+function activateGameWindowMode(
+  mode: GameWindowMode,
+  anchorRect: GameRect,
+  previousStableBounds: GameRect | null,
+): AppConfig {
+  let cfg = config.load();
+  let positions = getModePositions(cfg, mode);
+
+  if (mode === 'windowed-fullscreen') {
+    const sourcePositions = getModePositions(cfg, activeGameWindowMode || 'windowed');
+    const sourceAnchor = previousStableBounds || anchorRect;
+    let changed = false;
+    for (const rawKey of Object.keys(cfg.positions || {})) {
+      const key = rawKey as WindowPositionKey;
+      if (!supportsFixedScreenPosition(key) || positions[key]) continue;
+      const sourcePosition = sourcePositions[key] || cfg.positions?.[key];
+      if (!sourcePosition) continue;
+      const screenPosition = toScreenPosition(key, sourceAnchor, sourcePosition);
+      positions[key] = toRelativePosition(key, anchorRect, screenPosition);
+      changed = true;
+    }
+    if (changed) {
+      config.saveImmediate(createModePositionsPatch(mode, positions));
+      cfg = config.load();
+      positions = getModePositions(cfg, mode);
+    }
+  }
+
+  applyRuntimeModePositions(positions);
+  activeGameWindowMode = mode;
+  log(`[WINDOW_MODE] 안정 모드 적용: ${mode}`);
+  return cfg;
+}
+
 function savePosition(winType: WindowPositionKey, pos: WindowPosition, immediate = false) {
   const currentCfg = config.load();
-  const positions = { ...(currentCfg.positions || {}), [winType]: { ...pos } };
+  const mode = getActiveMode();
+  const positions = { ...getModePositions(currentCfg, mode), [winType]: { ...pos } };
   config.markStoredPosition(winType);
-  if (immediate) config.saveImmediate({ positions });
-  else config.save({ positions });
+  const patch = createModePositionsPatch(mode, positions);
+  if (immediate) config.saveImmediate(patch);
+  else config.save(patch);
+}
+
+/**
+ * 사용자가 옮긴 창은 현재 게임 화면 모드의 상대 오프셋과 화면 절대 좌표를 함께 갱신합니다.
+ * 현재 따라가기 설정만 저장하면 ON/OFF 전환 때 창이 이전 좌표로 튀므로 두 표현을 항상 같은 시점의
+ * 좌표로 맞춥니다. `storedPositionKeys`는 실제 사용자 이동/안전 복구에서만 표시합니다.
+ */
+function saveUserWindowPosition(
+  winType: WindowPositionKey,
+  screenPosition: ScreenPosition,
+  anchorRect: GameRect,
+  immediate = false,
+): void {
+  const currentCfg = config.load();
+  const mode = getActiveMode();
+  const relative = toRelativePosition(winType, anchorRect, screenPosition);
+  const positions = { ...getModePositions(currentCfg, mode), [winType]: relative };
+  const fixedWindowPositions = {
+    ...(currentCfg.fixedWindowPositions || {}),
+    [winType]: { ...screenPosition },
+  };
+  config.markStoredPosition(winType);
+  if (winType === 'overlay') overlayPos = relative;
+  else if (windowRegistry[winType]) windowRegistry[winType].pos = relative;
+  const patch = { ...createModePositionsPatch(mode, positions), fixedWindowPositions };
+  if (immediate) config.saveImmediate(patch);
+  else config.save(patch);
+}
+
+function resolveManagedWindowPosition(
+  key: WindowPositionKey,
+  anchorRect: GameRect,
+  winCfg: ManagedWindow,
+  calcPosition?: (gr: GameRect, pos: WindowPosition) => { x: number; y: number },
+): ScreenPosition {
+  const cfg = config.load();
+  const fixed = cfg.followGameWindow === false && cfg.fixedWindowPositionsActive === true
+    ? cfg.fixedWindowPositions?.[key]
+    : undefined;
+  if (supportsFixedScreenPosition(key) && fixed) return { ...fixed };
+  return (calcPosition || winCfg.calcPosition)
+    ? (calcPosition || winCfg.calcPosition)!(anchorRect, winCfg.pos)
+    : calculateAttachedWindowPosition(anchorRect, winCfg.pos);
+}
+
+/**
+ * `게임창 따라가기` 설정과 저장 좌표 표현을 원자적으로 맞춥니다.
+ * 구버전 설정에는 절대 좌표가 없으므로 OFF 상태의 첫 게임 동기화에서 현재 상대 위치를 한 번 변환합니다.
+ */
+function synchronizeWindowPositionMode(anchorRect: GameRect, mode: GameWindowMode): AppConfig {
+  let cfg = config.load();
+  const fixedShouldBeActive = cfg.followGameWindow === false;
+  const fixedWasActive = cfg.fixedWindowPositionsActive === true;
+  const positions = getModePositions(cfg, mode);
+  const fixedWindowPositions = { ...(cfg.fixedWindowPositions || {}) };
+  let changed = false;
+
+  if (fixedShouldBeActive) {
+    overlayPos = positions.overlay ? { ...positions.overlay } : overlayPos;
+    if (!fixedWasActive || !fixedWindowPositions.overlay) {
+      fixedWindowPositions.overlay = resolveFixedScreenPosition(
+        'overlay',
+        anchorRect,
+        overlayPos,
+        fixedWindowPositions.overlay,
+        fixedWasActive,
+      );
+      changed = true;
+    }
+    for (const [rawKey, winCfg] of Object.entries(windowRegistry)) {
+      const key = rawKey as WindowPositionKey;
+      if (!supportsFixedScreenPosition(key)) continue;
+      if (positions[key]) winCfg.pos = { ...positions[key]! };
+      if (!fixedWasActive || !fixedWindowPositions[key]) {
+        fixedWindowPositions[key] = resolveFixedScreenPosition(
+          key,
+          anchorRect,
+          winCfg.pos,
+          fixedWindowPositions[key],
+          fixedWasActive,
+        );
+        changed = true;
+      }
+    }
+    // 게임이 OFF 상태에서 움직였더라도 다시 Follow를 켤 때 현재 화면 위치가 유지되도록
+    // 런타임 상대 오프셋은 최신 게임 좌표에 맞춰 둡니다. 절대 좌표 자체는 바꾸지 않습니다.
+    overlayPos = toRelativePosition('overlay', anchorRect, fixedWindowPositions.overlay!);
+    positions.overlay = { ...overlayPos };
+    for (const [rawKey, winCfg] of Object.entries(windowRegistry)) {
+      const key = rawKey as WindowPositionKey;
+      const fixed = fixedWindowPositions[key];
+      if (!supportsFixedScreenPosition(key) || !fixed) continue;
+      winCfg.pos = toRelativePosition(key, anchorRect, fixed);
+      positions[key] = { ...winCfg.pos };
+    }
+    if (changed) {
+      config.saveImmediate({ fixedWindowPositions, fixedWindowPositionsActive: true });
+      cfg = config.load();
+    }
+    return cfg;
+  }
+
+  if (fixedWasActive) {
+    const overlayFixed = fixedWindowPositions.overlay;
+    if (overlayFixed) {
+      overlayPos = toRelativePosition('overlay', anchorRect, overlayFixed);
+      positions.overlay = { ...overlayPos };
+    }
+    for (const [rawKey, winCfg] of Object.entries(windowRegistry)) {
+      const key = rawKey as WindowPositionKey;
+      const fixed = fixedWindowPositions[key];
+      if (!supportsFixedScreenPosition(key) || !fixed) continue;
+      winCfg.pos = toRelativePosition(key, anchorRect, fixed);
+      positions[key] = { ...winCfg.pos };
+    }
+    config.saveImmediate({ ...createModePositionsPatch(mode, positions), fixedWindowPositionsActive: false });
+    cfg = config.load();
+  }
+  return cfg;
 }
 
 export const getSplashWindow = () => splashWindow;
@@ -512,7 +724,13 @@ function createOverlayWindow(targetUrl?: string): void {
   if (overlayWindow) return;
   const cfg = config.load();
   let isClosing = false;
-  overlayWindow = new BrowserWindow(getStandardOptions(cfg.width, cfg.height, { minWidth: MIN_W, minHeight: MIN_H, skipTaskbar: true }));
+  const fallbackPosition = gameRect ? {} : resolveFallbackWindowPosition(cfg.width, cfg.height);
+  overlayWindow = new BrowserWindow(getStandardOptions(cfg.width, cfg.height, {
+    minWidth: MIN_W,
+    minHeight: MIN_H,
+    skipTaskbar: true,
+    ...fallbackPosition,
+  }));
   overlayWindow.setOpacity(cfg.opacity);
   overlayWindow.loadFile(path.join(__dirname, '..', 'overlay.html'));
   view = new WebContentsView({ webPreferences: { backgroundThrottling: false, preload: path.join(__dirname, '..', 'overlay-view-preload.js') } });
@@ -532,14 +750,13 @@ function createOverlayWindow(targetUrl?: string): void {
     isClosing = true;
   });
   overlayWindow.on('move', () => {
-    // 전체화면(isGameFullscreen) 상태일 때는 사용자 이동 오프셋을 덮어쓰거나 저장하지 않음 (창모드 복귀 시 위치 유지를 위해)
-    if (isClosing || consumeProgrammaticMove('overlay', overlayWindow) || isApplyingSize || !overlayWindow || isGameFullscreen) return;
+    // 화면 모드 전환 중간 좌표만 저장하지 않습니다. 안정된 전체화면에서는 별도 프로필에 저장합니다.
+    if (isClosing || consumeProgrammaticMove('overlay', overlayWindow) || isApplyingSize
+      || !overlayWindow || gameWindowModeTransitioning) return;
     programmaticMoves.markUserDrag('overlay');
     const b = overlayWindow.getBounds();
     if (isTracking && gameRect) {
-      overlayPos.offsetX = b.x - gameRect.x;
-      overlayPos.offsetY = b.y - gameRect.y;
-      savePosition('overlay', overlayPos);
+      saveUserWindowPosition('overlay', { x: b.x, y: b.y }, gameRect);
     }
   });
 
@@ -706,19 +923,16 @@ function recoverCompletelyOffscreenWindow(
   height: number,
 ): { x: number; y: number; recovered: boolean } {
   // 독바는 게임 내부 고정 배치이며 사용자 저장 위치를 사용하지 않습니다.
-  // 사용자가 마우스로 드래그 중일 때는 화면 이탈 복구가 오작동하여 창이 중앙으로 튕기지 않도록 보호합니다.
-  if (key === 'dock' || programmaticMoves.isUserDragging(key) || isVisibleOnScreens(x, y, width, height)) return { x, y, recovered: false };
+  // 게임 화면 모드 전환 중 또는 사용자가 드래그 중일 때는 중간 좌표를 화면 이탈로 오인해
+  // 중앙으로 옮기거나 그 좌표를 저장하지 않습니다.
+  if (gameWindowModeTransitioning || key === 'dock' || programmaticMoves.isUserDragging(key)
+    || isVisibleOnScreens(x, y, width, height)) return { x, y, recovered: false };
 
   const targetDisplay = screen.getDisplayNearestPoint({ x: anchorRect.x, y: anchorRect.y });
   const { x: recoveredX, y: recoveredY } = centerWindowInWorkArea(width, height, targetDisplay.workArea);
 
   log(`[WINDOW_POS] Window ${key} is completely outside all displays (x=${x}, y=${y}). Centering window.`);
-  const winCfg = windowRegistry[key];
-  winCfg.pos = {
-    offsetX: recoveredX - (anchorRect.x + anchorRect.width),
-    offsetY: recoveredY - anchorRect.y,
-  };
-  savePosition(key, winCfg.pos);
+  saveUserWindowPosition(key, { x: recoveredX, y: recoveredY }, anchorRect);
   return { x: recoveredX, y: recoveredY, recovered: true };
 }
 
@@ -729,22 +943,25 @@ function recoverCompletelyOffscreenBrowserOverlay(
   width: number,
   height: number,
 ): { x: number; y: number; recovered: boolean } {
-  if (programmaticMoves.isUserDragging('overlay') || isVisibleOnScreens(x, y, width, height)) return { x, y, recovered: false };
+  if (gameWindowModeTransitioning || programmaticMoves.isUserDragging('overlay')
+    || isVisibleOnScreens(x, y, width, height)) return { x, y, recovered: false };
 
   const targetDisplay = screen.getDisplayNearestPoint({ x: anchorRect.x, y: anchorRect.y });
   const { x: recoveredX, y: recoveredY } = centerWindowInWorkArea(width, height, targetDisplay.workArea);
 
   log(`[WINDOW_POS] Browser overlay is completely outside all displays (x=${x}, y=${y}). Centering window.`);
-  // 브라우저 오버레이는 다른 보조 창과 달리 게임 우측 끝이 아니라 좌측 상단을 기준으로 저장합니다.
-  overlayPos = {
-    offsetX: recoveredX - anchorRect.x,
-    offsetY: recoveredY - anchorRect.y,
-  };
-  savePosition('overlay', overlayPos);
+  saveUserWindowPosition('overlay', { x: recoveredX, y: recoveredY }, anchorRect);
   return { x: recoveredX, y: recoveredY, recovered: true };
 }
 
 type ManagedWindowShowReason = 'user-open' | 'game-resync' | 'settings-apply' | 'preload';
+
+/** 전환 도중 새 창이 열리면 흔들리는 최신 rect 대신 직전 안정 게임 위치를 기준으로 둡니다. */
+function getStablePlacementAnchorRect(): GameRect | null {
+  if (!gameWindowModeTransitioning) return gameRect;
+  const stableBounds = gameWindowModeController.getStableBounds();
+  return stableBounds ? { ...stableBounds } : gameRect;
+}
 
 function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   onReady?: (win: BrowserWindow) => void,
@@ -817,31 +1034,32 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   // 최초 렌더링 뒤 한 번만 배치·표시합니다. reload/DevTools 연결 등으로
   // ready-to-show가 다시 발생해도 show/showInactive를 반복하지 않습니다.
   win.once('ready-to-show', () => {
-    if (gameRect) {
-      let { x, y } = (callbacks?.calcPosition || winCfg.calcPosition)
-        ? (callbacks?.calcPosition || winCfg.calcPosition)!(gameRect, winCfg.pos)
-        : calculateAttachedWindowPosition(gameRect, winCfg.pos);
+    const placementAnchor = getStablePlacementAnchorRect();
+    if (placementAnchor) {
+      let { x, y } = resolveManagedWindowPosition(key, placementAnchor, winCfg, callbacks?.calcPosition);
 
       // 채팅 오버레이 창(Main/Sub1/Sub2)의 경우
       if (key === 'chatOverlay' || key === 'chatOverlaySub' || key === 'chatOverlaySub2') {
-        const cfg = config.load();
         const hasSavedPos = config.hasStoredPosition(key as WindowPositionKey);
+        const positionConfig = config.load();
+        const hasFixedPos = positionConfig.followGameWindow === false
+          && !!positionConfig.fixedWindowPositions?.[key];
 
         // 사용자가 수동 드래그하여 저장한 위치가 없을 때(최초 오픈)만 게임창 내부 범위로 강제 클램핑 처리
-        if (!hasSavedPos) {
-          const minY = gameRect.y;
-          const maxY = Math.max(minY, gameRect.y + gameRect.height - finalH);
+        if (!hasSavedPos && !hasFixedPos) {
+          const minY = placementAnchor.y;
+          const maxY = Math.max(minY, placementAnchor.y + placementAnchor.height - finalH);
           y = Math.max(minY, Math.min(y, maxY));
 
-          const minX = gameRect.x;
-          const maxX = Math.max(minX, gameRect.x + gameRect.width - finalW);
+          const minX = placementAnchor.x;
+          const maxX = Math.max(minX, placementAnchor.x + placementAnchor.width - finalW);
           x = Math.max(minX, Math.min(x, maxX));
         }
       }
 
       // 숙제 체크리스트를 포함한 모든 보조 창에 동일한 완전 이탈 복구 규칙을 적용합니다.
       // 일부만 화면에 걸친 상태라면 isVisibleOnScreens가 true이므로 사용자 위치를 유지합니다.
-      ({ x, y } = recoverCompletelyOffscreenWindow(key, gameRect, x, y, finalW, finalH));
+      ({ x, y } = recoverCompletelyOffscreenWindow(key, placementAnchor, x, y, finalW, finalH));
 
       setProgrammaticMove(key, x, y);
       win.setPosition(x, y);
@@ -884,12 +1102,12 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     }
   });
   win.on('move', () => {
-    // 전체화면(isGameFullscreen) 상태일 때는 사용자 이동 오프셋을 덮어쓰거나 저장하지 않음 (창모드 복귀 시 위치 유지를 위해)
-    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove(key, winCfg.ref) || !winCfg.ref || !gameRect || isGameFullscreen) return;
+    // 화면 모드 전환 중간 좌표만 저장하지 않습니다. 안정된 전체화면에서는 별도 프로필에 저장합니다.
+    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove(key, winCfg.ref)
+      || !winCfg.ref || !gameRect || gameWindowModeTransitioning) return;
     programmaticMoves.markUserDrag(key);
     const b = winCfg.ref.getBounds();
-    winCfg.pos = { offsetX: b.x - (gameRect.x + gameRect.width), offsetY: b.y - gameRect.y };
-    savePosition(key, winCfg.pos);
+    saveUserWindowPosition(key, { x: b.x, y: b.y }, gameRect);
   });
   win.on('closed', () => {
     if (config.hasPending()) {
@@ -998,7 +1216,7 @@ export function sendEquipmentToCoefficient(item: EquipmentDictionaryItem): void 
   pendingCoefficientItem = item;
   openCoefficientCalculatorWindow();
 }
-export function sendEquipmentToEvolution(item: EquipmentDictionaryItem): void {
+export function sendEquipmentToEvolution(item: EvolutionCalculatorSelection): void {
   if (sendToExistingManagedWindow('evolutionCalculator', 'auto-select-evolution', item)) return;
   pendingEvolutionItem = item;
   openEvolutionCalculatorWindow();
@@ -1076,11 +1294,10 @@ export function toggleUniformColorWindow(): void {
   win.on('close', () => { isClosing = true; });
 
   win.once('ready-to-show', () => {
-    if (gameRect) {
-      let { x, y } = winCfg.calcPosition
-        ? winCfg.calcPosition(gameRect, winCfg.pos)
-        : calculateAttachedWindowPosition(gameRect, winCfg.pos);
-      ({ x, y } = recoverCompletelyOffscreenWindow('uniformColor', gameRect, x, y, sizing.width, sizing.height));
+    const placementAnchor = getStablePlacementAnchorRect();
+    if (placementAnchor) {
+      let { x, y } = resolveManagedWindowPosition('uniformColor', placementAnchor, winCfg);
+      ({ x, y } = recoverCompletelyOffscreenWindow('uniformColor', placementAnchor, x, y, sizing.width, sizing.height));
       setProgrammaticMove('uniformColor', x, y);
       win.setPosition(x, y);
     } else {
@@ -1097,12 +1314,11 @@ export function toggleUniformColorWindow(): void {
   });
 
   win.on('move', () => {
-    // 전체화면(isGameFullscreen) 상태일 때는 사용자 이동 오프셋을 덮어쓰거나 저장하지 않음 (창모드 복귀 시 위치 유지를 위해)
-    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('uniformColor', winCfg.ref) || !winCfg.ref || !gameRect || isGameFullscreen) return;
+    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('uniformColor', winCfg.ref)
+      || !winCfg.ref || !gameRect || gameWindowModeTransitioning) return;
     programmaticMoves.markUserDrag('uniformColor');
     const b = winCfg.ref.getBounds();
-    winCfg.pos = { offsetX: b.x - (gameRect.x + gameRect.width), offsetY: b.y - gameRect.y };
-    savePosition('uniformColor', winCfg.pos);
+    saveUserWindowPosition('uniformColor', { x: b.x, y: b.y }, gameRect);
   });
 
   win.on('closed', () => {
@@ -1148,9 +1364,10 @@ export function toggleSwordEnhanceWindow(): void {
   win.on('close', () => { isClosing = true; });
 
   win.once('ready-to-show', () => {
-    if (gameRect) {
-      let { x, y } = calculateAttachedWindowPosition(gameRect, winCfg.pos);
-      ({ x, y } = recoverCompletelyOffscreenWindow('swordEnhance', gameRect, x, y, sizing.width, sizing.height));
+    const placementAnchor = getStablePlacementAnchorRect();
+    if (placementAnchor) {
+      let { x, y } = resolveManagedWindowPosition('swordEnhance', placementAnchor, winCfg);
+      ({ x, y } = recoverCompletelyOffscreenWindow('swordEnhance', placementAnchor, x, y, sizing.width, sizing.height));
       setProgrammaticMove('swordEnhance', x, y);
       win.setPosition(x, y);
     } else {
@@ -1167,11 +1384,11 @@ export function toggleSwordEnhanceWindow(): void {
   });
 
   win.on('move', () => {
-    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('swordEnhance', winCfg.ref) || !winCfg.ref || !gameRect || isGameFullscreen) return;
+    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('swordEnhance', winCfg.ref)
+      || !winCfg.ref || !gameRect || gameWindowModeTransitioning) return;
     programmaticMoves.markUserDrag('swordEnhance');
     const bounds = winCfg.ref.getBounds();
-    winCfg.pos = { offsetX: bounds.x - (gameRect.x + gameRect.width), offsetY: bounds.y - gameRect.y };
-    savePosition('swordEnhance', winCfg.pos);
+    saveUserWindowPosition('swordEnhance', { x: bounds.x, y: bounds.y }, gameRect);
   });
 
   win.on('closed', () => {
@@ -1414,7 +1631,7 @@ export function syncOverlay(currentRect: GameRect): void {
   if (!mainWindow || isApplyingSize) return;
   if (mandatoryUpdateLock) return; // 필수 업데이트 중에는 창 동기화 중지
   if (currentRect && currentRect.x > -10000) {
-    const cfg = config.load();
+    let cfg = config.load();
     const sidebarPos = cfg.sidebarPosition || 'right';
 
     if (sidebarPos === 'dock' || sidebarPos === 'dock-top') {
@@ -1454,27 +1671,54 @@ export function syncOverlay(currentRect: GameRect): void {
       height: physicalGameRect.height
     });
     const gX = dipRect.x, gY = dipRect.y, gW = dipRect.width, gH = dipRect.height;
-    const scaledGameRect = { x: gX, y: gY, width: gW, height: gH, isForeground: currentRect.isForeground };
+    const scaledGameRect: GameRect = {
+      x: gX,
+      y: gY,
+      width: gW,
+      height: gH,
+      windowStyle: currentRect.windowStyle,
+      gameHwnd: currentRect.gameHwnd,
+      isForeground: currentRect.isForeground,
+    };
 
     // 최소화 중 hideAll()이 gameRect를 비운 뒤 복원되는 첫 동기화에서도
     // 자동 복원 창이 저장 오프셋을 기준으로 배치되도록 최신 좌표를 먼저 게시한다.
     gameRect = scaledGameRect;
     lastKnownGameRect = scaledGameRect;
-
-    // 게임 창이 올라가 있는 디스플레이 전체을 차지하는지 확인 (전체 화면 / Alt + Enter 대응)
     const display = screen.getDisplayMatching(dipRect);
-    const isFullscreen = isFullscreenBounds(dipRect, display.bounds);
-    // 전체화면 진입/유지 중에는 사용자 오프셋 창을 움직이지 않습니다.
-    // 전체화면에서 나온 첫 정상 rect는 즉시 반영해야 합니다. 이전 상태까지 조건에 넣으면
-    // 폴링의 변경 감지가 한 번뿐인 경우 해당 위치가 영구히 복원되지 않습니다.
-    const skipPositionSync = isFullscreen || (cfg.followGameWindow === false);
-    isGameFullscreen = isFullscreen; // 전역 전체화면 플래그 동기화
+    const modeResult = gameWindowModeController.observe({
+      bounds: dipRect,
+      displayBounds: display.bounds,
+      windowStyle: currentRect.windowStyle,
+    });
+    gameWindowModeTransitioning = modeResult.phase === 'transitioning';
+    isGameFullscreen = modeResult.mode === 'windowed-fullscreen';
+
+    if (!gameWindowModeTransitioning) {
+      if (activeGameWindowMode !== modeResult.mode) {
+        cfg = activateGameWindowMode(
+          modeResult.mode,
+          scaledGameRect,
+          modeResult.previousStableBounds,
+        );
+      }
+      cfg = synchronizeWindowPositionMode(scaledGameRect, modeResult.mode);
+    }
+
+    // 창모드/창모드 전체화면 자체는 모두 정상 배치 모드입니다. 테두리와 해상도가 연속해서
+    // 바뀌는 짧은 전환 구간에만 보조 창 이동·중앙 복구·위치 저장을 멈춥니다.
+    const skipPositionSync = gameWindowModeTransitioning;
 
     if (overlayWindow && isOverlayVisible) {
       const b = overlayWindow.getBounds();
       const newW = b.width, newH = b.height;
       if (!isTracking) isTracking = true;
-      let { x: finalX, y: finalY } = calculateBrowserOverlayPosition(scaledGameRect, overlayPos);
+      const fixedOverlayPosition = cfg.followGameWindow === false && cfg.fixedWindowPositionsActive === true
+        ? cfg.fixedWindowPositions?.overlay
+        : undefined;
+      let { x: finalX, y: finalY } = fixedOverlayPosition
+        ? { ...fixedOverlayPosition }
+        : calculateBrowserOverlayPosition(scaledGameRect, overlayPos);
       // 추적을 중단한 상태에서는 계산된 예정 좌표가 아니라 실제 창이 사라졌는지 검사해야 합니다.
       const recoveryBounds = skipPositionSync
         ? { x: b.x, y: b.y, width: b.width, height: b.height }
@@ -1659,9 +1903,7 @@ export function syncOverlay(currentRect: GameRect): void {
       const winCfg = windowRegistry[key];
       if (winCfg.ref && !winCfg.ref.isDestroyed() && winCfg.ref.isVisible()) {
         // 스케일링된 좌표(gX, y 등)를 기반으로 위치 계산
-        let { x, y } = (winCfg.calcPosition)
-          ? winCfg.calcPosition(scaledGameRect, winCfg.pos)
-          : calculateAttachedWindowPosition(scaledGameRect, winCfg.pos);
+        let { x, y } = resolveManagedWindowPosition(key as WindowPositionKey, scaledGameRect, winCfg);
 
         const b = winCfg.ref.getBounds();
         // 추적 중에는 예정 좌표를, 추적 중단/전체화면 상태에서는 실제 창 좌표를 검사합니다.
@@ -1710,15 +1952,13 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
       }
     }
 
-    // 열려있는 자식 창들도 재배치 (사이드바 X 변경에 따른 오프셋 보정)
-    // 전체화면(isGameFullscreen) 상태일 때는 개별 오버레이 창들의 위치 조정을 건너뜁니다.
-    if (gameRect && !isGameFullscreen) {
+    // 열려있는 자식 창들도 재배치 (사이드바 X 변경에 따른 오프셋 보정).
+    // 안정된 전체화면은 자체 위치 프로필을 사용하고, 실제 전환 중에만 재배치를 멈춥니다.
+    if (gameRect && !gameWindowModeTransitioning) {
       Object.keys(windowRegistry).forEach(key => {
         const winCfg = windowRegistry[key];
         if (winCfg.ref && !winCfg.ref.isDestroyed() && winCfg.ref.isVisible()) {
-          const { x, y } = winCfg.calcPosition
-            ? winCfg.calcPosition(gameRect!, winCfg.pos)
-            : calculateAttachedWindowPosition(gameRect!, winCfg.pos);
+          const { x, y } = resolveManagedWindowPosition(key as WindowPositionKey, gameRect!, winCfg);
 
           const b = winCfg.ref.getBounds();
           if (!programmaticMoves.isUserDragging(key) && hasPositionChanged(b, { x, y }, POSITION_THRESHOLD)) {
@@ -1944,6 +2184,8 @@ export function hideAll(): void {
   physicalGameRect = null;
   // 최소화 전 전체화면 상태가 복원 후 첫 위치 동기화를 막지 않도록 전환 상태를 끊습니다.
   isGameFullscreen = false;
+  gameWindowModeController.reset();
+  gameWindowModeTransitioning = false;
   programmaticMoves.clear();
 
   // 동기 closed에서 설정된 타이머도 정리
@@ -2005,6 +2247,8 @@ export function hideOverlayWindows(): void {
   gameRect = null; // 게임 상태 초기화
   physicalGameRect = null;
   isGameFullscreen = false;
+  gameWindowModeController.reset();
+  gameWindowModeTransitioning = false;
   programmaticMoves.clear();
 }
 
@@ -2013,6 +2257,15 @@ export function resetGameSessionState(): void {
   lastForegroundSize = null;
   lastKnownGameRect = null;
   isGameFullscreen = false;
+  activeGameWindowMode = null;
+  gameWindowModeController.reset();
+  gameWindowModeTransitioning = false;
+  applyRuntimeModePositions(getModePositions(config.load(), 'windowed'));
+}
+
+/** 폴링 루프가 rect 정지 뒤에도 안정화 완료 관측을 한 번 더 수행하는 데 사용합니다. */
+export function isGameWindowModeTransitioning(): boolean {
+  return gameWindowModeTransitioning;
 }
 export function showGameExitReminder(): void {
   const cfg = config.load();

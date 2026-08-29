@@ -3,7 +3,8 @@ import * as iconv from 'iconv-lite';
 import { parentPort, workerData } from 'worker_threads';
 import { ChatParser } from './chatParser';
 import { parseElsoMessage, formatLootDiaryContent, getGoldPouchSeedAmount } from './itemAcquisition';
-import { matchesRegisteredLoot } from '../shared/lootPolicy';
+import { isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
+import { getEssenceExchangeCount } from '../shared/experienceEssence';
 import { getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
 import { ChatLogLineNormalizer } from './chatLogNormalizer';
 import { getChatLogReadRetryDelayMs, isRetryableChatLogReadError } from './chatLogFileRetry';
@@ -46,7 +47,14 @@ interface WorkerInputData {
   jobId: string;
   targetFiles: WorkerSyncTargetFile[];
   lootKeywords: string[];
-  homeworkCycleKeys: Record<string, { rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number }; cycleKey: string }>;
+  homeworkCycleKeys: Record<string, {
+    rule: { type: 'daily' | 'weekly'; hour: number; dayOfWeek?: number };
+    cycleKey: string;
+    maxCount: number;
+    name: string;
+    category: string;
+    isVisible: boolean;
+  }>;
 }
 
 const wait = (delayMs: number) => new Promise(resolve => setTimeout(resolve, delayMs));
@@ -93,27 +101,41 @@ async function runWorker() {
     );
   };
 
-  const recordHomework = (id: string, count: number, isIncrement: boolean) => {
-    if (!aggregate) return;
-    const cycle = homeworkCycleKeys[id];
-    // 과거 전체 파일을 읽더라도 현재 일일/주간 리셋 주기의 이벤트만 체크리스트에 반영한다.
-    if (!cycle || currentEventTimestamp <= 0
-      || getHomeworkResetCycleKey(cycle.rule, currentEventTimestamp) !== cycle.cycleKey) return;
-    const existing = aggregate.homework[id];
+  const mergeHomeworkAggregate = (
+    target: Record<string, { count: number; isIncrement: boolean }>,
+    id: string,
+    count: number,
+    isIncrement: boolean,
+  ): void => {
+    const existing = target[id];
     if (!existing) {
-      aggregate.homework[id] = { count, isIncrement };
-      return;
-    }
-    if (isIncrement) {
-      aggregate.homework[id] = {
-        count: existing.count + count,
-        isIncrement: existing.isIncrement,
-      };
+      target[id] = { count, isIncrement };
+    } else if (isIncrement) {
+      target[id] = { count: existing.count + count, isIncrement: existing.isIncrement };
     } else {
-      aggregate.homework[id] = {
-        count: Math.max(existing.count, count),
-        isIncrement: false,
-      };
+      target[id] = { count: Math.max(existing.count, count), isIncrement: false };
+    }
+  };
+
+  const recordHomework = (id: string, count: number, isIncrement: boolean) => {
+    if (!aggregate || currentEventTimestamp <= 0) return;
+    const cycle = homeworkCycleKeys[id];
+    if (!cycle) return;
+
+    // 모험일지는 현재 주기 여부와 무관하게 실제 이벤트가 속한 리셋 주기별로 보존한다.
+    // 체크리스트용 `homework`와 섞으면 지난주 이벤트가 현재 횟수에 합산되므로 별도 집계가 필수다.
+    const eventCycleKey = getHomeworkResetCycleKey(cycle.rule, currentEventTimestamp);
+    const cycleHistory = aggregate.homeworkByCycle[eventCycleKey] || {};
+    mergeHomeworkAggregate(cycleHistory, id, count, isIncrement);
+    cycleHistory[id].latestTimestamp = Math.max(
+      (cycleHistory[id] as { latestTimestamp?: number }).latestTimestamp || 0,
+      currentEventTimestamp,
+    );
+    aggregate.homeworkByCycle[eventCycleKey] = cycleHistory as ChatLogFileAggregate['homeworkByCycle'][string];
+
+    // 실제 체크리스트 상태는 기존 정책대로 현재 리셋 주기의 이벤트만 반영한다.
+    if (eventCycleKey === cycle.cycleKey) {
+      mergeHomeworkAggregate(aggregate.homework, id, count, isIncrement);
     }
   };
 
@@ -343,11 +365,14 @@ async function runWorker() {
       aggregate.seedsDetected++;
     }
 
-    const isRegisteredItem = matchesRegisteredLoot(lootKeywords, evt.itemName);
-    const isAlwaysTrackedItem = evt.itemName === '경험의 정수';
+    // 실시간 처리와 동일하게 경험의 정수 직접 보상은 등록 목록과 무관하게 복원합니다.
+    // 과거 로그 동기화가 lootKeywords를 그대로 따르더라도 이 예외를 제거하면 기존 사용자의
+    // 모험일지·오늘 요약에서 경험의 정수가 통째로 사라집니다.
+    const isAlwaysTrackedItem = isAlwaysTrackedLoot(evt.itemName);
+    const shouldRecordItem = isAlwaysTrackedItem || matchesRegisteredLoot(lootKeywords, evt.itemName);
     const isMagicStone = evt.itemName.includes('마정석') || evt.message.includes('마정석');
 
-    if (evt.isOwn && !isMagicStone && isRegisteredItem) {
+    if (evt.isOwn && !isMagicStone && shouldRecordItem) {
       const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       if (isAlwaysTrackedItem) {
         essences.push({
@@ -387,19 +412,20 @@ async function runWorker() {
 
   syncParser.on('XP_CHANGED', (evt) => {
     if (!aggregate) return;
-    if (evt.amount <= -9_000_000_000 && matchesRegisteredLoot(lootKeywords, '경험의 정수')) {
-      const essenceCount = Math.round(Math.abs(evt.amount) / 10_000_000_000);
-      if (essenceCount > 0) {
-        const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
-        essences.push({
-          eventId: nextEventId('essence-xp'),
-          date: evt.date,
-          timeOnly,
-          diaryContent: formatLootDiaryContent('경험의 정수'),
-          count: essenceCount
-        });
-        aggregate.essencesDetected += essenceCount;
-      }
+    // 수동·자동 교환 공통의 100억 감소만 환산합니다. 자동 교환의 복합 획득 안내는
+    // ChatParser가 XP_CHANGED로 발행하지 않으므로 과거 로그에서도 중복되지 않습니다.
+    // 이 전용 집계 역시 일반 등록 아이템 목록에 종속시키지 않습니다.
+    const essenceCount = getEssenceExchangeCount(evt.amount);
+    if (essenceCount > 0) {
+      const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+      essences.push({
+        eventId: nextEventId('essence-xp'),
+        date: evt.date,
+        timeOnly,
+        diaryContent: formatLootDiaryContent('경험의 정수'),
+        count: essenceCount
+      });
+      aggregate.essencesDetected += essenceCount;
     }
   });
 

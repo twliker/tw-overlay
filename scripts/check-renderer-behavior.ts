@@ -822,10 +822,11 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
     { tabId: 'display:sidebar', expectedGroup: 'app', expectedSection: 'section-general' },
     { tabId: 'display:game-overlay', expectedGroup: 'game', expectedSection: 'section-game-overlay' },
     { tabId: 'chatlog:sub-tab-today-summary', expectedGroup: 'game', expectedSection: 'section-game-overlay' },
-    { tabId: 'chatlog', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
+    { tabId: 'game:gimmick', expectedGroup: 'game', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-gimmick' },
+    { tabId: 'chatlog', expectedGroup: 'chat', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-general' },
     { tabId: 'chatlog:history-sync', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
-    { tabId: 'chatlog:sub-tab-overlay', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
-    { tabId: 'chatlog:sub-tab-loot', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
+    { tabId: 'chatlog:sub-tab-overlay', expectedGroup: 'chat', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-overlay' },
+    { tabId: 'chatlog:sub-tab-loot', expectedGroup: 'chat', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-loot' },
     { tabId: 'sound', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-sound-settings' },
     { tabId: 'sound:custom', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-custom-sounds' },
     { tabId: 'sound:log', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-alarm-log' },
@@ -848,7 +849,9 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
           triggerSectionHighlight('${route.tabId}');
           const activeGroup = document.querySelector('.nav-item.active')?.getAttribute('data-settings-group');
           const activeSection = Array.from(document.querySelectorAll('.settings-section')).find(s => !s.classList.contains('hidden'))?.id;
-          const activeSubTab = document.querySelector('#section-sound .sub-tab-content.active')?.id;
+          const activeSubTab = activeSection
+            ? document.querySelector('#' + activeSection + ' .sub-tab-content.active')?.id
+            : undefined;
           return {
             ok: true,
             targetGroup: target.groupId,
@@ -940,9 +943,8 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
         const activeSection = Array.from(document.querySelectorAll('.settings-section')).find(s => !s.classList.contains('hidden'))?.id;
         const activeNavGroup = document.querySelector('.nav-item.active')?.getAttribute('data-settings-group');
         
-        const essenceInput = document.getElementById('essence-alert-enabled');
-        const card = essenceInput?.closest('label, .p-5, .p-4');
-        const hasPulse = card?.classList.contains('highlight-pulse-effect') || essenceInput?.classList.contains('highlight-pulse-effect');
+        const card = document.getElementById('xp-feature-settings-card');
+        const hasPulse = card?.classList.contains('highlight-pulse-effect');
 
         return {
           ok: true,
@@ -969,8 +971,7 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
         showSettingsGroup(target.groupId, navEl, target.routeIndex);
         triggerSectionHighlight('display:game-overlay');
 
-        const essenceInput = document.getElementById('essence-alert-enabled');
-        const essenceCard = essenceInput?.closest('label, .p-5, .p-4');
+        const essenceCard = document.getElementById('xp-feature-settings-card');
         const essenceHasPulse = essenceCard?.classList.contains('highlight-pulse-effect');
 
         const hudPosCard = document.getElementById('hud-position-settings-card');
@@ -1792,6 +1793,28 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         document.body.appendChild(element);
         return element;
       };
+      const addSelect = (id, value = '') => {
+        const select = document.createElement('select');
+        select.id = id;
+        if (value) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = value;
+          select.appendChild(option);
+          select.value = value;
+        }
+        document.body.appendChild(select);
+        return select;
+      };
+      const alertSoundSelects = {
+        wave: addSelect('wave-warning-sound', 'orb.mp3'),
+        ethos: addSelect('ethos-alert-sound', 'echo.mp3'),
+        abyssStart: addSelect('abyss-apostle-start-sound', 'start.mp3'),
+        abyssEnd: addSelect('abyss-apostle-end-sound', 'end.mp3'),
+        lokagos: addSelect('lokagos-alert-sound', 'lokagos.mp3'),
+        questComplete: addSelect('quest-complete-alert-sound', 'start.mp3'),
+        abyssTreasure: addSelect('abyss-treasure-alert-sound', 'end.mp3')
+      };
       addInput('chat-overlay-width-input', '512');
       addInput('chat-overlay-height-input', '400');
       addInput('chat-overlay-sub-width-input', '450');
@@ -1805,11 +1828,13 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       addInput('chat-overlay-user-server-input', '2');
       addInput('wave-warning-enabled', '', true);
       addInput('wave-warning-volume', '65');
-      addInput('essence-alert-enabled', '', false);
       addInput('special-monster-alert-enabled', '', true);
       addInput('abandoned-alert-enabled', '', true);
       addInput('pitta-hill-alert-enabled', '', false);
       addInput('quest-complete-alert-enabled', '', true);
+      addInput('quest-complete-alert-volume', '32');
+      addInput('abyss-treasure-alert-enabled', '', false);
+      addInput('abyss-treasure-alert-volume', '33');
       addInput('today-summary-show-input', '', false);
       addInput('today-summary-collapsed-input', '', true);
       addInput('today-summary-pos-left', '315');
@@ -1831,20 +1856,6 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       const shoutKeywords = ['구매'];
       const alertSettings = window.settingsFormCollection.collectChatAlertSettings(lootKeywords, shoutKeywords);
       const todaySummarySettings = window.settingsFormCollection.collectTodaySummaryHudSettings();
-      const addSelect = id => {
-        const select = document.createElement('select');
-        select.id = id;
-        document.body.appendChild(select);
-        return select;
-      };
-      const alertSoundSelects = {
-        wave: addSelect('wave-warning-sound'),
-        ethos: addSelect('ethos-alert-sound'),
-        abyssStart: addSelect('abyss-apostle-start-sound'),
-        abyssEnd: addSelect('abyss-apostle-end-sound'),
-        lokagos: addSelect('lokagos-alert-sound')
-      };
-
       window.settingsShortcuts.mergeShortcuts({ toggleDock: 'Alt+F5' });
       window.settingsShortcuts.renderInputs();
       const mergedDockShortcut = dockShortcutInput.value;
@@ -1906,7 +1917,9 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         ethosAlertSound: 'echo.mp3',
         abyssApostleStartSound: 'start.mp3',
         abyssApostleEndSound: 'end.mp3',
-        lokagosAlertSound: 'lokagos.mp3'
+        lokagosAlertSound: 'lokagos.mp3',
+        questCompleteAlertSound: 'start.mp3',
+        abyssTreasureAlertSound: 'end.mp3'
       });
       const configuredAlertSounds = Object.fromEntries(
         Object.entries(alertSoundSelects).map(([key, select]) => [key, select.value])
@@ -1984,6 +1997,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       const notifyClosedInput = addInput('notify-when-game-closed-input');
       const ethosVolumeLabel = addLabel('ethos-alert-volume-val');
       const waveVolumeLabel = addLabel('wave-warning-volume-val');
+      const questCompleteVolumeLabel = addLabel('quest-complete-alert-volume-val');
+      const abyssTreasureVolumeLabel = addLabel('abyss-treasure-alert-volume-val');
       const fontSizeInput = addInput('chat-overlay-fontsize-input');
       const fontSizeLabel = addLabel('chat-overlay-fontsize-val');
       const opacityLabel = addLabel('chat-overlay-opacity-val');
@@ -1996,6 +2011,12 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         waveMonsterWarningEnabled: true,
         waveMonsterWarningSound: 'orb.mp3',
         waveMonsterWarningVolume: 77,
+        questCompleteAlertEnabled: false,
+        questCompleteAlertSound: 'start.mp3',
+        questCompleteAlertVolume: 35,
+        abyssTreasureAlertEnabled: true,
+        abyssTreasureAlertSound: 'end.mp3',
+        abyssTreasureAlertVolume: 36,
         userServer: 3,
         chatOverlayFontSize: 18,
         chatOverlayOpacity: 0.55,
@@ -2004,6 +2025,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       const initialRangeLabels = {
         ethos: ethosVolumeLabel.innerText,
         wave: waveVolumeLabel.innerText,
+        questComplete: questCompleteVolumeLabel.innerText,
+        abyssTreasure: abyssTreasureVolumeLabel.innerText,
         fontSize: fontSizeLabel.innerText,
         opacity: opacityLabel.innerText
       };
@@ -2019,6 +2042,12 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         ethosVolume: ethosVolumeInput.value,
         waveEnabled: document.getElementById('wave-warning-enabled').checked,
         waveSound: alertSoundSelects.wave.value,
+        questCompleteEnabled: document.getElementById('quest-complete-alert-enabled').checked,
+        questCompleteSound: alertSoundSelects.questComplete.value,
+        questCompleteVolume: document.getElementById('quest-complete-alert-volume').value,
+        abyssTreasureEnabled: document.getElementById('abyss-treasure-alert-enabled').checked,
+        abyssTreasureSound: alertSoundSelects.abyssTreasure.value,
+        abyssTreasureVolume: document.getElementById('abyss-treasure-alert-volume').value,
         userServer: document.getElementById('chat-overlay-user-server-input').value,
         fontSize: fontSizeInput.value,
         overlayWidth: document.getElementById('chat-overlay-width-input').value,
@@ -2138,11 +2167,15 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
           waveSound: alertSettings.waveMonsterWarningSound,
           waveVolume: alertSettings.waveMonsterWarningVolume,
           ethosVolume: alertSettings.ethosAlertVolume,
-          essenceEnabled: alertSettings.essenceAlertEnabled,
           specialMonsterEnabled: alertSettings.specialMonsterAlertEnabled,
           abandonedEnabled: alertSettings.abandonedAlertEnabled,
           pittaHillEnabled: alertSettings.pittaHillAlertEnabled,
           questCompleteEnabled: alertSettings.questCompleteAlertEnabled,
+          questCompleteSound: alertSettings.questCompleteAlertSound,
+          questCompleteVolume: alertSettings.questCompleteAlertVolume,
+          abyssTreasureEnabled: alertSettings.abyssTreasureAlertEnabled,
+          abyssTreasureSound: alertSettings.abyssTreasureAlertSound,
+          abyssTreasureVolume: alertSettings.abyssTreasureAlertVolume,
         },
         todaySummarySettings: {
           showTodaySummaryHud: todaySummarySettings.showTodaySummaryHud,
@@ -2248,11 +2281,15 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     waveSound: 'orb.mp3',
     waveVolume: 65,
     ethosVolume: 40,
-    essenceEnabled: false,
     specialMonsterEnabled: true,
     abandonedEnabled: true,
     pittaHillEnabled: false,
     questCompleteEnabled: true,
+    questCompleteSound: 'start.mp3',
+    questCompleteVolume: 32,
+    abyssTreasureEnabled: false,
+    abyssTreasureSound: 'end.mp3',
+    abyssTreasureVolume: 33,
   });
   assert.deepEqual(result.todaySummarySettings, {
     showTodaySummaryHud: false,
@@ -2299,6 +2336,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       abyssStart: 'start.mp3',
       abyssEnd: 'end.mp3',
       lokagos: 'lokagos.mp3',
+      questComplete: 'start.mp3',
+      abyssTreasure: 'end.mp3',
     },
     waveOptionLabels: [
       '사용 안 함 (소리 없음)',
@@ -2347,12 +2386,20 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       ethosVolume: '33',
       waveEnabled: true,
       waveSound: 'orb.mp3',
+      questCompleteEnabled: false,
+      questCompleteSound: 'start.mp3',
+      questCompleteVolume: '35',
+      abyssTreasureEnabled: true,
+      abyssTreasureSound: 'end.mp3',
+      abyssTreasureVolume: '36',
       userServer: '3',
       fontSize: '18',
       overlayWidth: '620',
       initialRangeLabels: {
         ethos: '33%',
         wave: '77%',
+        questComplete: '35%',
+        abyssTreasure: '36%',
         fontSize: '18px',
         opacity: '55%',
       },
@@ -2400,6 +2447,17 @@ async function checkCoefficientDropdown(window: BrowserWindow): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 0));
       const closed = menu.classList.contains('hidden')
         && getComputedStyle(menu).display === 'none';
+
+      // 주스탯 표시는 계산에 실제 사용하는 캐릭터 / 장비 합계를 같은 순서로 보여야 한다.
+      document.querySelectorAll('input[type="number"]').forEach(input => { input.value = '0'; });
+      document.querySelectorAll('select[id^="gear-"]').forEach(select => { select.value = ''; });
+      document.querySelector('#stat-stab').value = '1234';
+      document.querySelector('#bonus-cuff-main').value = '200';
+      document.querySelector('#bonus-core-eclipse').value = '300';
+      document.querySelector('#main-core-select').value = 'eclipse';
+      document.querySelector('#buff-preset-select').value = 'none';
+      document.querySelector('#stat-stab').dispatchEvent(new Event('input', { bubbles: true }));
+
       const tablePane = document.querySelector('.calculator-table-pane');
       const guidePane = document.querySelector('.calculator-guide-pane');
       window.scrollTo(0, document.documentElement.scrollHeight);
@@ -2408,6 +2466,12 @@ async function checkCoefficientDropdown(window: BrowserWindow): Promise<void> {
         initiallyHidden,
         opened,
         closed,
+        mainStat: {
+          label: document.querySelector('#character-main-stat-display')?.parentElement?.previousElementSibling?.textContent?.replace(/\s+/g, ' ').trim(),
+          character: document.querySelector('#character-main-stat-display')?.textContent,
+          equipment: document.querySelector('#equipment-main-stat-display')?.textContent,
+          tooltip: document.querySelector('#character-main-stat-display')?.closest('[title]')?.getAttribute('title'),
+        },
         layout: {
           innerWidth: window.innerWidth,
           documentClientWidth: document.documentElement.clientWidth,
@@ -2425,6 +2489,12 @@ async function checkCoefficientDropdown(window: BrowserWindow): Promise<void> {
     initiallyHidden: boolean;
     opened: boolean;
     closed: boolean;
+    mainStat: {
+      label?: string;
+      character?: string;
+      equipment?: string;
+      tooltip?: string;
+    };
     layout: {
       innerWidth: number;
       documentClientWidth: number;
@@ -2443,6 +2513,12 @@ async function checkCoefficientDropdown(window: BrowserWindow): Promise<void> {
     opened: result.opened,
     closed: result.closed,
   }, { initiallyHidden: true, opened: true, closed: true });
+  assert.deepEqual(result.mainStat, {
+    label: '주스탯 (캐릭터 / 장비)',
+    character: '1,234',
+    equipment: '515',
+    tooltip: '캐릭터 주스탯 / 장비 주스탯',
+  }, '계수 계산기의 주스탯 캐릭터/장비 합계가 잘못 표시됩니다.');
   assert.ok(result.layout.innerWidth <= 816,
     `소형 계수 계산기 회귀 창이 축소되지 않았습니다: ${result.layout.innerWidth}px`);
   assert.equal(result.layout.documentScrollWidth, result.layout.documentClientWidth,
@@ -2478,6 +2554,41 @@ async function checkCoefficientDropdown(window: BrowserWindow): Promise<void> {
     bodyOverflowY: 'hidden',
     guideWidth: 360,
   }, '일반 폭 계수 계산기의 기존 2열 레이아웃이 바뀌었습니다.');
+
+  window.setContentSize(1420, 860);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const defaultResultLayout = await window.webContents.executeJavaScript(`(() => {
+    const coefficient = document.querySelector('#total-coefficient').closest('[class*="bg-indigo"]');
+    const mainStat = document.querySelector('#character-main-stat-display').closest('[title]');
+    const hit = document.querySelector('#total-hit-display').parentElement;
+    const coefficientRect = coefficient.getBoundingClientRect();
+    const mainStatRect = mainStat.getBoundingClientRect();
+    const hitRect = hit.getBoundingClientRect();
+    return {
+      documentClientWidth: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      statBarHeight: document.querySelector('.calculator-stat-bar').getBoundingClientRect().height,
+      orderedWithoutOverlap: coefficientRect.right <= mainStatRect.left
+        && mainStatRect.right <= hitRect.left,
+      alignedInOneRow: Math.abs((coefficientRect.top + coefficientRect.height / 2)
+        - (mainStatRect.top + mainStatRect.height / 2)) < 1
+        && Math.abs((mainStatRect.top + mainStatRect.height / 2)
+          - (hitRect.top + hitRect.height / 2)) < 1,
+    };
+  })()`) as {
+    documentClientWidth: number;
+    documentScrollWidth: number;
+    statBarHeight: number;
+    orderedWithoutOverlap: boolean;
+    alignedInOneRow: boolean;
+  };
+  assert.deepEqual(defaultResultLayout, {
+    documentClientWidth: 1420,
+    documentScrollWidth: 1420,
+    statBarHeight: 50,
+    orderedWithoutOverlap: true,
+    alignedInOneRow: true,
+  }, '기본 폭에서 총합 계수 / 주스탯 / 명중 결과 카드 배치가 잘못됐습니다.');
 }
 
 async function checkFocusedChat(window: BrowserWindow): Promise<void> {
@@ -2637,17 +2748,120 @@ async function checkFocusedChat(window: BrowserWindow): Promise<void> {
 }
 
 async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'game-overlay.html'));
+  const gameOverlayPath = path.join(projectRoot, 'dist', 'game-overlay.html');
+  const fullHtml = fs.readFileSync(gameOverlayPath, 'utf8');
+  const positionFunctionMatch = fullHtml.match(
+    /(function applyConfiguredHudPositions\(config\) \{[\s\S]*?\r?\n    \})\r?\n\r?\n    window\.__isTimerRunning/,
+  );
+  assert.ok(positionFunctionMatch, '게임 오버레이 HUD 위치 적용 함수를 추출하지 못했습니다.');
+  const html = cleanHtmlForTest(gameOverlayPath);
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  window.setContentSize(1200, 800);
+  const rendererPositionFunction = positionFunctionMatch[1].replace(
+    'function applyConfiguredHudPositions(config)',
+    'window.applyConfiguredHudPositions = function applyConfiguredHudPositions(config)',
+  );
+  await window.webContents.executeJavaScript(`${rendererPositionFunction}; true`);
 
-  const result = await evaluate(window, () => {
-    const hasBody = document.body !== null;
-    const hasContainer = document.getElementById('game-overlay-container') !== null || document.body.children.length > 0;
-    return { hasBody, hasContainer };
-  });
+  const initialResult = await window.webContents.executeJavaScript(`
+    (() => {
+      try {
+      window.__hudPositionSettingWrites = [];
+      window.gameOverlayEditMode = { isEditMode: () => false };
+      window.electronAPI = {
+        DEFAULT_CONFIG: {
+          xpWidgetPos: { left: 200, bottom: 0 },
+          abandonedWidgetPos: { left: 200, bottom: 0 },
+          buffTimerHudPos: { left: 350, bottom: 0 },
+          forgeQuestHudPos: { left: 200, bottom: 0 },
+        },
+        applySettings: settings => window.__hudPositionSettingWrites.push(settings),
+      };
+      window.__hudPositionConfig = {
+        xpWidgetPos: { left: 910, bottom: 70 },
+        abandonedWidgetPos: { left: 820, bottom: 60 },
+        buffTimerHudPos: { left: 980, bottom: 80 },
+        forgeQuestHudPos: { left: 870, bottom: 90 },
+      };
+      window.applyConfiguredHudPositions(window.__hudPositionConfig);
+      return {
+        ok: true,
+        hasBody: document.body !== null,
+        hasContainer: document.getElementById('game-overlay-container') !== null || document.body.children.length > 0,
+        buffLeft: document.getElementById('buff-hud')?.style.left,
+        buffBottom: document.getElementById('buff-hud')?.style.bottom,
+        settingWrites: window.__hudPositionSettingWrites.length,
+      };
+      } catch (error) {
+        return { ok: false, error: error && (error.stack || error.message || String(error)) };
+      }
+    })()
+  `) as {
+    ok: boolean;
+    error?: string;
+    hasBody: boolean;
+    hasContainer: boolean;
+    buffLeft?: string;
+    buffBottom?: string;
+    settingWrites: number;
+  };
 
-  assert.equal(result.hasBody, true, '게임 오버레이 화면이 로드되지 않았습니다.');
-  assert.equal(result.hasContainer, true, '게임 오버레이 컨테이너가 렌더링되지 않았습니다.');
+  assert.equal(initialResult.ok, true, initialResult.error);
+  assert.equal(initialResult.hasBody, true, '게임 오버레이 화면이 로드되지 않았습니다.');
+  assert.equal(initialResult.hasContainer, true, '게임 오버레이 컨테이너가 렌더링되지 않았습니다.');
+  assert.deepEqual({
+    buffLeft: initialResult.buffLeft,
+    buffBottom: initialResult.buffBottom,
+    settingWrites: initialResult.settingWrites,
+  }, {
+    buffLeft: '980px',
+    buffBottom: '80px',
+    settingWrites: 0,
+  }, '게임 오버레이 버프 HUD의 저장 좌표가 그대로 적용되지 않았습니다.');
+
+  // 재접속·해상도 전환 중 game-overlay viewport가 잠시 작아지는 상황을 실제 renderer resize로 재현합니다.
+  window.setContentSize(500, 350);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const transientResult = await window.webContents.executeJavaScript(`
+    (() => {
+      window.applyConfiguredHudPositions(window.__hudPositionConfig);
+      const buff = document.getElementById('buff-hud');
+      return {
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        buffLeft: buff?.style.left,
+        buffBottom: buff?.style.bottom,
+        settingWrites: window.__hudPositionSettingWrites.length,
+      };
+    })()
+  `) as {
+    innerWidth: number;
+    innerHeight: number;
+    buffLeft?: string;
+    buffBottom?: string;
+    settingWrites: number;
+  };
+  assert.ok(transientResult.innerWidth <= 500 && transientResult.innerHeight <= 350,
+    '게임 오버레이 과도기 축소 viewport가 실제 renderer에 적용되지 않았습니다.');
+  assert.deepEqual({
+    buffLeft: transientResult.buffLeft,
+    buffBottom: transientResult.buffBottom,
+    settingWrites: transientResult.settingWrites,
+  }, {
+    buffLeft: '980px',
+    buffBottom: '80px',
+    settingWrites: 0,
+  }, '축소된 게임 오버레이가 버프 HUD를 중앙 이동하거나 좌표를 설정에 저장했습니다.');
+
+  window.setContentSize(1200, 800);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const restoredPosition = await window.webContents.executeJavaScript(`({
+    left: document.getElementById('buff-hud')?.style.left,
+    bottom: document.getElementById('buff-hud')?.style.bottom,
+    settingWrites: window.__hudPositionSettingWrites.length,
+  })`) as { left?: string; bottom?: string; settingWrites: number };
+  assert.deepEqual(restoredPosition, { left: '980px', bottom: '80px', settingWrites: 0 },
+    '게임 화면 크기 복원 뒤 버프 HUD의 사용자 저장 위치가 유지되지 않았습니다.');
 }
 
 async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
@@ -3373,24 +3587,60 @@ async function checkShoutHistoryRenderer(window: BrowserWindow): Promise<void> {
 }
 
 async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'xp-hud.html'));
+  const xpHudPath = path.join(projectRoot, 'dist', 'xp-hud.html');
+  const fullHtml = fs.readFileSync(xpHudPath, 'utf8');
+  const updateStatsMatch = fullHtml.match(
+    /(function updateStats\(data, isInitial = false\) \{[\s\S]*?\r?\n    \})\r?\n    \/\/ ── 이벤트 리스너/,
+  );
+  assert.ok(updateStatsMatch, '경험치 HUD 갱신 함수를 추출하지 못했습니다.');
+  const html = cleanHtmlForTest(xpHudPath);
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-  const result = await evaluate(window, () => {
-    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
-    const hasStatGrid = document.querySelector('.stat-grid-top') !== null;
-    const hasChart = document.querySelector('.chart-container') !== null;
-
-    return {
-      title,
-      hasStatGrid,
-      hasChart
-    };
-  });
+  const result = await window.webContents.executeJavaScript(`
+    (() => {
+      let _startTime = Date.now();
+      let _accumulatedTime = 0;
+      let _isActive = false;
+      const xpChart = null;
+      const lucide = { createIcons() {} };
+      const formatStartTime = () => '테스트 시작';
+      const formatXP = value => String(value);
+      ${updateStatsMatch[1]}
+      updateStats({
+        total: 10000000000,
+        epm: 1000000000,
+        movingEpm: 1000000000,
+        history: [],
+        kills: 1,
+        essenceCount: 0,
+        xpSinceLastExchange: 10000000000,
+        isActive: true,
+        startTime: Date.now(),
+        accumulatedTime: 0,
+      }, true);
+      return {
+        title: document.querySelector('.win-title-main')?.textContent?.trim() || '',
+        hasStatGrid: document.querySelector('.stat-grid-top') !== null,
+        hasChart: document.querySelector('.chart-container') !== null,
+        essenceEta: document.getElementById('stat-essence-eta')?.textContent?.trim() || '',
+        essenceProgressWidth: document.getElementById('essence-progress')?.style.width || '',
+      };
+    })()
+  `) as {
+    title: string;
+    hasStatGrid: boolean;
+    hasChart: boolean;
+    essenceEta: string;
+    essenceProgressWidth: string;
+  };
 
   assert.ok(result.title.includes('경험치 HUD'), '경험치 HUD 창 타이틀이 일치하지 않습니다.');
   assert.equal(result.hasStatGrid, true, '경험치 HUD 수치 그리드가 렌더링되지 않았습니다.');
   assert.equal(result.hasChart, true, '경험치 차트 컨테이너가 렌더링되지 않았습니다.');
+  assert.equal(result.essenceEta, '교환 확인 필요',
+    '100억 경고 경계에서 HUD가 음수 남은 시간 또는 잘못된 상태를 표시합니다.');
+  assert.equal(result.essenceProgressWidth, '100%',
+    '100억 경고 경계에서 경험의 정수 진행도가 가득 차지 않았습니다.');
 }
 
 async function checkBuffTimerRenderer(window: BrowserWindow): Promise<void> {
@@ -3442,18 +3692,18 @@ async function checkBossSettingsRenderer(window: BrowserWindow): Promise<void> {
   const result = await evaluate(window, () => {
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
     const bossList = document.getElementById('boss-list');
-    const notifyClosedCheck = document.getElementById('boss-notify-closed-check');
+    const globalNotificationLink = document.getElementById('boss-global-notification-link');
 
     return {
       title,
       hasBossList: bossList !== null,
-      hasNotifyClosedCheck: notifyClosedCheck !== null
+      hasGlobalNotificationLink: globalNotificationLink !== null
     };
   });
 
   assert.ok(result.title.includes('보스 알림'), '보스 알림 설정 창 타이틀이 일치하지 않습니다.');
   assert.equal(result.hasBossList, true, '보스 목록 컨테이너가 없습니다.');
-  assert.equal(result.hasNotifyClosedCheck, true, '게임 종료 시에도 수신 체크박스가 없습니다.');
+  assert.equal(result.hasGlobalNotificationLink, true, '공통 알림 정책 바로가기가 없습니다.');
 }
 
 async function checkMagicStoneCalculator(window: BrowserWindow): Promise<void> {
@@ -3507,15 +3757,37 @@ async function checkAbbreviationRenderer(window: BrowserWindow): Promise<void> {
 }
 
 async function checkEquipmentDicRenderer(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'equipment-dic.html'));
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  await window.loadFile(path.join(projectRoot, 'dist', 'equipment-dic.html'));
+  await waitForSelector(window, '.item-card');
 
-  const result = await evaluate(window, () => {
+  const result = await evaluate(window, async () => {
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
-    return { title };
+    const sentSelections: unknown[] = [];
+    (window as any).electronAPI = {
+      sendEquipmentToEvolution(selection: unknown) {
+        sentSelections.push(selection);
+      },
+    };
+
+    const evolutionItem = Array.from(document.querySelectorAll<HTMLElement>('.item-card'))
+      .find(card => card.textContent?.includes('인퍼널 대거'));
+    evolutionItem?.click();
+    document.getElementById('btn-calc-evolution')?.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return {
+      title,
+      evolutionButtonVisible: !document.getElementById('btn-calc-evolution')?.classList.contains('hidden'),
+      sentSelection: sentSelections[0],
+    };
   });
 
   assert.ok(result.title.includes('장비'), '장비 사전 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.evolutionButtonVisible, true, '진화 가능한 장비에서 진화 비용 계산 버튼이 표시되지 않습니다.');
+  assert.deepEqual(result.sentSelection, {
+    category: 'weapon',
+    part: '',
+    itemName: '인퍼널 대거',
+  }, '장비 사전의 진화 비용 계산 버튼이 계산기 선택 정보를 전달하지 않습니다.');
 }
 
 async function checkEtaRankingRenderer(window: BrowserWindow): Promise<void> {
@@ -3715,15 +3987,56 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
 }
 
 async function checkIndexRenderer(window: BrowserWindow): Promise<void> {
+  const indexSource = fs.readFileSync(path.join(projectRoot, 'dist', 'index.html'), 'utf8');
+  const activationCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'shared', 'sidebarMenuActivation.js'),
+    'utf8',
+  );
+  assert.match(indexSource, /shared\/sidebarMenuActivation\.js/,
+    '사이드바가 포커스 전환 안전 메뉴 입력 모듈을 로드하지 않습니다.');
+  assert.match(indexSource, /window\.sidebarMenuActivation\.bind\(chip, activateMenu\)/,
+    '플라이아웃 항목이 첫 입력 보존 경로에 연결되지 않았습니다.');
+
   const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'index.html'));
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-  const result = await evaluate(window, () => {
-    const hasBody = document.body !== null;
-    return { hasBody };
-  });
+  const result = await window.webContents.executeJavaScript(`
+    (() => {
+      ${activationCode}
+      const button = document.createElement('button');
+      let activationCount = 0;
+      window.sidebarMenuActivation.bind(button, () => { activationCount += 1; });
+      document.body.appendChild(button);
+
+      // 외부 창에서 돌아오는 실제 마우스 경로: mousedown에서 실행하고 후속 click은 중복 금지.
+      button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, detail: 1 }));
+      const pointerActivationCount = activationCount;
+
+      // 우클릭은 실행하지 않고, 키보드/프로그램 click(detail=0)은 기존처럼 실행한다.
+      button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 2 }));
+      const countAfterSecondaryButton = activationCount;
+      button.click();
+
+      return {
+        hasBody: document.body !== null,
+        pointerActivationCount,
+        countAfterSecondaryButton,
+        keyboardActivationCount: activationCount,
+      };
+    })()
+  `) as {
+    hasBody: boolean;
+    pointerActivationCount: number;
+    countAfterSecondaryButton: number;
+    keyboardActivationCount: number;
+  };
 
   assert.equal(result.hasBody, true, '메인 사이드바 런처가 렌더링되지 않았습니다.');
+  assert.equal(result.pointerActivationCount, 1,
+    '외부 창 활성 상태의 첫 마우스 입력이 실행되지 않거나 후속 click에서 중복 실행됩니다.');
+  assert.equal(result.countAfterSecondaryButton, 1, '보조 마우스 버튼이 사이드바 메뉴를 실행합니다.');
+  assert.equal(result.keyboardActivationCount, 2, '키보드/프로그램 클릭 경로가 사이드바 메뉴를 실행하지 않습니다.');
 }
 
 async function checkCustomAlertRenderer(window: BrowserWindow): Promise<void> {
@@ -3816,10 +4129,12 @@ async function checkTradeRenderer(window: BrowserWindow): Promise<void> {
 
   const result = await evaluate(window, () => {
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
-    return { title };
+    const notifyToggle = document.getElementById('notify-toggle');
+    return { title, hasNotifyToggle: notifyToggle !== null };
   });
 
   assert.ok(result.title.includes('거래'), '거래 게시판 모니터 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.hasNotifyToggle, true, '거래 게시판 알림 빠른 토글이 없습니다.');
 }
 
 async function checkGalleryRenderer(window: BrowserWindow): Promise<void> {

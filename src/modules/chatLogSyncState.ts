@@ -57,6 +57,25 @@ function normalizeAggregate(value: unknown): ChatLogFileAggregate {
       homework[id] = { count: Math.max(0, item.count), isIncrement: item.isIncrement };
     }
   }
+  const homeworkByCycle: ChatLogFileAggregate['homeworkByCycle'] = {};
+  if (parsed.homeworkByCycle && typeof parsed.homeworkByCycle === 'object') {
+    for (const [cycleKey, cycleItems] of Object.entries(parsed.homeworkByCycle)) {
+      if (!cycleItems || typeof cycleItems !== 'object' || Array.isArray(cycleItems)) continue;
+      const normalizedCycle: ChatLogFileAggregate['homeworkByCycle'][string] = {};
+      for (const [id, item] of Object.entries(cycleItems)) {
+        if (!item || typeof item !== 'object'
+          || typeof item.count !== 'number' || !Number.isFinite(item.count)
+          || typeof item.isIncrement !== 'boolean'
+          || typeof item.latestTimestamp !== 'number' || !Number.isFinite(item.latestTimestamp)) continue;
+        normalizedCycle[id] = {
+          count: Math.max(0, item.count),
+          isIncrement: item.isIncrement,
+          latestTimestamp: Math.max(0, item.latestTimestamp),
+        };
+      }
+      if (Object.keys(normalizedCycle).length > 0) homeworkByCycle[cycleKey] = normalizedCycle;
+    }
+  }
   const magicStones: ChatLogFileAggregate['magicStones'] = {};
   if (parsed.magicStones && typeof parsed.magicStones === 'object') {
     for (const [date, grades] of Object.entries(parsed.magicStones)) {
@@ -97,6 +116,7 @@ function normalizeAggregate(value: unknown): ChatLogFileAggregate {
     seedsDetected: normalizeNumber(parsed.seedsDetected),
     elsoPointsDetected: normalizeNumber(parsed.elsoPointsDetected),
     homework,
+    homeworkByCycle,
     magicStones,
     elsoByDate,
     goldPouchSeedByDate,

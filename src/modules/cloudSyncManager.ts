@@ -1,8 +1,19 @@
 /**
- * Google Drive 분리 파일 동기화 오케스트레이터.
- * 설정과 숙제는 서로 다른 dirty/debounce 정책을 사용하고 모든 Drive 전송은 single-flight로 실행한다.
+ * 기능 계약 — Google Drive 설정·숙제 동기화 오케스트레이터
+ *
+ * - Drive의 앱 전용 공간에는 허용 목록으로 추린 일반 설정과 숙제 체크리스트만 올립니다. 모험일지 DB,
+ *   채팅 원문, Google 토큰, Discord 웹훅 같은 로컬/민감 데이터는 동기화 payload에 넣지 않습니다.
+ * - 설정과 숙제는 파일·dirty 상태·debounce가 분리되어 한 종류의 원격 복원/업로드가 다른 종류의 로컬
+ *   변경을 덮지 않습니다. 모든 네트워크 전송은 single-flight queue로 직렬화합니다.
+ * - 원격 적용 중 발생한 config 저장을 새 로컬 변경으로 되올리지 않으며, 원격 조회와 동시에 생긴 로컬
+ *   변경은 serial/outbox를 비교해 보존합니다. 단순한 '마지막 응답 승리' 병합으로 바꾸지 않습니다.
+ * - 계정 변경·재로그인·원격 세대 불일치·복원 건너뛰기는 profile state와 fingerprint로 명시적으로
+ *   처리하고, 사용자의 확인이 필요한 상태에서는 자동 동기화를 멈춥니다.
+ * - 재시작 후에도 dirty/outbox가 남아 업로드를 재개해야 합니다. 코드의 payload allowlist를 바꾸면
+ *   `.agents/development/google-drive-sync-contract.md`와 회귀 테스트를 함께 변경합니다.
  */
 import * as crypto from 'crypto';
+import { isDeepStrictEqual } from 'util';
 import {
   AppConfig,
   GoogleSyncChangeSummary,
@@ -69,6 +80,14 @@ function canAutoSync(): boolean {
     && cfg.googleSyncAutoSync !== false
     && googleAuth.isLoggedIn()
     && cloudState.load().profileState !== 'needs-confirmation';
+}
+
+function hasUploadablePendingChanges(kind: SyncKind, state = cloudState.load()): boolean {
+  const hasPending = kind === 'settings'
+    ? state.settingsDirtyKeys.length > 0
+    : state.checklistOutbox.length > 0;
+  return hasPending && (!state.skippedRestoreFingerprints[kind]
+    || state.skippedRestoreDirtyKinds.includes(kind));
 }
 
 function revisionOf(payload: GoogleSyncPayload): string {
@@ -397,7 +416,9 @@ function buildRestoreFailure(
 }
 
 async function applyConfigFromCloud(nextConfig: AppConfig, createBackup = true): Promise<void> {
-  if (createBackup) syncDataHelper.createLocalBackupBeforeSync(config.load());
+  if (createBackup && !syncDataHelper.createLocalBackupBeforeSync(config.load())) {
+    throw new Error('클라우드 데이터를 적용하기 전 로컬 백업을 생성하지 못했습니다.');
+  }
   applyingCloud = true;
   try {
     if (!config.saveImmediate(nextConfig)) {
@@ -454,7 +475,7 @@ async function receiveKind(
   kind: SyncKind,
   payload: GoogleSyncPayload,
   manualRestore: boolean,
-  requestStartedAt = Date.now(),
+  _requestStartedAt = Date.now(),
   options: {
     createBackup?: boolean;
     freshBootstrap?: boolean;
@@ -471,8 +492,14 @@ async function receiveKind(
     return false;
   }
 
+  // 원격 요청 전에 이미 dirty였던 키와 요청 중 새로 dirty가 된 키를 모두 보존한다.
+  // dirty는 해당 값을 실제로 업로드한 뒤에만 제거해야 한다.
+  const currentBeforeMerge = config.load();
   const settingsKeysChangedDuringRequest = kind === 'settings'
-    ? state.settingsDirtyKeys.filter(key => (state.settingsDirtyAt[key] || 0) > requestStartedAt)
+    ? state.settingsDirtyKeys.filter(key => {
+      const remoteData = payload.data as Record<string, unknown>;
+      return !isDeepStrictEqual((currentBeforeMerge as unknown as Record<string, unknown>)[key], remoteData[key]);
+    })
     : [];
   let effectivePayload = payload;
   if (kind === 'checklist') {
@@ -497,6 +524,8 @@ async function receiveKind(
   await applyConfigFromCloud(nextConfig, options.createBackup !== false);
   cloudState.update(next => {
     next.remoteRevisions[kind] = remoteRevision;
+    delete next.skippedRestoreFingerprints[kind];
+    next.skippedRestoreDirtyKinds = next.skippedRestoreDirtyKinds.filter(value => value !== kind);
     if (options.remoteFileFingerprint) {
       next.remoteFileFingerprints[kind] = options.remoteFileFingerprint;
     }
@@ -548,6 +577,10 @@ function markSettingsDirty(keys: string[]): void {
   if (keys.length === 0) return;
   settingsChangeSerial++;
   cloudState.update(state => {
+    if (state.skippedRestoreFingerprints.settings
+      && !state.skippedRestoreDirtyKinds.includes('settings')) {
+      state.skippedRestoreDirtyKinds.push('settings');
+    }
     state.settingsDirtyKeys = Array.from(new Set([...state.settingsDirtyKeys, ...keys]));
     const changedAt = Date.now();
     for (const key of keys) state.settingsDirtyAt[key] = changedAt;
@@ -557,6 +590,10 @@ function markSettingsDirty(keys: string[]): void {
 function markChecklistDirty(keys: string[]): void {
   if (keys.length === 0) return;
   cloudState.update(state => {
+    if (state.skippedRestoreFingerprints.checklist
+      && !state.skippedRestoreDirtyKinds.includes('checklist')) {
+      state.skippedRestoreDirtyKinds.push('checklist');
+    }
     const currentChecklist = syncDataHelper.extractChecklistSyncData(config.load());
     const operationBase = syncDataHelper.replayChecklistOperations(
       state.baseChecklist || {},
@@ -580,7 +617,7 @@ function jitteredDelay(delay: number): number {
 }
 
 function scheduleUpload(kind: SyncKind, immediate = false, retryDelay?: number): void {
-  if (!canAutoSync()) return;
+  if (!canAutoSync() || !hasUploadablePendingChanges(kind)) return;
   const delay = retryDelay !== undefined
     ? jitteredDelay(retryDelay)
     : immediate ? 0 : (kind === 'settings' ? SETTINGS_DEBOUNCE_MS : CHECKLIST_DEBOUNCE_MS);
@@ -589,6 +626,11 @@ function scheduleUpload(kind: SyncKind, immediate = false, retryDelay?: number):
 
   const callback = () => {
     if (!canAutoSync()) {
+      if (kind === 'settings') settingsTimer = null;
+      else checklistTimer = null;
+      return;
+    }
+    if (!hasUploadablePendingChanges(kind)) {
       if (kind === 'settings') settingsTimer = null;
       else checklistTimer = null;
       return;
@@ -621,6 +663,11 @@ function scheduleUpload(kind: SyncKind, immediate = false, retryDelay?: number):
 }
 
 async function reconcileRemoteBeforeUpload(kind: SyncKind, files: SyncFiles): Promise<void> {
+  const knownState = cloudState.load();
+  const remoteFingerprint = fingerprintOf(fileForKind(files, kind));
+  if (remoteFingerprint && knownState.skippedRestoreFingerprints[kind] === remoteFingerprint) {
+    return;
+  }
   const requestStartedAt = Date.now();
   const remote = await downloadValidated(kind, fileForKind(files, kind), files.generationId);
   if (!remote) return;
@@ -702,6 +749,8 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
       next.fileIds[kind] = fileId;
       next.remoteRevisions[kind] = revisionOf(payload);
       delete next.remoteFileFingerprints[kind];
+      delete next.skippedRestoreFingerprints[kind];
+      next.skippedRestoreDirtyKinds = next.skippedRestoreDirtyKinds.filter(value => value !== kind);
       if (kind === 'settings') {
         next.baseSettings = structuredClone(payload.data);
         if (settingsChangeSerial === capturedSerial) {
@@ -742,11 +791,28 @@ function persistRestoreResults(
   results: GoogleSyncFileRestoreResult[],
   partial: boolean,
   profileState?: GoogleSyncProfileState,
+  files?: SyncFiles,
 ): void {
   cloudState.update(state => {
     state.restoreResults = structuredClone(results);
     state.restorePartial = partial;
     if (profileState) state.profileState = profileState;
+    if (files) {
+      for (const result of results) {
+        if (!result.selected && result.status === 'skipped') {
+          const fingerprint = fingerprintOf(fileForKind(files, result.kind));
+          if (fingerprint) state.skippedRestoreFingerprints[result.kind] = fingerprint;
+          else delete state.skippedRestoreFingerprints[result.kind];
+          state.skippedRestoreDirtyKinds = state.skippedRestoreDirtyKinds
+            .filter(kind => kind !== result.kind);
+        } else if (result.selected
+          && (result.status === 'restored' || result.status === 'unchanged')) {
+          delete state.skippedRestoreFingerprints[result.kind];
+          state.skippedRestoreDirtyKinds = state.skippedRestoreDirtyKinds
+            .filter(kind => kind !== result.kind);
+        }
+      }
+    }
   });
 }
 
@@ -805,7 +871,16 @@ async function pullRestoreFromCloud(
     candidatesToApply.push({ kind, candidate });
   }
 
-  if (candidatesToApply.length > 0) syncDataHelper.createLocalBackupBeforeSync(config.load());
+  if (candidatesToApply.length > 0 && !syncDataHelper.createLocalBackupBeforeSync(config.load())) {
+    return {
+      success: false,
+      error: '클라우드 복원 전 로컬 백업을 생성하지 못해 복원을 중단했습니다.',
+      fileName: getStatusFileName(),
+      fileCount: files.all.length,
+      files: files.all,
+      profileState: cloudState.load().profileState,
+    };
+  }
   let latestAt = 0;
   for (const { kind, candidate } of candidatesToApply) {
     try {
@@ -840,7 +915,12 @@ async function pullRestoreFromCloud(
   const failed = selectedResults.filter(result => result.status !== 'restored' && result.status !== 'unchanged');
   const partial = succeeded.length > 0 && failed.length > 0;
   const nextProfileState = freshBootstrap && failed.length > 0 ? 'needs-confirmation' : 'established';
-  persistRestoreResults(results, partial, succeeded.length > 0 ? nextProfileState : undefined);
+  persistRestoreResults(
+    results,
+    partial,
+    succeeded.length > 0 ? nextProfileState : undefined,
+    succeeded.length > 0 ? files : undefined,
+  );
 
   if (latestAt > 0) {
     applyingCloud = true;
@@ -889,6 +969,17 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
     const file = fileForKind(files, kind);
     try {
       const knownState = cloudState.load();
+      const remoteFingerprint = fingerprintOf(file);
+      if (!manualRestore && remoteFingerprint
+        && knownState.skippedRestoreFingerprints[kind] === remoteFingerprint) {
+        results.push({
+          kind,
+          selected: false,
+          status: 'skipped',
+          fileName: file?.name,
+        });
+        continue;
+      }
       if (!manualRestore && canReuseValidatedRemoteFile(kind, file, knownState)) {
         results.push({
           kind,
@@ -913,7 +1004,9 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
       }
       const revisionChanged = cloudState.load().remoteRevisions[kind] !== revisionOf(payload);
       if (revisionChanged && !backupCreated) {
-        syncDataHelper.createLocalBackupBeforeSync(config.load());
+        if (!syncDataHelper.createLocalBackupBeforeSync(config.load())) {
+          throw new Error('클라우드 데이터를 적용하기 전 로컬 백업을 생성하지 못했습니다.');
+        }
         backupCreated = true;
       }
       const changed = await receiveKind(kind, payload, manualRestore, requestStartedAt, {
@@ -955,8 +1048,8 @@ async function pullFromCloud(manualRestore: boolean): Promise<GoogleSyncResult> 
     }
   }
   const pendingState = cloudState.load();
-  if (!manualRestore && pendingState.settingsDirtyKeys.length > 0) scheduleUpload('settings', true);
-  if (pendingState.checklistOutbox.length > 0) scheduleUpload('checklist', true);
+  if (!manualRestore && hasUploadablePendingChanges('settings', pendingState)) scheduleUpload('settings', true);
+  if (hasUploadablePendingChanges('checklist', pendingState)) scheduleUpload('checklist', true);
   const failed = results.filter(result => result.status === 'invalid' || result.status === 'incompatible');
   const succeeded = results.filter(result => result.status === 'restored' || result.status === 'unchanged');
   const partial = failed.length > 0 && succeeded.length > 0;
@@ -1206,8 +1299,8 @@ export async function getCloudDataPreview(selectedKind?: GoogleSyncDataKind): Pr
 /** 이전 호출부 호환: 이미 dirty로 분류된 파일의 업로드를 짧게 예약한다. */
 export function requestDebouncedSync(): void {
   const state = cloudState.load();
-  if (state.settingsDirtyKeys.length > 0) scheduleUpload('settings');
-  if (state.checklistOutbox.length > 0) scheduleUpload('checklist');
+  if (hasUploadablePendingChanges('settings', state)) scheduleUpload('settings');
+  if (hasUploadablePendingChanges('checklist', state)) scheduleUpload('checklist');
 }
 
 export function startBackgroundSync(): void {
@@ -1299,8 +1392,10 @@ export async function flushPendingSync(): Promise<void> {
   settingsTimer = clearTimer(settingsTimer);
   checklistTimer = clearTimer(checklistTimer);
   const state = cloudState.load();
-  if (canAutoSync() && (state.settingsDirtyKeys.length > 0 || state.checklistOutbox.length > 0)) {
-    await enqueueTransfer('종료 flush', 'upload', () => uploadKinds(['settings', 'checklist']));
+  const uploadableKinds = (['settings', 'checklist'] as const)
+    .filter(kind => hasUploadablePendingChanges(kind, state));
+  if (canAutoSync() && uploadableKinds.length > 0) {
+    await enqueueTransfer('종료 flush', 'upload', () => uploadKinds(uploadableKinds));
   }
   await transferTail;
   reconcileShutdownRecovery();
@@ -1320,11 +1415,14 @@ config.addConfigChangeListener(changed => {
   const keys = Object.keys(changed);
   const settingsKeys = keys.filter(key => syncDataHelper.SETTINGS_SYNCABLE_KEYS.includes(key as keyof AppConfig));
   const checklistKeys = keys.filter(key => syncDataHelper.CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig));
-  if (settingsKeys.length > 0 && config.load().googleSyncEnabled === true && googleAuth.isLoggedIn()) {
+  const syncState = cloudState.load();
+  if (settingsKeys.length > 0
+    && config.load().googleSyncEnabled === true
+    && syncState.profileState !== 'fresh') {
     markSettingsDirty(settingsKeys);
-    scheduleUpload('settings');
+    if (googleAuth.isLoggedIn()) scheduleUpload('settings');
   }
-  const isFreshBootstrap = cloudState.load().profileState === 'fresh';
+  const isFreshBootstrap = syncState.profileState === 'fresh';
   if (checklistKeys.length > 0 && !isFreshBootstrap) {
     markChecklistDirty(checklistKeys);
     scheduleUpload('checklist');

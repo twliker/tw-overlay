@@ -1,5 +1,16 @@
 /**
- * 설정 관리 모듈 - 검증/누락 기본값 병합/원자 저장/디바운스
+ * 기능 계약 — 사용자 설정 로드·마이그레이션·저장
+ *
+ * - 기존 `config.json`의 알려진 값은 보존하고 새 기본값은 누락된 키에만 채웁니다. 앱 버전업이 사용자의
+ *   명시적 false, 목록 순서, 창 위치를 기본값으로 되돌리면 안 됩니다.
+ * - 외부/클라우드 patch는 알려진 키, JSON 깊이·크기·타입·숫자 범위를 검증하고 prototype 오염 키를
+ *   제거합니다. 잘못된 일부 값은 안전한 기본값으로 복구하되 정상 설정 전체를 폐기하지 않습니다.
+ * - 저장은 메모리의 최신 전체 설정을 기준으로 debounce하고 임시 파일을 fsync한 뒤 원자 교체합니다.
+ *   짧은 파일 잠금은 재시도하며, 끝내 실패하면 오류 상태를 남겨 성공한 것처럼 UI에 보고하지 않습니다.
+ * - 기능별 설정의 소유 화면은 `docs/settings.md`를 따릅니다. 구버전의 공용 알림 키를 경험의 정수·
+ *   도전과제·심연의 보물창고 전용 키로 분리할 때는 기존 값을 각각 한 번 승계하고 이후 독립 저장합니다.
+ * - 설정 저장 알림은 창 반영과 Drive dirty 추적의 입력이므로, 원격 설정 적용 중 재전송을 막는 계약을
+ *   `cloudSyncManager`와 함께 유지합니다.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -20,7 +31,8 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'autoOpenContentsChecker', 'contentsCheckerEnabled', 'autoUpdateEnabled', 'hasSeenWelcomeGuide',
   'lastNoticeVersion', 'galleryKeywords', 'hiddenMenuIds', 'visibleMenuIds',
   'fieldBossNotifyEnabled', 'fieldBossNotifyOffsets', 'fieldBossNotifyVolume', 'fieldBossSettings',
-  'notifyWhenGameClosed', 'positions', 'storedPositionKeys', 'tradeServer', 'tradeKeywords',
+  'notifyWhenGameClosed', 'positions', 'windowedFullscreenPositions', 'storedPositionKeys', 'fixedWindowPositions',
+  'fixedWindowPositionsActive', 'tradeServer', 'tradeKeywords',
   'tradeNotify', 'tradeLastSeen', 'gameExitReminderEnabled', 'gameExitReminderMessage',
   'contentsCheckerItems', 'characterPresets', 'selectedCharacterId', 'pendingHomeworks',
   'lastContentsResetCheck', 'shortcuts', 'customAlerts', 'customSounds', 'chatLogPath',
@@ -38,6 +50,8 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'buffTimerSound', 'buffTimerBuffs', 'buffTimerCenterAlert', 'buffTimerHudPos',
   'essenceAlertEnabled', 'essenceAlertSound', 'essenceAlertVolume', 'specialMonsterAlertEnabled',
   'abandonedAlertEnabled', 'pittaHillAlertEnabled', 'questCompleteAlertEnabled',
+  'questCompleteAlertSound', 'questCompleteAlertVolume', 'abyssTreasureAlertEnabled',
+  'abyssTreasureAlertSound', 'abyssTreasureAlertVolume',
   'abandonedAutoHideMinutes', 'abandonedEnabled', 'abandonedWidgetPos', 'scamDetectorEnabled',
   'msgerLogPath', 'scamAlertSound', 'scamGpuVariant', 'scamLlmDisabled', 'discordWebhookUrl',
   'discordAlertEnabled', 'discordKeywords', 'discordRules', 'volumeContentsChecker',
@@ -134,6 +148,8 @@ const EXTERNAL_NUMBER_RANGES: Partial<Record<keyof AppConfig, [number, number]>>
   fieldBossNotifyVolume: [0, 100],
   buffTimerVolume: [0, 100],
   essenceAlertVolume: [0, 100],
+  questCompleteAlertVolume: [0, 100],
+  abyssTreasureAlertVolume: [0, 100],
   ethosAlertVolume: [0, 100],
   abyssApostleVolume: [0, 100],
   lokagosAlertVolume: [0, 100],
@@ -164,6 +180,73 @@ const OPTIONAL_NUMBER_KEYS = new Set([
   'galleryLastSeen', 'tradeLastSeen', 'chatLogAutoDeleteDays', 'contentsCheckerWidth',
   'contentsCheckerHeight', 'googleSyncLastTime',
 ]);
+const WINDOW_POSITION_KEYS = new Set(Object.keys(DEFAULT_CONFIG.positions || {}));
+
+function isValidScreenPositionMap(value: unknown): value is Record<string, { x: number; y: number }> {
+  return isPlainObject(value) && Object.entries(value).every(([key, position]) => (
+    WINDOW_POSITION_KEYS.has(key)
+    && isPlainObject(position)
+    && typeof position.x === 'number'
+    && Number.isFinite(position.x)
+    && typeof position.y === 'number'
+    && Number.isFinite(position.y)
+  ));
+}
+
+function isValidRelativePositionMap(value: unknown): value is Record<string, { offsetX: number; offsetY: number }> {
+  return isPlainObject(value) && Object.entries(value).every(([key, position]) => (
+    WINDOW_POSITION_KEYS.has(key)
+    && isPlainObject(position)
+    && typeof position.offsetX === 'number'
+    && Number.isFinite(position.offsetX)
+    && typeof position.offsetY === 'number'
+    && Number.isFinite(position.offsetY)
+  ));
+}
+
+/** 창모드 전체화면 위치도 빈 기본 객체의 중첩 타입을 별도로 검증합니다. */
+function normalizeWindowedFullscreenPositions(
+  value: unknown,
+  quarantined: Record<string, unknown>,
+): Record<string, { offsetX: number; offsetY: number }> {
+  if (!isPlainObject(value)) return {};
+  const normalized: Record<string, { offsetX: number; offsetY: number }> = {};
+  for (const [key, position] of Object.entries(value)) {
+    if (!WINDOW_POSITION_KEYS.has(key)
+      || !isPlainObject(position)
+      || typeof position.offsetX !== 'number'
+      || !Number.isFinite(position.offsetX)
+      || typeof position.offsetY !== 'number'
+      || !Number.isFinite(position.offsetY)) {
+      quarantined[`windowedFullscreenPositions.${key}`] = position;
+      continue;
+    }
+    normalized[key] = { offsetX: position.offsetX, offsetY: position.offsetY };
+  }
+  return normalized;
+}
+
+/** 빈 기본 객체로는 중첩 x/y 타입을 검사할 수 없으므로 화면 좌표 맵은 별도로 정규화합니다. */
+function normalizeFixedWindowPositions(
+  value: unknown,
+  quarantined: Record<string, unknown>,
+): Record<string, { x: number; y: number }> {
+  if (!isPlainObject(value)) return {};
+  const normalized: Record<string, { x: number; y: number }> = {};
+  for (const [key, position] of Object.entries(value)) {
+    if (!WINDOW_POSITION_KEYS.has(key)
+      || !isPlainObject(position)
+      || typeof position.x !== 'number'
+      || !Number.isFinite(position.x)
+      || typeof position.y !== 'number'
+      || !Number.isFinite(position.y)) {
+      quarantined[`fixedWindowPositions.${key}`] = position;
+      continue;
+    }
+    normalized[key] = { x: position.x, y: position.y };
+  }
+  return normalized;
+}
 
 /** renderer IPC에서 들어온 설정 patch를 크기·타입·범위·키 allowlist 기준으로 검증한다. */
 export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> | null {
@@ -195,6 +278,8 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
       if (OPTIONAL_NUMBER_KEYS.has(key) && (typeof fieldValue !== 'number' || !Number.isFinite(fieldValue))) return null;
     }
     if (key === 'scamGpuVariant' && !['cpu', 'vulkan', 'cuda-12.4', 'cuda-13.1'].includes(String(fieldValue))) return null;
+    if (key === 'windowedFullscreenPositions' && !isValidRelativePositionMap(fieldValue)) return null;
+    if (key === 'fixedWindowPositions' && !isValidScreenPositionMap(fieldValue)) return null;
     if (key === 'quickSlots' && (!Array.isArray(fieldValue) || fieldValue.length > 100
       || fieldValue.some(slot => {
         if (!isPlainObject(slot)
@@ -312,6 +397,11 @@ function mergeAndValidateConfig(parsed: Record<string, unknown>): {
     if (Object.prototype.hasOwnProperty.call(result, key)) continue;
     result[key] = sanitizeJsonValue(value);
   }
+  result.windowedFullscreenPositions = normalizeWindowedFullscreenPositions(
+    result.windowedFullscreenPositions,
+    quarantined,
+  );
+  result.fixedWindowPositions = normalizeFixedWindowPositions(result.fixedWindowPositions, quarantined);
 
   return { config: result as unknown as AppConfig, quarantined };
 }
@@ -424,6 +514,44 @@ function notifyConfigChange(changedConfig: Partial<AppConfig>): void {
 function applyVersionedMigrations(parsed: Record<string, unknown>): boolean {
   let migrated = false;
 
+  const hasOwn = (key: string): boolean => Object.prototype.hasOwnProperty.call(parsed, key);
+  const inheritedSound = typeof parsed.essenceAlertSound === 'string'
+    ? parsed.essenceAlertSound
+    : DEFAULT_CONFIG.essenceAlertSound;
+  const inheritedVolume = typeof parsed.essenceAlertVolume === 'number'
+    && Number.isFinite(parsed.essenceAlertVolume)
+    && parsed.essenceAlertVolume >= 0
+    && parsed.essenceAlertVolume <= 100
+    ? parsed.essenceAlertVolume
+    : DEFAULT_CONFIG.essenceAlertVolume;
+
+  // 완료 알림 설정 분리 마이그레이션 계약
+  // 3.0.1까지 도전과제와 심연의 보물창고가 경험의 정수 소리·음량을 공유했습니다.
+  // 신규 전용 키가 없는 사용자에게만 기존 값을 최초 1회 복제하고, 이미 전용 키가 있으면
+  // 절대 다시 덮어쓰지 않습니다. 이후 세 기능은 각 담당 화면에서 서로 독립적으로 저장됩니다.
+  if (!hasOwn('questCompleteAlertSound')) {
+    parsed.questCompleteAlertSound = inheritedSound;
+    migrated = true;
+  }
+  if (!hasOwn('questCompleteAlertVolume')) {
+    parsed.questCompleteAlertVolume = inheritedVolume;
+    migrated = true;
+  }
+  if (!hasOwn('abyssTreasureAlertEnabled')) {
+    parsed.abyssTreasureAlertEnabled = typeof parsed.questCompleteAlertEnabled === 'boolean'
+      ? parsed.questCompleteAlertEnabled
+      : DEFAULT_CONFIG.abyssTreasureAlertEnabled;
+    migrated = true;
+  }
+  if (!hasOwn('abyssTreasureAlertSound')) {
+    parsed.abyssTreasureAlertSound = inheritedSound;
+    migrated = true;
+  }
+  if (!hasOwn('abyssTreasureAlertVolume')) {
+    parsed.abyssTreasureAlertVolume = inheritedVolume;
+    migrated = true;
+  }
+
   if (typeof parsed.opacity === 'number' && parsed.opacity < 0.2) {
     parsed.opacity = 0.2;
     migrated = true;
@@ -531,7 +659,16 @@ export function load(): AppConfig {
       }
       writeQuarantine(configPath, quarantined);
       if (Object.keys(quarantined).length > 0) {
-        _loadWarning = `일부 미인식 또는 손상된 설정을 격리하고 안전한 값으로 복구했습니다.\n${path.join(path.dirname(configPath), CONFIG_QUARANTINE_FILENAME)}`;
+        _loadWarning = [
+          '현재 앱 버전에서 바로 사용할 수 없는 설정 항목이 발견되었습니다.',
+          '다른 버전에서 추가된 설정이거나 값 형식이 맞지 않을 수 있습니다.',
+          '',
+          '해당 항목은 삭제하지 않고 별도 파일에 보관했으며, 나머지 설정은 정상적으로 불러왔습니다.',
+          '앱은 계속 사용하셔도 됩니다.',
+          '',
+          '보관 위치:',
+          path.join(path.dirname(configPath), CONFIG_QUARANTINE_FILENAME),
+        ].join('\n');
       }
       return deepClone(_cachedConfig);
     }

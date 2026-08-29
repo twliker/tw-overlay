@@ -99,6 +99,9 @@
             </div>
         </div>
         <div class="win-controls">
+            <button id="notify-toggle" onclick="toggleNotify()" class="win-btn" title="거래 게시판 알림 켜기/끄기">
+                <i id="notify-toggle-icon" data-lucide="bell" class="w-4 h-4"></i>
+            </button>
             <button onclick="window.electronAPI.toggleShoutHistory()" class="win-btn" title="외치기 히스토리">
                 <i data-lucide="message-square-more" class="w-4 h-4"></i>
             </button>
@@ -211,6 +214,7 @@
         });
 
         window.electronAPI.onConfigData((config) => {
+            updateNotifyIcon(config.tradeNotify !== false);
             const badge = document.getElementById('keyword-badge');
             const guide = document.getElementById('keyword-guide');
             const guideTextContainer = document.getElementById('guide-text-container');
@@ -275,8 +279,26 @@
             }
         });
 
+        function updateNotifyIcon(enabled) {
+            const icon = document.getElementById('notify-toggle-icon');
+            const button = document.getElementById('notify-toggle');
+            if (!icon || !button) return;
+            icon.setAttribute('data-lucide', enabled ? 'bell' : 'bell-off');
+            icon.className = enabled ? 'w-4 h-4 text-emerald-400' : 'w-4 h-4 text-slate-600';
+            button.title = enabled ? '거래 게시판 알림 끄기' : '거래 게시판 알림 켜기';
+            refreshIcons();
+        }
+
+        async function toggleNotify() {
+            const current = await window.electronAPI.tradeGetNotify();
+            const enabled = !current;
+            window.electronAPI.tradeSetNotify(enabled);
+            updateNotifyIcon(enabled);
+        }
+
         window.onload = async () => {
             refreshTrade();
+            updateNotifyIcon(await window.electronAPI.tradeGetNotify());
         };
 
         window.bindEscapeClose();

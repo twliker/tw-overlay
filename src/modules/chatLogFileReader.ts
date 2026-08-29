@@ -17,6 +17,8 @@ export interface InitialChatLogSnapshot {
   fileSize: number;
 }
 
+const CHAT_LOG_BOUNDARY_SCAN_BYTES = 64 * 1024;
+
 interface InitialChatLogReadOptions {
   maxFullReadBytes?: number;
   recentReadBytes?: number;
@@ -32,6 +34,39 @@ function readRange(fd: number, start: number, length: number): Buffer {
     totalRead += bytesRead;
   }
   return totalRead === length ? buffer : buffer.subarray(0, totalRead);
+}
+
+/**
+ * 지정 snapshot 안에서 마지막으로 완전히 기록된 물리 줄의 다음 byte 위치를 찾습니다.
+ *
+ * 테일즈위버는 보통 각 HTML 로그 행 뒤에 개행을 쓰지만, 게임이 쓰는 도중 snapshot을 잡으면
+ * EUC-KR/UTF-8 문자나 HTML 행 중간에서 파일 크기가 고정될 수 있습니다. 과거 로그 재구성은 이
+ * 경계까지만 원본으로 삼고, 남은 bytes는 실시간 catch-up 경로가 다음 append와 결합해 처리합니다.
+ */
+export function findLastCompleteChatLogOffset(filePath: string, snapshotSize?: number): number {
+  const fileSize = fs.statSync(filePath).size;
+  const boundedSize = Math.max(0, Math.min(fileSize, Math.trunc(snapshotSize ?? fileSize)));
+  if (boundedSize === 0) return 0;
+
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const endingProbeStart = Math.max(0, boundedSize - 32);
+    const endingProbe = readRange(fd, endingProbeStart, boundedSize - endingProbeStart);
+    const hasClosedTrailingRow = /<\/br>\s*$/i.test(endingProbe.toString('latin1'));
+    let end = boundedSize;
+    while (end > 0) {
+      const start = Math.max(0, end - CHAT_LOG_BOUNDARY_SCAN_BYTES);
+      const chunk = readRange(fd, start, end - start);
+      const newlineIndex = chunk.lastIndexOf(0x0a);
+      if (newlineIndex >= 0) return start + newlineIndex + 1;
+      end = start;
+    }
+
+    // 일부 구형 로그는 마지막 HTML 행 뒤에 개행을 남기지 않습니다. 닫힌 </br> 행은 완전한 줄입니다.
+    return hasClosedTrailingRow ? boundedSize : 0;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /**

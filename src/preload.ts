@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, ChatItem, TimerRecord, EquipmentDictionaryItem, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
+import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, ChatItem, TimerRecord, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
 
 // sandbox preload은 로컬 모듈 require가 제한되므로 메인 프로세스의 단일 기본값 원본을 동기 조회합니다.
@@ -40,7 +40,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleCoefficientCalculator: () => ipcRenderer.send('toggle-coefficient-calculator'),
   openCoefficientCalculator: () => ipcRenderer.send('open-coefficient-calculator'),
   sendEquipmentToCoefficient: (item: EquipmentDictionaryItem) => ipcRenderer.send('send-to-coefficient', item),
-  sendEquipmentToEvolution: (item: EquipmentDictionaryItem) => ipcRenderer.send('send-to-evolution', item),
+  sendEquipmentToEvolution: (selection: EvolutionCalculatorSelection) => ipcRenderer.send('send-to-evolution', selection),
   toggleContentsChecker: () => ipcRenderer.send('toggle-contents-checker'),
   toggleEvolutionCalculator: () => ipcRenderer.send('toggle-evolution-calculator'),
   toggleThesisCoreCalculator: () => ipcRenderer.send('toggle-thesis-core-calculator'),
@@ -99,7 +99,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-window-position', x, y),
   welcomeGuideClose: () => ipcRenderer.send('welcome-guide-close'),
   welcomeGuideOpen: () => ipcRenderer.send('welcome-guide-open'),
-  startChatLogSync: (): Promise<SyncResultReport> => ipcRenderer.invoke('start-chat-log-sync'),
+  startChatLogSync: (includeCompletedLogs: boolean = false): Promise<SyncResultReport> =>
+    ipcRenderer.invoke('start-chat-log-sync', includeCompletedLogs),
   getRecentMondayDate: (): Promise<string> => ipcRenderer.invoke('get-recent-monday-date'),
   getSyncTargetFiles: (): Promise<SyncTargetFile[]> => ipcRenderer.invoke('get-sync-target-files'),
   completeSetupWizard: (wizardConfig?: { chatLogPath?: string; userServer?: number; chatLogAutoDeleteDays?: number; diaryKeepDays?: number; lootKeywords?: string[] }) =>
@@ -332,7 +333,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   buffTimerClearTest: () => ipcRenderer.send('buff-timer-clear-test'),
   buffTimerClearAll: () => ipcRenderer.send('buff-timer-clear-all'),
   buffTimerDeactivate: (buffId: string) => ipcRenderer.send('buff-timer-deactivate', buffId),
-  onXpResetDone: (callback: (data: { startTime: number }) => void) =>
+  onXpResetDone: (callback: (data: {
+    startTime: number;
+    accumulatedTime: number;
+    isActive: boolean;
+    xpSinceLastExchange: number;
+  }) => void) =>
     bindIpcListener('xp-reset-done', callback),
   onEssenceAlert: (callback: () => void) =>
     bindIpcListener('essence-alert', callback),
@@ -370,7 +376,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('scam-analysis-token', callback),
   onAutoSelectEquipment: (callback: (item: EquipmentDictionaryItem) => void) =>
     bindIpcListener('auto-select-equipment', callback),
-  onAutoSelectEvolution: (callback: (data: EquipmentDictionaryItem) => void) =>
+  onAutoSelectEvolution: (callback: (data: EvolutionCalculatorSelection) => void) =>
     bindIpcListener('auto-select-evolution', callback),
   onAbandonedUpdate: (callback: (state: AbandonedRoadState) => void) =>
     bindIpcListener('abandoned-update', callback),

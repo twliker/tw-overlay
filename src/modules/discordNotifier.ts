@@ -1,3 +1,14 @@
+/**
+ * 기능 계약 — Discord 웹훅 알림
+ *
+ * - 사용자가 Discord 설정 창에서 기능을 켜고 HTTPS 웹훅 URL을 저장한 경우에만 실제 메시지를
+ *   전송합니다. 테스트 전송만 전달받은 URL과 일회성 enabled override를 사용합니다.
+ * - 현재 자동 전송 대상은 지정 단어 감지이며, payload에는 해당 알림에 필요한 발신자·메시지·매칭
+ *   키워드가 포함됩니다. GA 사용 통계와는 완전히 별도이며 Discord 전송 내용을 GA에 복제하지 않습니다.
+ * - 2xx만 성공으로 처리하고 네트워크 오류와 비정상 응답은 호출자에게 reject하여 UI가 실패를
+ *   사용자에게 알릴 수 있게 합니다. 실패했다고 로컬 설정을 끄거나 웹훅 URL을 삭제하지 않습니다.
+ * - 웹훅 URL은 인증 정보이므로 로그·분석 이벤트·백업 문서에 원문을 추가로 노출하지 않습니다.
+ */
 import * as https from 'https';
 import * as url from 'url';
 import * as config from './config';

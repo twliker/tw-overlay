@@ -32,11 +32,15 @@
     waveMonsterWarningEnabled: boolean;
     waveMonsterWarningSound: string;
     waveMonsterWarningVolume: number;
-    essenceAlertEnabled: boolean;
     specialMonsterAlertEnabled: boolean;
     abandonedAlertEnabled: boolean;
     pittaHillAlertEnabled: boolean;
     questCompleteAlertEnabled: boolean;
+    questCompleteAlertSound: string;
+    questCompleteAlertVolume: number;
+    abyssTreasureAlertEnabled: boolean;
+    abyssTreasureAlertSound: string;
+    abyssTreasureAlertVolume: number;
     showTodaySummaryHud: boolean;
     todaySummaryCollapsed: boolean;
     todaySummaryHudPos: { left: number; top?: number; bottom?: number };
@@ -133,11 +137,15 @@
       waveMonsterWarningEnabled: checkedValue('wave-warning-enabled', defaultConfig.waveMonsterWarningEnabled),
       waveMonsterWarningSound: stringValue('wave-warning-sound', defaultConfig.waveMonsterWarningSound),
       waveMonsterWarningVolume: integerValue('wave-warning-volume', defaultConfig.waveMonsterWarningVolume),
-      essenceAlertEnabled: checkedValue('essence-alert-enabled', defaultConfig.essenceAlertEnabled),
       specialMonsterAlertEnabled: checkedValue('special-monster-alert-enabled', defaultConfig.specialMonsterAlertEnabled),
       abandonedAlertEnabled: checkedValue('abandoned-alert-enabled', defaultConfig.abandonedAlertEnabled),
       pittaHillAlertEnabled: checkedValue('pitta-hill-alert-enabled', defaultConfig.pittaHillAlertEnabled),
       questCompleteAlertEnabled: checkedValue('quest-complete-alert-enabled', defaultConfig.questCompleteAlertEnabled),
+      questCompleteAlertSound: stringValue('quest-complete-alert-sound', defaultConfig.questCompleteAlertSound),
+      questCompleteAlertVolume: integerValue('quest-complete-alert-volume', defaultConfig.questCompleteAlertVolume),
+      abyssTreasureAlertEnabled: checkedValue('abyss-treasure-alert-enabled', defaultConfig.abyssTreasureAlertEnabled),
+      abyssTreasureAlertSound: stringValue('abyss-treasure-alert-sound', defaultConfig.abyssTreasureAlertSound),
+      abyssTreasureAlertVolume: integerValue('abyss-treasure-alert-volume', defaultConfig.abyssTreasureAlertVolume),
     };
   }
 

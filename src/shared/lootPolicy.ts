@@ -40,6 +40,17 @@ export function isMagicStoneLoot(value: unknown): boolean {
   return normalizeLootText(value).includes('마정석');
 }
 
+/**
+ * 일반 득템 등록 목록과 무관하게 별도 재화 집계가 항상 유지되어야 하는 항목입니다.
+ * 현재는 경험의 정수만 해당합니다. 직접 획득 기록, 모험일지 표시, 월간/오늘 요약이 모두
+ * 이 예외를 공유하므로 일반 키워드 정리 과정에서 제거하거나 부분 문자열로 넓히지 않습니다.
+ */
+export function isAlwaysTrackedLoot(...candidates: unknown[]): boolean {
+  return candidates
+    .flatMap(extractLootCandidateNames)
+    .some(candidate => candidate === '경험의 정수');
+}
+
 /** 경험의 정수와 마정석은 별도 재화이므로 일반 득템 개수 합계에서 제외합니다. */
 export function countsTowardLootTotal(value: unknown): boolean {
   const normalized = normalizeLootText(value);

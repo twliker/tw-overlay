@@ -15,13 +15,15 @@ import * as gallery from './galleryMonitor';
 import * as trade from './tradeMonitor';
 import * as optimizer from './optimizer';
 import { fetchEtaRanking } from './etaRanking';
-import type { EtaRankingParams, TimerRecord } from '../shared/types';
+import { MAIN_CHAR_ID } from '../shared/types';
+import type { EtaRankingParams, EvolutionCalculatorSelection, TimerRecord } from '../shared/types';
 import { setupAutoStart } from './autoStart';
 import * as sm from './shortcutManager';
 import { analytics } from './analytics';
 import * as tracker from './tracker';
 import { FOCUS_RESTORE_DELAY_MS } from './constants';
 import * as diaryDb from './diaryDb';
+import * as contentsChecker from './contentsChecker';
 import * as backup from './backupManager';
 import * as cloudSync from './cloudSyncManager';
 import { buffTimerManager } from './buffTimerManager';
@@ -30,6 +32,7 @@ import * as noticeManager from './noticeManager';
 import { discordNotifier } from './discordNotifier';
 import { chatParser } from './chatParser';
 import { abandonedTracker } from './abandonedTracker';
+import { CHAT_OVERLAY_MIN_HEIGHT, CHAT_OVERLAY_MIN_WIDTH } from './managedWindowSizing';
 import { buildTodaySummary, getLocalDateKey } from './todaySummary';
 import {
   broadcastToAllWindows,
@@ -146,6 +149,20 @@ function isValidEquipmentItem(value: unknown): value is Record<string, unknown> 
   } catch {
     return false;
   }
+}
+
+/** 장비 사전 → 진화 계산기 전용 IPC 계약을 엄격히 검증한다. */
+function isValidEvolutionCalculatorSelection(value: unknown): value is EvolutionCalculatorSelection {
+  if (!isPlainObjectForIpc(value)) return false;
+  const allowedParts: EvolutionCalculatorSelection['part'][] = [
+    '', 'helm', 'armor', 'gloves', 'boots', 'wings', 'amulet', 'shield',
+  ];
+  const hasValidCategoryAndPart = value.category === 'weapon'
+    ? value.part === ''
+    : value.category === 'equipment' && allowedParts.includes(value.part as EvolutionCalculatorSelection['part']) && value.part !== '';
+  return Object.keys(value).length === 3
+    && hasValidCategoryAndPart
+    && isLimitedString(value.itemName, 300, false);
 }
 
 function isPlainObjectForIpc(value: unknown): value is Record<string, unknown> {
@@ -270,9 +287,12 @@ export function register(): void {
   });
 
   // ── 과거 채팅 로그 동기화 & 온보딩 마법사 IPC ──
-  ipcMain.handle('start-chat-log-sync', async () => {
+  ipcMain.handle('start-chat-log-sync', async (_event, includeCompletedLogs: unknown = false) => {
     try {
-      return await syncWeeklyChatLogs();
+      if (!isBoolean(includeCompletedLogs)) {
+        throw new Error('완료된 로그 재분석 옵션이 올바르지 않습니다.');
+      }
+      return await syncWeeklyChatLogs({ reanalyzeCompletedLogs: includeCompletedLogs });
     } catch (e) {
       log(`[IPC] start-chat-log-sync error: ${e}`);
       return {
@@ -425,7 +445,9 @@ export function register(): void {
   });
 
   ipcMain.on('set-chat-overlay-size', (_e, mode: 'main' | 'sub1' | 'sub2', width: number, height: number) => {
-    if (!['main', 'sub1', 'sub2'].includes(mode) || !isFiniteInRange(width, 200, 8_192) || !isFiniteInRange(height, 120, 8_192)) return;
+    if (!['main', 'sub1', 'sub2'].includes(mode)
+      || !isFiniteInRange(width, CHAT_OVERLAY_MIN_WIDTH, 8_192)
+      || !isFiniteInRange(height, CHAT_OVERLAY_MIN_HEIGHT, 8_192)) return;
     wm.setChatOverlaySize(mode, width, height);
   });
 
@@ -465,6 +487,9 @@ export function register(): void {
     }
     const sanitizedSettings = { ...sanitizedPatch, ...(isSidebarResize !== undefined ? { isSidebarResize } : {}) };
     wm.applySettings(sanitizedSettings);
+    if (sanitizedPatch.analyticsEnabled !== undefined) {
+      analytics.refreshEnabledState();
+    }
     if (sanitizedPatch.autoLaunch !== undefined) {
       setupAutoStart(sanitizedPatch.autoLaunch);
     }
@@ -661,7 +686,7 @@ export function register(): void {
   });
 
   ipcMain.on('send-to-evolution', (_event, item) => {
-    if (!isValidEquipmentItem(item)) return;
+    if (!isValidEvolutionCalculatorSelection(item)) return;
     wm.sendEquipmentToEvolution(item);
   });
 
@@ -783,7 +808,13 @@ export function register(): void {
   });
   ipcMain.handle('diary-get-by-month', (_e, yearMonth: string) => {
     if (!isValidYearMonthKey(yearMonth)) return [];
-    return diaryDb.getDiariesByMonth(yearMonth);
+    const cfg = config.loadFields(['contentsCheckerItems', 'characterPresets'] as const);
+    const presets = cfg.characterPresets?.length ? cfg.characterPresets : [{ id: MAIN_CHAR_ID }];
+    const currentWeeklyTotal = contentsChecker.calculateDiaryHomeworkStats(
+      cfg.contentsCheckerItems || [],
+      presets,
+    ).weeklyTotal;
+    return diaryDb.getDiariesByMonth(yearMonth, currentWeeklyTotal);
   });
   ipcMain.handle('diary-get-monthly-summary', (_e, yearMonth: string) => {
     if (!isValidYearMonthKey(yearMonth)) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };

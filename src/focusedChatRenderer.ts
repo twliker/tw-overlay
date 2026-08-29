@@ -339,6 +339,8 @@ let resizeStartX = 0;
 let resizeStartY = 0;
 let resizeStartWidth = 0;
 let resizeStartHeight = 0;
+let resizeFrame: number | null = null;
+let pendingResize: { width: number; height: number } | null = null;
 
 resizeHandle.addEventListener('mousedown', event => {
   event.preventDefault();
@@ -354,10 +356,22 @@ window.addEventListener('mousemove', event => {
   if (!isResizing) return;
   const width = Math.max(360, resizeStartWidth + event.screenX - resizeStartX);
   const height = Math.max(360, resizeStartHeight + event.screenY - resizeStartY);
-  window.electronAPI.setFocusedChatSize(width, height);
+  pendingResize = { width, height };
+  if (resizeFrame === null) {
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = null;
+      if (!pendingResize) return;
+      window.electronAPI.setFocusedChatSize(pendingResize.width, pendingResize.height);
+      pendingResize = null;
+    });
+  }
 });
 
 window.addEventListener('mouseup', () => {
+  if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+  resizeFrame = null;
+  if (pendingResize) window.electronAPI.setFocusedChatSize(pendingResize.width, pendingResize.height);
+  pendingResize = null;
   isResizing = false;
 });
 

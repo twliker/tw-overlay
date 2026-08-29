@@ -49,6 +49,11 @@ export interface CloudSyncLocalState {
     settings?: string;
     checklist?: string;
   };
+  skippedRestoreFingerprints: {
+    settings?: string;
+    checklist?: string;
+  };
+  skippedRestoreDirtyKinds: Array<'settings' | 'checklist'>;
   baseSettings?: Partial<AppConfig>;
   baseChecklist?: Partial<AppConfig>;
   settingsDirtyKeys: string[];
@@ -115,6 +120,8 @@ function createState(): CloudSyncLocalState {
     fileIds: {},
     remoteRevisions: {},
     remoteFileFingerprints: {},
+    skippedRestoreFingerprints: {},
+    skippedRestoreDirtyKinds: [],
     settingsDirtyKeys: [],
     settingsDirtyAt: {},
     checklistOutbox: [],
@@ -235,6 +242,15 @@ function normalizeState(value: unknown): CloudSyncLocalState | null {
       ['settings', 'checklist'],
       1_000,
     ),
+    skippedRestoreFingerprints: normalizeStringFields(
+      parsed.skippedRestoreFingerprints,
+      ['settings', 'checklist'],
+      1_000,
+    ),
+    skippedRestoreDirtyKinds: isStringArray(parsed.skippedRestoreDirtyKinds)
+      ? Array.from(new Set(parsed.skippedRestoreDirtyKinds
+        .filter((kind): kind is 'settings' | 'checklist' => kind === 'settings' || kind === 'checklist')))
+      : [],
     baseSettings: parsed.baseSettings,
     baseChecklist: parsed.baseChecklist,
     settingsDirtyKeys,
@@ -295,6 +311,19 @@ export function load(): CloudSyncLocalState {
     log(`[CloudSyncState] 초기 상태 저장 실패: ${error}`);
   }
   return structuredClone(cachedState);
+}
+
+/** 수동 로컬 복원 뒤 원격 검증 캐시를 폐기해 다음 pull이 실제 payload를 다시 검증하게 한다. */
+export function invalidateRemoteValidationAfterLocalRestore(): void {
+  update(state => {
+    state.remoteRevisions = {};
+    state.remoteFileFingerprints = {};
+    state.skippedRestoreFingerprints = {};
+    state.skippedRestoreDirtyKinds = [];
+    state.baseSettings = undefined;
+    state.baseChecklist = undefined;
+    state.lastPullAt = undefined;
+  });
 }
 
 export function save(next: CloudSyncLocalState): boolean {

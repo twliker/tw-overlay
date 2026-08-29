@@ -1149,6 +1149,8 @@ let chatOverlayStartX = 0;
 let chatOverlayStartY = 0;
 let chatOverlayStartWidth = 0;
 let chatOverlayStartHeight = 0;
+let chatOverlayResizeFrame: number | null = null;
+let pendingChatOverlaySize: { width: number; height: number } | null = null;
 
 if (resizeHandle) {
   resizeHandle.addEventListener('mousedown', (e) => {
@@ -1178,12 +1180,27 @@ window.addEventListener('mousemove', (e) => {
   const newWidth = Math.max(300, chatOverlayStartWidth + deltaX);
   const newHeight = Math.max(80, chatOverlayStartHeight + deltaY);
   
-  window.electronAPI.setChatOverlaySize(chatOverlayMode, newWidth, newHeight);
+  pendingChatOverlaySize = { width: newWidth, height: newHeight };
+  if (chatOverlayResizeFrame === null) {
+    chatOverlayResizeFrame = requestAnimationFrame(() => {
+      chatOverlayResizeFrame = null;
+      if (!pendingChatOverlaySize) return;
+      window.electronAPI.setChatOverlaySize(
+        chatOverlayMode,
+        pendingChatOverlaySize.width,
+        pendingChatOverlaySize.height,
+      );
+      pendingChatOverlaySize = null;
+    });
+  }
 });
 
 window.addEventListener('mouseup', (e) => {
   if (!chatOverlayIsResizing) return;
   chatOverlayIsResizing = false;
+  if (chatOverlayResizeFrame !== null) cancelAnimationFrame(chatOverlayResizeFrame);
+  chatOverlayResizeFrame = null;
+  pendingChatOverlaySize = null;
   
   const deltaX = e.screenX - chatOverlayStartX;
   const deltaY = e.screenY - chatOverlayStartY;

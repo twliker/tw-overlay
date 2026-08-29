@@ -103,6 +103,13 @@ export function resolveZOrderPolicyState(input: ZOrderPolicyInput): ZOrderPolicy
  * 이 정책은 창모드·창모드 전체화면 및 다중 모니터 실게임에서 확정됐다.
  * 새 증상에 대응한다는 이유로 모니터별/창 rect별 Topmost 예외를 다시 추가하지 말고,
  * 반드시 두 모드의 자동 회귀와 실기 검증을 거쳐 이 불변식 안에서 수정한다.
+ *
+ * [프로세스 권한 계약]
+ * 테일즈위버와 오버레이의 무결성 수준이 다르면 Win32 z-order 읽기·배치가 거부되거나
+ * 불안정해질 수 있으므로 Windows 패키지는 `requestedExecutionLevel=requireAdministrator`를
+ * 유지한다. 이 값을 `asInvoker`로 낮추는 것은 단순 설치 옵션 변경이 아니라 핵심 오버레이
+ * 기능을 깨뜨리는 변경이다. 권한 구조 자체를 바꾸려면 동등 권한 helper 설계와 실제 게임
+ * z-order 검증을 먼저 완료해야 하며, 이 컨트롤러만 보고 임의로 manifest를 수정하지 않는다.
  */
 export class GameOverlayZOrderController {
     private state: ZOrderPolicyState = 'inactive';

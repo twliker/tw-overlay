@@ -1,3 +1,14 @@
+/**
+ * 기능 계약 — 버전 업데이트 공지
+ *
+ * - 패키지의 `assets/notice/notice.json`이 공지 내용과 공지 버전의 원본입니다. JSON에 이미지 목록이
+ *   없을 때만 같은 폴더의 `notice_<번호>.*` 파일을 자연수 순서로 자동 탐색합니다.
+ * - `lastNoticeVersion`과 공지 버전이 다를 때 한 번 보여 주며, 사용자가 공지를 실제로 확인한 뒤
+ *   `markNoticeAsRead`를 호출해 읽음 상태를 저장합니다. 앱 버전만 올렸다고 자동 읽음 처리하지 않습니다.
+ * - 리소스 누락·손상은 앱 시작을 막지 않고 공지만 생략하며 오류를 로그에 남깁니다.
+ * - 릴리즈 시 package 버전과 공지 버전을 따로 확인해야 하며, 이전 사용자의 읽음 상태를 무효화하려는
+ *   경우에만 공지 버전을 변경합니다.
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';

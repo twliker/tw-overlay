@@ -101,15 +101,17 @@
     </div>
     <div class="badge">TW-Overlay Official Privacy Policy</div>
     <h1>개인정보처리방침 (Privacy Policy)</h1>
-    <p><strong>시행일자</strong>: 2026년 8월 24일</p>
+    <p><strong>시행일자</strong>: 2026년 8월 29일</p>
 
     <div class="notice-box">
-      <p>💡 <strong>요약</strong>: <strong>TW-Overlay</strong>는 사용자의 개인정보를 외부 서버에 수집·저장하지 않으며, 클라우드 동기화 기능 사용 시 모든 데이터는 사용자의 개인 <strong>Google Drive 전용 숨김 폴더(AppData)</strong>에만 안전하게 보관됩니다.</p>
+      <p>💡 <strong>요약</strong>: <strong>TW-Overlay</strong>는 회원가입 없이 사용할 수 있으며 채팅 내용, 캐릭터명, 이메일, 파일 경로를 사용 통계로 전송하지 않습니다. 앱 개선을 위해 가명 설치 식별자와 기능 사용 이벤트를 Google Analytics로 전송하며, 설정에서 언제든지 끌 수 있습니다. 클라우드 동기화 데이터는 사용자의 개인 <strong>Google Drive 전용 숨김 폴더(AppData)</strong>에만 보관됩니다.</p>
     </div>
 
     <h2>1. 수집하는 개인정보 항목 및 수집 방법</h2>
-    <p>TW-Overlay는 별도의 회원가입 없이 사용할 수 있는 오픈소스 데스크톱 애플리케이션입니다. 구글 드라이브 동기화 기능을 사용할 때에 한하여 다음과 같은 정보가 활용됩니다:</p>
+    <p>TW-Overlay는 별도의 회원가입 없이 사용할 수 있는 오픈소스 데스크톱 애플리케이션입니다. 다음 정보가 기능별로 처리됩니다:</p>
     <ul>
+      <li><strong>Google Analytics 사용 통계</strong>: 무작위로 생성한 가명 설치 식별자(<code>client_id</code>), 세션 식별자·번호, 앱 버전, 런처 배치 방식, 앱 실행·기능 열기·설정 기능 사용·오류 종류와 같은 이벤트, 이벤트 사이의 경과 시간. 오류 원문은 전송하지 않습니다.</li>
+      <li><strong>사용 통계에 포함하지 않는 정보</strong>: Google 이메일, 캐릭터명, 채팅·메신저 내용, 알림 키워드, 파일명·파일 경로, Discord Webhook URL, Google OAuth 토큰 및 사용자가 입력한 자유 형식 문자열은 전송하지 않습니다.</li>
       <li><strong>Google 계정 이메일 주소</strong>: 사용자가 연동된 계정을 식별하고 앱 내에 표시하기 위한 목적으로만 사용됩니다. 이메일은 로컬 계정 표시에만 사용하며 세 동기화 JSON에는 저장하지 않습니다.</li>
       <li><strong>사용자 환경설정</strong>: 알림 사용 여부·키워드·음량·내장 사운드 선택, 단축키·퀵슬롯·메뉴, 채팅 오버레이 탭·필터·색상, 사용자 지정 알람, 계산기 설정 등.</li>
       <li><strong>숙제 체크리스트 데이터</strong>: 숙제 정의와 리셋 규칙, 캐릭터 ID·사용자 지정 이름, 캐릭터별 완료·해제·N/A·횟수·완료 시각, 캐릭터 선택 전 미반영 완료 이력 등.</li>
@@ -122,13 +124,18 @@
     <ul>
       <li>다중 PC 환경(집 PC, 노트북, PC방 등) 간 숙제 체크리스트 및 사용자 환경설정 동기화</li>
       <li>사용자 본인의 구글 드라이브에 안전한 백업 파일 생성 및 복원</li>
+      <li>앱 실행·기능 이용 현황과 오류 종류의 집계 분석을 통한 기능 개선 및 품질 확인</li>
     </ul>
 
-    <h2>3. 개인정보의 보관 및 제3자 제공</h2>
+    <h2>3. 외부 서비스 전송·보관 및 운영자의 접근 범위</h2>
     <ul>
-      <li><strong>외부 서버 미전송</strong>: TW-Overlay는 자체 데이터베이스나 중앙 서버를 운영하지 않습니다. 동기화 데이터는 사용자 본인의 Google Drive 앱 전용 격리 공간(<code>appDataFolder</code>)에 <code>tw_overlay_settings.json</code>, <code>tw_overlay_checklist.json</code>, <code>tw_overlay_sync_meta.json</code>으로 직접 저장됩니다.</li>
+      <li><strong>자체 수집 서버 없음</strong>: TW-Overlay 운영자는 사용 통계를 받기 위한 별도 서버나 원본 이벤트 데이터베이스를 운영하지 않습니다. 사용 통계는 Google Analytics로 직접 전송되고, 클라우드 동기화 데이터는 사용자가 선택한 경우에만 사용자 본인의 Google Drive로 직접 전송됩니다.</li>
+      <li><strong>Google Analytics 처리 및 운영자 확인 범위</strong>: 사용 통계는 HTTPS를 통해 Google LLC의 Google Analytics로 전송·보관됩니다. 운영자는 Google Analytics가 제공하는 보고서와 분석 기능에서 기능별 사용 횟수·추이 및 오류 종류 등의 분석 결과를 확인할 수 있지만, 해당 이벤트를 별도의 자체 서버나 데이터베이스로 받아 보관하지 않습니다. 전송 항목은 가명 설치·세션 식별자와 위에 열거한 이벤트 정보이며, 전송 시점은 이벤트 발생 시, 목적은 사용 현황 집계와 품질 개선입니다. GA4 사용자·이벤트 수준 데이터 보유 기간은 2개월로 설정하며, 집계 보고서의 보관은 Google Analytics 정책에 따릅니다. Google의 처리 인프라는 국외에 분산될 수 있습니다.</li>
+      <li><strong>광고 목적 사용 안 함</strong>: Google Signals, 광고 개인 최적화, Google Ads 연결 및 사용자 제공 데이터 기능을 사용하지 않으며, 수집한 통계를 광고 타겟팅이나 사용자 프로파일링에 사용하지 않습니다.</li>
+      <li><strong>전송 거부</strong>: 설정 → 앱 & 런처 → 앱 동작에서 <code>사용 통계 전송</code>을 끄면 이후 Google Analytics 이벤트 전송이 중단됩니다. 기능 사용에는 불이익이 없습니다.</li>
+      <li><strong>Google Drive 보관</strong>: 동기화 데이터는 사용자 본인의 Google Drive 앱 전용 격리 공간(<code>appDataFolder</code>)에 <code>tw_overlay_settings.json</code>, <code>tw_overlay_checklist.json</code>, <code>tw_overlay_sync_meta.json</code>으로 직접 저장됩니다.</li>
       <li><strong>암호화 범위</strong>: Google과의 통신은 HTTPS를 사용하지만 TW-Overlay가 세 JSON 파일에 별도의 종단간 암호화를 추가하지는 않습니다. 비밀 자격증명과 PC 종속 경로는 동기화 대상에서 제외합니다.</li>
-      <li><strong>제3자 제공 없음</strong>: 개발자를 포함한 어떠한 제3자에게도 사용자의 개인정보나 인게임 데이터를 제공, 공유, 판매하지 않습니다.</li>
+      <li><strong>운영자가 별도로 보유하는 사용자 데이터 없음</strong>: 운영자는 Google Analytics로 직접 전송되는 사용 통계의 원본이나 사용자의 Google Drive 동기화 데이터 사본을 자체 서버·데이터베이스에 수집·보관하지 않습니다. 따라서 운영자가 판매하거나 다른 업체에 별도로 전달할 사용자 데이터도 보유하고 있지 않습니다.</li>
     </ul>
 
     <h2>4. Google API 사용자 데이터 정책 준수 (Google API Services User Data Policy)</h2>
@@ -140,7 +147,7 @@
     </div>
     <ul>
       <li><strong>권한 범위 한정</strong>: 요청하는 권한(<code>https://www.googleapis.com/auth/drive.appdata</code>)은 오직 TW-Overlay가 생성한 앱 데이터 JSON 파일에만 접근하며, 사용자의 일반 Google Drive 파일(사진, 문서 등)에는 접근할 수 없습니다.</li>
-      <li><strong>데이터 공유 및 판매 금지</strong>: 사용자의 구글 계정 데이터는 어떠한 제3자에게도 공유되거나 판매되지 않습니다.</li>
+      <li><strong>운영자 미보유</strong>: Google Drive 동기화 데이터는 앱과 사용자 본인의 Google Drive 사이에서 직접 오가며, 운영자는 이 데이터에 접근하는 서버나 별도 사본을 보유하지 않습니다.</li>
       <li><strong>AI 학습 및 광고 활용 금지</strong>: 사용자의 구글 데이터를 AI 모델 훈련 또는 광고 타겟팅 등의 다른 용도로 일체 사용하지 않습니다.</li>
       <li><strong>인간 검토 제한</strong>: 법적 요구 또는 사용자의 명시적인 동의가 있는 보안 감사 목적을 제외하고는 어떠한 사람도 사용자의 데이터를 열람하지 않습니다.</li>
     </ul>
@@ -151,6 +158,7 @@
       <li><strong>앱 내 연동 해제</strong>: 설정 > 데이터 관리에서 <code>[연동 해제]</code> 버튼을 클릭하면 로컬에 저장된 암호화 인증 토큰이 즉시 영구 삭제됩니다.</li>
       <li><strong>Google 계정에서 권한 삭제</strong>: <a href="https://myaccount.google.com/permissions" target="_blank" style="color: #38bdf8;">Google 계정 권한 관리 페이지</a>에서 언제든지 TW-Overlay의 접근 권한을 철회할 수 있습니다.</li>
       <li><strong>클라우드 데이터 영구 삭제</strong>: Google Drive 웹 접속 > 우측 상단 [설정] ⚙️ > [앱 관리] > TW-Overlay > [숨겨진 앱 데이터 삭제]를 선택하여 드라이브 내 동기화 파일을 영구 삭제할 수 있습니다.</li>
+      <li><strong>사용 통계 중단</strong>: 설정 > 앱 & 런처 > 앱 동작에서 <code>사용 통계 전송</code>을 끄면 이후 이벤트가 전송되지 않습니다.</li>
     </ul>
 
     <h2>6. 문의처</h2>

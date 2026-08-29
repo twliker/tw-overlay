@@ -1974,7 +1974,8 @@
     let timerStartTime = 0;
     let timerIsRunning = false;
     let timerFadeTimeout = null;
-    let timerStatusInterval = null;
+      let timerStatusInterval = null;
+      let lastTimerDisplay = '';
 
     function formatTimerTime(ms) {
       const totalSec = Math.floor(ms / 1000);
@@ -2009,18 +2010,25 @@
         display.innerText = '00:00.00';
       }
 
-      timerInterval = setInterval(() => {
+      const updateTimerDisplay = () => {
+        if (!timerIsRunning) return;
         if (display) {
           const elapsed = Date.now() - timerStartTime;
-          display.innerText = formatTimerTime(elapsed);
+          const formatted = formatTimerTime(elapsed);
+          if (formatted !== lastTimerDisplay) {
+            display.innerText = formatted;
+            lastTimerDisplay = formatted;
+          }
         }
-      }, 10);
+        timerInterval = requestAnimationFrame(updateTimerDisplay);
+      };
+      timerInterval = requestAnimationFrame(updateTimerDisplay);
     }
 
     function stopTimer() {
       if (!timerIsRunning) return;
       timerIsRunning = false;
-      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      if (timerInterval) { cancelAnimationFrame(timerInterval); timerInterval = null; }
 
       const status = document.getElementById('timer-hud-status');
       const hud = document.getElementById('timer-hud');
@@ -2194,76 +2202,30 @@
     let sessionIsActive = false;
     let currentConfig = null;
 
-    function measureHud(element) {
-      const rect = element.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) return rect;
-
-      // display:none 상태의 HUD도 실제 콘텐츠 크기로 판정하기 위해 화면에 보이지 않는 복제본을 측정합니다.
-      const clone = element.cloneNode(true);
-      clone.removeAttribute('id');
-      clone.classList.remove('hidden');
-      clone.style.setProperty('display', 'flex', 'important');
-      clone.style.setProperty('visibility', 'hidden', 'important');
-      clone.style.setProperty('opacity', '0', 'important');
-      clone.style.setProperty('left', '0', 'important');
-      clone.style.setProperty('bottom', '0', 'important');
-      document.body.appendChild(clone);
-      const measured = clone.getBoundingClientRect();
-      clone.remove();
-      return measured;
-    }
-
-    function recoverHudPosition(element, position) {
-      const left = Number(position?.left);
-      const bottom = Number(position?.bottom);
-
-      // 뷰포트 크기가 아직 게임 해상도로 렌더링되지 않은 초기화/과도기(0x0 또는 축소 상태)인 경우 복구 검사를 건너뛰고 기존 좌표를 그대로 유지
-      if (window.innerWidth < 400 || window.innerHeight < 300) {
-        return {
-          left: Number.isFinite(left) ? left : 200,
-          bottom: Number.isFinite(bottom) ? bottom : 0,
-          recovered: false,
-        };
-      }
-
-      const size = measureHud(element);
-      const width = Math.max(1, size.width);
-      const height = Math.max(1, size.height);
-      const top = window.innerHeight - bottom - height;
-      const intersectsViewport = Number.isFinite(left)
-        && Number.isFinite(bottom)
-        && left + width > 0
-        && left < window.innerWidth
-        && top + height > 0
-        && top < window.innerHeight;
-
-      if (intersectsViewport) return { left, bottom, recovered: false };
-      return {
-        left: Math.round((window.innerWidth - width) / 2),
-        bottom: Math.round((window.innerHeight - height) / 2),
-        recovered: true,
-      };
-    }
-
-    function applySafeHudPositions(config) {
+    /**
+     * 게임 오버레이 내부 HUD 위치 계약
+     *
+     * game-overlay 창 자체가 테일즈위버의 위치와 크기를 계속 따라가므로, 재접속·해상도 전환 중
+     * 잠깐 작아진 renderer viewport를 근거로 내부 HUD를 중앙 이동하거나 그 좌표를 설정에 저장하면
+     * 안 됩니다. 경험치·어벤던·버프·퀘스트 HUD는 사용자가 편집 모드에서 저장한 게임 화면 기준
+     * 좌표를 그대로 적용하며, 위치 저장은 사용자의 편집 완료·초기화 동작만 담당합니다.
+     */
+    function applyConfiguredHudPositions(config) {
       if (window.gameOverlayEditMode?.isEditMode?.()) return;
-      const recoveredSettings = {};
       const positionSpecs = [
-        ['xp-hud', 'xpWidgetPos', config.xpWidgetPos || window.electronAPI.DEFAULT_CONFIG.xpWidgetPos],
-        ['abandoned-widget', 'abandonedWidgetPos', config.abandonedWidgetPos || window.electronAPI.DEFAULT_CONFIG.abandonedWidgetPos],
-        ['buff-hud', 'buffTimerHudPos', config.buffTimerHudPos || window.electronAPI.DEFAULT_CONFIG.buffTimerHudPos],
-        ['quest-hud', 'forgeQuestHudPos', config.forgeQuestHudPos || window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos],
+        ['xp-hud', config.xpWidgetPos || window.electronAPI.DEFAULT_CONFIG.xpWidgetPos],
+        ['abandoned-widget', config.abandonedWidgetPos || window.electronAPI.DEFAULT_CONFIG.abandonedWidgetPos],
+        ['buff-hud', config.buffTimerHudPos || window.electronAPI.DEFAULT_CONFIG.buffTimerHudPos],
+        ['quest-hud', config.forgeQuestHudPos || window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos],
       ];
 
-      positionSpecs.forEach(([elementId, settingKey, position]) => {
+      positionSpecs.forEach(([elementId, position]) => {
         const element = document.getElementById(elementId);
         if (!element) return;
-        const safePosition = recoverHudPosition(element, position);
-        element.style.left = `${safePosition.left}px`;
-        element.style.bottom = `${safePosition.bottom}px`;
-        if (safePosition.recovered) {
-          recoveredSettings[settingKey] = { left: safePosition.left, bottom: safePosition.bottom };
-        }
+        const left = Number(position?.left);
+        const bottom = Number(position?.bottom);
+        if (Number.isFinite(left)) element.style.left = `${left}px`;
+        if (Number.isFinite(bottom)) element.style.bottom = `${bottom}px`;
       });
 
       // 스톱워치 타이머 HUD: CSS 기본 스타일(상단 가로 정중앙: top: 24px, left: 50%, transform: translateX(-50%)) 완전 고정
@@ -2273,11 +2235,6 @@
         timerHud.style.top = '';
         timerHud.style.bottom = '';
         timerHud.style.transform = '';
-      }
-
-      if (Object.keys(recoveredSettings).length > 0) {
-        currentConfig = { ...currentConfig, ...recoveredSettings };
-        window.electronAPI.applySettings(recoveredSettings);
       }
     }
 
@@ -2323,7 +2280,7 @@
         if (config.showBuffHud === false) buffHud.classList.add('hidden');
         else buffHud.classList.remove('hidden');
       }
-      applySafeHudPositions(config);
+      applyConfiguredHudPositions(config);
       updateHudShortcutsDisplay(config);
     });
 
@@ -2365,10 +2322,6 @@
         }
       });
     }
-
-    window.addEventListener('resize', () => {
-      if (currentConfig) applySafeHudPositions(currentConfig);
-    });
 
     function updateXpElapsedDisplay() {
       const elapsedEl = document.getElementById('xp-elapsed');

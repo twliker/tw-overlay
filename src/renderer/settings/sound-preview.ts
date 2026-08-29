@@ -19,7 +19,8 @@
     const volumeElement = document.getElementById(volumeElementId) as HTMLInputElement | null;
     const sound = soundElement?.value || fallbackSound;
     if (!sound || (!allowNone && sound === 'none')) return;
-    const volume = parseInt(volumeElement?.value ?? '', 10) || fallbackVolume;
+    const parsedVolume = parseInt(volumeElement?.value ?? '', 10);
+    const volume = Number.isFinite(parsedVolume) ? parsedVolume : fallbackVolume;
     window.playPreview(sound, volume, label);
   }
 

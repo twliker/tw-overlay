@@ -1,3 +1,15 @@
+/**
+ * 기능 계약 — Windows 로그인 자동 실행
+ *
+ * - 배포 앱은 관리자 권한으로 실행되어야 하므로 일반 `openAtLogin`만 쓰지 않고, userData의 VBS가
+ *   `runas`로 EXE를 실행하고 그 VBS를 가리키는 바로가기를 로그인 항목에 등록합니다.
+ * - 해제 시 로그인 항목과 앱이 만든 VBS/바로가기만 제거합니다. 다른 시작프로그램이나 임의 경로는
+ *   삭제하지 않습니다.
+ * - 설정 저장이 빠르게 연속 호출될 수 있으므로 generation이 가장 최신인 요청만 등록 결과를
+ *   확정합니다. 늦게 끝난 이전 enable 작업이 최종 disable 선택을 되돌리면 안 됩니다.
+ * - 실행 파일 경로와 작업 폴더는 설치된 현재 EXE를 기준으로 하며, 자동 실행을 이유로
+ *   `requestedExecutionLevel`을 낮추지 않습니다.
+ */
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';

@@ -34,7 +34,7 @@ window.bindEscapeClose = function () {
   if (window.__twEscapeCloseBound) return;
   window.__twEscapeCloseBound = true;
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
+    if (e.key === 'Escape' && !e.defaultPrevented) {
       // 닫기 전 추가 로직이 필요한 경우를 위해 이벤트를 전파하지 않음
       window.close();
     }
@@ -203,6 +203,10 @@ window.getBossToastPresentation = function (
     && spawnTime !== 'null'
   ) ? spawnTime : null;
   let displayName = bossName;
+
+  if (!isRealBoss) {
+    displayName = window.escapeHtmlText(String(bossName));
+  }
 
   if (isRealBoss && validSpawnTime) {
     displayName = `[${validSpawnTime}] ${bossName}`;

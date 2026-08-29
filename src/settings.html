@@ -187,22 +187,6 @@
       letter-spacing: 0.5px;
     }
 
-    /* ─── 가로 서브 탭 스타일 ─── */
-    .sub-tab-bar {
-      display: none;
-      flex-wrap: wrap;
-      gap: 4px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      padding-bottom: 8px;
-      margin-bottom: 24px;
-      position: sticky;
-      top: -40px;
-      z-index: 50;
-      background: rgba(15, 18, 30, 0.98);
-      margin-top: -20px;
-      padding-top: 20px;
-    }
-
     .settings-context-tabs {
       display: flex;
       flex-wrap: wrap;
@@ -243,32 +227,6 @@
     .settings-context-item svg {
       width: 14px;
       height: 14px;
-    }
-
-    .sub-tab-item {
-      padding: 8px 16px;
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-muted);
-      border-radius: 8px;
-      transition: all 0.2s;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid transparent;
-    }
-
-    .sub-tab-item:hover {
-      color: white;
-      background: rgba(255, 255, 255, 0.06);
-    }
-
-    .sub-tab-item.active {
-      color: #a855f7;
-      background: rgba(168, 85, 247, 0.1);
-      border-color: rgba(168, 85, 247, 0.2);
     }
 
     .sub-tab-content {
@@ -388,19 +346,19 @@
       </div>
 
       <div class="nav-container custom-scroll">
-        <div class="nav-item active" data-settings-group="app" onclick="showSettingsGroup('app', this)"><i
-            data-lucide="layout"></i>앱 & 런처</div>
-        <div class="nav-item" data-settings-group="game" onclick="showSettingsGroup('game', this)"><i
-            data-lucide="monitor-dot"></i>게임 HUD & 알림</div>
-        <div class="nav-item" data-settings-group="chat" onclick="showSettingsGroup('chat', this)"><i
-            data-lucide="messages-square"></i>채팅 & 로그</div>
-        <div class="nav-item" data-settings-group="alerts" onclick="showSettingsGroup('alerts', this)"><i
-            data-lucide="bell-ring"></i>외부 알림 & 소리</div>
-        <div class="nav-item" data-settings-group="system" onclick="showSettingsGroup('system', this)"><i
-            data-lucide="settings-2"></i>시스템 & 관리</div>
-        <div class="nav-item relative" data-settings-group="about" onclick="showSettingsGroup('about', this)"><i
+        <button type="button" class="nav-item active w-full text-left" data-settings-group="app" aria-current="page" onclick="showSettingsGroup('app', this)"><i
+            data-lucide="layout"></i>앱 & 런처</button>
+        <button type="button" class="nav-item w-full text-left" data-settings-group="game" onclick="showSettingsGroup('game', this)"><i
+            data-lucide="monitor-dot"></i>게임 HUD & 알림</button>
+        <button type="button" class="nav-item w-full text-left" data-settings-group="chat" onclick="showSettingsGroup('chat', this)"><i
+            data-lucide="messages-square"></i>채팅 & 로그</button>
+        <button type="button" class="nav-item w-full text-left" data-settings-group="alerts" onclick="showSettingsGroup('alerts', this)"><i
+            data-lucide="bell-ring"></i>모니터링 & 소리</button>
+        <button type="button" class="nav-item w-full text-left" data-settings-group="system" onclick="showSettingsGroup('system', this)"><i
+            data-lucide="settings-2"></i>시스템 & 관리</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="about" onclick="showSettingsGroup('about', this)"><i
             data-lucide="info"></i>앱 정보<span id="update-badge"
-            class="absolute top-1/2 right-4 -translate-y-1/2 w-2 h-2 bg-red-500 rounded-full hidden"></span></div>
+            class="absolute top-1/2 right-4 -translate-y-1/2 w-2 h-2 bg-red-500 rounded-full hidden"></span></button>
       </div>
 
       <div class="mt-auto p-4 space-y-2 mb-2">
@@ -441,11 +399,20 @@
 
               <label
                 class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
+                <input type="checkbox" id="analytics-enabled-input" class="w-5 h-5 accent-purple-600">
+                <div>
+                  <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">사용 통계 전송</span>
+                  <p class="text-xs text-slate-500 mt-0.5">개인정보·채팅 없이 기능 사용 패턴을 Google Analytics로 전송</p>
+                </div>
+              </label>
+
+              <label
+                class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
                 <input type="checkbox" id="follow-game-window-input" class="w-5 h-5 accent-purple-600">
                 <div>
                   <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">게임창 따라가기
                     (Follow)</span>
-                  <p class="text-xs text-slate-500 mt-0.5">게임창 이동 시 오버레이 창들이 자동으로 함께 이동합니다.</p>
+                  <p class="text-xs text-slate-500 mt-0.5">켜면 게임창 기준 위치를 유지하고, 끄면 현재 화면 위치에 고정합니다.</p>
                 </div>
               </label>
 
@@ -583,25 +550,12 @@
         </div>
       </div>
 
-      <!-- 3. 소리 및 알림 설정 -->
+      <!-- 3. 공통 알림 정책 및 소리 -->
       <div id="section-sound" class="settings-section space-y-8 hidden">
         <div class="settings-group">
           <h2 class="text-lg font-bold mb-6 flex items-center gap-2">
-            <i data-lucide="volume-2" class="w-5 h-5 text-purple-500"></i> 소리 및 알림 설정
+            <i data-lucide="volume-2" class="w-5 h-5 text-purple-500"></i> 공통 알림 정책 및 소리
           </h2>
-
-          <!-- 가로 서브 탭 바 -->
-          <div class="sub-tab-bar">
-            <button type="button" class="sub-tab-item active" onclick="showSubSection('sub-tab-sound-settings', this)">
-              <i data-lucide="volume-2" class="w-3.5 h-3.5"></i> 소리 설정
-            </button>
-            <button type="button" class="sub-tab-item" onclick="showSubSection('sub-tab-alarm-log', this)">
-              <i data-lucide="history" class="w-3.5 h-3.5"></i> 알림 기록
-            </button>
-            <button type="button" class="sub-tab-item" onclick="showSubSection('sub-tab-custom-sounds', this)">
-              <i data-lucide="music" class="w-3.5 h-3.5"></i> 커스텀 알림음
-            </button>
-          </div>
 
           <!-- 서브 탭 1: 소리 설정 -->
           <div id="sub-tab-sound-settings" class="sub-tab-content active space-y-6">
@@ -657,10 +611,10 @@
               </div>
             </div>
 
-            <!-- 알림음 바로가기 링크 카드들 -->
+            <!-- 기능별 상세 설정 바로가기 -->
             <div class="pt-6 border-t border-white/5 space-y-4">
               <label class="section-label flex items-center gap-2 mb-2">
-                <i data-lucide="link" class="w-4 h-4 text-purple-400"></i> 기능별 알림음 설정 바로가기
+                <i data-lucide="link" class="w-4 h-4 text-purple-400"></i> 기능별 상세 설정
               </label>
               <div id="sound-shortcuts-grid" class="grid grid-cols-3 gap-4">
                 <div
@@ -727,7 +681,7 @@
                       class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
                       <i data-lucide="trending-up" class="w-3.5 h-3.5 text-blue-400"></i> 경험치 HUD 설정
                     </span>
-                    <p class="text-xs text-slate-500">경험치 획득량 및 EPM 창 켜기</p>
+                    <p class="text-xs text-slate-500">HUD와 경험의 정수 알림 설정</p>
                   </div>
                   <i data-lucide="chevron-right"
                     class="w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors"></i>
@@ -742,6 +696,34 @@
                       <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-rose-400"></i> 기믹 & 도전과제 알림
                     </span>
                     <p class="text-xs text-slate-500">제2사도/로카고스/에토스 알림음 변경</p>
+                  </div>
+                  <i data-lucide="chevron-right"
+                    class="w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors"></i>
+                </div>
+
+                <div
+                  class="p-4 bg-white/5 border border-white/5 hover:border-purple-500/30 rounded-xl transition-all flex items-center justify-between group cursor-pointer"
+                  onclick="window.electronAPI.toggleDiscordAlarm()">
+                  <div class="space-y-1">
+                    <span
+                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
+                      <i data-lucide="send" class="w-3.5 h-3.5 text-cyan-400"></i> Discord 알림
+                    </span>
+                    <p class="text-xs text-slate-500">웹훅과 채팅 감지 규칙 설정</p>
+                  </div>
+                  <i data-lucide="chevron-right"
+                    class="w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors"></i>
+                </div>
+
+                <div
+                  class="p-4 bg-white/5 border border-white/5 hover:border-purple-500/30 rounded-xl transition-all flex items-center justify-between group cursor-pointer"
+                  onclick="window.electronAPI.toggleScamDetector()">
+                  <div class="space-y-1">
+                    <span
+                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
+                      <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-red-400"></i> 사기 의심 알림
+                    </span>
+                    <p class="text-xs text-slate-500">탐지 엔진과 경고음 설정</p>
                   </div>
                   <i data-lucide="chevron-right"
                     class="w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors"></i>
@@ -873,118 +855,6 @@
               </label>
             </div>
 
-            <!-- 게임 오버레이 경고 및 알림 표시 설정 카드 -->
-            <div class="p-5 bg-black/20 rounded-xl border border-white/5 space-y-4">
-              <div class="flex items-center justify-between pb-2 border-b border-white/5">
-                <div class="flex flex-col gap-0.5">
-                  <span class="text-sm font-bold text-slate-200 flex items-center gap-2">
-                    <i data-lucide="bell-ring" class="w-4 h-4 text-purple-400"></i> 게임 오버레이 경고 및 알림 표시
-                  </span>
-                  <p class="text-xs text-slate-400">
-                    인게임 상황에 따라 화면 중앙 및 상단에 노출되는 주요 팝업 알림 카드를 개별적으로 켜거나 끕니다.
-                  </p>
-                </div>
-              </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                <!-- 1. 몬스터 웨이브 종료 대기 알림 -->
-                <label
-                  class="flex items-start gap-3 p-3.5 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all cursor-pointer group">
-                  <input type="checkbox" id="wave-warning-enabled"
-                    class="w-4 h-4 accent-purple-600 cursor-pointer shrink-0 mt-0.5">
-                  <div class="flex flex-col">
-                    <span
-                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
-                      <i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-amber-400 shrink-0"></i> 몬스터 웨이브 종료 대기 알림
-                    </span>
-                    <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                      웨이브 미종료 잔존 몬스터 발생 시 "몬스터 처치 대기!" 경고창 표시
-                    </p>
-                  </div>
-                </label>
-
-                <!-- 2. 경험의 정수 버프 확인 경고 -->
-                <label
-                  class="flex items-start gap-3 p-3.5 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all cursor-pointer group">
-                  <input type="checkbox" id="essence-alert-enabled"
-                    class="w-4 h-4 accent-purple-600 cursor-pointer shrink-0 mt-0.5">
-                  <div class="flex flex-col">
-                    <span
-                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
-                      <i data-lucide="sparkles" class="w-3.5 h-3.5 text-rose-400 shrink-0"></i> 경험의 정수 버프 확인 경고
-                    </span>
-                    <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                      경험치 100억 달성 시 자동 교환 버프 꺼짐 확인 경고창 표시
-                    </p>
-                  </div>
-                </label>
-
-                <!-- 3. 공허 특별 몬스터 출현 알림 -->
-                <label
-                  class="flex items-start gap-3 p-3.5 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all cursor-pointer group">
-                  <input type="checkbox" id="special-monster-alert-enabled"
-                    class="w-4 h-4 accent-purple-600 cursor-pointer shrink-0 mt-0.5">
-                  <div class="flex flex-col">
-                    <span
-                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
-                      <i data-lucide="skull" class="w-3.5 h-3.5 text-purple-400 shrink-0"></i> 공허 특별 몬스터 출현 알림
-                    </span>
-                    <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                      공허의 영역 필드에 특별 몬스터 젠 감지 시 알림 카드 표시
-                    </p>
-                  </div>
-                </label>
-
-                <!-- 4. 어벤던로드 10회 완료 알림 -->
-                <label
-                  class="flex items-start gap-3 p-3.5 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all cursor-pointer group">
-                  <input type="checkbox" id="abandoned-alert-enabled"
-                    class="w-4 h-4 accent-purple-600 cursor-pointer shrink-0 mt-0.5">
-                  <div class="flex flex-col">
-                    <span
-                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
-                      <i data-lucide="gem" class="w-3.5 h-3.5 text-amber-400 shrink-0"></i> 어벤던로드 10회 완료 알림
-                    </span>
-                    <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                      최고 효율 구간(지역 10회) 도달 시 화면 플래시 및 보석 알림 카드 표시
-                    </p>
-                  </div>
-                </label>
-
-                <!-- 5. 팔색조 언덕 5회 완료 알림 -->
-                <label
-                  class="flex items-start gap-3 p-3.5 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all cursor-pointer group">
-                  <input type="checkbox" id="pitta-hill-alert-enabled"
-                    class="w-4 h-4 accent-purple-600 cursor-pointer shrink-0 mt-0.5">
-                  <div class="flex flex-col">
-                    <span
-                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
-                      <i data-lucide="feather" class="w-3.5 h-3.5 text-emerald-400 shrink-0"></i> 팔색조 언덕 5회 완료 알림
-                    </span>
-                    <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                      팔색조 언덕 SS 5회 획득(효율 플레이 완료) 시 알림 카드 표시
-                    </p>
-                  </div>
-                </label>
-
-                <!-- 6. 도전과제 완료 알림 -->
-                <label
-                  class="flex items-start gap-3 p-3.5 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all cursor-pointer group">
-                  <input type="checkbox" id="quest-complete-alert-enabled"
-                    class="w-4 h-4 accent-purple-600 cursor-pointer shrink-0 mt-0.5">
-                  <div class="flex flex-col">
-                    <span
-                      class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
-                      <i data-lucide="badge-check" class="w-3.5 h-3.5 text-indigo-400 shrink-0"></i> 도전과제 완료 알림
-                    </span>
-                    <p class="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                      대장간/골고다/공허 목표 처치 달성 시 완료 축하 카드 및 효과음 발생
-                    </p>
-                  </div>
-                </label>
-              </div>
-            </div>
-
             <!-- HUD 컴포넌트 목록 및 바로가기 -->
             <div class="space-y-3 pt-2">
               <label class="section-label flex items-center gap-2 mb-3">
@@ -1032,12 +902,12 @@
                 </div>
 
                 <!-- 3. 실시간 경험치 HUD -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between gap-3">
+                <div id="xp-feature-settings-card" class="p-4 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between gap-3">
                   <div class="min-w-0">
                     <span class="text-sm font-bold text-slate-200 flex items-center gap-2">
                       <i data-lucide="trending-up" class="w-4 h-4 text-emerald-400 shrink-0"></i> 실시간 경험치(XP) HUD
                     </span>
-                    <p class="text-xs text-slate-500 mt-0.5">총 경험치, EPM, 처치 수 실시간 계산</p>
+                    <p class="text-xs text-slate-500 mt-0.5">HUD 표시·위치와 경험의 정수 알림을 이 기능 창에서 관리</p>
                   </div>
                   <div class="flex flex-col gap-1.5 shrink-0">
                     <button type="button"
@@ -1289,25 +1159,6 @@
           <h2 class="text-lg font-bold mb-6 flex items-center gap-2"><i data-lucide="message-square-more"
               class="w-5 h-5 text-indigo-500"></i><span id="chatlog-section-title">채팅 & 커뮤니티 설정</span></h2>
 
-          <!-- 가로 서브 탭 바 -->
-          <div class="sub-tab-bar">
-            <button type="button" class="sub-tab-item active" onclick="showSubSection('sub-tab-general', this)">
-              <i data-lucide="folder-search" class="w-3.5 h-3.5"></i> 채팅 로그
-            </button>
-            <button type="button" class="sub-tab-item" onclick="showSubSection('sub-tab-overlay', this)">
-              <i data-lucide="message-square" class="w-3.5 h-3.5"></i> 채팅 오버레이
-            </button>
-            <button type="button" class="sub-tab-item" onclick="showSubSection('sub-tab-loot', this)">
-              <i data-lucide="gem" class="w-3.5 h-3.5"></i> 득템 & 외치기
-            </button>
-            <button type="button" class="sub-tab-item" onclick="showSubSection('sub-tab-gimmick', this)">
-              <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> 기믹 & 도전과제
-            </button>
-            <button type="button" class="sub-tab-item" onclick="showSubSection('sub-tab-today-summary', this)">
-              <i data-lucide="notebook-tabs" class="w-3.5 h-3.5"></i> 오늘 요약 HUD
-            </button>
-          </div>
-
           <!-- 서브 탭 1: 채팅 로그 -->
           <div id="sub-tab-general" class="sub-tab-content active space-y-6">
             <!-- 로그 경로 설정 -->
@@ -1344,7 +1195,7 @@
                     <i data-lucide="refresh-cw" class="w-4 h-4 text-purple-400"></i> 과거 채팅 로그 데이터 동기화
                   </label>
                   <p class="text-xs text-slate-400 mt-1">
-                    모험일지 보관 기간 안에 남아 있는 모든 채팅 로그를 다시 분석합니다. 과거 모험일지 기록은 날짜별로 복원하고, 숙제 체크리스트에는 현재 일일·주간 주기의 기록만 반영합니다.
+                    모험일지 보관 기간 안에서 아직 분석하지 않았거나 이후 내용이 추가된 채팅 로그를 처리합니다. 과거 모험일지 기록은 날짜별로 복원하고, 숙제 체크리스트에는 현재 일일·주간 주기의 기록만 반영합니다.
                   </p>
                   <p class="text-xs text-amber-300/80 mt-1">
                     로그가 많으면 분석 중 프로그램이 일시적으로 느려질 수 있습니다. 진행이 끝날 때까지 잠시 기다려 주세요.
@@ -1354,6 +1205,20 @@
                   class="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl transition-all text-xs flex items-center gap-2 shrink-0 shadow-lg shadow-purple-900/30">
                   <i data-lucide="sparkles" class="w-4 h-4"></i> 과거 로그 동기화
                 </button>
+              </div>
+              <label class="flex items-start gap-3 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl cursor-pointer">
+                <input type="checkbox" id="reanalyze-completed-chat-logs"
+                  class="w-5 h-5 mt-0.5 accent-purple-600 shrink-0">
+                <span>
+                  <span class="block text-sm font-bold text-slate-200">이미 동기화 완료된 로그도 다시 분석하여 자동 기록 재구성</span>
+                  <span class="block text-xs text-slate-400 mt-1 leading-relaxed">
+                    체크하면 완료된 파일도 처음부터 분석합니다. 분석에 성공한 날짜만 기존 채팅 로그 기반 자동 모험일지·외치기 기록을 삭제한 뒤 새 결과로 교체하며, 직접 작성한 수동 기록은 유지합니다.
+                  </span>
+                </span>
+              </label>
+              <div class="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-xs text-amber-200 flex items-start gap-2">
+                <i data-lucide="triangle-alert" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>
+                <span>과거 채팅 로그에는 수행 캐릭터 정보가 없으므로, 감지된 숙제는 모두 <strong class="text-amber-100">메인 캐릭터</strong>에 반영됩니다.</span>
               </div>
               <div id="settings-sync-status-box" style="display: none;"
                 class="p-3 bg-black/40 border border-purple-500/20 rounded-xl text-xs text-purple-300 flex items-center gap-2">
@@ -2160,14 +2025,16 @@
                   </div>
                 </div>
 
-                <!-- 4. 웨이브 종료 대기 알림 사운드 설정 -->
+                <!-- 4. 웨이브 종료 대기 알림 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
-                  <div class="flex items-center justify-between">
+                  <label class="flex items-center justify-between gap-4 cursor-pointer group">
                     <div>
-                      <span class="text-sm font-bold text-slate-200">몬스터 웨이브 종료 대기 알림음</span>
-                      <p class="text-xs text-slate-500 mt-0.5">"몬스터가 남아있으면 다음 웨이브로 넘어가지 않습니다." 문구 감지 시 재생할 효과음 설정</p>
+                      <span class="text-sm font-bold text-slate-200 group-hover:text-white">몬스터 웨이브 종료 대기 알림</span>
+                      <p class="text-xs text-slate-500 mt-0.5">잔존 몬스터 안내 문구 감지 시 화면 경고와 효과음을 표시합니다.</p>
                     </div>
-                  </div>
+                    <input type="checkbox" id="wave-warning-enabled"
+                      class="w-5 h-5 accent-indigo-600 cursor-pointer shrink-0">
+                  </label>
 
                   <!-- 웨이브 사운드 설정 영역 -->
                   <div id="wave-sound-settings" class="space-y-3 pt-2 border-t border-white/5">
@@ -2189,6 +2056,91 @@
                       <span id="wave-warning-volume-val"
                         class="text-xs font-bold text-indigo-400 w-12 text-right">70%</span>
                     </div>
+                  </div>
+                </div>
+
+                <!-- 5. 도전과제 완료 알림 -->
+                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                  <label class="flex items-center justify-between gap-4 cursor-pointer group">
+                    <div>
+                      <span class="text-sm font-bold text-slate-200 group-hover:text-white">도전과제 완료 알림</span>
+                      <p class="text-xs text-slate-500 mt-0.5">대장간·골고다·공허 목표 완료 시 카드와 효과음을 표시합니다.</p>
+                    </div>
+                    <input type="checkbox" id="quest-complete-alert-enabled"
+                      class="w-5 h-5 accent-indigo-600 cursor-pointer shrink-0">
+                  </label>
+                  <div class="space-y-3 pt-2 border-t border-white/5">
+                    <div class="flex gap-2 items-center">
+                      <span class="text-xs text-slate-400 font-bold w-16">알림음</span>
+                      <select id="quest-complete-alert-sound"
+                        class="input-field py-1.5 px-3 bg-black/40 text-xs text-slate-300 rounded-lg flex-1"></select>
+                      <button id="btn-quest-complete-sound-preview" onclick="previewQuestCompleteSound()"
+                        class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-lg text-xs">
+                        ▶ 미리듣기
+                      </button>
+                    </div>
+                    <div class="flex items-center gap-4">
+                      <span class="text-xs text-slate-400 font-bold w-16">볼륨</span>
+                      <input type="range" id="quest-complete-alert-volume" min="0" max="100"
+                        class="w-full h-2 rounded-lg appearance-none bg-slate-800 accent-indigo-500">
+                      <span id="quest-complete-alert-volume-val"
+                        class="text-xs font-bold text-indigo-400 w-12 text-right">40%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 6. 심연의 보물창고 완료 알림 -->
+                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                  <label class="flex items-center justify-between gap-4 cursor-pointer group">
+                    <div>
+                      <span class="text-sm font-bold text-slate-200 group-hover:text-white">심연의 보물창고 완료 알림</span>
+                      <p class="text-xs text-slate-500 mt-0.5">완료 카드와 3분 후 퇴장 안내에 사용할 효과음을 설정합니다.</p>
+                    </div>
+                    <input type="checkbox" id="abyss-treasure-alert-enabled"
+                      class="w-5 h-5 accent-indigo-600 cursor-pointer shrink-0">
+                  </label>
+                  <div class="space-y-3 pt-2 border-t border-white/5">
+                    <div class="flex gap-2 items-center">
+                      <span class="text-xs text-slate-400 font-bold w-16">알림음</span>
+                      <select id="abyss-treasure-alert-sound"
+                        class="input-field py-1.5 px-3 bg-black/40 text-xs text-slate-300 rounded-lg flex-1"></select>
+                      <button id="btn-abyss-treasure-sound-preview" onclick="previewAbyssTreasureSound()"
+                        class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-lg text-xs">
+                        ▶ 미리듣기
+                      </button>
+                    </div>
+                    <div class="flex items-center gap-4">
+                      <span class="text-xs text-slate-400 font-bold w-16">볼륨</span>
+                      <input type="range" id="abyss-treasure-alert-volume" min="0" max="100"
+                        class="w-full h-2 rounded-lg appearance-none bg-slate-800 accent-indigo-500">
+                      <span id="abyss-treasure-alert-volume-val"
+                        class="text-xs font-bold text-indigo-400 w-12 text-right">40%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 7. 소리 설정이 없는 게임 진행 알림 -->
+                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                  <div>
+                    <span class="text-sm font-bold text-slate-200">게임 진행 알림</span>
+                    <p class="text-xs text-slate-500 mt-0.5">별도 알림음 없이 게임 화면에 표시되는 진행·완료 카드를 관리합니다.</p>
+                  </div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-white/5">
+                    <label class="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5 cursor-pointer group">
+                      <input type="checkbox" id="special-monster-alert-enabled"
+                        class="w-4 h-4 accent-indigo-600 cursor-pointer shrink-0 mt-0.5">
+                      <span class="text-xs font-bold text-slate-300 group-hover:text-white">공허 특별 몬스터 출현</span>
+                    </label>
+                    <label class="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5 cursor-pointer group">
+                      <input type="checkbox" id="abandoned-alert-enabled"
+                        class="w-4 h-4 accent-indigo-600 cursor-pointer shrink-0 mt-0.5">
+                      <span class="text-xs font-bold text-slate-300 group-hover:text-white">어벤던로드 10회 완료</span>
+                    </label>
+                    <label class="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5 cursor-pointer group">
+                      <input type="checkbox" id="pitta-hill-alert-enabled"
+                        class="w-4 h-4 accent-indigo-600 cursor-pointer shrink-0 mt-0.5">
+                      <span class="text-xs font-bold text-slate-300 group-hover:text-white">팔색조 언덕 5회 완료</span>
+                    </label>
                   </div>
                 </div>
 
@@ -2854,7 +2806,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                         class="text-purple-400">3.0.1</span></p>
+                         class="text-purple-400">3.0.2</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -3160,6 +3112,8 @@
       const failedText = failedNames ? ` · 읽기 실패: ${failedNames}` : '';
       if (info.phase === 'preparing') {
         txt.textContent = `파일 확인 중 ${info.currentFileIndex}/${info.totalFiles} (${info.percent}%)${failedText}`;
+      } else if (info.phase === 'catching-up') {
+        txt.textContent = `동기화 중 새로 들어온 오늘 로그까지 반영하고 있습니다...${failedText}`;
       } else if (info.phase === 'finalizing') {
         txt.textContent = `분석 결과를 정리하고 있습니다...${failedText}`;
       } else {
@@ -3173,6 +3127,8 @@
 
     async function triggerManualSync() {
       const btn = document.getElementById('btn-manual-sync');
+      const reanalyzeInput = document.getElementById('reanalyze-completed-chat-logs');
+      const includeCompletedLogs = reanalyzeInput?.checked === true;
       const box = document.getElementById('settings-sync-status-box');
       const txt = document.getElementById('settings-sync-status-text');
 
@@ -3181,14 +3137,19 @@
         btn.classList.add('opacity-50');
         btn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 동기화 중...`;
       }
+      if (reanalyzeInput) reanalyzeInput.disabled = true;
       manualChatLogSyncRunning = true;
       if (box) box.style.display = 'flex';
-      if (txt) txt.textContent = '모험일지 보관 기간 안의 채팅 로그 파일을 확인하고 있습니다...';
+      if (txt) {
+        txt.textContent = includeCompletedLogs
+          ? '완료된 파일을 포함해 채팅 로그 전체를 확인하고 있습니다...'
+          : '모험일지 보관 기간 안의 채팅 로그 파일을 확인하고 있습니다...';
+      }
       if (window.lucide) lucide.createIcons();
 
       try {
         if (window.electronAPI && window.electronAPI.startChatLogSync) {
-          const res = await window.electronAPI.startChatLogSync();
+          const res = await window.electronAPI.startChatLogSync(includeCompletedLogs);
           if (res && res.success) {
             if (txt) {
               const failedNames = (res.failedFiles || []).map(file => file.fileName).join(', ');
@@ -3197,8 +3158,17 @@
                 : '✅ 과거 로그 복원 완료!';
               const todayNote = res.todayRebuildDeferred
                 ? ' · 오늘 로그는 분석 중 새 기록이 생겨 기존 기록을 보존하며 병합했습니다.'
+                : (res.todayCatchUpProcessed
+                  ? ' · 동기화 중 새로 들어온 오늘 로그까지 반영했습니다.'
+                  : '');
+              const rebuiltNote = includeCompletedLogs
+                ? ` · 자동 기록 ${res.automaticRecordsRebuiltDates || 0}일 재구성`
                 : '';
-              txt.textContent = `${prefix}${todayNote} (파일 ${res.totalFiles - (res.failedFiles?.length || 0)}/${res.totalFiles}개 | 반영 결과: 득템 ${res.lootsAdded}건, 숙제 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
+              const deferredFiles = res.automaticRecordRebuildDeferredFiles || [];
+              const deferredNote = deferredFiles.length > 0
+                ? ` · 파일 변경으로 기존 기록 보존: ${deferredFiles.join(', ')}`
+                : '';
+              txt.textContent = `${prefix}${rebuiltNote}${todayNote}${deferredNote} (파일 ${res.totalFiles - (res.failedFiles?.length || 0)}/${res.totalFiles}개 | 반영 결과: 득템 ${res.lootsAdded}건, 숙제 일지 ${res.homeworkLogsDetected || 0}건, 현재 주기 체크 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 현재 주기 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
             }
           } else {
             if (txt) txt.textContent = `동기화 완료: ${res?.error || '로그 파일 없음'}`;
@@ -3213,6 +3183,7 @@
           btn.classList.remove('opacity-50');
           btn.innerHTML = `<i data-lucide="sparkles" class="w-4 h-4"></i> 과거 로그 동기화`;
         }
+        if (reanalyzeInput) reanalyzeInput.disabled = false;
         if (window.lucide) lucide.createIcons();
       }
     }
@@ -4320,7 +4291,7 @@
       ],
       game: [
         { label: 'HUD 위젯 관리', icon: 'layers', section: 'game-overlay' },
-        { label: '게임 상황 & 기믹 알림', icon: 'shield-alert', section: 'chatlog', subTab: 'sub-tab-gimmick' },
+        { label: '게임 진행 알림', icon: 'shield-alert', section: 'chatlog', subTab: 'sub-tab-gimmick' },
       ],
       chat: [
         { label: '채팅 로그 연동', icon: 'file-text', section: 'chatlog', subTab: 'sub-tab-general' },
@@ -4329,7 +4300,7 @@
       ],
       alerts: [
         { label: '외부 모니터링', icon: 'store', section: 'external' },
-        { label: '소리 & 볼륨 믹서', icon: 'volume-2', section: 'sound', subTab: 'sub-tab-sound-settings' },
+        { label: '공통 알림 & 소리', icon: 'volume-2', section: 'sound', subTab: 'sub-tab-sound-settings' },
         { label: '커스텀 알림음', icon: 'music', section: 'sound', subTab: 'sub-tab-custom-sounds' },
         { label: '알림 기록', icon: 'history', section: 'sound', subTab: 'sub-tab-alarm-log' },
       ],
@@ -4357,6 +4328,12 @@
         keywords: ['업데이트', '버전', '체크', '패치', 'update'],
         category: '앱 & 런처 > 앱 동작',
         groupId: 'app', routeIndex: 0, targetId: 'auto-update-input'
+      },
+      {
+        title: '사용 통계 전송',
+        keywords: ['통계', '분석', '사용패턴', '구글', 'GA', 'analytics', 'privacy'],
+        category: '앱 & 런처 > 앱 동작',
+        groupId: 'app', routeIndex: 0, targetId: 'analytics-enabled-input'
       },
       {
         title: '게임창 따라가기 (Follow)',
@@ -4445,52 +4422,76 @@
         groupId: 'game', routeIndex: 0, targetId: 'section-game-overlay'
       },
       {
-        title: '경험의 정수 버프 확인 경고',
-        keywords: ['경험의정수', '정수', '버프', '100억', 'essence', '경고'],
+        title: '경험의 정수 알림 설정 (경험치 HUD)',
+        keywords: ['경험의정수', '정수', '버프', '100억', 'essence', '경고', '알림음', '소리', '볼륨'],
         category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'essence-alert-enabled'
+        groupId: 'game', routeIndex: 0, targetId: 'xp-feature-settings-card'
       },
       {
         title: '몬스터 웨이브 종료 대기 알림 (경고 & 사운드)',
         keywords: ['웨이브', '몬스터', '대기', '웨이브경고', 'wave'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'wave-warning-enabled'
+        category: '게임 HUD & 알림 > 게임 진행 알림',
+        groupId: 'game', routeIndex: 1, targetId: 'wave-warning-enabled'
       },
       {
         title: '공허 특별 몬스터 출현 알림',
         keywords: ['공허', '특별몬스터', '몬스터출현', '젠알림', 'specialmonster'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'special-monster-alert-enabled'
+        category: '게임 HUD & 알림 > 게임 진행 알림',
+        groupId: 'game', routeIndex: 1, targetId: 'special-monster-alert-enabled'
       },
       {
         title: '어벤던로드 10회 완료 알림',
         keywords: ['어벤던', '어벤던로드', '10회', '보석알림', 'abandoned'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'abandoned-alert-enabled'
+        category: '게임 HUD & 알림 > 게임 진행 알림',
+        groupId: 'game', routeIndex: 1, targetId: 'abandoned-alert-enabled'
+      },
+      {
+        title: '팔색조 언덕 5회 완료 알림',
+        keywords: ['팔색조', '언덕', '5회', '완료알림', 'pitta'],
+        category: '게임 HUD & 알림 > 게임 진행 알림',
+        groupId: 'game', routeIndex: 1, targetId: 'pitta-hill-alert-enabled'
       },
       {
         title: '이클립스 에토스 기믹 알림 & 사운드',
         keywords: ['에토스', '기믹', '이클립스', '화살표', 'ethos', '보스기믹'],
-        category: '게임 HUD & 알림 > 게임 상황 & 기믹 알림',
+        category: '게임 HUD & 알림 > 게임 진행 알림',
         groupId: 'game', routeIndex: 1, targetId: 'ethos-alert-enabled'
       },
       {
         title: '심연의 제2사도 공격 반사 알림 & 사운드',
         keywords: ['제2사도', '사도', '반사', '심연', '공격반사', 'abyss', '기믹'],
-        category: '게임 HUD & 알림 > 게임 상황 & 기믹 알림',
+        category: '게임 HUD & 알림 > 게임 진행 알림',
         groupId: 'game', routeIndex: 1, targetId: 'abyss-apostle-alert-enabled'
       },
       {
         title: '이클립스 로카고스 기믹 알림 & 사운드',
         keywords: ['로카고스', '기믹', '이클립스', '안전구역', 'lokagos', '보스기믹'],
-        category: '게임 HUD & 알림 > 게임 상황 & 기믹 알림',
+        category: '게임 HUD & 알림 > 게임 진행 알림',
         groupId: 'game', routeIndex: 1, targetId: 'lokagos-alert-enabled'
       },
       {
         title: '도전과제 완료 알림 및 채팅 가이드',
         keywords: ['도전과제', '대장간', '골고다', '공허', '완료알림', 'quest'],
-        category: '게임 HUD & 알림 > 게임 상황 & 기믹 알림',
+        category: '게임 HUD & 알림 > 게임 진행 알림',
         groupId: 'game', routeIndex: 1, targetId: 'challenge-tracker-card'
+      },
+      {
+        title: '도전과제 완료 알림음 설정',
+        keywords: ['도전과제', '완료', '알림음', '소리', '볼륨', 'quest'],
+        category: '게임 HUD & 알림 > 게임 진행 알림',
+        groupId: 'game', routeIndex: 1, targetId: 'quest-complete-alert-sound'
+      },
+      {
+        title: '심연의 보물창고 완료 알림',
+        keywords: ['심연', '보물창고', '완료', '퇴장', '알림', 'treasure'],
+        category: '게임 HUD & 알림 > 게임 진행 알림',
+        groupId: 'game', routeIndex: 1, targetId: 'abyss-treasure-alert-enabled'
+      },
+      {
+        title: '심연의 보물창고 완료 알림음 설정',
+        keywords: ['심연', '보물창고', '완료', '알림음', '소리', '볼륨', 'treasure'],
+        category: '게임 HUD & 알림 > 게임 진행 알림',
+        groupId: 'game', routeIndex: 1, targetId: 'abyss-treasure-alert-sound'
       },
 
       // 3. 채팅 & 로그 (chat)
@@ -4505,6 +4506,12 @@
         keywords: ['동기화', '주간동기화', '역추적', '수동동기화', 'sync'],
         category: '채팅 & 로그 > 채팅 로그 연동',
         groupId: 'chat', routeIndex: 0, targetId: 'btn-manual-sync'
+      },
+      {
+        title: '완료된 채팅 로그 다시 분석 및 자동 기록 재구성',
+        keywords: ['완료로그', '재분석', '다시동기화', '초기화', '중복방지', '메인캐릭터', 'rebuild'],
+        category: '채팅 & 로그 > 채팅 로그 연동',
+        groupId: 'chat', routeIndex: 0, targetId: 'reanalyze-completed-chat-logs'
       },
       {
         title: '오래된 채팅 로그 자동 삭제',
@@ -4549,35 +4556,35 @@
         groupId: 'chat', routeIndex: 2, targetId: 'shout-keyword-input'
       },
 
-      // 4. 외부 알림 & 소리 (alerts)
+      // 4. 모니터링 & 소리 (alerts)
       {
         title: '매직위버 거래 게시판 모니터링',
         keywords: ['거래', '거래게시판', '매직위버', '하이아칸', '네냐플', 'trade'],
-        category: '외부 알림 & 소리 > 외부 모니터링',
+        category: '모니터링 & 소리 > 외부 모니터링',
         groupId: 'alerts', routeIndex: 0, targetId: 'trade-settings-card'
       },
       {
         title: '디시인사이드 갤러리 알림 키워드',
         keywords: ['갤러리', '디시', 'dc', '키워드', '알림', 'gallery'],
-        category: '외부 알림 & 소리 > 외부 모니터링',
+        category: '모니터링 & 소리 > 외부 모니터링',
         groupId: 'alerts', routeIndex: 0, targetId: 'gallery-keyword-card'
       },
       {
         title: '숙제 & 계산기 효과음 볼륨 믹서',
         keywords: ['볼륨', '효과음', '사운드', '음량', '음소거', 'mute', 'volume'],
-        category: '외부 알림 & 소리 > 소리 & 볼륨 믹서',
+        category: '모니터링 & 소리 > 공통 알림 & 소리',
         groupId: 'alerts', routeIndex: 1, targetId: 'volume-contents-checker'
       },
       {
         title: '커스텀 알림음 관리 (.mp3 / .wav)',
         keywords: ['커스텀알림음', 'mp3', 'wav', '음원', '사운드추가', 'customsound'],
-        category: '외부 알림 & 소리 > 커스텀 알림음',
+        category: '모니터링 & 소리 > 커스텀 알림음',
         groupId: 'alerts', routeIndex: 2, targetId: 'custom-sounds-list'
       },
       {
         title: '알림 발생 이력 기록 및 필터',
         keywords: ['알림기록', '로그', '히스토리', '내역', 'log', 'history'],
-        category: '외부 알림 & 소리 > 알림 기록',
+        category: '모니터링 & 소리 > 알림 기록',
         groupId: 'alerts', routeIndex: 3, targetId: 'alarm-log-filter'
       },
 
@@ -4667,6 +4674,8 @@
             items[0].click();
           }
         } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
           clearSettingsSearch();
           input.blur();
         }
@@ -4854,12 +4863,11 @@
 
       const chatlogTitle = document.getElementById('chatlog-section-title');
       if (chatlogTitle && route.section === 'chatlog') {
-        chatlogTitle.textContent = groupId === 'game' ? '게임 상황 & 기믹 알림' : '채팅 & 로그 설정';
+        chatlogTitle.textContent = groupId === 'game' ? '게임 진행 알림' : '채팅 & 로그 설정';
       }
       if (route.subTab) {
         const section = document.getElementById(`section-${route.section}`);
-        const subTabButton = section?.querySelector(`.sub-tab-item[onclick*="${route.subTab}"]`);
-        if (subTabButton) showSubSection(route.subTab, subTabButton);
+        showSubSection(route.subTab, section);
       }
       applySettingsRouteView(route);
       scrollSettingsToTop();
@@ -4868,8 +4876,12 @@
 
     function showSettingsGroup(groupId, navEl, routeIndex = 0) {
       if (!SETTINGS_NAV_GROUPS[groupId]) return;
-      document.querySelectorAll('.nav-item[data-settings-group]').forEach(item => item.classList.remove('active'));
+      document.querySelectorAll('.nav-item[data-settings-group]').forEach(item => {
+        item.classList.remove('active');
+        item.removeAttribute('aria-current');
+      });
       navEl?.classList.add('active');
+      navEl?.setAttribute('aria-current', 'page');
       renderSettingsContextTabs(groupId, routeIndex);
       openSettingsRoute(groupId, routeIndex);
     }
@@ -4910,7 +4922,7 @@
         'loot': { groupId: 'chat', routeIndex: 2 },
         'chatlog:sub-tab-loot': { groupId: 'chat', routeIndex: 2 },
 
-        // 외부 알림 & 소리
+        // 모니터링 & 소리
         'alerts': { groupId: 'alerts', routeIndex: 0 },
         'external': { groupId: 'alerts', routeIndex: 0 },
         'gallery': { groupId: 'alerts', routeIndex: 0 },
@@ -4971,22 +4983,12 @@
       if (activeSection) {
         activeSection.classList.remove('hidden');
 
-        // 안전장치: 이 섹션에 서브 탭(sub-tab-content)이 존재하는데 활성화된 것이 하나도 없다면 첫 번째 탭 강제 활성화
+        // 안전장치: 이 섹션의 세부 콘텐츠가 하나도 활성화되지 않았다면 첫 번째 항목을 표시한다.
         const activeSubContents = activeSection.querySelectorAll('.sub-tab-content.active');
         if (activeSubContents.length === 0) {
           const firstSubContent = activeSection.querySelector('.sub-tab-content');
           if (firstSubContent) {
             firstSubContent.classList.add('active');
-
-            // 그에 매칭되는 서브 탭 버튼(sub-tab-item)도 active 처리
-            const subTabItem = activeSection.querySelector('.sub-tab-item');
-            if (subTabItem) {
-              const parent = subTabItem.parentElement;
-              if (parent) {
-                parent.querySelectorAll('.sub-tab-item').forEach(btn => btn.classList.remove('active'));
-              }
-              subTabItem.classList.add('active');
-            }
           }
         }
       }
@@ -5012,19 +5014,17 @@
       }
     }
 
-    function showSubSection(subTabId, btnEl) {
-      // 현재 서브 탭이 위치한 대메뉴 섹션 내부의 서브 탭들만 active 클래스 제거
-      const section = btnEl.closest('.settings-section');
+    function showSubSection(subTabId, sectionOverride = null) {
+      // 현재 대메뉴 섹션 안의 세부 콘텐츠만 전환한다.
+      const target = document.getElementById(subTabId);
+      const section = sectionOverride || target?.closest('.settings-section');
       if (section) {
         section.querySelectorAll('.sub-tab-content').forEach(el => el.classList.remove('active'));
       } else {
         document.querySelectorAll('.sub-tab-content').forEach(el => el.classList.remove('active'));
       }
 
-      const target = document.getElementById(subTabId);
       if (target) target.classList.add('active');
-      btnEl.parentElement.querySelectorAll('.sub-tab-item').forEach(btn => btn.classList.remove('active'));
-      btnEl.classList.add('active');
       window.refreshIcons();
 
       if (subTabId === 'sub-tab-alarm-log') {
@@ -5503,7 +5503,7 @@
 
       // 릴리즈 노트 처리
       if (releaseNotes && (state === 'available' || state === 'ready' || state === 'mandatory')) {
-        updateReleaseNotes.innerHTML = releaseNotes;
+        updateReleaseNotes.textContent = releaseNotes;
         updateReleaseNotes.classList.remove('hidden');
       } else {
         updateReleaseNotes.classList.add('hidden');
@@ -5782,6 +5782,7 @@
           height: parseInt(document.getElementById('height-input').value) || window.electronAPI.DEFAULT_CONFIG.height,
           autoLaunch: document.getElementById('auto-launch-input').checked,
           autoUpdateEnabled: document.getElementById('auto-update-input').checked,
+          analyticsEnabled: document.getElementById('analytics-enabled-input').checked,
           followGameWindow: document.getElementById('follow-game-window-input').checked,
           autoOpenContentsChecker: document.getElementById('auto-open-contents-checker-input').checked,
           hiddenMenuIds,
@@ -5964,6 +5965,14 @@
       window.settingsSoundPreview.previewAlertSound({ soundElementId: 'wave-warning-sound', volumeElementId: 'wave-warning-volume', label: '몬스터 웨이브 종료 대기 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.waveMonsterWarningSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.waveMonsterWarningVolume, allowNone: true });
     }
 
+    function previewQuestCompleteSound() {
+      window.settingsSoundPreview.previewAlertSound({ soundElementId: 'quest-complete-alert-sound', volumeElementId: 'quest-complete-alert-volume', label: '도전과제 완료 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.questCompleteAlertSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.questCompleteAlertVolume });
+    }
+
+    function previewAbyssTreasureSound() {
+      window.settingsSoundPreview.previewAlertSound({ soundElementId: 'abyss-treasure-alert-sound', volumeElementId: 'abyss-treasure-alert-volume', label: '심연의 보물창고 완료 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.abyssTreasureAlertSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.abyssTreasureAlertVolume });
+    }
+
     function previewEthosSound() {
       window.settingsSoundPreview.previewAlertSound({ soundElementId: 'ethos-alert-sound', volumeElementId: 'ethos-alert-volume', label: '에토스 기믹 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.ethosAlertSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.ethosAlertVolume });
     }
@@ -6029,6 +6038,8 @@
     window.addEventListener('keydown', (e) => {
       if (window.settingsShortcuts.handleKeyDown(e)) return;
       if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
         const previewOverlay = document.getElementById('google-sync-preview-overlay');
         const iconOverlay = document.getElementById('icon-picker-overlay');
         if (previewOverlay && !previewOverlay.classList.contains('hidden')) {

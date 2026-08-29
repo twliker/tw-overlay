@@ -936,7 +936,9 @@
                             catRow.classList.toggle('drag-over-after', position === 'after');
                         } else if (draggedItemId) {
                             const firstItem = visibleItems[0];
-                            if (firstItem && firstItem.id !== draggedItemId) {
+                            const draggedItem = items.find(candidate => candidate.id === draggedItemId);
+                            if (firstItem && draggedItem && firstItem.id !== draggedItemId
+                                && firstItem.resetRule.type === draggedItem.resetRule.type) {
                                 event.preventDefault();
                                 const sourceNodes = itemRowNodes.get(draggedItemId);
                                 const targetNodes = itemRowNodes.get(firstItem.id);
@@ -963,7 +965,9 @@
                             commitDragPreview(event);
                         } else if (draggedItemId) {
                             const firstItem = visibleItems[0];
-                            if (firstItem && firstItem.id !== draggedItemId) {
+                            const draggedItem = items.find(candidate => candidate.id === draggedItemId);
+                            if (firstItem && draggedItem && firstItem.id !== draggedItemId
+                                && firstItem.resetRule.type === draggedItem.resetRule.type) {
                                 event.preventDefault();
                                 event.stopPropagation();
                                 if (!dragPreviewDrop) {
@@ -1053,6 +1057,7 @@
                                     if (!draggedItemId || draggedItemId === item.id) return;
                                     const draggedItem = items.find(candidate => candidate.id === draggedItemId);
                                     if (!draggedItem) return;
+                                    if (draggedItem.resetRule.type !== item.resetRule.type) return;
                                     event.preventDefault();
                                     const position = event.clientY < infoCell.getBoundingClientRect().top + infoCell.offsetHeight / 2 ? 'before' : 'after';
                                     const sourceNodes = itemRowNodes.get(draggedItemId);
@@ -1067,6 +1072,8 @@
                                 infoCell.addEventListener('dragleave', () => infoCell.classList.remove('drag-over-before', 'drag-over-after'));
                                 infoCell.addEventListener('drop', event => {
                                     if (!draggedItemId || draggedItemId === item.id) return;
+                                    const draggedItem = items.find(candidate => candidate.id === draggedItemId);
+                                    if (!draggedItem || draggedItem.resetRule.type !== item.resetRule.type) return;
                                     event.preventDefault();
                                     const position = event.clientY < infoCell.getBoundingClientRect().top + infoCell.offsetHeight / 2 ? 'before' : 'after';
                                     if (!dragPreviewDrop) {

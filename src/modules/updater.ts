@@ -101,7 +101,7 @@ export function checkMandatory(info: any, currentVersion?: string): boolean {
   return findLatestMandatoryRelease(info, currentVersion) !== null;
 }
 
-/** 릴리즈 노트(문자열 또는 배열)를 HTML UI 표시용 문자열로 안전하게 변환 */
+/** 릴리즈 노트(문자열 또는 배열)를 renderer가 textContent로 표시할 평문으로 변환 */
 export function formatReleaseNotes(releaseNotes: any): string | undefined {
   if (!releaseNotes) return undefined;
   if (typeof releaseNotes === 'string') return releaseNotes;
@@ -110,14 +110,14 @@ export function formatReleaseNotes(releaseNotes: any): string | undefined {
       .map((item: any) => {
         if (typeof item === 'string') return item;
         if (item && typeof item === 'object') {
-          const title = item.version ? `<h3>v${item.version}</h3>` : '';
-          const note = item.note || '';
+          const title = item.version ? `v${String(item.version)}` : '';
+          const note = typeof item.note === 'string' ? item.note : '';
           return title ? `${title}\n${note}` : note;
         }
         return '';
       })
       .filter(Boolean)
-      .join('\n\n<hr class="border-white/10 my-3" />\n\n');
+      .join('\n\n────────────────────\n\n');
     return formatted || undefined;
   }
   return String(releaseNotes);

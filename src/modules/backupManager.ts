@@ -1,16 +1,40 @@
+/**
+ * 기능 계약 — 로컬 ZIP 백업·복원
+ *
+ * - 백업은 앱이 소유한 사용자 데이터 스냅샷과 manifest를 만들고, 복원은 ZIP 항목 수·전체 해제 크기·
+ *   경로 이탈·허용된 복원 대상·manifest 무결성을 검증한 뒤에만 실제 userData를 변경합니다.
+ * - 사용자가 고른 ZIP 내부의 절대경로, `..`, 심볼릭 링크성 경로 또는 허용 목록 밖 파일을 userData에
+ *   쓰지 않습니다. 임시 해제와 staging은 `userData/backups/staging` 아래에서만 정리합니다.
+ * - 실제 교체 전에 현재 데이터를 rollback 스냅샷으로 보존하고 restore journal을 디스크에 동기화합니다.
+ *   중간 실패나 앱 종료가 발생하면 다음 시작에서 복구할 수 있어야 하며, 성공한 뒤에만 journal을 지웁니다.
+ * - 설정만 선택 복원할 때 일지 DB를 건드리지 않고, 일지 복원 시 열린 DB 연결과 WAL 상태를 안전하게
+ *   조정합니다. 복원 완료 후 재시작이 필요하다는 사용자 흐름을 유지합니다.
+ * - 레거시 백업은 명시된 기존 파일만 허용합니다. 호환성을 이유로 ZIP의 임의 파일까지 복원 범위를
+ *   넓히지 않습니다.
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 import { app, dialog, BrowserWindow } from 'electron';
 import AdmZip = require('adm-zip');
 import { log } from './logger';
 import * as diaryDb from './diaryDb';
+import * as cloudSyncState from './cloudSyncState';
 import {
   createUserDataSnapshot,
+  isRestorableSnapshotPath,
   SnapshotManifest,
   verifyUserDataSnapshot,
 } from './localSnapshot';
 
 const LEGACY_BACKUP_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm']);
+const RESTORE_JOURNAL_FILE = 'restore-journal.json';
+
+interface RestoreJournal {
+  formatVersion: 1;
+  createdAt: string;
+  rollbackPath: string;
+  restorePaths: string[];
+}
 
 function timestamp(): string {
   const now = new Date();
@@ -31,6 +55,43 @@ function removeStagingDirectory(stagingPath: string, userDataPath: string): void
   if (resolved.startsWith(`${allowedRoot}${path.sep}`)) {
     fs.rmSync(resolved, { recursive: true, force: true });
   }
+}
+
+function getRestoreJournalPath(userDataPath: string): string {
+  return path.join(userDataPath, 'backups', RESTORE_JOURNAL_FILE);
+}
+
+function writeRestoreJournal(
+  userDataPath: string,
+  rollbackPath: string,
+  restorePaths: string[],
+): void {
+  const journalPath = getRestoreJournalPath(userDataPath);
+  const tempPath = `${journalPath}.tmp`;
+  const journal: RestoreJournal = {
+    formatVersion: 1,
+    createdAt: new Date().toISOString(),
+    rollbackPath,
+    restorePaths,
+  };
+  const fd = fs.openSync(tempPath, 'w', 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(journal, null, 2), 'utf-8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tempPath, journalPath);
+}
+
+function removeRestoreJournal(userDataPath: string): void {
+  fs.rmSync(getRestoreJournalPath(userDataPath), { force: true });
+}
+
+function isPathInside(rootPath: string, candidatePath: string): boolean {
+  const root = path.resolve(rootPath);
+  const candidate = path.resolve(candidatePath);
+  return candidate !== root && candidate.startsWith(`${root}${path.sep}`);
 }
 
 function ensureSafeZipEntries(zip: AdmZip): void {
@@ -97,10 +158,58 @@ function copyFileAtomic(sourcePath: string, destinationPath: string): void {
 function applySnapshotFiles(sourceRoot: string, destinationRoot: string, manifest: SnapshotManifest): void {
   for (const entry of manifest.entries) {
     const relativePath = path.normalize(entry.relativePath);
-    if (path.isAbsolute(relativePath) || relativePath === '..' || relativePath.startsWith(`..${path.sep}`)) {
-      throw new Error(`복원 경로 이탈이 감지되었습니다: ${entry.relativePath}`);
+    if (!isRestorableSnapshotPath(relativePath)) {
+      throw new Error(`허용되지 않은 복원 경로입니다: ${entry.relativePath}`);
+    }
+    let current = destinationRoot;
+    for (const segment of relativePath.split(path.sep).slice(0, -1)) {
+      current = path.join(current, segment);
+      if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) {
+        throw new Error(`복원 대상에 재분석 지점이 포함되어 있습니다: ${entry.relativePath}`);
+      }
     }
     copyFileAtomic(path.join(sourceRoot, relativePath), path.join(destinationRoot, relativePath));
+  }
+}
+
+function rollbackSnapshotFiles(
+  rollbackRoot: string,
+  destinationRoot: string,
+  rollbackManifest: SnapshotManifest,
+  restorePaths: string[],
+): void {
+  const rollbackPaths = new Set(rollbackManifest.entries.map(entry => path.normalize(entry.relativePath).toLowerCase()));
+  for (const restorePath of restorePaths) {
+    const normalized = path.normalize(restorePath);
+    if (!isRestorableSnapshotPath(normalized) || rollbackPaths.has(normalized.toLowerCase())) continue;
+    fs.rmSync(path.join(destinationRoot, normalized), { force: true });
+  }
+  applySnapshotFiles(rollbackRoot, destinationRoot, rollbackManifest);
+}
+
+/** 이전 실행이 복원 도중 종료됐으면 DB를 열기 전에 원본 스냅샷으로 롤백한다. */
+export function recoverInterruptedRestore(): boolean {
+  const userDataPath = app.getPath('userData');
+  const journalPath = getRestoreJournalPath(userDataPath);
+  if (!fs.existsSync(journalPath)) return true;
+  try {
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf-8')) as RestoreJournal;
+    const backupsRoot = path.join(userDataPath, 'backups');
+    if (journal.formatVersion !== 1 || typeof journal.rollbackPath !== 'string'
+      || !Array.isArray(journal.restorePaths)
+      || journal.restorePaths.some(entry => typeof entry !== 'string' || !isRestorableSnapshotPath(entry))
+      || !isPathInside(backupsRoot, journal.rollbackPath)) {
+      throw new Error('복원 journal의 롤백 경로가 올바르지 않습니다.');
+    }
+    const manifest = verifyUserDataSnapshot(journal.rollbackPath, { enforceRestoreAllowlist: true });
+    rollbackSnapshotFiles(journal.rollbackPath, userDataPath, manifest, journal.restorePaths);
+    cloudSyncState.invalidateRemoteValidationAfterLocalRestore();
+    removeRestoreJournal(userDataPath);
+    log(`[BACKUP] 중단된 복원을 원본으로 롤백했습니다: ${journal.rollbackPath}`);
+    return true;
+  } catch (error) {
+    log(`[BACKUP] 중단된 복원 롤백 실패: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
   }
 }
 
@@ -125,7 +234,7 @@ export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean
     createUserDataSnapshot(userDataPath, snapshotPath, {
       reason: 'manual-export', appVersion: app.getVersion(), allowedDestinationRoot: stagingPath,
     });
-    verifyUserDataSnapshot(snapshotPath);
+    verifyUserDataSnapshot(snapshotPath, { enforceRestoreAllowlist: true });
 
     const zip = new AdmZip();
     zip.addLocalFolder(snapshotPath);
@@ -145,6 +254,7 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
   const userDataPath = app.getPath('userData');
   let stagingPath: string | null = null;
   let rollbackPath: string | null = null;
+  let restorePaths: string[] = [];
   try {
     const { filePaths } = await dialog.showOpenDialog(parentWindow, {
       title: '백업 파일 선택', properties: ['openFile'],
@@ -165,7 +275,7 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
 
     const manifestPath = path.join(extractedPath, 'snapshot.manifest.json');
     const manifest = fs.existsSync(manifestPath)
-      ? verifyUserDataSnapshot(extractedPath)
+      ? verifyUserDataSnapshot(extractedPath, { enforceRestoreAllowlist: true })
       : legacyManifest(extractedPath);
 
     if (!diaryDb.flushPendingElso()) throw new Error('복원 전 엘소 기록을 저장하지 못했습니다.');
@@ -178,9 +288,13 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
     createUserDataSnapshot(userDataPath, rollbackPath, {
       reason: 'pre-manual-restore', appVersion: app.getVersion(), allowedDestinationRoot: backupsRoot,
     });
-    verifyUserDataSnapshot(rollbackPath);
+    verifyUserDataSnapshot(rollbackPath, { enforceRestoreAllowlist: true });
 
+    restorePaths = manifest.entries.map(entry => entry.relativePath);
+    writeRestoreJournal(userDataPath, rollbackPath, restorePaths);
     applySnapshotFiles(extractedPath, userDataPath, manifest);
+    cloudSyncState.invalidateRemoteValidationAfterLocalRestore();
+    removeRestoreJournal(userDataPath);
     log(`[BACKUP] 데이터 복원 완료: ${zipPath} (복원 전 스냅샷: ${rollbackPath})`);
 
     await dialog.showMessageBox(parentWindow, {
@@ -195,8 +309,9 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
     log(`[BACKUP] 복원 실패: ${error instanceof Error ? error.message : String(error)}`);
     if (rollbackPath) {
       try {
-        const rollbackManifest = verifyUserDataSnapshot(rollbackPath);
-        applySnapshotFiles(rollbackPath, userDataPath, rollbackManifest);
+        const rollbackManifest = verifyUserDataSnapshot(rollbackPath, { enforceRestoreAllowlist: true });
+        rollbackSnapshotFiles(rollbackPath, userDataPath, rollbackManifest, restorePaths);
+        removeRestoreJournal(userDataPath);
         log(`[BACKUP] 복원 실패 후 원본 롤백 완료: ${rollbackPath}`);
       } catch (rollbackError) {
         log(`[BACKUP] 치명적 오류: 롤백도 실패했습니다. ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);

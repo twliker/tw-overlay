@@ -1,3 +1,23 @@
+/**
+ * 기능 계약 — 모험일지 SQLite 저장소
+ *
+ * - 실시간 파서, 과거 로그 동기화, 숙제, 알람, 타이머가 공유하는 영구 기록의 단일 원본입니다.
+ *   UI용 조회가 누락 데이터를 추정해 쓰지 않으며 모든 쓰기는 이 모듈의 중복 방지 규칙을 거칩니다.
+ * - 로그 재생에 안전하도록 가능한 활동은 안정적인 source event ID로 멱등 저장합니다. 같은 초에 내용이
+ *   같은 실제 획득 로그가 여러 줄 존재할 수 있으므로 단순 `date+time+content`만으로 한 배치 안의 서로
+ *   다른 이벤트를 합치면 안 됩니다.
+ * - 경험의 정수는 일반 `lootKeywords`와 무관하게 저장되고 월간 통계·오늘 요약 집계에 남습니다.
+ *   다만 일반 득템 설정 대상이 아니므로 모험일지 3번째 '득템 기록' 목록에서는 항상 숨깁니다.
+ *   `룬 경험의 심장` 같은 이름은 자동 별칭으로 확장하지 않고 정확한 품목 정책을 따릅니다.
+ * - SEED/ELSO처럼 고빈도 누적값은 메모리 버퍼와 복구 journal을 사용하므로 정상 종료·비정상 종료 모두
+ *   금액을 보존해야 합니다. DB 마이그레이션은 기존 행을 삭제하거나 재작성하지 않는 방향으로 수행합니다.
+ * - 완료된 채팅 로그를 다시 분석할 때는 파일 전체 분석과 최종 snapshot 검증이 성공한 날짜만 채팅 로그
+ *   기반 자동 활동·외치기를 같은 트랜잭션에서 교체합니다. 과거 숙제도 `chat-log-sync` 출처만 별도
+ *   트랜잭션으로 교체하며, `source='manual'`인 일지와 체크리스트 숙제·메모·알람 원본은 삭제하지 않습니다.
+ *   분석 실패 시 교체 함수 자체를 호출하지 않아 기존 기록을 보존합니다.
+ * - 알람 이력의 `scheduledAt`, `recordedAt`, `deliveryStatus`, `dedupeKey`는 실제 실행과 절전 중 누락을
+ *   구분하는 계약입니다. 조회용 필터 변경이 원본 행 삭제로 이어져서는 안 됩니다.
+ */
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
@@ -8,7 +28,7 @@ import { DiaryEntry, HomeworkLog, ActivityLog, DiaryData, AlarmLog, TimerRecord 
 import { broadcastToAllWindows } from './windowMessaging';
 import { formatLootDiaryContent, parseItemAcquisition } from './itemAcquisition';
 import { formatLocalDateKey } from '../shared/localDate';
-import { countsTowardLootTotal, matchesRegisteredLoot } from '../shared/lootPolicy';
+import { countsTowardLootTotal, isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
 
 let db: Database.Database | null = null;
 
@@ -328,6 +348,7 @@ export function initDb(): void {
         category TEXT NOT NULL,
         type TEXT NOT NULL,
         completed_at INTEGER NOT NULL,
+        source TEXT NOT NULL DEFAULT 'checklist',
         FOREIGN KEY (date) REFERENCES diaries(date)
       );
 
@@ -616,6 +637,18 @@ export function initDb(): void {
       migrateV4();
       log('[DiaryDB] Version 4 migration completed: structured alarm delivery metadata.');
     }
+    if (userVersion < 5) {
+      const migrateV5 = db.transaction(() => {
+        const homeworkColumns = db!.prepare('PRAGMA table_info(homework_logs)').all() as Array<{ name: string }>;
+        if (!homeworkColumns.some(column => column.name === 'source')) {
+          // 기존 행은 사용자의 체크리스트 조작 또는 실시간 감지 결과일 수 있어 안전하게 보존한다.
+          db!.exec("ALTER TABLE homework_logs ADD COLUMN source TEXT NOT NULL DEFAULT 'checklist'");
+        }
+        db!.pragma('user_version = 5');
+      });
+      migrateV5();
+      log('[DiaryDB] Version 5 migration completed: homework log source metadata.');
+    }
     if (!replayElsoRecoveryJournal()) {
       throw new Error('엘소 복구 기록을 재생하지 못했습니다.');
     }
@@ -811,9 +844,17 @@ export function getMonthDateRange(yearMonth: string): { start: string; end: stri
   return { start, end };
 }
 
+/**
+ * 모험일지 조회 시 자동 득템의 표시 여부를 결정합니다.
+ * 수동 기록은 사용자가 직접 만든 데이터이므로 항상 보존하고, 일반 자동 득템만 현재
+ * 등록 목록을 따릅니다. 경험의 정수는 별도 재화 집계이므로 등록 목록에서 빠져 있어도
+ * 날짜별 데이터·월간 통계·오늘의 요약에서 숨기지 않습니다. 주간/월간 득템 전용 목록만은
+ * 일반 득템 UI이므로 `getLootHistory`에서 별도로 제외합니다.
+ */
 function isVisibleLootLog(log: Pick<ActivityLog, 'type' | 'content' | 'source'>, lootKeywords?: readonly string[]): boolean {
   if (log.type !== 'loot' || lootKeywords === undefined) return true;
   if (log.source === 'manual') return true;
+  if (isAlwaysTrackedLoot(log.content)) return true;
   return matchesRegisteredLoot(lootKeywords, log.content);
 }
 
@@ -912,8 +953,24 @@ export function getDiaryByDate(date: string, lootKeywords?: readonly string[]): 
   return { diary, homeworkLogs, activityLogs: filterVisibleLootLogs(activityLogs, lootKeywords) };
 }
 
-/** 특정 월의 달력 렌더링을 위해 요약 데이터 목록을 가져옵니다. (주변 날짜 포함) */
-export function getDiariesByMonth(yearMonth: string): DiaryEntry[] {
+function getCalendarWeekKey(dateKey: string): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const daysSinceMonday = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - daysSinceMonday);
+  return formatLocalDateKey(date);
+}
+
+/**
+ * 특정 월의 달력 렌더링을 위해 주변 날짜를 포함한 요약 데이터를 가져옵니다.
+ *
+ * 체크리스트의 `weekly_done/weekly_total`은 현재 상태를 저장한 날짜에만 존재할 수 있습니다.
+ * 과거 로그 동기화로 복원된 주간 숙제는 `homework_logs`에만 있으므로 같은 월~일 주기의
+ * 고유 완료 행을 세어 `weekly_done`의 최소값으로 보완합니다. 과거 주차의 분모는 사용자가 요청한
+ * 현재 체크리스트 기준을 따르며, 완료 이력이 있는 주에만 `currentWeeklyTotal`을 보완값으로 사용합니다.
+ * 기록이 전혀 없는 과거 주까지 `0/전체`로 단정해서는 안 됩니다.
+ */
+export function getDiariesByMonth(yearMonth: string, currentWeeklyTotal: number = 0): DiaryEntry[] {
   flushPendingElso();
   flushPendingGoldPouchSeed();
   if (!db) initDb();
@@ -929,7 +986,40 @@ export function getDiariesByMonth(yearMonth: string): DiaryEntry[] {
       AND date <= date(?, '+1 month', '+7 days') 
     ORDER BY date ASC
   `);
-  return stmt.all(`${normalizedYearMonth}-01`, `${normalizedYearMonth}-01`) as DiaryEntry[];
+  const rangeAnchor = `${normalizedYearMonth}-01`;
+  const diaries = stmt.all(rangeAnchor, rangeAnchor) as DiaryEntry[];
+  const weeklyLogs = getStmt(`
+    SELECT date, content_id
+    FROM homework_logs
+    WHERE type = 'weekly'
+      AND date >= date(?, '-7 days')
+      AND date <= date(?, '+1 month', '+7 days')
+  `).all(rangeAnchor, rangeAnchor) as Array<{ date: string; content_id: string }>;
+
+  const completedIdsByWeek = new Map<string, Set<string>>();
+  weeklyLogs.forEach(row => {
+    const weekKey = getCalendarWeekKey(row.date);
+    const completedIds = completedIdsByWeek.get(weekKey) ?? new Set<string>();
+    completedIds.add(row.content_id);
+    completedIdsByWeek.set(weekKey, completedIds);
+  });
+
+  const safeCurrentWeeklyTotal = Number.isFinite(currentWeeklyTotal)
+    ? Math.max(0, Math.trunc(currentWeeklyTotal))
+    : 0;
+  return diaries.map(entry => {
+    const weeklyDone = Math.max(
+      entry.weekly_done || 0,
+      completedIdsByWeek.get(getCalendarWeekKey(entry.date))?.size || 0,
+    );
+    return {
+      ...entry,
+      weekly_done: weeklyDone,
+      weekly_total: entry.weekly_total > 0
+        ? entry.weekly_total
+        : weeklyDone > 0 ? safeCurrentWeeklyTotal : 0,
+    };
+  });
 }
 
 /** 점수를 업데이트하고 몬스터 단계를 결정합니다. (자동 호출됨) */
@@ -1116,17 +1206,17 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
       // 이미 해당 숙제가 오늘/이번주 기록되어 있는지 확인
       const existing = getStmt('SELECT id FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { id: number } | undefined;
       if (existing) {
-        // 1회 초기화권 이후 재완료도 같은 행의 최신 완료 시각/메타데이터로 갱신한다.
+        // 사용자가 직접 조작하거나 실시간 감지한 체크리스트 기록이 과거 동기화 기록보다 우선한다.
         getStmt(`
           UPDATE homework_logs
-          SET content_name = ?, category = ?, type = ?, completed_at = ?
+          SET content_name = ?, category = ?, type = ?, completed_at = ?, source = 'checklist'
           WHERE id = ?
         `).run(contentName, category, type, completedAt, existing.id);
         changed = true;
         return;
       }
 
-      const stmt = getStmt('INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at) VALUES (?, ?, ?, ?, ?, ?)');
+      const stmt = getStmt("INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at, source) VALUES (?, ?, ?, ?, ?, ?, 'checklist')");
       stmt.run(date, contentId, contentName, category, type, completedAt);
 
       // 포인트 부여
@@ -1211,12 +1301,128 @@ export function updateDiaryMonster(date: string, monsterId: string): boolean {
   }
 }
 
-/** 특정 월의 요약 정보 (득템 수, 누적 시드, 상세 목록)를 가져옵니다. */
-export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly string[]): { totalLoots: number, totalSeed: number, lootList: any[], seedList: any[] } {
+interface MonthlySummaryData {
+  totalLoots: number;
+  totalSeed: number;
+  /** 통계 탭의 '이번 달 누적 득템 리스트': 일반 득템만 포함합니다. */
+  lootList: Array<{ date: string; content: string; amount: number }>;
+  /** 활동 달력의 날짜별 배지: 경험의 정수 같은 별도 집계 활동도 유지합니다. */
+  calendarLootList: Array<{ date: string; content: string; amount: number }>;
+  seedList: Array<{ date: string; content: string }>;
+}
+
+export interface SyncedHomeworkLogInput {
+  date: string;
+  contentId: string;
+  contentName: string;
+  category: string;
+  type: 'daily' | 'weekly';
+  completedAt: number;
+}
+
+/**
+ * 과거 채팅 로그에서 확정된 숙제 완료 이력을 날짜별로 반영한다.
+ *
+ * - `replaceDates`는 채팅 로그 동기화가 안전하게 전체 분석을 마친 날짜만 받으며, 그 날짜의
+ *   `chat-log-sync` 행만 삭제 후 재생성한다.
+ * - 사용자가 직접 체크했거나 실시간 체크리스트가 만든 `checklist` 행은 같은 키여도 덮어쓰지 않는다.
+ * - 삭제와 삽입, 일일 숙제 점수 보정은 하나의 트랜잭션이므로 중간 실패로 과거 이력이 비지 않는다.
+ */
+export function upsertSyncedHomeworkLogs(
+  entries: SyncedHomeworkLogInput[],
+  replaceDates: string[] = [],
+): { success: boolean; changed: number; error?: string } {
+  if (!db) initDb();
+  if (!db) return { success: false, changed: 0, error: '데이터베이스를 초기화하지 못했습니다.' };
+
+  const validDate = /^\d{4}-\d{2}-\d{2}$/;
+  const normalizedReplaceDates = [...new Set(replaceDates.filter(date => validDate.test(date)))];
+  const normalizedEntries = entries.filter(entry => (
+    validDate.test(entry.date)
+    && entry.contentId.length > 0
+    && entry.contentName.length > 0
+    && (entry.type === 'daily' || entry.type === 'weekly')
+    && Number.isFinite(entry.completedAt)
+    && entry.completedAt > 0
+  ));
+
+  let changed = 0;
+  try {
+    db.transaction(() => {
+      if (normalizedReplaceDates.length > 0) {
+        const placeholders = normalizedReplaceDates.map(() => '?').join(', ');
+        const removedDaily = db!.prepare(`
+          SELECT date, COUNT(*) AS count
+          FROM homework_logs
+          WHERE source = 'chat-log-sync' AND type = 'daily' AND date IN (${placeholders})
+          GROUP BY date
+        `).all(...normalizedReplaceDates) as Array<{ date: string; count: number }>;
+        for (const row of removedDaily) subtractScore(row.date, row.count * POINTS.DAILY_HOMEWORK);
+        changed += db!.prepare(`
+          DELETE FROM homework_logs
+          WHERE source = 'chat-log-sync' AND date IN (${placeholders})
+        `).run(...normalizedReplaceDates).changes;
+      }
+
+      const selectExisting = db!.prepare('SELECT id, source FROM homework_logs WHERE date = ? AND content_id = ?');
+      const updateSynced = db!.prepare(`
+        UPDATE homework_logs
+        SET content_name = ?, category = ?, type = ?, completed_at = ?
+        WHERE id = ? AND source = 'chat-log-sync'
+      `);
+      const insertSynced = db!.prepare(`
+        INSERT INTO homework_logs
+          (date, content_id, content_name, category, type, completed_at, source)
+        VALUES (?, ?, ?, ?, ?, ?, 'chat-log-sync')
+      `);
+
+      for (const entry of normalizedEntries) {
+        ensureDiaryExists(entry.date);
+        const existing = selectExisting.get(entry.date, entry.contentId) as { id: number; source: string } | undefined;
+        if (existing?.source === 'checklist') continue;
+        if (existing) {
+          changed += updateSynced.run(
+            entry.contentName,
+            entry.category,
+            entry.type,
+            entry.completedAt,
+            existing.id,
+          ).changes;
+          continue;
+        }
+        insertSynced.run(
+          entry.date,
+          entry.contentId,
+          entry.contentName,
+          entry.category,
+          entry.type,
+          entry.completedAt,
+        );
+        if (entry.type === 'daily') addScore(entry.date, POINTS.DAILY_HOMEWORK);
+        if (entry.type === 'weekly') addScore(entry.date, POINTS.WEEKLY_HOMEWORK);
+        changed++;
+      }
+    })();
+    if (changed > 0) notifyUpdate();
+    return { success: true, changed };
+  } catch (error) {
+    log(`[DiaryDB] upsertSyncedHomeworkLogs failed: ${error}`);
+    return { success: false, changed: 0, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * 특정 월의 요약 정보(득템 수, 누적 SEED, 화면별 상세 목록)를 가져옵니다.
+ *
+ * 통계 탭의 누적 득템 목록과 활동 달력은 같은 월 데이터를 사용하지만 표시 목적이 다릅니다.
+ * 경험의 정수는 일반 득템 목록인 `lootList`에서는 제외하고, 날짜별 활동을 보여 주는
+ * `calendarLootList`에는 남깁니다. 두 목록을 다시 합치면 두 번째 탭에 정수가 재노출됩니다.
+ */
+export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly string[]): MonthlySummaryData {
   flushPendingElso();
   flushPendingGoldPouchSeed();
   if (!db) initDb();
-  if (!db) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
+  if (!db) return { totalLoots: 0, totalSeed: 0, lootList: [], calendarLootList: [], seedList: [] };
 
   const { start, end } = getMonthDateRange(yearMonth);
   const rawLogs = getStmt("SELECT date, type, content, amount, source FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('loot', 'calc') ORDER BY date DESC, time DESC").all(start, end) as ActivityLog[];
@@ -1225,11 +1431,14 @@ export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly str
   let totalLoots = 0;
   let totalSeed = 0;
   const lootList: { date: string, content: string, amount: number }[] = [];
+  const calendarLootList: { date: string, content: string, amount: number }[] = [];
   const seedList: { date: string, content: string }[] = [];
 
   logs.forEach(log => {
     if (log.type === 'loot') {
-      lootList.push({ date: log.date, content: log.content, amount: log.amount || 1 });
+      const item = { date: log.date, content: log.content, amount: log.amount || 1 };
+      calendarLootList.push(item);
+      if (!isAlwaysTrackedLoot(log.content)) lootList.push(item);
       if (countsTowardLootTotal(log.content)) {
         totalLoots += log.amount || 1;
       }
@@ -1239,7 +1448,7 @@ export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly str
     }
   });
 
-  return { totalLoots, totalSeed, lootList, seedList };
+  return { totalLoots, totalSeed, lootList, calendarLootList, seedList };
 }
 
 /** 월간 통계 데이터를 추출합니다 (인포그래픽용). */
@@ -1362,7 +1571,13 @@ export interface LootHistoryRow {
   source: ActivityLog['source'];
 }
 
-/** 주간/월간 득템 전용 목록을 위한 날짜 범위 조회입니다. */
+/**
+ * 주간/월간 득템 전용 목록을 위한 날짜 범위 조회입니다.
+ *
+ * 경험의 정수는 저장 스키마상 loot 활동이지만 사용자가 등록할 수 있는 일반 득템 아이템이
+ * 아니므로 이 3번째 탭에서는 항상 제외합니다. 이 표시 필터는 DB 원본, 오늘 요약과 월간
+ * `totalEssences` 집계에는 영향을 주지 않습니다.
+ */
 export function getLootHistory(
   startDate: string,
   endDate: string,
@@ -1376,8 +1591,11 @@ export function getLootHistory(
     WHERE date >= ? AND date <= ? AND type = 'loot'
     ORDER BY date DESC, time DESC
   `).all(startDate, endDate) as LootHistoryRow[];
+  const generalLootRows = rows
+    .map(row => ({ ...row, type: 'loot' as const }))
+    .filter(row => !isAlwaysTrackedLoot(row.content));
   return filterVisibleLootLogs(
-    rows.map(row => ({ ...row, type: 'loot' as const })),
+    generalLootRows,
     lootKeywords,
   ).map(({ type: _type, ...row }) => row);
 }
@@ -1744,6 +1962,10 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
       OR (type = 'calc' AND content LIKE '[자동] %')
     )
   `);
+  const deleteShoutsForDate = db.prepare(`
+    DELETE FROM shout_history
+    WHERE timestamp >= ? AND timestamp < ?
+  `);
 
   const selectStone = db.prepare(`
     SELECT id, amount FROM activity_logs 
@@ -1757,6 +1979,24 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   `);
 
   const runBatch = db.transaction(() => {
+    const insertedActivityKeys = new Set<string>();
+    const insertDistinctNewActivity = (
+      date: string,
+      type: 'loot' | 'calc',
+      content: string,
+      timeOnly: string,
+      amount: number,
+    ): boolean => {
+      const eventKey = JSON.stringify([date, timeOnly, content]);
+      const existing = selectActivity.get(date, timeOnly, content);
+      // 같은 배치 안의 서로 다른 실제 이벤트는 같은 초·같은 내용이어도 모두 보존한다.
+      // 배치 시작 전에 있던 행은 구버전 재탐색 중복일 수 있으므로 기존처럼 건너뛴다.
+      if (existing && !insertedActivityKeys.has(eventKey)) return false;
+      insertActivity.run(date, type, content, timeOnly, amount);
+      insertedActivityKeys.add(eventKey);
+      return true;
+    };
+
     const replaceDate = data.replaceAutomaticDate;
     if (replaceDate) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(replaceDate)) {
@@ -1771,9 +2011,17 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
       ].some(item => item.date !== replaceDate);
       if (invalidDate) throw new Error('자동 채팅 로그 기록 교체 배치에 다른 날짜가 포함되어 있습니다.');
 
+      const [year, month, day] = replaceDate.split('-').map(Number);
+      const replaceDateStart = Math.floor(new Date(year, month - 1, day, 0, 0, 0, 0).getTime() / 1000);
+      const replaceDateEnd = Math.floor(new Date(year, month - 1, day + 1, 0, 0, 0, 0).getTime() / 1000);
+      if (data.shouts.some(item => item.fullTimestamp < replaceDateStart || item.fullTimestamp >= replaceDateEnd)) {
+        throw new Error('자동 채팅 로그 외치기 교체 배치에 다른 날짜가 포함되어 있습니다.');
+      }
+
       const previousCalcCount = (countAutomaticCalcRows.get(replaceDate) as { count: number } | undefined)?.count || 0;
       if (previousCalcCount > 0) subtractScore(replaceDate, previousCalcCount * POINTS.CALC_RECORD);
       deleteAutomaticLogRows.run(replaceDate);
+      deleteShoutsForDate.run(replaceDateStart, replaceDateEnd);
     }
 
     const claimEvent = (eventId?: string): boolean => {
@@ -1797,11 +2045,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
         magicStonesByDate[item.date][grade].latestTime = item.timeOnly;
       } else {
         if (!claimEvent(item.eventId)) continue;
-        const existing = selectActivity.get(item.date, item.timeOnly, item.diaryContent);
-        if (!existing) {
-          insertActivity.run(item.date, 'loot', item.diaryContent, item.timeOnly, item.count);
-          lootsAdded++;
-        }
+        if (insertDistinctNewActivity(item.date, 'loot', item.diaryContent, item.timeOnly, item.count)) lootsAdded++;
       }
     }
 
@@ -1829,10 +2073,9 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     for (const item of (data.essences || [])) {
       if (!claimEvent(item.eventId)) continue;
       ensureDiaryExists(item.date);
-      const existing = selectActivity.get(item.date, item.timeOnly, item.diaryContent);
-      if (!existing) {
-        insertActivity.run(item.date, 'loot', item.diaryContent, item.timeOnly, item.count);
-        essencesAdded++;
+      if (insertDistinctNewActivity(item.date, 'loot', item.diaryContent, item.timeOnly, item.count)) {
+        // 동기화 결과의 단위는 로그 줄 수가 아니라 실제 경험의 정수 개수입니다.
+        essencesAdded += item.count;
       }
     }
 
@@ -1840,9 +2083,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     for (const item of data.seeds) {
       if (!claimEvent(item.eventId)) continue;
       ensureDiaryExists(item.date);
-      const existing = selectActivity.get(item.date, item.timeOnly, item.content);
-      if (!existing) {
-        insertActivity.run(item.date, 'calc', item.content, item.timeOnly, item.amount);
+      if (insertDistinctNewActivity(item.date, 'calc', item.content, item.timeOnly, item.amount)) {
         addScore(item.date, POINTS.CALC_RECORD);
         seedsAdded++;
       }

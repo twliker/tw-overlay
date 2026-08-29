@@ -1,10 +1,16 @@
 /**
- * 게임 창 추적 모듈 - Native Win32 API (Koffi) 버전
- * 
- * [주요 기능]
- * 1. WinEventHook을 통한 실시간 창 이동 및 포커스 감지
- * 2. 샌드위치 Z-Order 로직: 게임 위에 붙으면서도 다른 앱(브라우저 등) 뒤로 숨음
- * 3. 메모리 및 깜박임 최적화 (Buffer 재사용 및 포커스 캐싱)
+ * 기능 계약 — TalesWeaver 창 탐지와 Win32 z-order 입력
+ *
+ * - 창 제목만 믿지 않고 제목에 `Talesweaver`가 있으며 실제 프로세스 경로가
+ *   `GAME_PROCESS_NAME`인 최상위 창만 게임으로 인정합니다. 찾은 HWND/PID는 재검증 가능한 캐시입니다.
+ * - WinEventHook으로 게임의 위치·크기와 전경 변경을 즉시 전달하고, 폴링은 hook 누락과 프로세스
+ *   재시작을 복구하는 보조 경로입니다. hook과 폴링 콜백은 같은 창 상태 계약을 따라야 합니다.
+ * - z-order의 목표는 게임이 활성일 때 TW-Overlay만 게임 위에 두고, 브라우저 등 다른 앱이 활성일
+ *   때 게임과 오버레이가 그 앱을 덮지 않는 샌드위치 구조입니다. 게임만 강제 topmost로 두지 않습니다.
+ * - 실제 게임과 앱은 관리자 권한으로 실행되는 전제입니다. `requestedExecutionLevel=requireAdministrator`
+ *   또는 Win32 z-order 호출을 바꿀 때는 관리자 PowerShell의 실제 fixture 검증을 먼저 통과해야 합니다.
+ * - Koffi 콜백과 native handle은 앱 종료까지 수명이 유지되어야 하며, 재시작 시 이전 hook/handle을
+ *   해제해 중복 콜백과 메모리 누수를 만들지 않습니다.
  */
 import { GAME_PROCESS_NAME, GameQueryResult, TITLE_BUFFER_LENGTH } from './constants';
 import { log } from './logger';
@@ -18,6 +24,7 @@ let hEventHook: bigint | null = null;
 let hLocationEventHook: bigint | null = null;
 let onWindowEventCallback: (() => void) | null = null;
 let onForegroundChangeCallback: ((isGameFocused: boolean, focusedHwnd: string) => void) | null = null;
+let lastNotifiedForegroundHwnd: bigint | null = null;
 
 // --- 메모리 최적화를 위한 재사용 버퍼 ---
 const titleBuffer = Buffer.alloc(TITLE_BUFFER_LENGTH * 2);
@@ -111,8 +118,7 @@ const winEventProcInstance = koffi.register((_hWinEventHook: bigint, event: numb
     }
     // 포그라운드 변경 이벤트: 즉각적인 포커스 감지
     if (event === win32.EVENT_SYSTEM_FOREGROUND && onForegroundChangeCallback) {
-        const isGameFocused = cachedHwnd !== null && safeHwnd === cachedHwnd;
-        onForegroundChangeCallback(isGameFocused, safeHwnd.toString());
+        notifyForegroundChange(safeHwnd);
     }
 
     // 반대편 모니터의 전경 창을 게임 모니터로 끌어오는 동안에는 foreground가
@@ -125,14 +131,34 @@ const winEventProcInstance = koffi.register((_hWinEventHook: bigint, event: numb
         && win32.GetForegroundWindow) {
         const foregroundHwnd = parseHwnd(win32.GetForegroundWindow());
         if (safeHwnd !== 0n && safeHwnd === foregroundHwnd) {
-            const isGameFocused = cachedHwnd !== null && safeHwnd === cachedHwnd;
-            onForegroundChangeCallback(isGameFocused, safeHwnd.toString());
+            notifyForegroundChange(safeHwnd);
         }
     }
 }, WinEventProcPtr);
 
 
 // --- 내부 함수 ---
+
+/**
+ * WinEventHook 누락과 앱 시작 시점의 스플래시/UAC 포커스 경쟁을 폴링이 보완할 수 있도록
+ * 모든 포커스 통지는 이 경로에서 중복 제거합니다. 게임이 먼저 실행된 경우에도 첫 안정 폴링에서
+ * 현재 foreground를 다시 평가해야 전역 단축키가 등록됩니다.
+ */
+function notifyForegroundChange(foregroundHwnd: bigint, force = false): void {
+    if (!onForegroundChangeCallback) return;
+    if (!force && lastNotifiedForegroundHwnd === foregroundHwnd) return;
+    lastNotifiedForegroundHwnd = foregroundHwnd;
+    const isGameFocused = cachedHwnd !== null && foregroundHwnd === cachedHwnd;
+    onForegroundChangeCallback(isGameFocused, foregroundHwnd.toString());
+}
+
+function notifyCurrentForeground(force = false): bigint {
+    const foregroundHwnd = win32.GetForegroundWindow
+        ? parseHwnd(win32.GetForegroundWindow())
+        : 0n;
+    notifyForegroundChange(foregroundHwnd, force);
+    return foregroundHwnd;
+}
 
 function setupEventHook(): void {
     if (!hEventHook) {
@@ -229,7 +255,12 @@ export function restoreAndFocusGameWindow(): boolean {
                 win32.SetForegroundWindow(cachedHwnd);
             }
         }
-        return true;
+        const finalForegroundHwnd = parseHwnd(win32.GetForegroundWindow());
+        const focused = finalForegroundHwnd === cachedHwnd;
+        if (!focused) {
+            log(`[TRACKER] 게임 포커스 복구 실패: target=${cachedHwnd.toString()} foreground=${finalForegroundHwnd.toString()}`);
+        }
+        return focused;
     } catch (e) {
         log(`[TRACKER] restoreAndFocusGameWindow Error: ${e}`);
         return false;
@@ -256,8 +287,7 @@ export function setForegroundChangeListener(callback: (isGameFocused: boolean, f
             if (!cachedHwnd) {
                 cachedHwnd = findGameWindow();
             }
-            const isGameFocused = cachedHwnd !== null && fgHwnd === cachedHwnd;
-            callback(isGameFocused, fgHwnd.toString());
+            notifyForegroundChange(fgHwnd, true);
         }
     } catch (e) {
         log(`[TRACKER] Initial foreground check error: ${e}`);
@@ -266,22 +296,20 @@ export function setForegroundChangeListener(callback: (isGameFocused: boolean, f
 
 export async function queryGameRect(): Promise<GameQueryResult> {
     try {
+        let gameWindowRedetected = false;
         if (!cachedHwnd || !isHwndValid(cachedHwnd)) {
             cachedHwnd = findGameWindow();
-            if (!cachedHwnd) return { notRunning: true };
-            log(`[TRACKER] Found game window: ${cachedHwnd} (PID: ${lastProcessId})`);
-
-            // 최초 감지 또는 재감지 시, 현재 포커스 상태를 즉시 평가하여 단축키 상태를 업데이트합니다.
-            if (onForegroundChangeCallback) {
-                try {
-                    const fgHwnd = parseHwnd(win32.GetForegroundWindow());
-                    const isGameFocused = fgHwnd === cachedHwnd;
-                    onForegroundChangeCallback(isGameFocused, fgHwnd.toString());
-                } catch (e) {
-                    log(`[TRACKER] Failed to trigger initial foreground callback: ${e}`);
-                }
+            if (!cachedHwnd) {
+                notifyCurrentForeground();
+                return { notRunning: true };
             }
+            gameWindowRedetected = true;
+            log(`[TRACKER] Found game window: ${cachedHwnd} (PID: ${lastProcessId})`);
         }
+
+        // 게임 HWND가 리스너 등록 단계에서 이미 캐시된 경우에도 매 폴링의 실제 foreground를 비교합니다.
+        // 값이 바뀐 경우에만 콜백하므로 안정 상태에서는 중복 등록/Win32 작업을 만들지 않습니다.
+        const foregroundHwnd = notifyCurrentForeground(gameWindowRedetected);
 
         if (win32.IsIconic(cachedHwnd)) return null;
 
@@ -295,8 +323,9 @@ export async function queryGameRect(): Promise<GameQueryResult> {
             y: rectOut.top,
             width: rectOut.right - rectOut.left,
             height: rectOut.bottom - rectOut.top,
+            windowStyle: win32.GetWindowLongW(cachedHwnd, win32.GWL_STYLE),
             gameHwnd: cachedHwnd.toString(),
-            isForeground: parseHwnd(win32.GetForegroundWindow()) === cachedHwnd
+            isForeground: foregroundHwnd === cachedHwnd
         };
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -316,6 +345,7 @@ export function stop() {
         hLocationEventHook = null;
     }
     cachedHwnd = null;
+    lastNotifiedForegroundHwnd = null;
 }
 
 /**

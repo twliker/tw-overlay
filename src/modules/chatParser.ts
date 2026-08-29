@@ -20,6 +20,41 @@ const RE_BRACKETS = /[\[\]]/g;
 const RE_COMMAS = /,/g;
 const RE_SPACES = /\s+/g;
 const RE_PURE_DIGITS = /^\d+$/;
+const PLAYER_CHAT_COLORS = new Set([
+  CHAT_COLORS.general,
+  CHAT_COLORS.selfGeneral,
+  CHAT_COLORS.whisper,
+  CHAT_COLORS.team,
+  CHAT_COLORS.club,
+  CHAT_COLORS.shout,
+].map(color => color.toLowerCase()));
+
+/**
+ * 채팅 로그 한 줄의 실제 메시지 글자색을 가져옵니다.
+ *
+ * 테일즈위버 로그에는 시각을 표시하는 첫 번째 `<font color="white">`와 실제 메시지를
+ * 표시하는 두 번째 `<font>`가 함께 있으므로 마지막 color 속성을 사용합니다. 일반 채팅이
+ * `white`라는 이름 색상으로 기록되는 구버전 로그도 `#ffffff`과 같은 값으로 정규화합니다.
+ */
+function getMessageFontColor(rawLine: string): string {
+  let color = '';
+  for (const match of rawLine.matchAll(/<font\b[^>]*\bcolor\s*=\s*["']?([^"'\s>]+)/gi)) {
+    color = match[1].trim().toLowerCase();
+  }
+  return color === 'white' ? '#ffffff' : color;
+}
+
+/**
+ * SEED 획득은 시스템 메시지에서만 집계해야 합니다.
+ *
+ * 플레이어가 일반·팀·클럽 채팅 등에서 "주간획득시드 63억"처럼 SEED와 획득이라는
+ * 단어를 함께 말할 수 있습니다. 문장 정규식만 검사하면 이런 대화가 실제 보상으로 기록되므로,
+ * 원본 HTML의 메시지 채널 색상을 먼저 확인해 모든 플레이어 채팅을 제외합니다. 실시간 처리와
+ * 과거 로그 재분석은 같은 ChatParser를 사용하므로 이 경계가 두 경로에 동일하게 적용됩니다.
+ */
+function isPlayerChatLine(rawLine: string): boolean {
+  return PLAYER_CHAT_COLORS.has(getMessageFontColor(rawLine));
+}
 
 /**
  * 테일즈위버 채팅 로그 파싱 결과 타입 정의
@@ -714,7 +749,8 @@ export class ChatParser extends EventEmitter {
     }
 
     // A. SEED 획득 (콘텐츠 보상, 일반 습득, 펫 줍기, 증가/상승 등 모든 SEED 패턴 대응)
-    if (/SEED|Seed|시드/i.test(cleanMsg) && /(?:획득|습득|입수|얻었|받았|지급|증가|올랐|주웠)/.test(cleanMsg)) {
+    // 플레이어 채팅의 SEED 언급은 실제 획득이 아니므로 원본 채널 색상으로 먼저 제외합니다.
+    if (!isPlayerChatLine(rawLine) && /SEED|Seed|시드/i.test(cleanMsg) && /(?:획득|습득|입수|얻었|받았|지급|증가|올랐|주웠)/.test(cleanMsg)) {
         const amountMatch = cleanMsg.match(/(?:보상으로\s+)?(?:\[)?([\d,억만\s]+)(?:\])?\s*(?:SEED|Seed|시드)/i) ||
                             cleanMsg.match(/(?:SEED|Seed|시드)(?:를|을|가)?\s*(?:\[)?([\d,억만\s]+)(?:\])?/i) ||
                             cleanMsg.match(/\[([\d,억만\s]+)\]\s*(?:SEED|Seed|시드)/i);
@@ -727,7 +763,11 @@ export class ChatParser extends EventEmitter {
         }
     }
 
-    // B. 경험치 변동
+    // B. 경험치 변동 계약
+    // 수동 교환은 "경험치가 100억 감소" 한 줄, 자동 교환은 그 감소 줄 뒤에
+    // 별도 획득 안내 한 줄이 추가됩니다. 두 방식을 한 번씩만 세기 위해 이 파서는
+    // 공통 감소 줄만 XP_CHANGED로 발행합니다. 복합 획득 안내까지 허용하도록 정규식을
+    // 넓히면 자동 교환이 2개로 집계되므로 `경험치가` 조건을 제거하지 마십시오.
     if (cleanMsg.includes('경험치가')) {
         const xpMatch = cleanMsg.match(/경험치가\s+([\[\]\d,억만\s]+)\s*(올랐|상승|감소|차감)/);
         if (xpMatch) {

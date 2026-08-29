@@ -1,3 +1,16 @@
+/**
+ * 기능 계약 — 오늘 요약 HUD 데이터 조립
+ *
+ * - 이 모듈은 채팅 로그를 다시 해석하지 않고, 모험일지 DB에서 조회한 해당 날짜 활동과 현재 숙제
+ *   설정을 읽기 전용으로 요약합니다. 원본 기록 누락을 여기서 추정값으로 보정하지 않습니다.
+ * - SEED·ELSO·보스·득템은 activity type별로 합산합니다. 경험의 정수는 일반 득템 키워드 등록 여부와
+ *   무관하게 loot 활동의 실제 수량을 합산하되, 일반 득템 수·종류·목록에는 다시 포함하지 않는
+ *   별도 지표입니다. 요약 HUD에서 전용 합계와 일반 득템 목록에 이중 표시하지 않습니다.
+ * - 아이템 이름은 현재 형식과 과거 `[득템]` 저장 형식을 모두 읽을 수 있어야 합니다. 저장 문자열
+ *   형식을 바꿀 때는 모험일지 조회와 이 호환 파서를 함께 검증해야 합니다.
+ * - 숙제는 현재 선택 캐릭터의 표시/제외/완료 상태를 사용하고, 남은 항목은 HUD 공간 때문에 최대
+ *   `MAX_REMAINING_HOMEWORK_ITEMS`개만 반환합니다. 원본 숙제 상태나 순서는 변경하지 않습니다.
+ */
 import type {
   AppConfig,
   DiaryData,
@@ -69,6 +82,7 @@ export function buildTodaySummary(
       if (!name) continue;
       if (name === '경험의 정수') {
         totalEssence += count;
+        continue;
       }
       if (countsTowardLootTotal(name)) totalLootCount += count;
       lootCounts.set(name, (lootCounts.get(name) || 0) + count);

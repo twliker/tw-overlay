@@ -219,6 +219,18 @@
 
     .calculator-main, .calculator-table-pane { overflow: hidden; }
 
+    /* 결과 카드가 추가되어도 중간 폭에서 가로 스크롤이 생기지 않도록 상단 바만 줄바꿈합니다. */
+    @media (max-width: 1200px) {
+      .calculator-stat-bar {
+        height: auto !important;
+        min-height: 50px;
+        flex-wrap: wrap;
+        padding-top: 6px;
+        padding-bottom: 6px;
+      }
+      .calculator-stat-inputs { flex-wrap: wrap; }
+    }
+
     /* 소형 작업영역에서는 우측 가이드를 아래로 내려 전체 기능을 세로 스크롤로 유지합니다. */
     @media (max-width: 1000px) {
       body {
@@ -228,14 +240,6 @@
         overflow-y: auto !important;
       }
       .calculator-tab-bar { overflow-x: auto; }
-      .calculator-stat-bar {
-        height: auto !important;
-        min-height: 50px;
-        flex-wrap: wrap;
-        padding-top: 6px;
-        padding-bottom: 6px;
-      }
-      .calculator-stat-inputs { flex-wrap: wrap; }
       .calculator-main {
         flex: none;
         flex-direction: column;
@@ -357,7 +361,7 @@
     <!-- Spacer -->
     <div class="flex-1"></div>
 
-    <!-- Results (Coeff & DEX) -->
+    <!-- Results (Coefficient, main stat & DEX) -->
     <div class="flex items-center gap-2 mr-2">
       <!-- Result: Coefficient -->
       <div class="bg-indigo-500/5 px-2.5 py-1 rounded-lg border border-indigo-500/15 flex items-center gap-2.5">
@@ -377,6 +381,17 @@
           <option value="mercurial">머큐리얼</option>
           <option value="none">코어없음</option>
         </select>
+      </div>
+
+      <!-- Result: Main stat (character / equipment) -->
+      <div class="bg-indigo-500/5 px-3 py-1 rounded-lg border border-indigo-500/15 flex flex-col justify-center min-w-[142px]"
+        title="캐릭터 주스탯 / 장비 주스탯">
+        <span class="text-xs text-slate-400 font-bold leading-none">주스탯 <span class="text-slate-600">(캐릭터 / 장비)</span></span>
+        <div class="text-[17px] font-black tracking-tight mt-1 leading-none whitespace-nowrap">
+          <span id="character-main-stat-display" class="text-indigo-300">0</span>
+          <span class="text-slate-600 mx-0.5">/</span>
+          <span id="equipment-main-stat-display" class="text-slate-200">0</span>
+        </div>
       </div>
 
       <!-- Result: DEX -->

@@ -13,7 +13,7 @@ import {
 } from './analyticsProtocol';
 
 // ========== GA4 SETTINGS ==========
-const ANALYTICS_TRANSMISSION_ENABLED = shouldTransmitAnalytics(
+const ANALYTICS_RUNTIME_ALLOWED = shouldTransmitAnalytics(
   app.isPackaged,
   process.env.TW_OVERLAY_DISABLE_ANALYTICS === '1',
 );
@@ -21,7 +21,7 @@ let MEASUREMENT_ID = '';
 let API_SECRET = '';
 
 try {
-  if (ANALYTICS_TRANSMISSION_ENABLED) {
+  if (ANALYTICS_RUNTIME_ALLOWED) {
     const candidatePaths = [
       path.join(app.getAppPath(), 'env.json'),
       path.join(__dirname, '..', 'env.json'),
@@ -80,18 +80,43 @@ function getStoredClientId(): string | undefined {
   return clientId;
 }
 
+/**
+ * GA4 사용 통계 전송 계약입니다.
+ *
+ * - 패키지 앱에서만 동작하며 개발 실행과 명시적 환경 변수 비활성화에서는 전송하지 않습니다.
+ * - `analyticsEnabled=false`이면 즉시 하트비트와 이후 이벤트 전송을 중지합니다.
+ * - client_id는 임의 생성한 익명 식별자로 로컬 analytics 저장소에 유지되며 앱을 다시 켜도
+ *   같은 값을 사용합니다. 세션 ID와 세션 번호는 재실행마다 갱신됩니다.
+ * - 이벤트 이름과 파라미터는 analyticsProtocol allowlist/정규화 경계를 통과해야 하며,
+ *   채팅 내용·Google 토큰·사용자 파일 원문 같은 개인정보를 파라미터로 추가하지 않습니다.
+ * - 데이터는 앱 운영자의 자체 수집 서버가 아니라 Google Analytics로 직접 전송됩니다.
+ */
 export class Analytics {
   private clientId: string = '';
   private sessionId: number = 0;
   private sessionNumber: number = 1;
+  private initialized = false;
   
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private lastEngagementTime: number = Date.now();
 
   constructor() {
-    if (!ANALYTICS_TRANSMISSION_ENABLED) {
-      return;
+    if (!this.isTransmissionEnabled()) return;
+    this.initializeSession();
+  }
+
+  /** 런타임 허용 조건과 사용자의 현재 전송 설정을 매 이벤트 직전에 함께 확인합니다. */
+  private isTransmissionEnabled(): boolean {
+    if (!ANALYTICS_RUNTIME_ALLOWED) return false;
+    try {
+      return loadConfig().analyticsEnabled !== false;
+    } catch {
+      return true;
     }
+  }
+
+  private initializeSession(): void {
+    if (this.initialized || !this.isTransmissionEnabled()) return;
 
     // 1. Client ID persistence
     const savedClientId = getStoredClientId();
@@ -116,6 +141,7 @@ export class Analytics {
     store.set('ga_last_active_time', now);
     
     this.lastEngagementTime = now;
+    this.initialized = true;
 
     log(`[Analytics] 시작됨 (ClientID: ${this.clientId.split('-')[0]}..., Session#: ${this.sessionNumber})`, true);
 
@@ -131,10 +157,20 @@ export class Analytics {
     }, 600 * 1000);
   }
 
-  public trackEvent(eventName: string, params: Record<string, unknown> = {}): void {
-    if (!ANALYTICS_TRANSMISSION_ENABLED) {
+  /** 설정 변경 직후 전송/중지 상태를 반영한다. */
+  public refreshEnabledState(): void {
+    if (this.isTransmissionEnabled()) {
+      this.initializeSession();
+      this.startHeartbeat();
       return;
     }
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
+
+  public trackEvent(eventName: string, params: Record<string, unknown> = {}): void {
+    if (!this.isTransmissionEnabled()) return;
+    this.initializeSession();
 
     if (!MEASUREMENT_ID || !API_SECRET || MEASUREMENT_ID === 'G-XXXXXXXXXX' || API_SECRET === 'XXXXXXXXXXXXXXXXXXX') {
       return; // 설정되지 않은 경우 조용히 무시
@@ -203,7 +239,8 @@ export class Analytics {
   public trackError(errorName: string, errorMessage: string): void {
     this.trackEvent('app_error', {
       error_name: errorName.substring(0, 100),
-      error_message: errorMessage.substring(0, 100),
+      // 로컬 경로·파일명 등 환경 정보가 포함될 수 있는 원문은 전송하지 않는다.
+      error_kind: errorMessage ? 'runtime_error' : 'unknown_error',
     });
   }
 }

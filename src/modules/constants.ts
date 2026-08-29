@@ -14,7 +14,7 @@ function getElectronApp(): Electron.App | null {
 }
 
 // 타입은 shared/types.ts에서 통합 관리 (preload.ts와 공유)
-export { QuickSlotItem, WatchedPost, WindowPosition, GameRect, GameNotRunning, GameError, GameQueryResult, BossSetting, AppConfig, GalleryPost, GalleryActivity, UpdateStatusInfo, TradePost, TradeActivity, MAIN_CHAR_ID, DEFAULT_CHAR_NAME } from '../shared/types';
+export { QuickSlotItem, WatchedPost, WindowPosition, ScreenPosition, GameRect, GameNotRunning, GameError, GameQueryResult, BossSetting, AppConfig, GalleryPost, GalleryActivity, UpdateStatusInfo, TradePost, TradeActivity, MAIN_CHAR_ID, DEFAULT_CHAR_NAME } from '../shared/types';
 import type { AppConfig } from '../shared/types';
 import { DEFAULT_HUD_POSITIONS, DEFAULT_WINDOW_POSITIONS } from '../shared/windowPositions';
 const chatChannels = require('../shared/chatChannels') as ChatChannelConstants;
@@ -88,6 +88,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   overlayVisible: false,
   galleryNotify: false,
   diaryKeepDays: 180,
+  analyticsEnabled: true,
   customSounds: [],
   quickSlots: [
     {
@@ -121,6 +122,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   notifyWhenGameClosed: false,
   positions: { ...DEFAULT_WINDOW_POSITIONS },
+  windowedFullscreenPositions: {},
+  fixedWindowPositions: {},
+  fixedWindowPositionsActive: false,
   tradeServer: 'RyXp',
   tradeKeywords: [],
   tradeNotify: true,
@@ -197,6 +201,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   abandonedAlertEnabled: true,
   pittaHillAlertEnabled: true,
   questCompleteAlertEnabled: true,
+  questCompleteAlertSound: 'orb.mp3',
+  questCompleteAlertVolume: 40,
+  abyssTreasureAlertEnabled: true,
+  abyssTreasureAlertSound: 'orb.mp3',
+  abyssTreasureAlertVolume: 40,
   abandonedAutoHideMinutes: 10,
   abandonedEnabled: true,
   abandonedWidgetPos: { ...DEFAULT_HUD_POSITIONS.abandoned },

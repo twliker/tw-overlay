@@ -93,6 +93,11 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'abandonedAlertEnabled',
   'pittaHillAlertEnabled',
   'questCompleteAlertEnabled',
+  'questCompleteAlertSound',
+  'questCompleteAlertVolume',
+  'abyssTreasureAlertEnabled',
+  'abyssTreasureAlertSound',
+  'abyssTreasureAlertVolume',
   'abandonedAutoHideMinutes',
   'abandonedEnabled',
   'scamDetectorEnabled',
@@ -156,6 +161,8 @@ const TOP_LEVEL_SOUND_KEYS = new Set<keyof AppConfig>([
   'lokagosAlertSound',
   'waveMonsterWarningSound',
   'essenceAlertSound',
+  'questCompleteAlertSound',
+  'abyssTreasureAlertSound',
   'scamAlertSound',
 ]);
 
@@ -770,13 +777,31 @@ export function mergeSettingsSnapshot(
 }
 
 /** 동기화 전 로컬 config 안전 백업 생성 */
-export function createLocalBackupBeforeSync(cfg: AppConfig): void {
+export function createLocalBackupBeforeSync(cfg: AppConfig): boolean {
+  const backupPath = path.join(app.getPath('userData'), BACKUP_FILENAME);
+  const tempPath = `${backupPath}.tmp`;
   try {
-    const backupPath = path.join(app.getPath('userData'), BACKUP_FILENAME);
-    fs.writeFileSync(backupPath, JSON.stringify(cfg, null, 2), 'utf-8');
+    const serialized = JSON.stringify(cfg, null, 2);
+    const fd = fs.openSync(tempPath, 'w', 0o600);
+    try {
+      fs.writeFileSync(fd, serialized, 'utf-8');
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const persisted = fs.readFileSync(tempPath, 'utf-8');
+    const verified = JSON.parse(persisted) as unknown;
+    if (!verified || typeof verified !== 'object' || Array.isArray(verified)) {
+      throw new Error('백업 재검증 실패');
+    }
+    if (persisted !== serialized) throw new Error('백업 내용 검증 실패');
+    fs.renameSync(tempPath, backupPath);
     log(`[SyncDataHelper] 동기화 전 로컬 백업 완료: ${backupPath}`);
+    return true;
   } catch (err) {
-    log(`[SyncDataHelper] 로컬 백업 실패 (진행은 계속됨): ${err}`);
+    try { fs.rmSync(tempPath, { force: true }); } catch {}
+    log(`[SyncDataHelper] 로컬 백업 실패: ${err}`);
+    return false;
   }
 }
 

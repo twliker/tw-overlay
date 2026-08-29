@@ -1,4 +1,4 @@
-import './bootstrap';
+import * as bootstrap from './bootstrap';
 import { app, protocol, net, dialog, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -37,6 +37,7 @@ import { buffTimerManager } from './modules/buffTimerManager';
 import * as scamMonitor from './modules/scamMonitor';
 import { etaCacheManager } from './modules/etaCacheManager';
 import * as cloudSync from './modules/cloudSyncManager';
+import * as backupManager from './modules/backupManager';
 import { createShutdownGate, drainShutdownTask } from './modules/shutdownCoordinator';
 
 // ── 에러 트래킹 세팅 ──
@@ -100,6 +101,26 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
+  const bootstrapError = bootstrap.getFatalBootstrapError();
+  if (bootstrapError) {
+    dialog.showErrorBox(
+      '안전 스냅샷 생성 실패',
+      `${bootstrapError}\n\n데이터 변경을 막기 위해 실행을 중단합니다. 디스크 공간과 폴더 권한을 확인한 뒤 다시 실행해 주세요.`,
+    );
+    app.quit();
+    return;
+  }
+  if (!backupManager.recoverInterruptedRestore()) {
+    dialog.showErrorBox(
+      '데이터 복원 복구 실패',
+      '이전 데이터 복원이 중단되었고 자동 롤백에도 실패했습니다. backups 폴더의 복원 전 스냅샷을 확인해 주세요.',
+    );
+    app.quit();
+    return;
+  }
+  if (!scamMonitor.recoverInterruptedServerInstall()) {
+    log('[BOOT] 중단된 AI 바이너리 설치를 복구하지 못했습니다. AI 기능은 재설치 전까지 시작하지 않습니다.');
+  }
   cloudSync.initializeLocalProfileState();
   powerMonitor.on('resume', () => cloudSync.requestImmediatePull('system-resume'));
   powerMonitor.on('unlock-screen', () => cloudSync.requestImmediatePull('screen-unlock'));
@@ -171,7 +192,7 @@ app.whenReady().then(() => {
     if (configWarning) {
       void dialog.showMessageBox(sidebar, {
         type: 'warning',
-        title: '설정 복구 안내',
+        title: '일부 설정을 별도 보관했습니다',
         message: configWarning,
         buttons: ['확인'],
       });

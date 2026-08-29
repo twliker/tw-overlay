@@ -680,11 +680,13 @@
 
       // 다음 정수까지 남은 시간 (마지막 교환 이후 누적 기준)
       const xpSinceExchange = data.xpSinceLastExchange || 0;
-      const remainingForEssence = ESSENCE_XP - xpSinceExchange;
+      const remainingForEssence = Math.max(0, ESSENCE_XP - xpSinceExchange);
       const progressPercent = Math.min(xpSinceExchange / ESSENCE_XP * 100, 100);
       if (document.getElementById('essence-progress')) document.getElementById('essence-progress').style.width = progressPercent + '%';
 
-      if (movingEpm > 0) {
+      if (xpSinceExchange >= ESSENCE_XP) {
+        if (document.getElementById('stat-essence-eta')) document.getElementById('stat-essence-eta').textContent = '교환 확인 필요';
+      } else if (movingEpm > 0) {
         const minsRemaining = remainingForEssence / movingEpm;
         if (document.getElementById('stat-essence-eta')) document.getElementById('stat-essence-eta').textContent = Math.ceil(minsRemaining) + '분 남음';
       } else {
@@ -723,7 +725,8 @@
       _isActive = data.isActive || false;
       updateStats({
         total: 0, epm: 0, movingEpm: 0, history: [], kills: 0, essenceCount: 0,
-        xpSinceLastExchange: 0, isActive: _isActive, startTime: _startTime, accumulatedTime: _accumulatedTime
+        xpSinceLastExchange: data.xpSinceLastExchange || 0,
+        isActive: _isActive, startTime: _startTime, accumulatedTime: _accumulatedTime
       }, true);
       const startTimeEl = document.getElementById('stat-start-time');
       if (startTimeEl) startTimeEl.textContent = formatStartTime(_startTime);

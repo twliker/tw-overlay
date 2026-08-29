@@ -107,7 +107,7 @@
       </div>
     </div>
     <div class="win-controls">
-      <button id="notify-toggle" onclick="toggleNotify()" class="win-btn" title="알림 설정">
+      <button id="notify-toggle" onclick="toggleNotify()" class="win-btn" title="갤러리 알림 켜기/끄기">
         <i id="notify-toggle-icon" data-lucide="bell" class="w-4 h-4"></i>
       </button>
       <button onclick="refreshGallery()" class="win-btn" title="새로고침">
@@ -347,8 +347,10 @@
 
     function updateNotifyIcon(enabled) {
       const icon = document.getElementById('notify-toggle-icon');
+      const button = document.getElementById('notify-toggle');
       if (enabled) { icon.setAttribute('data-lucide', 'bell'); icon.className = 'w-4 h-4 text-purple-400'; }
       else { icon.setAttribute('data-lucide', 'bell-off'); icon.className = 'w-4 h-4 text-slate-600'; }
+      if (button) button.title = enabled ? '갤러리 알림 끄기' : '갤러리 알림 켜기';
       refreshIcons();
     }
 

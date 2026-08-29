@@ -235,6 +235,17 @@ function initBuffPresets() {
   }
 }
 
+/**
+ * 기능 계약: 계수 계산 결과와 주스탯 요약
+ *
+ * - 상단 `주스탯`은 테일즈위버 능력치 표기와 같은 `캐릭터 / 장비` 순서로 표시한다.
+ * - 캐릭터 값은 현재 공격 계열의 주스탯에 선택한 도핑의 고정·비율 보너스를 적용한 값이다.
+ * - 장비 값은 현재 공격 계열의 기본·강화·어빌리티 주스탯과 선택한 지역 코어 주스탯의 합이다.
+ *   아바타 기본 세트 +15처럼 계산기가 자동 가산하는 장비 수치도 동일하게 포함한다.
+ * - 공격 계열, 도핑, 장비 입력 또는 코어 선택이 바뀌면 계수·주스탯·명중을 한 번에 다시 계산한다.
+ * - 이 기준을 바꿀 때는 시간 측정기의 스탯 스냅샷 계산과
+ *   `scripts/check-renderer-behavior.ts`의 계수 계산기 검사를 함께 확인한다.
+ */
 function calculate() {
   try {
     const presetId = (document.getElementById('buff-preset-select') as HTMLSelectElement)?.value || 'none';
@@ -434,8 +445,11 @@ function calculate() {
 
     const totalCoeff = coeff + selectedCoreCoeff;
     const coeffStr = totalCoeff.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const equipmentMain = gMain + uMain + selectedCoreVal;
     setT('total-coefficient', coeffStr);
     setT('total-coefficient-table', coeffStr);
+    setT('character-main-stat-display', Math.floor(cMain).toLocaleString());
+    setT('equipment-main-stat-display', Math.floor(equipmentMain).toLocaleString());
     setT('total-hit-display', Math.floor(fHit).toString());
     updateGuide(coeff, fHit, coreCoeffs);
   } catch (err) {

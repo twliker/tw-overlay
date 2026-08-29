@@ -10,6 +10,12 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { createUserDataSnapshot, verifyUserDataSnapshot } from './modules/localSnapshot';
 
+let fatalBootstrapError: string | null = null;
+
+export function getFatalBootstrapError(): string | null {
+  return fatalBootstrapError;
+}
+
 function isPathInside(rootPath: string, candidatePath: string): boolean {
   const root = path.resolve(rootPath);
   const candidate = path.resolve(candidatePath);
@@ -239,10 +245,12 @@ function initUserData(): void {
     try {
       backupPreV3UserData(standardUserDataPath, appVersion);
     } catch (error) {
-      console.error(`[BOOTSTRAP] v3 사전 스냅샷 실패: ${error instanceof Error ? error.message : String(error)}`);
+      fatalBootstrapError = `v3 사전 스냅샷 실패: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`[BOOTSTRAP] ${fatalBootstrapError}`);
     }
   } catch (error) {
-    console.error(`[BOOTSTRAP] userData 초기화 실패: ${error instanceof Error ? error.message : String(error)}`);
+    fatalBootstrapError = `userData 초기화 실패: ${error instanceof Error ? error.message : String(error)}`;
+    console.error(`[BOOTSTRAP] ${fatalBootstrapError}`);
   }
 }
 

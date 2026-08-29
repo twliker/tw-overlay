@@ -86,7 +86,9 @@ export const SWP_NOREDRAW = 0x0008;
 export const GW_HWNDPREV = 3;
 
 export const GWL_EXSTYLE = -20;
+export const GWL_STYLE = -16;
 export const WS_EX_TOPMOST = 0x00000008;
+export const WS_CAPTION = 0x00c00000;
 
 export const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 export const SW_RESTORE = 9;

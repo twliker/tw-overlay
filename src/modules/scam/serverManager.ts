@@ -8,7 +8,13 @@ import { spawn } from 'child_process';
 import * as config from '../config';
 import * as wm from '../windowManager';
 import { log } from '../logger';
-import { getModelPath, getServerBinaryPath } from './modelManager';
+import {
+  getModelPath,
+  getServerBinaryPath,
+  recoverInterruptedServerInstall,
+  verifyInstalledModel,
+  verifyInstalledServerBinary,
+} from './modelManager';
 
 // ── 상수 ──
 const LLAMA_SERVER_PORT = 18765;
@@ -81,6 +87,10 @@ async function spawnServer(gpuLayers: number): Promise<void> {
 export async function startServer(): Promise<void> {
   if (_serverReady) return;
 
+  if (!recoverInterruptedServerInstall()) {
+    throw new Error('중단된 llama-server 설치를 복구하지 못했습니다.');
+  }
+
   const binaryPath = getServerBinaryPath();
   if (!fs.existsSync(binaryPath)) {
     throw new Error('llama-server.exe 가 없습니다. 다운로드 후 다시 시도해주세요.');
@@ -89,6 +99,8 @@ export async function startServer(): Promise<void> {
   if (!fs.existsSync(modelPath)) {
     throw new Error('모델 파일이 없습니다. 먼저 모델을 다운로드해주세요.');
   }
+  verifyInstalledServerBinary();
+  verifyInstalledModel();
 
   const variant = config.load().scamGpuVariant ?? 'vulkan';
   if (variant === 'cpu') {

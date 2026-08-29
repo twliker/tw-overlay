@@ -76,7 +76,7 @@
   "settingsSearchCoverage": {
     "doc": "settings",
     "status": "documented",
-    "expectedSearchEntryCount": 43,
-    "reason": "검색 인덱스 43개 기능은 사용자 흐름 중심의 설정 가이드로 연결됨"
+    "expectedSearchEntryCount": 49,
+    "reason": "검색 인덱스 49개 기능은 사용자 흐름 중심의 설정 가이드로 연결됨"
   }
 }

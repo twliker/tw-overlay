@@ -49,7 +49,8 @@ export function start(): void {
     const rectEquals = (a: GameQueryResult, b: GameQueryResult): boolean => {
         if (!a || !b) return a === b;
         if ('x' in a && 'x' in b) {
-            return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.isForeground === b.isForeground;
+            return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+                && a.windowStyle === b.windowStyle && a.isForeground === b.isForeground;
         }
         return false;
     };
@@ -149,7 +150,11 @@ export function start(): void {
             });
         }
 
-        const isStateChanged = _currentStatus !== 'running' || !rectEquals(currentRect, lastRect);
+        // 창모드 전환 안정화 시간 동안에는 rect가 더 이상 바뀌지 않아도 한 번 더 동기화해야
+        // 새 모드를 확정하고 그 모드 전용 위치를 복원할 수 있습니다.
+        const isStateChanged = _currentStatus !== 'running'
+            || !rectEquals(currentRect, lastRect)
+            || wm.isGameWindowModeTransitioning();
 
         if (isStateChanged) {
             const gameJustStarted = _currentStatus !== 'running';

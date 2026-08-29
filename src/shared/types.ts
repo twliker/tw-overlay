@@ -109,6 +109,12 @@ export interface WindowPosition {
     offsetY: number;
 }
 
+/** 게임 창 따라가기를 끈 동안 유지하는 화면 절대 좌표입니다. */
+export interface ScreenPosition {
+    x: number;
+    y: number;
+}
+
 export interface HudPosition {
     left: number;
     bottom?: number;
@@ -190,6 +196,19 @@ export interface EquipmentDictionaryItem {
     [key: string]: unknown;
 }
 
+/**
+ * 장비 사전에서 진화 계산기로 넘기는 최소 선택 정보.
+ *
+ * 장비 사전 원본의 `name`과 계산기가 소비하는 `itemName`은 의미가 비슷하지만 서로 다른
+ * IPC 계약이다. 공용 장비 객체 검증으로 이 payload를 검사하면 정상 클릭도 폐기되므로,
+ * 계산기 전용 타입과 검증 경계를 유지한다.
+ */
+export interface EvolutionCalculatorSelection {
+    category: 'weapon' | 'equipment';
+    part: '' | 'helm' | 'armor' | 'gloves' | 'boots' | 'wings' | 'amulet' | 'shield';
+    itemName: string;
+}
+
 export interface IncompleteContentItem {
     charName: string;
     name: string;
@@ -202,6 +221,8 @@ export interface GameRect {
     y: number;
     width: number;
     height: number;
+    /** Win32 GWL_STYLE. 창모드/창모드 전체화면 전환의 테두리 변경을 판별할 때 사용합니다. */
+    windowStyle?: number;
     gameHwnd?: string;
     isForeground?: boolean;
 }
@@ -391,7 +412,11 @@ export interface AppConfig {
     fieldBossSettings?: Record<string, BossSetting>;
     notifyWhenGameClosed?: boolean;
     positions?: Partial<Record<WindowPositionKey, WindowPosition>>;
+    /** 창모드 전체화면에서만 사용하는 게임 기준 상대 위치. 일반 창모드 위치와 분리해 보존합니다. */
+    windowedFullscreenPositions?: Partial<Record<WindowPositionKey, WindowPosition>>;
     storedPositionKeys?: WindowPositionKey[];
+    fixedWindowPositions?: Partial<Record<WindowPositionKey, ScreenPosition>>;
+    fixedWindowPositionsActive?: boolean;
     tradeServer?: string;
     tradeKeywords?: string[];
     tradeNotify?: boolean;
@@ -412,6 +437,8 @@ export interface AppConfig {
     chatLogPath?: string;
     chatLogAutoDeleteDays?: number;
     diaryKeepDays?: number;
+    /** 익명화된 앱 사용 통계를 Google Analytics로 전송할지 여부 (PC별 로컬 설정). */
+    analyticsEnabled?: boolean;
     lootKeywords?: string[];
     lootKeywordsMigratedV2?: boolean;
     quickSlotsMigratedV2?: boolean;
@@ -470,6 +497,11 @@ export interface AppConfig {
     abandonedAlertEnabled?: boolean;
     pittaHillAlertEnabled?: boolean;
     questCompleteAlertEnabled?: boolean;
+    questCompleteAlertSound?: string;
+    questCompleteAlertVolume?: number;
+    abyssTreasureAlertEnabled?: boolean;
+    abyssTreasureAlertSound?: string;
+    abyssTreasureAlertVolume?: number;
 
     // --- Abandoned Road Settings ---
     abandonedAutoHideMinutes?: number;
@@ -683,7 +715,7 @@ export interface GoogleSyncResult {
 }
 
 export interface SyncProgressInfo {
-    phase?: 'preparing' | 'analyzing' | 'finalizing';
+    phase?: 'preparing' | 'analyzing' | 'catching-up' | 'finalizing';
     currentFile: string;
     currentFileIndex: number;
     totalFiles: number;
@@ -707,6 +739,8 @@ export interface SyncResultReport {
     // 신규 반영 결과 (DB에 새로 추가/갱신된 수량)
     lootsAdded: number;
     homeworkUpdated: number;
+    /** 과거 로그에서 리셋 주기별 완료로 확정해 모험일지에 반영한 숙제 수. */
+    homeworkLogsDetected?: number;
     shoutsAdded: number;
     seedsAdded: number;
     elsoPointsAdded: number;
@@ -722,6 +756,16 @@ export interface SyncResultReport {
     todayRebuilt?: boolean;
     /** 분석 중 오늘 파일이 추가 기록되어 안전을 위해 기존 row를 보존하고 병합했는지 여부. */
     todayRebuildDeferred?: boolean;
+    /** 오늘 snapshot 이후에 추가된 로그까지 실시간 처리 경로로 따라잡았는지 여부. */
+    todayCatchUpProcessed?: boolean;
+    /** 오늘 snapshot 이후 catch-up한 원본 로그 byte 수. */
+    todayCatchUpBytes?: number;
+    /** 사용자가 이미 완료된 파일까지 전체 재분석하도록 요청했는지 여부. */
+    reanalyzedCompletedLogs?: boolean;
+    /** 파일 전체 분석 후 기존 자동 기록을 안전하게 교체한 날짜 수. */
+    automaticRecordsRebuiltDates?: number;
+    /** 분석 중 변경되거나 최종 확인에 실패해 기존 자동 기록을 보존한 파일 목록. */
+    automaticRecordRebuildDeferredFiles?: string[];
     partial?: boolean;
     failedFiles?: Array<{ fileName: string; date: string; error: string }>;
     error?: string;
@@ -810,6 +854,7 @@ export interface ModelStatus {
   progress: number;
   modelPath: string;
   serverBinaryReady: boolean;
+  serverBinaryPresent?: boolean;
 }
 
 export interface ServerStatus {
@@ -863,6 +908,7 @@ export interface HomeworkLog {
     category: string;
     type: 'daily' | 'weekly';
     completed_at: number; // Timestamp
+    source?: 'checklist' | 'chat-log-sync';
 }
 
 export interface ActivityLog {

@@ -1,3 +1,16 @@
+/**
+ * 기능 계약 — 전역 단축키
+ *
+ * - 설정의 `shortcuts`가 유일한 키 조합 원본이며, 앱/게임이 포커스 범위에 있을 때만 기능을
+ *   실행합니다. 다른 프로그램 사용 중 키 입력을 가로채는 동작으로 넓히지 않습니다.
+ * - 포커스가 빠져나가면 전역 단축키를 해제하고 돌아오면 전체를 다시 등록합니다. 설정 변경도 기존
+ *   등록을 먼저 모두 해제한 뒤 재등록해 이전 키 조합이 남지 않게 합니다.
+ * - 게임을 먼저 실행한 뒤 앱을 시작한 경우에도 tracker의 첫 안정 폴링이 실제 전경 창을 다시 판정해
+ *   단축키를 등록합니다. 같은 포커스 통지가 반복돼도 등록이 비어 있으면 한 번 더 복구를 시도합니다.
+ * - 각 콜백은 해당 기능의 공개 API를 호출해야 하며 설정·창 상태를 별도로 복제하지 않습니다.
+ *   특히 경험치 세션은 시작 시 HUD 표시, 일시정지 시 HUD 숨김이라는 결합 동작을 유지합니다.
+ * - 운영체제에서 이미 사용 중인 키 등록 실패는 기록하되 다른 단축키 등록을 중단하지 않습니다.
+ */
 import { globalShortcut } from 'electron';
 import * as config from './config';
 import * as wm from './windowManager';
@@ -10,11 +23,16 @@ import { broadcastToAllWindows } from './windowMessaging';
 import { abandonedTracker } from './abandonedTracker';
 
 let _isFocused = false;
+let _registrationActive = false;
 
 /**
  * 모든 단축키 등록
  */
 export function registerAll(): void {
+  // 설정 화면의 단축키 입력 종료와 포커스 이벤트가 겹쳐도 자기 자신의 기존 등록과 충돌하지 않게
+  // 공개 등록 경로 자체를 멱등적으로 만듭니다.
+  globalShortcut.unregisterAll();
+  _registrationActive = false;
   const cfg = config.load();
   const shortcuts = cfg.shortcuts;
   if (!shortcuts) return;
@@ -168,7 +186,10 @@ export function registerAll(): void {
     }
   }
 
-  log('[SHORTCUT] All shortcuts registered');
+  const configuredAccelerators = Object.values(shortcuts)
+    .filter((accelerator): accelerator is string => typeof accelerator === 'string' && accelerator.length > 0);
+  _registrationActive = configuredAccelerators.every(accelerator => globalShortcut.isRegistered(accelerator));
+  log(`[SHORTCUT] Shortcut registration pass ${_registrationActive ? 'completed' : 'incomplete'}`);
 }
 
 /**
@@ -176,6 +197,7 @@ export function registerAll(): void {
  */
 export function unregisterAll(): void {
   globalShortcut.unregisterAll();
+  _registrationActive = false;
   log('[SHORTCUT] All shortcuts unregistered');
 }
 
@@ -184,11 +206,10 @@ export function unregisterAll(): void {
  * @param isFocused 게임 창 또는 앱 창이 포커스되었는지 여부
  */
 export function updateFocusState(isFocused: boolean): void {
-  if (_isFocused === isFocused) return;
+  if (_isFocused === isFocused && (!isFocused || _registrationActive)) return;
   _isFocused = isFocused;
 
   if (_isFocused) {
-    unregisterAll(); // 안전을 위해 기존 단축키 제거 후 재등록
     registerAll();
   } else {
     unregisterAll();

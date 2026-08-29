@@ -29,6 +29,10 @@ function buildTestHtml(): string {
     path.join(projectRoot, 'dist', 'renderer', 'diary', 'calendar-loot-grouping.js'),
     'utf8',
   );
+  const homeworkProgressScript = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'renderer', 'diary', 'homework-progress.js'),
+    'utf8',
+  );
   const badges = Array.from({ length: 8 }, (_, index) => `<div class="loot-badge">아이템 ${index + 1}</div>`).join('');
 
   return `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -57,6 +61,7 @@ function buildTestHtml(): string {
       </div>
     </div>
     <script>${groupingScript}</script>
+    <script>${homeworkProgressScript}</script>
     <script>${expansionScript}</script>
     <script>window.diaryCalendarExpansion.refresh(document.getElementById('calendar-grid'));</script>
   </body></html>`;
@@ -87,6 +92,17 @@ async function main(): Promise<void> {
       { name: '경험의 심장', count: 16, img: 'heart.png' },
       { name: '룬 경험의 심장', count: 10, img: 'rune-heart.png' },
     ], '달력에서 같은 경험의 심장은 합산하고 룬 경험의 심장은 별도로 유지하지 못했습니다.');
+
+    const homeworkProgress = await window.webContents.executeJavaScript(`(() => ({
+      current: window.diaryHomeworkProgress.format(51, 69),
+      historical: window.diaryHomeworkProgress.format(3, 69),
+      empty: window.diaryHomeworkProgress.format(0, 0),
+    }))()`);
+    assert.deepEqual(homeworkProgress, {
+      current: { done: 51, total: 69, hasProgress: true, hasTotal: true, isComplete: false, text: '51/69' },
+      historical: { done: 3, total: 69, hasProgress: true, hasTotal: true, isComplete: false, text: '3/69' },
+      empty: { done: 0, total: 0, hasProgress: false, hasTotal: false, isComplete: false, text: '0건' },
+    }, '과거 주간 숙제 완료 수를 현재 숙제 전체 수 기준으로 표시하지 못했습니다.');
 
     const initial = await window.webContents.executeJavaScript(`(() => {
       const overflowCell = document.getElementById('overflow-cell');

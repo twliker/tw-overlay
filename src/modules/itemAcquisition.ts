@@ -69,7 +69,7 @@ export function parseItemAcquisition(
   const normalized = message.replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
 
-  // 경험치 차감 후 발생하는 경험의 정수 자동 교환 안내 메시지는 XP_CHANGED 이벤트에서 일지 기록을 전담하므로 중복 득템 파싱에서 제외합니다.
+  // 자동 교환은 앞선 "경험치가 100억 감소" 로그에서 집계하므로 뒤따르는 획득 안내는 중복 파싱하지 않습니다.
   if (/^경험치\s*[\d,억만\s]+(?:이|가)?\s*차감되고.*경험의\s*정수.*획득/i.test(normalized)) {
     return null;
   }
@@ -276,7 +276,7 @@ export function parseItemAcquisitions(
   const normalized = message.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
 
-  // 경험치 차감 후 발생하는 경험의 정수 자동 교환 안내 메시지는 XP_CHANGED 이벤트에서 일지 기록을 전담하므로 중복 득템 파싱에서 제외합니다.
+  // 자동 교환은 앞선 "경험치가 100억 감소" 로그에서 집계하므로 뒤따르는 획득 안내는 중복 파싱하지 않습니다.
   if (/^경험치\s*[\d,억만\s]+(?:이|가)?\s*차감되고.*경험의\s*정수.*획득/i.test(normalized)) {
     return [];
   }

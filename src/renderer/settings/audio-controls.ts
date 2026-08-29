@@ -6,6 +6,8 @@
     abyssApostleStartSound?: string;
     abyssApostleEndSound?: string;
     lokagosAlertSound?: string;
+    questCompleteAlertSound?: string;
+    abyssTreasureAlertSound?: string;
   }
 
   const defaultConfig = (window.electronAPI as typeof window.electronAPI & {
@@ -18,6 +20,8 @@
     { id: 'abyss-apostle-start-sound', configKey: 'abyssApostleStartSound' },
     { id: 'abyss-apostle-end-sound', configKey: 'abyssApostleEndSound' },
     { id: 'lokagos-alert-sound', configKey: 'lokagosAlertSound' },
+    { id: 'quest-complete-alert-sound', configKey: 'questCompleteAlertSound' },
+    { id: 'abyss-treasure-alert-sound', configKey: 'abyssTreasureAlertSound' },
   ] as const);
 
   const previousVolumes: Record<string, number> = {

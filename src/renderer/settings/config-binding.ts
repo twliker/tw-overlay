@@ -11,6 +11,7 @@
     gameExitReminderEnabled?: boolean;
     gameExitReminderMessage?: string;
     diaryKeepDays?: number;
+    analyticsEnabled?: boolean;
     chatLogPath?: string;
     chatLogAutoDeleteDays?: number;
     ethosAlertEnabled?: boolean;
@@ -26,11 +27,15 @@
     waveMonsterWarningEnabled?: boolean;
     waveMonsterWarningSound?: string;
     waveMonsterWarningVolume?: number;
-    essenceAlertEnabled?: boolean;
     specialMonsterAlertEnabled?: boolean;
     abandonedAlertEnabled?: boolean;
     pittaHillAlertEnabled?: boolean;
     questCompleteAlertEnabled?: boolean;
+    questCompleteAlertSound?: string;
+    questCompleteAlertVolume?: number;
+    abyssTreasureAlertEnabled?: boolean;
+    abyssTreasureAlertSound?: string;
+    abyssTreasureAlertVolume?: number;
     notifyWhenGameClosed?: boolean;
     userServer?: number;
     chatOverlayFontSize?: number;
@@ -108,6 +113,7 @@
     setValue('height-input', config.height || defaults.height || 600);
     setChecked('auto-launch-input', config.autoLaunch ?? defaults.autoLaunch ?? false);
     setChecked('auto-update-input', config.autoUpdateEnabled ?? defaults.autoUpdateEnabled ?? true);
+    setChecked('analytics-enabled-input', config.analyticsEnabled ?? defaults.analyticsEnabled ?? true);
     setChecked('follow-game-window-input', config.followGameWindow ?? defaults.followGameWindow ?? true);
     setChecked('auto-open-contents-checker-input', config.autoOpenContentsChecker ?? defaults.autoOpenContentsChecker ?? false);
     setChecked('game-exit-reminder-input', config.gameExitReminderEnabled ?? defaults.gameExitReminderEnabled ?? false);
@@ -158,11 +164,25 @@
       value => `${value}%`,
     );
 
-    setChecked('essence-alert-enabled', config.essenceAlertEnabled ?? defaults.essenceAlertEnabled ?? true);
     setChecked('special-monster-alert-enabled', config.specialMonsterAlertEnabled ?? defaults.specialMonsterAlertEnabled ?? true);
     setChecked('abandoned-alert-enabled', config.abandonedAlertEnabled ?? defaults.abandonedAlertEnabled ?? true);
     setChecked('pitta-hill-alert-enabled', config.pittaHillAlertEnabled ?? defaults.pittaHillAlertEnabled ?? true);
     setChecked('quest-complete-alert-enabled', config.questCompleteAlertEnabled ?? defaults.questCompleteAlertEnabled ?? true);
+    setValue('quest-complete-alert-sound', config.questCompleteAlertSound || defaults.questCompleteAlertSound || '');
+    bindRange(
+      'quest-complete-alert-volume',
+      'quest-complete-alert-volume-val',
+      config.questCompleteAlertVolume ?? defaults.questCompleteAlertVolume ?? 40,
+      value => `${value}%`,
+    );
+    setChecked('abyss-treasure-alert-enabled', config.abyssTreasureAlertEnabled ?? defaults.abyssTreasureAlertEnabled ?? true);
+    setValue('abyss-treasure-alert-sound', config.abyssTreasureAlertSound || defaults.abyssTreasureAlertSound || '');
+    bindRange(
+      'abyss-treasure-alert-volume',
+      'abyss-treasure-alert-volume-val',
+      config.abyssTreasureAlertVolume ?? defaults.abyssTreasureAlertVolume ?? 40,
+      value => `${value}%`,
+    );
     setChecked('notify-when-game-closed-input', config.notifyWhenGameClosed ?? defaults.notifyWhenGameClosed ?? false);
 
     setValue('chat-overlay-user-server-input', config.userServer ?? defaults.userServer ?? 7);

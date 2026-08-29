@@ -19,6 +19,8 @@ export function resolvePhysicalGameRect(
       y: currentRect.y,
       width: foregroundSize?.width ?? currentRect.width,
       height: foregroundSize?.height ?? currentRect.height,
+      ...(currentRect.windowStyle !== undefined ? { windowStyle: currentRect.windowStyle } : {}),
+      ...(currentRect.gameHwnd !== undefined ? { gameHwnd: currentRect.gameHwnd } : {}),
       isForeground: currentRect.isForeground,
     },
     foregroundSize,

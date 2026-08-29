@@ -10,6 +10,11 @@ export interface SyncHomeworkAggregate {
   isIncrement: boolean;
 }
 
+export interface SyncHomeworkHistoryAggregate extends SyncHomeworkAggregate {
+  /** 해당 파일에서 이 숙제 집계를 마지막으로 갱신한 실제 채팅 로그 시각. */
+  latestTimestamp: number;
+}
+
 export interface SyncMagicStoneAggregate {
   latestTime: string;
   totalCount: number;
@@ -32,7 +37,10 @@ export interface ChatLogFileAggregate {
   shoutsDetected: number;
   seedsDetected: number;
   elsoPointsDetected: number;
+  /** 현재 리셋 주기의 체크리스트 반영용 집계. */
   homework: Record<string, SyncHomeworkAggregate>;
+  /** 과거 모험일지 복원용 리셋 주기별 집계. */
+  homeworkByCycle: Record<string, Record<string, SyncHomeworkHistoryAggregate>>;
   magicStones: Record<string, Record<string, SyncMagicStoneAggregate>>;
   elsoByDate: Record<string, SyncElsoAggregate>;
   goldPouchSeedByDate: Record<string, SyncGoldPouchSeedAggregate>;
@@ -63,6 +71,8 @@ export interface WorkerSyncTargetFile {
   aggregate: ChatLogFileAggregate;
   /** 오늘 자동 기록은 부분 병합하지 않고 파일 전체 분석 완료 뒤 원자 교체한다. */
   replaceAutomaticDateOnComplete?: boolean;
+  /** 실시간 tail이 멈춘 오늘 파일은 snapshot 이후 증가분을 메인 프로세스가 이어서 처리한다. */
+  catchUpAfterReplace?: boolean;
 }
 
 export interface ParsedLootEvent {
@@ -167,6 +177,7 @@ export function createEmptyChatLogFileAggregate(): ChatLogFileAggregate {
     seedsDetected: 0,
     elsoPointsDetected: 0,
     homework: {},
+    homeworkByCycle: {},
     magicStones: {},
     elsoByDate: {},
     goldPouchSeedByDate: {},

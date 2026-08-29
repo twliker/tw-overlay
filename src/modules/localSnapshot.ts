@@ -38,13 +38,21 @@ const CORE_ENTRIES = [
 
 const CREDENTIAL_ENTRIES = ['google_auth.enc', 'google_user.json'];
 const CACHE_ENTRIES = ['eta_ranking_cache.json', 'analytics.json'];
+const RESTORABLE_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm']);
 
 function ensureRelativePath(relativePath: string): string {
   const normalized = path.normalize(relativePath);
-  if (path.isAbsolute(normalized) || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+  if (!relativePath || normalized === '.' || path.isAbsolute(normalized)
+    || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
     throw new Error(`스냅샷 경로 이탈이 감지되었습니다: ${relativePath}`);
   }
   return normalized;
+}
+
+export function isRestorableSnapshotPath(relativePath: string): boolean {
+  const normalized = ensureRelativePath(relativePath).split(path.sep).join('/');
+  return RESTORABLE_FILES.has(normalized)
+    || (normalized.startsWith('custom_sounds/') && normalized.length > 'custom_sounds/'.length);
 }
 
 function hashFile(filePath: string): string {
@@ -192,15 +200,35 @@ export function createUserDataSnapshot(
   return manifest;
 }
 
-export function verifyUserDataSnapshot(snapshotRoot: string): SnapshotManifest {
+export function verifyUserDataSnapshot(
+  snapshotRoot: string,
+  options: { enforceRestoreAllowlist?: boolean } = {},
+): SnapshotManifest {
   const manifestPath = path.join(snapshotRoot, 'snapshot.manifest.json');
   const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as SnapshotManifest;
   if (parsed.formatVersion !== 1 || !Array.isArray(parsed.entries)) {
     throw new Error('지원하지 않는 스냅샷 매니페스트입니다.');
   }
+  const destinations = new Set<string>();
   for (const entry of parsed.entries) {
-    const filePath = path.join(snapshotRoot, ensureRelativePath(entry.relativePath));
-    const stat = fs.statSync(filePath);
+    if (!entry || entry.kind !== 'file' || typeof entry.relativePath !== 'string'
+      || entry.relativePath.length > 1_024
+      || (options.enforceRestoreAllowlist && !isRestorableSnapshotPath(entry.relativePath))
+      || !Number.isSafeInteger(entry.size) || entry.size < 0
+      || typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(entry.sha256)) {
+      throw new Error(`허용되지 않은 스냅샷 항목입니다: ${entry?.relativePath || '(알 수 없음)'}`);
+    }
+    const safeRelativePath = ensureRelativePath(entry.relativePath);
+    const destinationKey = safeRelativePath.split(path.sep).join('/').toLowerCase();
+    if (destinations.has(destinationKey)) {
+      throw new Error(`스냅샷 대상 경로가 중복되었습니다: ${entry.relativePath}`);
+    }
+    destinations.add(destinationKey);
+    const filePath = path.join(snapshotRoot, safeRelativePath);
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new Error(`스냅샷 항목이 일반 파일이 아닙니다: ${entry.relativePath}`);
+    }
     if (stat.size !== entry.size || hashFile(filePath) !== entry.sha256) {
       throw new Error(`스냅샷 무결성 검증 실패: ${entry.relativePath}`);
     }

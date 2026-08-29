@@ -9,6 +9,8 @@ interface WindowSizeFields {
 }
 
 export type ManagedWindowSizePolicy = 'fit-work-area' | 'user-resizable' | 'game-fixed';
+export const CHAT_OVERLAY_MIN_WIDTH = 300;
+export const CHAT_OVERLAY_MIN_HEIGHT = 80;
 
 export interface WorkAreaSize {
   width: number;
@@ -70,8 +72,8 @@ export function resolveManagedWindowSizing(
   const policy = getManagedWindowSizePolicy(key);
   const isResizable = policy === 'user-resizable';
   const isChatOverlay = key === 'chatOverlay' || key === 'chatOverlaySub' || key === 'chatOverlaySub2';
-  const requestedMinWidth = key === 'focusedChat' ? 360 : (key === 'etaRanking' ? 520 : (key === 'diary' ? 900 : (isChatOverlay ? 300 : (fields ? 200 : undefined))));
-  const requestedMinHeight = key === 'focusedChat' ? 360 : (key === 'etaRanking' ? 560 : (key === 'diary' ? 650 : (isChatOverlay ? 80 : (fields ? 200 : undefined))));
+  const requestedMinWidth = key === 'focusedChat' ? 360 : (key === 'etaRanking' ? 520 : (key === 'diary' ? 900 : (isChatOverlay ? CHAT_OVERLAY_MIN_WIDTH : (fields ? 200 : undefined))));
+  const requestedMinHeight = key === 'focusedChat' ? 360 : (key === 'etaRanking' ? 560 : (key === 'diary' ? 650 : (isChatOverlay ? CHAT_OVERLAY_MIN_HEIGHT : (fields ? 200 : undefined))));
   const requestedWidth = storedWidth ? storedWidth : defaultWidth;
   const requestedHeight = storedHeight ? storedHeight : defaultHeight;
   const maxWidth = Math.max(1, Math.floor(workAreaSize.width) - WORK_AREA_MARGIN);

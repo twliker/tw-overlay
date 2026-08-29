@@ -1,3 +1,17 @@
+/**
+ * 기능 계약 — 파서 이벤트를 사용자 기능으로 분배하는 실시간 허브
+ *
+ * - `chatParser`가 분류한 이벤트를 모험일지, 경험치 HUD, 숙제 자동 완료, 어벤던로드, 화면 알림,
+ *   지정 단어와 Discord로 전달합니다. 같은 원시 로그를 여기서 다시 넓은 정규식으로 재분류하지 않습니다.
+ * - 고빈도 일반 채팅은 필요한 설정 키만 스냅샷으로 읽습니다. 새 기능이 설정을 사용하면 해당 allowlist와
+ *   설정 담당 화면을 함께 갱신해야 하며, 전체 AppConfig 복사로 되돌려 성능을 악화시키지 않습니다.
+ * - 일반 득템은 `lootKeywords`에 따르지만 경험의 정수 직접 획득과 정확한 100억 경험치 감소 교환은
+ *   항상 일지에 기록합니다. 자동 교환 뒤의 복합 획득 안내는 파서에서 제외되어 한 번만 집계됩니다.
+ * - 심연의 보물창고·도전과제·경험의 정수 등 기능별 알림은 서로 독립된 enabled/sound/volume 설정을
+ *   사용합니다. 범용 HUD 표시나 득템 설정 하나로 다른 기능 알림을 대신 제어하지 않습니다.
+ * - 과거 로그 worker와 결과가 달라지면 재시작 전후 기록이 달라지므로, 파싱 정책 변경은 worker와
+ *   실제 로그 fixture 회귀 테스트를 같은 작업에서 갱신해야 합니다.
+ */
 import { chatParser } from './chatParser';
 import { createHash } from 'crypto';
 import * as diaryDb from './diaryDb';
@@ -18,7 +32,7 @@ import type { ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from
 import { showSupportedDesktopNotification } from './desktopNotification';
 import { formatLootDiaryContent, getGoldPouchSeedAmount, parseElsoMessage } from './itemAcquisition';
 import { normalizeNotificationKeyword, normalizeNotificationKeywords } from '../shared/keywordSanitizer';
-import { matchesRegisteredLoot } from '../shared/lootPolicy';
+import { isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
 export { parseElsoMessage };
 const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = require('../shared/chatChannels') as ChatChannelConstants;
 
@@ -48,9 +62,9 @@ const TRADE_SHOUT_CONFIG_KEYS = [
 ] as const;
 const SPECIAL_MONSTER_CONFIG_KEYS = ['specialMonsterAlertEnabled'] as const;
 const ABYSS_TREASURE_CONFIG_KEYS = [
-  'questCompleteAlertEnabled',
-  'essenceAlertSound',
-  'essenceAlertVolume',
+  'abyssTreasureAlertEnabled',
+  'abyssTreasureAlertSound',
+  'abyssTreasureAlertVolume',
 ] as const;
 const ETHOS_CONFIG_KEYS = ['ethosAlertEnabled', 'ethosAlertSound', 'ethosAlertVolume'] as const;
 const ABYSS_APOSTLE_CONFIG_KEYS = [
@@ -447,17 +461,20 @@ class ChatLogProcessor {
       this.sendGameOverlayEvent('special-monster-alert', data);
     });
 
-    // 0-1. 심연의 보물창고 종료 안내. 기존 입장 횟수 기반 숙제 반영과는 독립된 실시간 알림입니다.
+    // 0-1. 심연의 보물창고 종료 안내 계약
+    // 완료 문구는 실시간 HUD·소리만 발생시키며 기존 입장 횟수 기반 숙제 반영을 다시 올리지 않습니다.
+    // 도전과제·경험의 정수와 설정을 공유하지 않고 abyssTreasureAlert* 3개 필드만 사용합니다.
+    // 과거 로그 워커에는 이 알림 리스너가 없으므로 재탐색 중 오래된 완료 알림도 재생하지 않습니다.
     chatParser.on('ABYSS_TREASURE_COMPLETE', (data) => {
       const cfg = config.loadFields(ABYSS_TREASURE_CONFIG_KEYS);
-      if (cfg.questCompleteAlertEnabled === false) return;
+      if (cfg.abyssTreasureAlertEnabled === false) return;
 
       this.sendGameOverlayEvent('abyss-treasure-complete-alert', data);
       this.playAlertSound({
         label: '심연의 보물창고 완료',
-        soundFile: cfg.essenceAlertSound || 'orb.mp3',
-        volume: cfg.essenceAlertVolume,
-        defaultVolume: 70,
+        soundFile: cfg.abyssTreasureAlertSound || 'orb.mp3',
+        volume: cfg.abyssTreasureAlertVolume,
+        defaultVolume: 40,
         logMessage: `[콘텐츠 완료] ${data.message}`
       });
     });
@@ -504,8 +521,13 @@ class ChatLogProcessor {
       }
 
       const keywords = normalizeNotificationKeywords(cfg.lootKeywords);
-      const isRegisteredItem = matchesRegisteredLoot(keywords, data.itemName);
-      if (data.isOwn && isRegisteredItem) {
+      // 경험의 정수 직접 보상은 일반 "등록 아이템" 설정과 무관한 전용 재화입니다.
+      // 사용자의 기존 설정에 lootKeywords가 없더라도 모험일지와 오늘의 요약에는 남아야
+      // 하므로 항상 기록합니다. 다만 기존 UX대로 일반 득템 데스크톱 알림은 띄우지 않습니다.
+      // 수동·자동 교환은 이 ITEM_LOOTED 경로가 아니라 아래 XP_CHANGED 경로가 담당합니다.
+      const isAlwaysTrackedItem = isAlwaysTrackedLoot(data.itemName);
+      const shouldRecordItem = isAlwaysTrackedItem || matchesRegisteredLoot(keywords, data.itemName);
+      if (data.isOwn && shouldRecordItem) {
         if (!data.itemName.includes('마정석') && !data.message.includes('마정석')) {
           const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
           const diaryContent = formatLootDiaryContent(data.itemName);
@@ -516,7 +538,7 @@ class ChatLogProcessor {
             diaryContent,
             data.count,
           );
-          if (data.itemName !== '경험의 정수') {
+          if (!isAlwaysTrackedItem) {
             showSupportedDesktopNotification('아이템 획득 알림', data.message);
           }
         }
@@ -540,12 +562,14 @@ class ChatLogProcessor {
       diaryDb.addMagicStoneDaily(data.date, timeOnly, data.grade, data.count);
     });
 
-    // 2-2. 경험치 변동 처리
+    // 2-2. 경험의 정수 수동·자동 교환 처리
     chatParser.on('XP_CHANGED', (data) => {
-      // 100억 단위 경험치 차감(경험의 정수 수동/자동 교환) 시 모험일지 및 요약에 기록합니다.
+      // 두 교환 방식에 공통으로 존재하는 정확한 100억 감소 이벤트만 사용합니다.
+      // 자동 교환의 뒤따르는 획득 안내는 파서에서 무시하므로 여기서 한 번만 기록됩니다.
+      // 전용 재화 집계이므로 lootKeywords와 essenceAlertEnabled의 영향을 받지 않습니다.
+      // essenceAlertEnabled는 교환 미감지 경고의 표시·소리만 제어하며 기록 기능을 끄지 않습니다.
       const essenceCount = getEssenceExchangeCount(data.amount);
-      const cfg = config.loadFields(ITEM_LOOT_CONFIG_KEYS);
-      if (essenceCount > 0 && matchesRegisteredLoot(cfg.lootKeywords, '경험의 정수')) {
+      if (essenceCount > 0) {
         const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
         diaryDb.addActivityLog(
           data.date,

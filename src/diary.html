@@ -522,7 +522,7 @@
         <div id="loot-history-list" class="flex-1 min-h-0 overflow-y-auto custom-scroll border border-slate-800/70 rounded-2xl bg-slate-900/25"></div>
         <div class="mt-3 flex items-center gap-1.5 text-[11px] text-slate-500 shrink-0">
           <i data-lucide="info" class="w-3.5 h-3.5"></i>
-          마정석과 경험의 정수는 목록에는 표시되지만 일반 득템 개수 합계에서는 제외됩니다.
+          마정석은 목록에 표시되지만 일반 득템 개수 합계에서는 제외되며, 경험의 정수는 전용 합계에서 확인할 수 있습니다.
         </div>
       </div>
     </div>
@@ -699,9 +699,11 @@
   <script src="assets/request-generation.js"></script>
   <script src="renderer/diary/log-utils.js"></script>
   <script src="renderer/diary/calendar-loot-grouping.js"></script>
+  <script src="renderer/diary/homework-progress.js"></script>
   <script src="renderer/diary/calendar-cell-expansion.js"></script>
   <script>
     const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
+    const { format: formatWeeklyHomeworkProgress } = window.diaryHomeworkProgress;
     const escapeHtml = (value) => String(value ?? '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -1361,8 +1363,8 @@
         `;
 
         let lootStackHtml = `<div class="loot-stack custom-scroll">`;
-        if (currentSummary && currentSummary.lootList) {
-          const dayLoots = currentSummary.lootList.filter(l => l.date === dStr);
+        if (currentSummary && currentSummary.calendarLootList) {
+          const dayLoots = currentSummary.calendarLootList.filter(l => l.date === dStr);
           
           // 타임라인 원본은 유지하고 달력에서만 같은 의미의 아이템을 한 줄로 합산합니다.
           const groupedLoots = window.diaryCalendarLootGrouping.group(dayLoots.map(loot => {
@@ -1416,10 +1418,11 @@
           const myWeekDates = [...currentWeekDates];
           const myWeekIdx = weekIndex++;
           const myHwDone = weekWDone, myHwTotal = weekWTotal;
+          const myHwProgress = formatWeeklyHomeworkProgress(myHwDone, myHwTotal);
           wDiv.className = 'calendar-cell week flex flex-col items-center justify-center cursor-pointer transition-all'; 
           wDiv.dataset.calendarRow = String(myWeekIdx);
-          wDiv.innerHTML = myHwTotal > 0 ? `<div class="text-xs font-black text-center ${myHwDone === myHwTotal ? 'text-purple-400' : 'text-slate-400'}">주간<br/><span class="text-xs">${myHwDone}/${myHwTotal}</span></div>` : `<div class="text-xs font-bold text-slate-600">주간<br/>상세</div>`;
-          wDiv.onclick = (e) => { e.stopPropagation(); selectWeek(myWeekIdx, myWeekDates, wDiv, myHwDone, myHwTotal); };
+          wDiv.innerHTML = myHwProgress.hasProgress ? `<div class="text-xs font-black text-center ${myHwProgress.isComplete ? 'text-purple-400' : 'text-slate-400'}">주간<br/><span class="text-xs">${myHwProgress.text}</span></div>` : `<div class="text-xs font-bold text-slate-600">주간<br/>상세</div>`;
+          wDiv.onclick = (e) => { e.stopPropagation(); selectWeek(myWeekIdx, myWeekDates, wDiv, myHwProgress.done, myHwProgress.total); };
           grid.appendChild(wDiv); 
           weekWDone = 0; weekWTotal = 0; currentWeekDates = [];
         }
@@ -1462,6 +1465,11 @@
           }
         });
       });
+
+      const loggedWeeklyDone = new Set(
+        allHomework.filter(homework => homework.type === 'weekly').map(homework => homework.content_id)
+      ).size;
+      const weeklyHomeworkProgress = formatWeeklyHomeworkProgress(Math.max(hwDone, loggedWeeklyDone), hwTotal);
       
       // 요약 패널 표시
       const summaryArea = document.getElementById('weekly-summary-area');
@@ -1470,7 +1478,7 @@
         <!-- 1row: 3column (각 col-span-2) -->
         <div class="col-span-2 flex flex-col items-center border-r border-slate-800/50">
           <span class="text-xs text-slate-500 font-bold">주간 숙제</span>
-          <span class="text-sm font-black text-blue-400 mt-0.5">${hwDone}/${hwTotal}</span>
+          <span class="text-sm font-black text-blue-400 mt-0.5">${weeklyHomeworkProgress.text}</span>
         </div>
         <div class="col-span-2 flex flex-col items-center border-r border-slate-800/50">
           <span class="text-xs text-slate-500 font-bold">보스 처치</span>
@@ -1499,7 +1507,7 @@
       
       document.getElementById('detail-date').innerText = `${weekIndex}주차 (${startDate} ~ ${endDate})`;
       document.getElementById('detail-score').innerText = `${totalScore} pt`;
-      document.getElementById('detail-hw').innerText = `주간 숙제 ${hwDone}/${hwTotal}`;
+      document.getElementById('detail-hw').innerText = `주간 숙제 ${weeklyHomeworkProgress.text}`;
       document.getElementById('detail-monster').innerHTML = `<i data-lucide="calendar-range" class="w-8 h-8 text-purple-400"></i>`; 
 
       const list = document.getElementById('timeline-list');
