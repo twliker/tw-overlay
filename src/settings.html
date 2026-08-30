@@ -362,7 +362,10 @@
       </div>
 
       <div class="mt-auto p-4 space-y-2 mb-2">
-        <button onclick="saveSettings()" class="btn-primary w-full py-3 shadow-lg shadow-purple-900/20">저장 및 적용</button>
+        <button id="btn-save-all-settings" onclick="saveSettings()"
+          class="btn-primary w-full py-3 shadow-lg shadow-purple-900/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+          <span id="btn-save-all-settings-label">저장 및 적용</span>
+        </button>
         <button onclick="window.close()"
           class="w-full py-2 text-xs font-bold text-slate-500 hover:text-white transition-all">닫기 (ESC)</button>
       </div>
@@ -836,6 +839,11 @@
                   class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all border border-white/10 active:scale-95 flex items-center gap-1.5 ml-auto">
                   <i data-lucide="rotate-ccw" class="w-4 h-4"></i> 기본 위치로 초기화
                 </button>
+              </div>
+              <div id="hud-edit-save-guidance"
+                class="hidden items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-200">
+                <i data-lucide="info" class="mt-0.5 h-4 w-4 shrink-0 text-amber-300"></i>
+                <span>HUD 위치 편집을 마친 뒤 <b>위치 저장 및 종료</b>를 눌러 주세요. 편집 중에는 왼쪽의 <b>저장 및 적용</b>을 사용할 수 없습니다.</span>
               </div>
             </div>
 
@@ -2819,7 +2827,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                         class="text-purple-400">3.1.0</span></p>
+                         class="text-purple-400">3.1.1</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -5780,6 +5788,15 @@
     }
 
     async function saveSettings() {
+      // HUD 편집 중 일반 설정을 먼저 적용하면 비활성 HUD가 display:none으로 돌아가 위치를
+      // 잃을 수 있다. 사용자가 전용 완료/취소 동작을 선택하기 전에는 전체 저장을 실행하지 않는다.
+      if (isHudEditing) {
+        const card = document.getElementById('hud-position-settings-card');
+        card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card?.classList.add('highlight-pulse-effect');
+        setTimeout(() => card?.classList.remove('highlight-pulse-effect'), 1600);
+        return;
+      }
       try {
         try {
           const latestConfig = await window.electronAPI.getConfig();
@@ -5897,6 +5914,24 @@
 
     let isHudEditing = false;
 
+    function updateHudEditSaveUi(editing) {
+      const saveAllBtn = document.getElementById('btn-save-all-settings');
+      const saveAllLabel = document.getElementById('btn-save-all-settings-label');
+      const guidance = document.getElementById('hud-edit-save-guidance');
+      if (saveAllBtn) {
+        saveAllBtn.disabled = editing;
+        saveAllBtn.setAttribute('aria-disabled', editing ? 'true' : 'false');
+        saveAllBtn.title = editing ? 'HUD 위치 저장 또는 취소 후 사용할 수 있습니다.' : '';
+      }
+      if (saveAllLabel) {
+        saveAllLabel.textContent = editing ? '위치 편집 중 · 저장 잠김' : '저장 및 적용';
+      }
+      if (guidance) {
+        guidance.classList.toggle('hidden', !editing);
+        guidance.classList.toggle('flex', editing);
+      }
+    }
+
     async function startHudEditMode() {
       const statusBadge = document.getElementById('hud-edit-status-badge');
       const startBtn = document.getElementById('btn-start-hud-edit');
@@ -5912,6 +5947,7 @@
       }
 
       isHudEditing = true;
+      updateHudEditSaveUi(true);
       if (statusBadge) {
         statusBadge.textContent = '편집 모드 실행 중 (마우스 드래그 가능)';
         statusBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap animate-pulse';
@@ -5923,6 +5959,7 @@
 
     function stopHudEditMode(save = true) {
       isHudEditing = false;
+      updateHudEditSaveUi(false);
       const statusBadge = document.getElementById('hud-edit-status-badge');
       const startBtn = document.getElementById('btn-start-hud-edit');
       const saveBtn = document.getElementById('btn-save-hud-edit');
@@ -5943,7 +5980,8 @@
 
     window.addEventListener('beforeunload', () => {
       if (isHudEditing) {
-        stopHudEditMode(true);
+        // 창 닫기는 명시적인 "위치 저장 및 종료"가 아니므로 편집 시작 전 위치로 되돌린다.
+        stopHudEditMode(false);
       }
     });
 

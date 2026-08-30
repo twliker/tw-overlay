@@ -515,14 +515,41 @@
           </div>
         </div>
       </div>
-      <div class="px-7 pt-5 pb-7 flex-1 flex flex-col min-h-0">
-        <div class="grid grid-cols-[100px_52px_minmax(0,1fr)_100px] items-center px-4 pb-2 text-[11px] font-black text-slate-500 uppercase tracking-wider shrink-0">
-          <span>날짜</span><span class="text-center">이미지</span><span>아이템명</span><span class="text-right">수량</span>
+      <div id="loot-split-container" class="px-7 pt-5 pb-7 flex-1 flex flex-col min-h-0">
+        <div id="loot-summary-pane" class="shrink-0 flex flex-col min-h-0 overflow-hidden" style="height: 158px;">
+          <div class="flex items-center justify-between mb-2 px-1">
+            <div class="flex items-center gap-2 text-xs font-black text-slate-300">
+              <i data-lucide="boxes" class="w-4 h-4 text-amber-400"></i>
+              품목별 합계
+            </div>
+            <span id="loot-item-summary-types" class="text-[11px] font-bold text-slate-500">0종</span>
+          </div>
+          <div id="loot-item-summary-list" class="grid grid-cols-4 auto-rows-[54px] content-start gap-2 flex-1 min-h-0 overflow-y-auto custom-scroll pr-1">
+            <div class="col-span-4 min-h-[54px] flex items-center justify-center text-xs text-slate-600 border border-slate-800/70 rounded-xl bg-slate-900/25">득템 기록을 불러오는 중...</div>
+          </div>
         </div>
-        <div id="loot-history-list" class="flex-1 min-h-0 overflow-y-auto custom-scroll border border-slate-800/70 rounded-2xl bg-slate-900/25"></div>
-        <div class="mt-3 flex items-center gap-1.5 text-[11px] text-slate-500 shrink-0">
-          <i data-lucide="info" class="w-3.5 h-3.5"></i>
-          마정석은 목록에 표시되지만 일반 득템 개수 합계에서는 제외되며, 경험의 정수는 전용 합계에서 확인할 수 있습니다.
+        <div id="loot-pane-resizer" role="separator" aria-orientation="horizontal"
+          aria-label="품목별 합계와 일자별 기록 높이 조절" aria-controls="loot-summary-pane loot-daily-pane"
+          tabindex="0" title="위아래로 드래그하여 영역 높이 조절"
+          class="group relative h-5 shrink-0 cursor-row-resize touch-none select-none outline-none flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-400/60 rounded-lg">
+          <div class="absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-slate-800 transition-colors group-hover:bg-amber-500/50 group-focus-visible:bg-amber-500/60 group-[.is-dragging]:bg-amber-400/80"></div>
+          <div class="relative z-10 h-4 min-w-12 px-2 rounded-full border border-slate-700 bg-[#111827] text-slate-600 flex items-center justify-center transition-colors group-hover:border-amber-500/50 group-hover:text-amber-400 group-focus-visible:border-amber-500/60 group-focus-visible:text-amber-300 group-[.is-dragging]:border-amber-400 group-[.is-dragging]:text-amber-300">
+            <i data-lucide="grip-horizontal" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div id="loot-daily-pane" class="flex-1 min-h-0 flex flex-col">
+          <div class="flex items-center gap-2 px-1 pb-2 text-[11px] font-black text-slate-500 uppercase tracking-wider shrink-0">
+            <i data-lucide="list" class="w-3.5 h-3.5"></i>
+            일자별 기록
+          </div>
+          <div class="grid grid-cols-[100px_52px_minmax(0,1fr)_100px] items-center px-4 pb-2 text-[11px] font-black text-slate-500 uppercase tracking-wider shrink-0">
+            <span>날짜</span><span class="text-center">이미지</span><span>아이템명</span><span class="text-right">수량</span>
+          </div>
+          <div id="loot-history-list" class="flex-1 min-h-0 overflow-y-auto custom-scroll border border-slate-800/70 rounded-2xl bg-slate-900/25"></div>
+          <div class="mt-3 flex items-center gap-1.5 text-[11px] text-slate-500 shrink-0">
+            <i data-lucide="info" class="w-3.5 h-3.5"></i>
+            마정석은 목록에 표시되지만 일반 득템 개수 합계에서는 제외되며, 경험의 정수는 전용 합계에서 확인할 수 있습니다.
+          </div>
         </div>
       </div>
     </div>
@@ -701,6 +728,7 @@
   <script src="renderer/diary/calendar-loot-grouping.js"></script>
   <script src="renderer/diary/homework-progress.js"></script>
   <script src="renderer/diary/calendar-cell-expansion.js"></script>
+  <script src="renderer/diary/loot-split-pane.js"></script>
   <script>
     const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
     const { format: formatWeeklyHomeworkProgress } = window.diaryHomeworkProgress;
@@ -997,6 +1025,7 @@
       if (tabId === 'stats') loadStatistics();
       if (tabId === 'loot') {
         lootAnchorDate = new Date(currentDate);
+        requestAnimationFrame(() => window.diaryLootSplitPane.refresh());
         void loadLootHistory();
       }
     }
@@ -1049,7 +1078,11 @@
         : `${startDate.slice(5).replace('-', '.')} - ${endDate.slice(5).replace('-', '.')}`;
       document.getElementById('loot-period-label').textContent = label;
       const list = document.getElementById('loot-history-list');
+      const summaryList = document.getElementById('loot-item-summary-list');
+      const summaryTypes = document.getElementById('loot-item-summary-types');
       list.innerHTML = '<div class="h-full min-h-[180px] flex items-center justify-center text-sm text-slate-600">득템 기록을 불러오는 중...</div>';
+      summaryTypes.textContent = '불러오는 중';
+      summaryList.innerHTML = '<div class="col-span-4 min-h-[54px] flex items-center justify-center text-xs text-slate-600 border border-slate-800/70 rounded-xl bg-slate-900/25">품목별 합계를 계산하는 중...</div>';
 
       try {
         const rows = await window.electronAPI.diaryGetLootHistory(startDate, endDate);
@@ -1070,6 +1103,28 @@
           item.name === '경험의 정수' || item.name.includes('마정석') ? sum : sum + item.count
         ), 0);
         document.getElementById('loot-history-total').textContent = `${total.toLocaleString()}개`;
+
+        // 기간 내 같은 품목을 날짜와 관계없이 한 번 더 합쳐, 사용자가 무엇을 총 몇 개
+        // 획득했는지 일자별 원본 목록을 훑지 않고도 바로 확인할 수 있게 합니다.
+        const itemTotals = new Map();
+        items.forEach(item => {
+          const current = itemTotals.get(item.name);
+          if (current) current.count += item.count;
+          else itemTotals.set(item.name, { name: item.name, count: item.count, img: item.img });
+        });
+        const summaryItems = [...itemTotals.values()];
+        summaryTypes.textContent = `${summaryItems.length.toLocaleString()}종`;
+        summaryList.innerHTML = summaryItems.map(item => {
+          const imgHtml = item.img
+            ? `<img src="${safeAssetPath(item.img)}" class="w-8 h-8 object-contain select-none" onerror="this.style.display='none'">`
+            : '<i data-lucide="package" class="w-5 h-5 text-slate-600"></i>';
+          return `
+            <div class="min-w-0 min-h-[54px] flex items-center gap-2.5 px-3 py-2 border border-amber-500/15 rounded-xl bg-amber-500/[0.035]" title="${escapeHtml(item.name)} 총 ${Number(item.count).toLocaleString()}개">
+              <span class="w-9 h-9 rounded-lg bg-black/20 border border-white/5 flex items-center justify-center shrink-0">${imgHtml}</span>
+              <span class="min-w-0 flex-1 text-xs font-bold text-slate-200 truncate">${escapeHtml(item.name)}</span>
+              <span class="text-sm font-black font-mono text-amber-300 shrink-0">${Number(item.count).toLocaleString()}개</span>
+            </div>`;
+        }).join('') || '<div class="col-span-4 min-h-[54px] flex items-center justify-center text-xs text-slate-600 border border-slate-800/70 rounded-xl bg-slate-900/25">이 기간에 표시할 득템이 없습니다.</div>';
         list.innerHTML = items.map(item => {
           const imgHtml = item.img
             ? `<img src="${safeAssetPath(item.img)}" class="w-8 h-8 object-contain select-none" onerror="this.style.display='none'">`
@@ -1086,6 +1141,8 @@
       } catch (error) {
         if (!lootHistoryRequests.isCurrent(request)) return;
         console.error(error);
+        summaryTypes.textContent = '0종';
+        summaryList.innerHTML = '<div class="col-span-4 min-h-[54px] flex items-center justify-center text-xs font-bold text-red-400/80 border border-red-500/15 rounded-xl bg-red-500/[0.035]">품목별 합계를 불러오지 못했습니다.</div>';
         list.innerHTML = '<div class="h-full min-h-[180px] flex items-center justify-center text-sm font-bold text-red-400/80">득템 기록을 불러오지 못했습니다.</div>';
       }
     }
@@ -1681,7 +1738,13 @@
       const name = document.getElementById('loot-name').value.trim(), count = parseInt(document.getElementById('loot-count').value) || 1;
       if (!name) return;
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      const rowId = await window.electronAPI.diaryAddActivity(targetDate, t, 'loot', count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`);
+      const rowId = await window.electronAPI.diaryAddActivity(
+        targetDate,
+        t,
+        'loot',
+        count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`,
+        count,
+      );
       if (!Number.isSafeInteger(rowId)) return;
       document.getElementById('loot-name').value = ''; document.getElementById('loot-count').value = '1';
       if (selectedDateStr === targetDate) await selectDate(targetDate);
@@ -1694,7 +1757,15 @@
       const desc = dIn.value.trim() || '수익', amount = parseInt(aIn.value) || 0;
       if (amount === 0) return;
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      const rowId = await window.electronAPI.diaryAddActivity(targetDate, t, 'calc', `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`);
+      // calc 행의 content는 타임라인 표시용이고 amount가 일·월 SEED 통계의 실제 원본입니다.
+      // 금액을 생략하면 문구만 보이고 통계는 0이 되는 상태가 생기므로 반드시 함께 저장합니다.
+      const rowId = await window.electronAPI.diaryAddActivity(
+        targetDate,
+        t,
+        'calc',
+        `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`,
+        amount,
+      );
       if (!Number.isSafeInteger(rowId)) return;
       dIn.value = ''; aIn.value = ''; document.getElementById('manual-seed-preview').innerText = '';
       const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black');

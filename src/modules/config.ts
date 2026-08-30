@@ -17,6 +17,7 @@ import * as path from 'path';
 import { get_CONFIG_PATH, DEFAULT_CONFIG, SAVE_DEBOUNCE_MS, AppConfig, get_RESOURCE_PATH } from './constants';
 import { log } from './logger';
 import type { WindowPositionKey } from '../shared/types';
+import { repairLegacyHiddenHudPositions } from '../shared/windowPositions';
 
 const CONFIG_QUARANTINE_FILENAME = 'config.quarantine.json';
 const WRITE_RETRY_DELAYS_MS = [0, 25, 75, 150];
@@ -37,7 +38,7 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'contentsCheckerItems', 'characterPresets', 'selectedCharacterId', 'pendingHomeworks',
   'lastContentsResetCheck', 'shortcuts', 'customAlerts', 'customSounds', 'chatLogPath',
   'chatLogAutoDeleteDays', 'diaryKeepDays', 'lootKeywords', 'lootKeywordsMigratedV2',
-  'quickSlotsMigratedV2', 'shoutKeywords', 'ethosAlertEnabled', 'abyssApostleAlertEnabled',
+  'quickSlotsMigratedV2', 'hudHiddenPositionRepairV1', 'shoutKeywords', 'ethosAlertEnabled', 'abyssApostleAlertEnabled',
   'wordAlarmEnabled', 'wordAlarmKeywords', 'wordAlarmSound', 'wordAlarmVolume',
   'wordAlarmHistoryEnabled', 'showXpWidget', 'xpAutoStart', 'ignoreNegativeXp', 'xpWidgetPos',
   'showTodaySummaryHud', 'todaySummaryCollapsed', 'todaySummaryHudPos', 'huntingExpDopings',
@@ -163,7 +164,7 @@ const EXTERNAL_NUMBER_RANGES: Partial<Record<keyof AppConfig, [number, number]>>
 };
 
 const OPTIONAL_BOOLEAN_KEYS = new Set([
-  'autoLaunch', 'hasSeenWelcomeGuide', 'lootKeywordsMigratedV2', 'scamDetectorEnabled',
+  'autoLaunch', 'hasSeenWelcomeGuide', 'lootKeywordsMigratedV2', 'hudHiddenPositionRepairV1', 'scamDetectorEnabled',
   'scamLlmDisabled', 'followGameWindow', 'setupCompleted', 'googleSyncEnabled',
   'googleSyncAutoSync',
 ]);
@@ -566,6 +567,17 @@ function applyVersionedMigrations(parsed: Record<string, unknown>): boolean {
     parsed.forgeQuestHudPos = sanitizeJsonValue(parsed.questHudPos);
     delete parsed.questHudPos;
     migrated = true;
+  }
+
+  // 3.1.0 HUD 편집 중 일반 설정 저장으로 display:none 요소의 0 rect가 저장된 경우만
+  // 기본 위치로 되돌린다. 정상 사용자 위치를 매 실행마다 덮어쓰지 않도록 센티널은 1회만 기록한다.
+  if (parsed.hudHiddenPositionRepairV1 !== true) {
+    const repairedKeys = repairLegacyHiddenHudPositions(parsed);
+    parsed.hudHiddenPositionRepairV1 = true;
+    migrated = true;
+    if (repairedKeys.length > 0) {
+      log(`[CONFIG] 화면 밖으로 저장된 HUD 위치 복구: ${repairedKeys.join(', ')}`);
+    }
   }
   if (
     isPlainObject(parsed.todaySummaryHudPos)

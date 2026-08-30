@@ -813,6 +813,53 @@ async function checkTodaySummarySettingsLayout(window: BrowserWindow): Promise<v
   assert.equal(result.controlsVisible, true);
 }
 
+async function checkHudPositionEditSettingsSafety(window: BrowserWindow): Promise<void> {
+  window.setContentSize(1100, 720);
+  const settingsPath = path.join(projectRoot, 'dist', 'settings.html');
+  const fullHtml = fs.readFileSync(settingsPath, 'utf8');
+  const saveUiFunctionMatch = fullHtml.match(
+    /(function updateHudEditSaveUi\(editing\) \{[\s\S]*?\r?\n    \})\r?\n\r?\n    async function startHudEditMode/,
+  );
+  assert.ok(saveUiFunctionMatch, 'HUD 위치 편집 저장 UI 함수를 추출하지 못했습니다.');
+  const html = cleanHtmlForTest(settingsPath);
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const result = await window.webContents.executeJavaScript(`
+    (() => {
+      ${saveUiFunctionMatch[1]}
+      updateHudEditSaveUi(true);
+      const saveButton = document.getElementById('btn-save-all-settings');
+      const guidance = document.getElementById('hud-edit-save-guidance');
+      const editingState = {
+        disabled: saveButton?.disabled,
+        ariaDisabled: saveButton?.getAttribute('aria-disabled'),
+        label: document.getElementById('btn-save-all-settings-label')?.textContent?.trim(),
+        guidanceVisible: !guidance?.classList.contains('hidden'),
+      };
+      updateHudEditSaveUi(false);
+
+      return {
+        editingState,
+        restoredDisabled: saveButton?.disabled,
+        restoredLabel: document.getElementById('btn-save-all-settings-label')?.textContent?.trim(),
+      };
+    })()
+  `) as {
+    editingState: { disabled: boolean; ariaDisabled: string | null; label: string; guidanceVisible: boolean };
+    restoredDisabled: boolean;
+    restoredLabel: string;
+  };
+
+  assert.deepEqual(result.editingState, {
+    disabled: true,
+    ariaDisabled: 'true',
+    label: '위치 편집 중 · 저장 잠김',
+    guidanceVisible: true,
+  }, 'HUD 위치 편집 중 전체 저장 차단 안내가 표시되지 않습니다.');
+  assert.equal(result.restoredDisabled, false, 'HUD 위치 편집 종료 후 전체 저장 버튼이 복원되지 않습니다.');
+  assert.equal(result.restoredLabel, '저장 및 적용', 'HUD 위치 편집 종료 후 저장 버튼 문구가 복원되지 않습니다.');
+}
+
 async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void> {
   window.setContentSize(1100, 720);
   await window.loadFile(path.join(projectRoot, 'dist', 'settings.html'));
@@ -2754,6 +2801,10 @@ async function checkFocusedChat(window: BrowserWindow): Promise<void> {
 async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
   const gameOverlayPath = path.join(projectRoot, 'dist', 'game-overlay.html');
   const fullHtml = fs.readFileSync(gameOverlayPath, 'utf8');
+  const editModeCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'renderer', 'game-overlay', 'edit-mode.js'),
+    'utf8',
+  );
   const positionFunctionMatch = fullHtml.match(
     /(function applyConfiguredHudPositions\(config\) \{[\s\S]*?\r?\n    \})\r?\n\r?\n    window\.__isTimerRunning/,
   );
@@ -2783,6 +2834,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
           digsiteWidgetPos: { left: 0, bottom: 326 },
           buffTimerHudPos: { left: 350, bottom: 0 },
           forgeQuestHudPos: { left: 200, bottom: 0 },
+          todaySummaryHudPos: { left: 0, top: 200 },
         },
         applySettings: settings => window.__hudPositionSettingWrites.push(settings),
       };
@@ -2836,6 +2888,37 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
     digsiteBottom: '120px',
     settingWrites: 0,
   }, '게임 오버레이 버프 HUD의 저장 좌표가 그대로 적용되지 않았습니다.');
+
+  const hiddenSaveResult = await window.webContents.executeJavaScript(`
+    (() => {
+      let editModeCallback = null;
+      window.__hudPositionSettingWrites = [];
+      window.electronAPI = {
+        DEFAULT_CONFIG: {
+          xpWidgetPos: { left: 200, bottom: 0 },
+          abandonedWidgetPos: { left: 200, bottom: 63 },
+          digsiteWidgetPos: { left: 0, bottom: 326 },
+          buffTimerHudPos: { left: 350, bottom: 0 },
+          forgeQuestHudPos: { left: 50, bottom: 215 },
+          todaySummaryHudPos: { left: 0, top: 200 },
+        },
+        applySettings: settings => window.__hudPositionSettingWrites.push(settings),
+        onGameOverlayEditMode: callback => { editModeCallback = callback; },
+        onGameOverlayResetPositions: () => {},
+      };
+      eval(${JSON.stringify(editModeCode)});
+      editModeCallback(true);
+      const buff = document.getElementById('buff-hud');
+      buff.style.left = '980px';
+      buff.style.bottom = '80px';
+      buff.classList.add('hidden');
+      editModeCallback(false, true);
+      return window.__hudPositionSettingWrites.at(-1)?.buffTimerHudPos;
+    })()
+  `) as { left: number; bottom: number };
+  assert.deepEqual(hiddenSaveResult, { left: 980, bottom: 80 },
+    '편집 중 다시 숨겨진 HUD가 실제 CSS 위치 대신 0 rect로 저장되었습니다.');
+  await window.webContents.executeJavaScript('window.__hudPositionSettingWrites = []; true;');
 
   await window.webContents.executeJavaScript(`
     let currentConfig = { digsiteHudEnabled: true };
@@ -3588,6 +3671,10 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
     path.join(projectRoot, 'dist', 'renderer', 'diary', 'log-utils.js'),
     'utf8',
   );
+  const lootSplitPaneCode = fs.readFileSync(
+    path.join(projectRoot, 'dist', 'renderer', 'diary', 'loot-split-pane.js'),
+    'utf8',
+  );
   const safetyResult = await window.webContents.executeJavaScript(`
     (() => {
       eval(${JSON.stringify(diaryLogUtilsCode)});
@@ -3612,6 +3699,11 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
     const hasStatsAttendance = document.getElementById('stats-attendance') !== null;
     const hasLootHistoryTab = document.getElementById('tab-btn-loot') !== null;
     const hasLootHistoryList = document.getElementById('loot-history-list') !== null;
+    const hasLootItemSummaryList = document.getElementById('loot-item-summary-list') !== null;
+    const hasLootItemSummaryTypes = document.getElementById('loot-item-summary-types') !== null;
+    const lootSplitContainer = document.getElementById('loot-split-container');
+    const lootPaneResizer = document.getElementById('loot-pane-resizer');
+    const lootDailyPane = document.getElementById('loot-daily-pane');
     const badge = document.createElement('div');
     badge.className = 'loot-badge';
     document.body.appendChild(badge);
@@ -3625,10 +3717,75 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
       hasStatsAttendance,
       hasLootHistoryTab,
       hasLootHistoryList,
+      hasLootItemSummaryList,
+      hasLootItemSummaryTypes,
+      hasLootSplitContainer: lootSplitContainer !== null,
+      hasLootDailyPane: lootDailyPane !== null,
+      lootPaneResizerRole: lootPaneResizer?.getAttribute('role') || '',
+      lootPaneResizerOrientation: lootPaneResizer?.getAttribute('aria-orientation') || '',
+      lootPaneResizerTabIndex: lootPaneResizer?.tabIndex ?? -1,
       lootBadgeFlexShrink: badgeStyle.flexShrink,
       lootBadgeMinHeight: badgeStyle.minHeight,
     };
   });
+
+  const splitPaneResult = await window.webContents.executeJavaScript(`
+    (() => {
+      const container = document.getElementById('loot-split-container');
+      const summary = document.getElementById('loot-summary-pane');
+      const resizer = document.getElementById('loot-pane-resizer');
+      const daily = document.getElementById('loot-daily-pane');
+      container.style.height = '600px';
+      container.style.display = 'flex';
+      container.style.flexDirection = 'column';
+      summary.style.flex = '0 0 auto';
+      resizer.style.height = '20px';
+      daily.style.flex = '1 1 auto';
+      daily.style.minHeight = '210px';
+
+      eval(${JSON.stringify(lootSplitPaneCode)});
+      window.diaryLootSplitPane.refresh();
+      const initialHeight = window.diaryLootSplitPane.getHeight();
+      resizer.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        pointerId: 7,
+        clientY: 100,
+      }));
+      window.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true,
+        pointerId: 7,
+        clientY: 180,
+      }));
+      window.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 7,
+        clientY: 180,
+      }));
+      const draggedHeight = window.diaryLootSplitPane.getHeight();
+      resizer.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowUp' }));
+
+      return {
+        initialHeight,
+        draggedHeight,
+        keyboardHeight: window.diaryLootSplitPane.getHeight(),
+        summaryStyleHeight: summary.style.height,
+        ariaValueNow: resizer.getAttribute('aria-valuenow'),
+        isDragging: resizer.classList.contains('is-dragging'),
+        bodyUserSelect: document.body.style.userSelect,
+        bodyCursor: document.body.style.cursor,
+      };
+    })()
+  `) as {
+    initialHeight: number;
+    draggedHeight: number;
+    keyboardHeight: number;
+    summaryStyleHeight: string;
+    ariaValueNow: string | null;
+    isDragging: boolean;
+    bodyUserSelect: string;
+    bodyCursor: string;
+  };
 
   assert.ok(result.title.includes('모험 일지'), '모험 일지 창 타이틀이 일치하지 않습니다.');
   assert.equal(result.hasCalendarGrid, true, '캘린더 그리드가 렌더링되지 않았습니다.');
@@ -3637,8 +3794,25 @@ async function checkDiaryRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.hasStatsAttendance, true, '통계 출석 일수 요소가 없습니다.');
   assert.equal(result.hasLootHistoryTab, true, '주간/월간 득템 기록 탭이 없습니다.');
   assert.equal(result.hasLootHistoryList, true, '득템 기록 목록 컨테이너가 없습니다.');
+  assert.equal(result.hasLootItemSummaryList, true, '득템 기록의 품목별 합계 목록이 없습니다.');
+  assert.equal(result.hasLootItemSummaryTypes, true, '득템 기록의 품목 종류 합계가 없습니다.');
+  assert.equal(result.hasLootSplitContainer, true, '득템 기록의 분할 영역 컨테이너가 없습니다.');
+  assert.equal(result.hasLootDailyPane, true, '득템 기록의 일자별 기록 영역이 없습니다.');
+  assert.equal(result.lootPaneResizerRole, 'separator', '득템 기록 구분선의 접근성 역할이 없습니다.');
+  assert.equal(result.lootPaneResizerOrientation, 'horizontal', '득템 기록 구분선 방향이 올바르지 않습니다.');
+  assert.equal(result.lootPaneResizerTabIndex, 0, '득템 기록 구분선을 키보드로 조절할 수 없습니다.');
   assert.equal(result.lootBadgeFlexShrink, '0', '달력 득템 행이 항목 수에 따라 찌그러질 수 있습니다.');
   assert.equal(result.lootBadgeMinHeight, '18px', '달력 득템 행의 최소 높이가 보장되지 않습니다.');
+  assert.deepEqual(splitPaneResult, {
+    initialHeight: 158,
+    draggedHeight: 238,
+    keyboardHeight: 222,
+    summaryStyleHeight: '222px',
+    ariaValueNow: '222',
+    isDragging: false,
+    bodyUserSelect: '',
+    bodyCursor: '',
+  }, '득템 기록 구분선의 마우스 드래그·키보드 조절 또는 드래그 종료 복원이 깨졌습니다.');
   assert.deepEqual(safetyResult, {
     text: '<img id="injected-diary-xss"></span><svg id="injected-diary-tag">',
     injectedCount: 0,
@@ -4814,6 +4988,8 @@ async function main(): Promise<void> {
     await checkTodaySummaryRenderer(window);
     console.log('[TEST] checkTodaySummarySettingsLayout');
     await checkTodaySummarySettingsLayout(window);
+    console.log('[TEST] checkHudPositionEditSettingsSafety');
+    await checkHudPositionEditSettingsSafety(window);
     console.log('[TEST] checkSettingsDeepLinkRouting');
     await checkSettingsDeepLinkRouting(window);
     console.log('[TEST] checkGoogleRestoreSelection');

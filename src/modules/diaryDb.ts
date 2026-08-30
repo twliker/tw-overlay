@@ -11,6 +11,8 @@
  *   `룬 경험의 심장` 같은 이름은 자동 별칭으로 확장하지 않고 정확한 품목 정책을 따릅니다.
  * - SEED/ELSO처럼 고빈도 누적값은 메모리 버퍼와 복구 journal을 사용하므로 정상 종료·비정상 종료 모두
  *   금액을 보존해야 합니다. DB 마이그레이션은 기존 행을 삭제하거나 재작성하지 않는 방향으로 수행합니다.
+ *   수동 수익은 `content`가 표시 문구이고 `amount`가 통계 원본입니다. 과거 UI 누락으로 `amount=0`인
+ *   수동 수익만 표시 문구의 마지막 괄호 금액에서 1회 복구하며 다른 활동 행은 추정하지 않습니다.
  * - 완료된 채팅 로그를 다시 분석할 때는 파일 전체 분석과 최종 snapshot 검증이 성공한 날짜만 채팅 로그
  *   기반 자동 활동·외치기를 같은 트랜잭션에서 교체합니다. 과거 숙제도 `chat-log-sync` 출처만 별도
  *   트랜잭션으로 교체하며, `source='manual'`인 일지와 체크리스트 숙제·메모·알람 원본은 삭제하지 않습니다.
@@ -648,6 +650,32 @@ export function initDb(): void {
       });
       migrateV5();
       log('[DiaryDB] Version 5 migration completed: homework log source metadata.');
+    }
+    if (userVersion < 6) {
+      let repairedManualRevenueAmounts = 0;
+      const migrateV6 = db.transaction(() => {
+        const rows = db!.prepare(`
+          SELECT id, content
+          FROM activity_logs
+          WHERE type = 'calc'
+            AND amount = 0
+            AND content LIKE '💰 수익:%'
+        `).all() as Array<{ id: number; content: string }>;
+        const updateAmount = db!.prepare('UPDATE activity_logs SET amount = ? WHERE id = ?');
+
+        for (const row of rows) {
+          const amountText = row.content.match(/\(([^()]*)\)\s*$/u)?.[1];
+          if (!amountText) continue;
+          const amount = parseMigrationNumber(amountText);
+          if (!Number.isSafeInteger(amount) || amount <= 0) continue;
+          updateAmount.run(amount, row.id);
+          repairedManualRevenueAmounts++;
+        }
+
+        db!.pragma('user_version = 6');
+      });
+      migrateV6();
+      log(`[DiaryDB] Version 6 migration completed: repaired ${repairedManualRevenueAmounts} manual revenue rows.`);
     }
     if (!replayElsoRecoveryJournal()) {
       throw new Error('엘소 복구 기록을 재생하지 못했습니다.');

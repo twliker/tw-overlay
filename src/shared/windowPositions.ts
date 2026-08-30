@@ -1,5 +1,12 @@
 import type { HudPosition, WindowPosition, WindowPositionKey } from './types';
 
+export type HudPositionConfigKey =
+  | 'xpWidgetPos'
+  | 'buffTimerHudPos'
+  | 'abandonedWidgetPos'
+  | 'digsiteWidgetPos'
+  | 'forgeQuestHudPos';
+
 /** Electron 창 위치의 단일 기본값 원본입니다. */
 export const DEFAULT_WINDOW_POSITIONS: Record<WindowPositionKey, WindowPosition> = {
   overlay: { offsetX: 10, offsetY: 10 },
@@ -50,6 +57,40 @@ export const DEFAULT_HUD_POSITIONS: Record<'xp' | 'buffTimer' | 'abandoned' | 'd
   quest: { left: 50, bottom: 215 },
   todaySummary: { left: 0, top: 200 },
 };
+
+const BOTTOM_HUD_DEFAULTS: Record<HudPositionConfigKey, HudPosition> = {
+  xpWidgetPos: DEFAULT_HUD_POSITIONS.xp,
+  buffTimerHudPos: DEFAULT_HUD_POSITIONS.buffTimer,
+  abandonedWidgetPos: DEFAULT_HUD_POSITIONS.abandoned,
+  digsiteWidgetPos: DEFAULT_HUD_POSITIONS.digsite,
+  forgeQuestHudPos: DEFAULT_HUD_POSITIONS.quest,
+};
+
+/**
+ * 3.1.0의 HUD 위치 편집 중 일반 설정을 적용하면, 비활성 HUD가 먼저 `display:none`으로
+ * 돌아간 뒤 위치 저장이 실행될 수 있었습니다. 이때 DOM rect가 모두 0이 되어 설정에는
+ * `{ left: 0, bottom: 당시 게임 화면 높이 }`가 기록되고 HUD가 화면 위로 사라졌습니다.
+ *
+ * 과거 게임 화면 높이는 설정에 남지 않으므로 정상 사용자 좌표를 최대한 보존하기 위해
+ * 버그 고유 형태인 `left === 0`과 일반적인 게임 viewport 최소 높이 이상의 `bottom`이
+ * 동시에 나타난 하단 기준 HUD만 복구합니다. 상단 기준 오늘 요약 HUD와 정상 범위 좌표는
+ * 변경하지 않으며, config의 1회 마이그레이션 센티널과 함께 사용합니다.
+ */
+export function repairLegacyHiddenHudPositions(config: Record<string, unknown>): HudPositionConfigKey[] {
+  const repaired: HudPositionConfigKey[] = [];
+  for (const [key, defaultPosition] of Object.entries(BOTTOM_HUD_DEFAULTS) as Array<[HudPositionConfigKey, HudPosition]>) {
+    const position = config[key];
+    if (!position || typeof position !== 'object' || Array.isArray(position)) continue;
+    const candidate = position as Record<string, unknown>;
+    if (candidate.left !== 0
+      || typeof candidate.bottom !== 'number'
+      || !Number.isFinite(candidate.bottom)
+      || candidate.bottom < 480) continue;
+    config[key] = { ...defaultPosition };
+    repaired.push(key);
+  }
+  return repaired;
+}
 
 export function copyDefaultWindowPosition(key: WindowPositionKey): WindowPosition {
   return { ...DEFAULT_WINDOW_POSITIONS[key] };

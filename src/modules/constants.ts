@@ -152,6 +152,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   showSidebarToastOnOverlay: false,
   chatLogPath: '',
   lootKeywords: [],
+  hudHiddenPositionRepairV1: true,
   shoutKeywords: [],
   wordAlarmEnabled: true,
   wordAlarmKeywords: [],

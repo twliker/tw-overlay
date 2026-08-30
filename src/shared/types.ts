@@ -457,6 +457,8 @@ export interface AppConfig {
     lootKeywords?: string[];
     lootKeywordsMigratedV2?: boolean;
     quickSlotsMigratedV2?: boolean;
+    /** 3.1.0 HUD 편집 중 숨김 좌표 오염 복구를 한 번만 적용하는 로컬 센티널. */
+    hudHiddenPositionRepairV1?: boolean;
     shoutKeywords?: string[];
     ethosAlertEnabled?: boolean;
     abyssApostleAlertEnabled?: boolean;

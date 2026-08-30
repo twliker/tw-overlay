@@ -12,6 +12,7 @@
 | 실시간 기능 분배 | `src/modules/chatLogProcessor.ts` | `chatLogSyncWorker.ts`, `scripts/check-refactor-regressions.ts` |
 | 과거 로그 복구 | `src/modules/chatLogSyncManager.ts` | `chatLogSyncWorker.ts`, `chatLogSyncState.ts`, `docs/realtime-log-engine.md` |
 | 모험일지 저장·조회 | `src/modules/diaryDb.ts` | `src/diary.html`, `renderer/diary/homework-progress.ts`, `scripts/check-diary-calendar-behavior.ts` |
+| 모험일지 득템 기록 영역 높이 조절 | `src/renderer/diary/loot-split-pane.ts` | `src/diary.html`, `scripts/check-renderer-behavior.ts`, `scripts/check-refactor-regressions.ts` |
 | 오늘 요약 HUD | `src/modules/todaySummary.ts` | `renderer/game-overlay/today-summary.ts`, `docs/experience-hud.md` |
 | 경험치 HUD·경험의 정수 | `src/shared/experienceEssence.ts`, `src/modules/xpTracker.ts` | `lootPolicy.ts`, `docs/experience-hud.md`, 실제 로그 fixture 검사 |
 | 어벤던로드 | `src/modules/abandonedTracker.ts` | `chatParser.ts`, `renderer/game-overlay`, abandoned 회귀 검사 |
@@ -44,6 +45,7 @@
 | 사이드바 플라이아웃 입력 | `src/shared/sidebarMenuActivation.ts` | `index.html`, `scripts/check-renderer-behavior.ts`, `docs/index.md` |
 | 창 생성·배치·가시성 | `src/modules/windowManager.ts`, `src/modules/windowPositionPolicy.ts` | `managedWindowRegistry.ts`, `windowLayout.ts`, `windowOptions.ts`, `docs/settings.md` |
 | 창모드↔창모드 전체화면 전환 | `src/modules/gameWindowModePolicy.ts`, `src/modules/windowManager.ts` | `tracker.ts`, `pollingLoop.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
+| HUD 위치 편집·손상 좌표 복구 | `src/renderer/game-overlay/edit-mode.ts`, `src/shared/windowPositions.ts` | `settings.html`, `modules/config.ts`, `scripts/check-renderer-behavior.ts`, `docs/settings.md` |
 | 전역 단축키 | `src/modules/shortcutManager.ts`, `src/modules/tracker.ts` | `settings.html`, `renderer/settings/shortcuts.ts`, `scripts/check-refactor-regressions.ts` |
 | 설정 기본값·마이그레이션 | `src/modules/config.ts` | `constants.ts`, `shared/types.ts`, `docs/settings.md` |
 | Windows 자동 실행 | `src/modules/autoStart.ts` | `bootstrap.ts`, `package.json` 관리자 권한 정책 |

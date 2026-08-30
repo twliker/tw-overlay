@@ -39,6 +39,10 @@ const ITEM_COUNT_AFTER_PARTICLE_RE = new RegExp(`(?:^|보상으로\\s+)(.{1,60}?
 const MIXED_REWARD_RE = new RegExp(`보상으로\\s+(.{1,60}?)\\s+([\\d,]+)개와\\s+.+?Seed를\\s+${ACQUISITION_VERB}`, 'i');
 const PASS_RE = new RegExp(`^테일즈\\s*패스\\s*보상을\\s+${ACQUISITION_VERB}\\s*:\\s*(?:\\[테일즈\\s*패스\\]\\s*)?(.+)$`);
 const BONUS_ITEM_RE = new RegExp(`^앞서\\s+획득한\\s+(.+?)(?:\\s+아이템)?은\\s+\\[1\\+1\\]\\s+이벤트를\\s+통해\\s+${ACQUISITION_VERB}`);
+const DOUBLE_REWARD_RE = new RegExp(
+  '^더블\\s*리워드\\s*추가\\s*보상으로\\s*\\[(.+?)\\]\\s*아이템(?:을\\(를\\)|을|를)?\\s*\\[?([\\d,]+)\\]?\\s*개\\s*추가\\s*획득\\s*(?:하였|했)습니다\\.?$',
+  'i',
+);
 const ELSO_PICKUP_RE = /^\[([\d,]+)\]\s*ELSO를\s*습득했습니다\.?$/i;
 const ELSO_BONUS_RE = /ELSO\s*포인트를\s*추가로\s*획득\s*(?:하였|했)습니다/i;
 const ELSO_ITEM_RE = new RegExp(`^\\[엘소\\s*([\\d,]+)포인트\\](?:을\\(를\\)|을|를)\\s*\\[?([\\d,]+)\\]?개\\s*${ACQUISITION_VERB}`);
@@ -122,6 +126,18 @@ export function parseItemAcquisition(
   const bonusMatch = normalized.match(BONUS_ITEM_RE);
   if (bonusMatch) {
     return { itemName: bonusMatch[1].trim(), count: 1, source: 'direct', isOwn: true };
+  }
+
+  // 더블 리워드는 기본 보상과 별개의 시스템 로그이므로 추가 수량을 독립 획득으로 기록합니다.
+  // 이 공통 파서를 실시간 감지와 과거 채팅 로그 복원이 함께 사용하므로 두 경로의 결과가 같습니다.
+  const doubleRewardMatch = normalized.match(DOUBLE_REWARD_RE);
+  if (doubleRewardMatch) {
+    return {
+      itemName: doubleRewardMatch[1].trim(),
+      count: countValue(doubleRewardMatch[2]),
+      source: 'direct',
+      isOwn: true,
+    };
   }
 
   const nestedBracketMatch = normalized.match(NESTED_BRACKET_ITEM_RE);

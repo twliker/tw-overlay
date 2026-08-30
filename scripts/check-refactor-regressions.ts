@@ -1997,9 +1997,31 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   const defaultPositions = require(path.join(projectRoot, 'dist', 'shared', 'windowPositions.js')) as {
     DEFAULT_WINDOW_POSITIONS: Record<string, object>;
     DEFAULT_HUD_POSITIONS: Record<string, object>;
+    repairLegacyHiddenHudPositions(config: Record<string, unknown>): string[];
   };
   assert.deepEqual(defaultPositions.DEFAULT_HUD_POSITIONS.digsite, { left: 0, bottom: 326 },
     '발굴지 현황 HUD 기본 위치가 기준 좌표와 다릅니다.');
+  const hiddenHudFixture: Record<string, unknown> = {
+    xpWidgetPos: { left: 200, bottom: 0 },
+    buffTimerHudPos: { left: 0, bottom: 720 },
+    abandonedWidgetPos: { left: 351, bottom: 134 },
+    digsiteWidgetPos: { left: 0, bottom: 1232 },
+    forgeQuestHudPos: { left: 0, bottom: 326 },
+    todaySummaryHudPos: { left: 0, top: 641 },
+  };
+  assert.deepEqual(
+    defaultPositions.repairLegacyHiddenHudPositions(hiddenHudFixture),
+    ['buffTimerHudPos', 'digsiteWidgetPos'],
+    '숨김 HUD의 0 rect 저장 형태를 선별하지 못합니다.',
+  );
+  assert.deepEqual(hiddenHudFixture, {
+    xpWidgetPos: { left: 200, bottom: 0 },
+    buffTimerHudPos: { left: 350, bottom: 0 },
+    abandonedWidgetPos: { left: 351, bottom: 134 },
+    digsiteWidgetPos: { left: 0, bottom: 326 },
+    forgeQuestHudPos: { left: 0, bottom: 326 },
+    todaySummaryHudPos: { left: 0, top: 641 },
+  }, '손상된 HUD 외의 정상 사용자 위치까지 초기화합니다.');
   assert.deepEqual(
     Object.keys(registry).sort(),
     Object.keys(defaultPositions.DEFAULT_WINDOW_POSITIONS).filter(key => key !== 'overlay').sort(),
@@ -2204,6 +2226,22 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     /isPlainObject\(parsed\.questHudPos\)[\s\S]*?parsed\.forgeQuestHudPos = sanitizeJsonValue\(parsed\.questHudPos\);[\s\S]*?delete parsed\.questHudPos;/,
     '구형 퀘스트 HUD 위치를 새 필드로 이전하는 마이그레이션이 없습니다.',
   );
+  assert.match(
+    configSource,
+    /parsed\.hudHiddenPositionRepairV1 !== true[\s\S]*?repairLegacyHiddenHudPositions\(parsed\)[\s\S]*?parsed\.hudHiddenPositionRepairV1 = true/,
+    '3.1.0에서 화면 밖으로 저장된 HUD 위치를 1회 복구하는 마이그레이션이 없습니다.',
+  );
+
+  const settingsSource = read('src/settings.html');
+  const editModeSource = read('src/renderer/game-overlay/edit-mode.ts');
+  assert.match(settingsSource, /if \(isHudEditing\)[\s\S]*?scrollIntoView[\s\S]*?return;/,
+    'HUD 위치 편집 중 일반 저장을 차단하는 안전장치가 없습니다.');
+  assert.match(settingsSource, /saveAllBtn\.disabled = editing/,
+    'HUD 위치 편집 중 일반 저장 버튼을 비활성화하지 않습니다.');
+  assert.match(settingsSource, /beforeunload[\s\S]*?stopHudEditMode\(false\)/,
+    '설정 창을 닫을 때 미완료 HUD 위치를 저장합니다.');
+  assert.match(editModeSource, /readPixelPosition\(el, 'left'\)[\s\S]*?initial\?\.left[\s\S]*?defaultPosition\?\.left/,
+    '숨겨진 HUD의 0 rect 대신 실제 CSS 좌표를 보존하는 저장 경로가 없습니다.');
 }
 
 function checkDependencyOverrideContracts(): void {
@@ -3911,6 +3949,16 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
     itemName: '장비 강화석', count: 10, source: 'direct', isOwn: true,
   });
   assert.deepEqual(
+    parseItemAcquisition('더블 리워드 추가 보상으로 [장비 강화석] 아이템을 [2]개 추가 획득하였습니다.'),
+    { itemName: '장비 강화석', count: 2, source: 'direct', isOwn: true },
+    '더블 리워드 추가 보상 수량을 독립 득템으로 감지하지 못했습니다.',
+  );
+  assert.deepEqual(
+    parseItemAcquisition('더블리워드추가보상으로 [스페셜 스킬 (ⓟ 연마)] 아이템을 [1,000]개 추가획득했습니다.'),
+    { itemName: '스페셜 스킬 (ⓟ 연마)', count: 1000, source: 'direct', isOwn: true },
+    '더블 리워드 문구의 유동 공백과 천 단위 수량을 처리하지 못했습니다.',
+  );
+  assert.deepEqual(
     parseItemAcquisitions('미션 보상으로 [장비 강화석] 1,000개, [경험의 정수] 2개를 획득했습니다.'),
     [
       { itemName: '장비 강화석', count: 1000, source: 'direct', isOwn: true },
@@ -4465,6 +4513,45 @@ function checkTodaySummary(): void {
     '득템 기록 탭에 경험의 정수가 표시된다는 오래된 안내가 남아 있습니다.');
   assert.match(diaryPage, /formatTimelineLogContent\(log\)/,
     '모험일지 타임라인에서 별도 수량 필드가 표시되지 않습니다.');
+  assert.match(diaryPage,
+    /diaryAddActivity\([\s\S]*?'calc'[\s\S]*?formatSeedAmount\(amount\)[\s\S]*?amount,[\s\S]*?\);/,
+    '수동 수익의 실제 금액이 calc amount로 저장되지 않습니다.');
+  assert.match(diaryPage,
+    /id="loot-item-summary-list"[\s\S]*?const itemTotals = new Map\(\)[\s\S]*?current\.count \+= item\.count/,
+    '득템 기록의 기간별 품목 합계 UI 또는 집계가 누락되었습니다.');
+  assert.match(diaryPage,
+    /id="loot-summary-pane"[\s\S]*?id="loot-pane-resizer"[\s\S]*?role="separator"[\s\S]*?id="loot-daily-pane"/,
+    '득템 기록의 품목별 합계/일자별 기록 구분선 구조가 누락되었습니다.');
+  assert.match(diaryPage,
+    /requestAnimationFrame\(\(\) => window\.diaryLootSplitPane\.refresh\(\)\)/,
+    '숨겨진 득템 탭을 표시한 뒤 분할 영역 높이를 다시 계산하지 않습니다.');
+  const lootSplitPane = require(
+    path.join(projectRoot, 'dist/renderer/diary/loot-split-pane.js'),
+  ) as {
+    storageKey: string;
+    defaultHeight: number;
+    minimumSummaryHeight: number;
+    minimumDailyHeight: number;
+    clampSummaryHeight(requested: number, containerHeight: number, resizerHeight: number): number;
+  };
+  assert.equal(lootSplitPane.storageKey, 'tw-overlay:diary-loot-summary-height:v1');
+  assert.equal(lootSplitPane.defaultHeight, 158);
+  assert.equal(lootSplitPane.minimumSummaryHeight, 92);
+  assert.equal(lootSplitPane.minimumDailyHeight, 210);
+  assert.equal(lootSplitPane.clampSummaryHeight(40, 700, 20), 92,
+    '품목별 합계 영역의 최소 높이가 보장되지 않습니다.');
+  assert.equal(lootSplitPane.clampSummaryHeight(700, 700, 20), 470,
+    '일자별 기록 영역의 최소 높이가 보장되지 않습니다.');
+  assert.equal(lootSplitPane.clampSummaryHeight(158, 700, 20), 158);
+  assert.equal(lootSplitPane.clampSummaryHeight(200, 0, 20), 200,
+    '숨겨진 탭의 높이 0으로 저장 높이가 잘못 축소됩니다.');
+  const lootSplitPaneSource = read('src/renderer/diary/loot-split-pane.ts');
+  assert.match(lootSplitPaneSource, /window\.localStorage\.setItem\(STORAGE_KEY/,
+    '사용자가 조절한 득템 기록 분할 높이가 이 PC에 저장되지 않습니다.');
+  assert.match(lootSplitPaneSource, /pointerdown[\s\S]*?pointermove[\s\S]*?pointerup/,
+    '득템 기록 구분선의 포인터 드래그 계약이 누락되었습니다.');
+  assert.match(lootSplitPaneSource, /ArrowUp[\s\S]*?ArrowDown[\s\S]*?Home[\s\S]*?End/,
+    '득템 기록 구분선의 키보드 조절 계약이 누락되었습니다.');
   assert.doesNotMatch(read('src/modules/xpTracker.ts'), /ESSENCE_GAINED/,
     '경험의 정수 전용 감지가 공통 아이템 감지와 중복 실행될 수 있습니다.');
   assert.match(read('src/game-overlay.html'), /id="today-summary-hud"/);
@@ -5167,6 +5254,23 @@ function checkChatLogSyncManagerContracts() {
     assert.equal(repairedLog?.amount, 1_000_200_030_000,
       'v2 DB의 조/억/만 단위 금액이 원문 기준으로 복구되지 않았습니다.');
     diaryDb.removeActivityLog(migrationDate, 'calc', '[자동] 복구 검증 (1조 2억 3만)');
+    diaryDb.closeDb();
+
+    // v5 사용자가 기존 UI로 저장한 amount=0 수동 수익은 v6에서만 정확히 1회 복구되어야 한다.
+    const manualRevenueDb = new MigrationDatabase(migrationDbPath);
+    manualRevenueDb.prepare(`
+      INSERT INTO activity_logs (date, type, content, time, amount, source)
+      VALUES (?, 'calc', ?, '23:59:58', 0, 'manual')
+    `).run(migrationDate, '💰 수익: 장사 수익 (12억 3,456만 시드)');
+    manualRevenueDb.pragma('user_version = 5');
+    manualRevenueDb.close();
+
+    diaryDb.initDb();
+    const repairedManualRevenue = diaryDb.getDiaryByDate(migrationDate).activityLogs
+      .find((log: { content: string }) => log.content.includes('장사 수익'));
+    assert.equal(repairedManualRevenue?.amount, 1_234_560_000,
+      'v5 DB의 기존 수동 장사 수익 amount가 표시 문구에서 복구되지 않았습니다.');
+    diaryDb.removeActivityLog(migrationDate, 'calc', '💰 수익: 장사 수익 (12억 3,456만 시드)');
     diaryDb.closeDb();
 
     // v1 중간 단계에서 강제 실패시 앞선 지도 변경과 user_version 상승이 함께 롤백되어야 한다.

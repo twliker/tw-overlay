@@ -18,6 +18,7 @@
     onGameOverlayEditMode?(callback: (enabled: boolean, saveOnExit?: boolean) => void): void;
     onGameOverlayResetPositions?(callback: () => void): void;
     applySettings?(settings: Record<string, unknown>): void;
+    DEFAULT_CONFIG?: Record<string, { left?: number; top?: number; bottom?: number }>;
   };
 
   const HUD_ITEMS: HudDragItem[] = [
@@ -221,18 +222,47 @@
   function saveCurrentPositions(): void {
     const updates: Record<string, { left: number; top?: number; bottom?: number }> = {};
 
+    const readPixelPosition = (el: HTMLElement, property: 'left' | 'top' | 'bottom'): number | null => {
+      const inlineValue = Number.parseFloat(el.style[property]);
+      if (Number.isFinite(inlineValue)) return Math.round(inlineValue);
+      const computedValue = Number.parseFloat(window.getComputedStyle(el)[property]);
+      return Number.isFinite(computedValue) ? Math.round(computedValue) : null;
+    };
+    const firstFinite = (...values: Array<number | null | undefined>): number => {
+      const value = values.find(candidate => typeof candidate === 'number' && Number.isFinite(candidate));
+      return value ?? 0;
+    };
+
     HUD_ITEMS.forEach(item => {
       const el = byId(item.id);
       if (!el) return;
 
-      const rect = el.getBoundingClientRect();
-      const left = Math.round(rect.left);
+      // 기능 계약: 편집 도중 다른 설정이 반영되어 HUD가 display:none이 되더라도 rect(0,0)를
+      // 좌표로 저장하지 않는다. 드래그가 기록한 inline 좌표를 우선하고, CSS 좌표와 편집 시작
+      // 위치, 공통 기본값 순으로 보완한다. 이 규칙을 바꾸면 설정 저장 경로와 마이그레이션을
+      // 함께 검증해야 한다.
+      const initial = initialPositions.get(item.id);
+      const defaultPosition = api?.DEFAULT_CONFIG?.[item.settingKey] as { left?: number; top?: number; bottom?: number } | undefined;
+      const left = firstFinite(
+        readPixelPosition(el, 'left'),
+        Number.parseFloat(initial?.left || ''),
+        defaultPosition?.left,
+      );
 
       if (item.useTop) {
-        updates[item.settingKey] = { left, top: Math.round(rect.top) };
+        const top = firstFinite(
+          readPixelPosition(el, 'top'),
+          Number.parseFloat(initial?.top || ''),
+          defaultPosition?.top,
+        );
+        updates[item.settingKey] = { left: Math.round(left), top: Math.round(top) };
       } else {
-        const bottom = Math.round(Math.max(0, window.innerHeight - rect.bottom));
-        updates[item.settingKey] = { left, bottom };
+        const bottom = firstFinite(
+          readPixelPosition(el, 'bottom'),
+          Number.parseFloat(initial?.bottom || ''),
+          defaultPosition?.bottom,
+        );
+        updates[item.settingKey] = { left: Math.round(left), bottom: Math.max(0, Math.round(bottom)) };
       }
     });
 
