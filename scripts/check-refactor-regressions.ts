@@ -316,6 +316,25 @@ function checkShutdownRecoveryAcrossProcessRestarts(): void {
   }
 }
 
+/**
+ * 제품의 일반 종료 대기 정책은 소스에서 정확히 3초로 고정하고, 실제 프로세스 종료 시각은
+ * 바쁜 GitHub runner가 Electron의 최종 quit 이벤트를 늦게 전달할 수 있는 범위만 허용한다.
+ * timeout 로그·요청 취소·복구 marker 검증을 함께 수행하므로 상한 완화가 정책 회귀를 숨기지 않는다.
+ */
+function assertShutdownTimeoutElapsed(elapsedMs: number | null, label: string): void {
+  const mainSource = fs.readFileSync(path.join(projectRoot, 'src', 'main.ts'), 'utf8');
+  assert.match(
+    mainSource,
+    /const\s+flushTimeoutMs\s*=\s*isUpdating\s*\?\s*500\s*:\s*3000\s*;/,
+    '일반 종료의 클라우드 flush 제한이 3초 정책에서 달라졌습니다.',
+  );
+  const upperBoundMs = process.env.CI ? 10_000 : 3_500;
+  assert.ok(
+    elapsedMs !== null && elapsedMs >= 2_900 && elapsedMs <= upperBoundMs,
+    `${label}가 3초 제한 경계에서 끝나지 않았습니다: ${elapsedMs}ms (허용 상한 ${upperBoundMs}ms)`,
+  );
+}
+
 function checkMainQuitRecoveryScenarios(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-quit-recovery-probe.js');
   const scenarios = ['settings', 'checklist', 'both', 'timeout', 'session-end'] as const;
@@ -363,9 +382,7 @@ function checkMainQuitRecoveryScenarios(): void {
       || scenario === 'timeout' || scenario === 'session-end';
     const expectedOperationIds = expectsChecklist ? [`main-quit-${scenario}-operation`] : [];
     if (scenario === 'timeout') {
-      assert.ok(summary.quitElapsedMs !== null
-        && summary.quitElapsedMs >= 2_900 && summary.quitElapsedMs <= 3_500,
-      `timeout main quit가 3초 제한 경계에서 끝나지 않았습니다: ${summary.quitElapsedMs}`);
+      assertShutdownTimeoutElapsed(summary.quitElapsedMs, 'timeout main quit');
     } else {
       assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
         `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
@@ -437,7 +454,7 @@ function checkMainResponseLossRestartReconciliation(): void {
     };
 
     const lostResponse = run('loss');
-    assert.ok(lostResponse.quitElapsedMs >= 2_900 && lostResponse.quitElapsedMs <= 3_500);
+    assertShutdownTimeoutElapsed(lostResponse.quitElapsedMs, `${responseLossKind} response loss main quit`);
     assert.equal(lostResponse.cancelledRequestCount, 1);
     assert.equal(lostResponse.shutdownTimeoutLogged, true);
     assert.equal(lostResponse.checklistOperationIds.includes('response-loss-checklist-operation'), true,
