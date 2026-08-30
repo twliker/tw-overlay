@@ -113,7 +113,7 @@ const captures: CaptureDefinition[] = [
   { name: 'experience-hud.png', html: 'xp-hud.html', width: 460, height: 780, events: [['xp-update', { total: 1284500000, epm: 24500000, movingEpm: 23100000, lastGain: 3580000, history: [10, 18, 31, 45, 54, 68, 81, 94], kills: 127, essenceCount: 3, xpSinceLastExchange: 284000000 }]] },
   { name: 'buff-timer-settings.png', html: 'buff-timer.html', width: 900, height: 850 },
   { name: 'boss-settings.png', html: 'boss-settings.html', width: 520, height: 820, events: [['boss-times-data', { '루미너스': ['20:30', '23:30'], '카타콤': ['21:00'] }]] },
-  { name: 'game-overlay.png', html: 'game-overlay.html', width: 1000, height: 650, events: [['xp-update', { total: 1284500000, epm: 24500000, movingEpm: 23100000, lastGain: 3580000, history: [18, 31, 45, 54, 68, 81], kills: 127, essenceCount: 3 }], ['buff-timer-update', [{ id: 'exp_heart', name: '경험의 심장', remainingMs: 720000, durationMs: 1200000, active: true }]], ['digsite-update', { isActive: true, normalRewards: 5, portalRewards: 2, portalVisits: { 1: true, 2: false, 3: true, 4: false }, alternateRewards: 1, startedAt: Date.now(), expiresAt: Date.now() + 18 * 60 * 1000 }], ['today-summary-config', guideConfig]] },
+  { name: 'game-overlay.png', html: 'game-overlay.html', width: 1000, height: 650, events: [['xp-update', { total: 1284500000, epm: 24500000, movingEpm: 23100000, lastGain: 3580000, history: [18, 31, 45, 54, 68, 81], kills: 127, essenceCount: 3 }], ['buff-timer-update', [{ id: 'exp_heart', name: '경험의 심장', remainingMs: 720000, durationMs: 1200000, active: true }]], ['digsite-update', { isActive: true, normalRewards: 5, portalRewards: 2, portalVisits: { 1: true, 2: false, 3: true, 4: false }, alternateRewards: 1, startedAt: Date.now(), expiresAt: Date.now() + 4 * 60 * 1000 }], ['today-summary-config', guideConfig]] },
   { name: 'diary-calendar.png', html: 'diary.html', width: 1400, height: 920 },
   { name: 'diary-statistics.png', html: 'diary.html', width: 1400, height: 920, setup: `switchTab('stats')` },
   { name: 'stopwatch.png', html: 'stopwatch.html', width: 900, height: 760 },
@@ -125,10 +125,33 @@ const captures: CaptureDefinition[] = [
   { name: 'equipment-simulator.png', html: 'equipment-simulator.html', width: 980, height: 840 },
   { name: 'magic-stone-calculator.png', html: 'magic-stone-calculator.html', width: 460, height: 820 },
   { name: 'evolution-calculator.png', html: 'evolution-calculator.html', width: 1040, height: 820 },
+  { name: 'evolution-calculator-post-processing.png', html: 'evolution-calculator.html', width: 1040, height: 820, setup: `
+    for (const [id, value] of [['enchant-scroll-count', '2'], ['enchant-scroll-unit-price', '1000'], ['enchant-attempt-cost', '2000'], ['magic-reform-cost', '3000'], ['additional-option-cost', '4000'], ['ability-mount-cost', '5000'], ['attribute-grant-cost', '6000'], ['enhancement-cost', '7000']]) {
+      const input = document.getElementById(id); if (input) { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
+    }
+    const area = document.querySelector('.scroll-area'); const post = document.querySelectorAll('.scroll-area > .card')[1];
+    if (area && post) area.scrollTop = post.offsetTop - area.offsetTop + 110;
+  ` },
+  { name: 'evolution-calculator-eclipse.png', html: 'evolution-calculator.html', width: 1040, height: 820, setup: `
+    const fakeBase = document.querySelector('input[name="eclipse-base-type"][value="fake-armament"]');
+    if (fakeBase) { fakeBase.checked = true; fakeBase.dispatchEvent(new Event('change', { bubbles: true })); }
+    for (const [id, value] of [['eclipse-base-cost', '5000'], ['moon-mineral-cost', '6000'], ['rune-stone-cost', '7000']]) {
+      const input = document.getElementById(id); if (input) { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
+    }
+    const area = document.querySelector('.scroll-area'); if (area) area.scrollTop = area.scrollHeight;
+  ` },
   { name: 'equipment-dictionary.png', html: 'equipment-dic.html', width: 1120, height: 800 },
   { name: 'equipment-dictionary-detail.png', html: 'equipment-dic.html', width: 1120, height: 800, setup: `document.querySelector('.item-card')?.click()` },
   { name: 'buffs-overview.png', html: 'buffs.html', width: 1080, height: 740, setup: `selectPreset('standard')` },
-  { name: 'buffs-tooltip.png', html: 'buffs.html', width: 1080, height: 740, setup: `selectPreset('standard'); document.querySelector('#buff-list .buff-card')?.dispatchEvent(new MouseEvent('mouseenter'))` },
+  { name: 'buffs-tooltip.png', html: 'buffs.html', width: 1080, height: 740, setup: `selectPreset('standard'); document.querySelector('#buff-list .buff-card-main')?.click()` },
+  { name: 'buffs-preset-creating.png', html: 'buffs.html', width: 1080, height: 740, setup: `selectPreset('standard'); beginPresetCreation('selected')` },
+  { name: 'buffs-preset-editing.png', html: 'buffs.html', width: 1080, height: 740, setup: `
+    const guidePreset = { id: 2026083001, name: '보스 도핑 조합', buffIds: (window.buffConstants.STANDARD_BUFFS || []).slice(0, 6) };
+    localStorage.setItem('buff_presets', JSON.stringify([guidePreset]));
+    renderPresets();
+    selectPreset(String(guidePreset.id));
+    beginPresetEditing(guidePreset.id);
+  ` },
   { name: 'eta-ranking.png', html: 'eta-ranking.html', width: 720, height: 760 },
   { name: 'uniform-color.png', html: 'uniform-color.html', width: 420, height: 820 },
   { name: 'siena-aura.png', html: 'siena-aura.html', width: 1230, height: 930 },
@@ -143,7 +166,14 @@ const captures: CaptureDefinition[] = [
   { name: 'gallery.png', html: 'gallery.html', width: 520, height: 680, events: [['gallery-connection-status', true], ['gallery-posts', [{ no: 123456, title: '오늘 업데이트 핵심 정리', author: 'TW유저', date: '방금 전', views: 321, commentCount: 12 }]]] },
   { name: 'trade.png', html: 'trade.html', width: 520, height: 680, events: [['trade-connection-status', true], ['trade-posts', [{ id: 'guide-trade-1', title: '아퀼루스 장비 판매합니다', author: '거래유저', date: '방금 전', url: 'https://example.invalid' }]]] },
   { name: 'settings-general.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSettingsGroup('app', document.querySelector('[data-settings-group="app"]'))` },
-  { name: 'settings-game.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSettingsGroup('game', document.querySelector('[data-settings-group="game"]'))` },
+  { name: 'settings-game.png', html: 'settings.html', width: 1100, height: 720, setup: `
+    document.getElementById('loading-overlay')?.remove();
+    showSettingsGroup('game', document.querySelector('[data-settings-group="game"]'));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const area = document.querySelector('.content-area');
+    const target = document.getElementById('digsite-hud-settings-card');
+    if (area && target) area.scrollTop = target.getBoundingClientRect().top - area.getBoundingClientRect().top + area.scrollTop - 260;
+  ` },
   { name: 'settings-chat-overlay.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSettingsGroup('chat', document.querySelector('[data-settings-group="chat"]'), 1)` },
   { name: 'settings-data.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSection('data', document.querySelector('[data-settings-group="system"]')); updateGoogleSyncUI(${JSON.stringify(linkedSyncStatus)})` },
 ];

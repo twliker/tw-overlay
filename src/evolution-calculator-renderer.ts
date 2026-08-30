@@ -12,17 +12,21 @@ interface EvolutionSystemData {
     };
   };
 }
-interface EvolutionEquipmentImageItem {
-  name: string;
-  group: string;
-  part?: string;
-  image?: string;
-}
 interface AggregatedMaterial { quantity: number; steps: string[] }
 interface EvolutionAutoSelection {
   category: 'weapon' | 'equipment';
   part: string;
   itemName: string;
+}
+interface EvolutionEditorSnapshot {
+  selection: EvolutionHistorySelection;
+  currentPart: string;
+  title: string;
+  extras: EvolutionExtraCosts;
+  eclipse: EvolutionEclipseOptions;
+  priceStorage: Record<string, string>;
+  elsoStorage: string | null;
+  draftStorage: string | null;
 }
 
 const api = window.evolutionCalculator;
@@ -48,13 +52,16 @@ const STEP_LABELS: Record<string, string> = {
   AquilusToAbyss: '아퀼루스→어비스',
   AbyssToEclipse: '어비스→이클립스',
 };
-const PART_TO_DICTIONARY_PART: Record<string, string> = {
-  helm: 'helm', armor: 'armor', gloves: 'gauntlet', boots: 'boots',
-  wings: 'wing', amulet: 'amulet', shield: 'wrist',
+const PART_LABELS: Record<string, string> = {
+  helm: '투구',
+  armor: '갑옷',
+  gloves: '손',
+  boots: '다리',
+  wings: '몸',
+  amulet: '머리',
+  shield: '손목',
 };
-
 let evolutionData: EvolutionSystemData | null = null;
-let equipmentImages: EvolutionEquipmentImageItem[] = [];
 let currentCategory: EvolutionCategory = 'weapon';
 let currentPart = 'helm';
 let preferredEquipmentName = '';
@@ -62,6 +69,7 @@ let currentMaterials: Record<string, AggregatedMaterial> = {};
 let currentResult: EvolutionCostResult = emptyResult();
 let records: EvolutionHistoryRecord[] = loadHistory();
 let editingRecordId: string | null = null;
+let editingSnapshot: EvolutionEditorSnapshot | null = null;
 
 function element<T extends Element>(id: string): T {
   const found = document.getElementById(id);
@@ -72,16 +80,13 @@ function element<T extends Element>(id: string): T {
 const stepFrom = element<HTMLSelectElement>('step-from');
 const stepTo = element<HTMLSelectElement>('step-to');
 const materialList = element<HTMLElement>('material-list');
-const partSelector = element<HTMLElement>('part-selector');
-const startTierName = element<HTMLElement>('start-tier-name');
-const endTierName = element<HTMLElement>('end-tier-name');
-const startItemImage = element<HTMLImageElement>('start-item-image');
-const endItemImage = element<HTMLImageElement>('end-item-image');
 const eclipseCard = element<HTMLElement>('eclipse-cost-card');
 const historyList = element<HTMLElement>('history-list');
 const historyTitle = element<HTMLInputElement>('history-title');
 const saveHistoryButton = element<HTMLButtonElement>('save-history-button');
 const cancelEditButton = element<HTMLButtonElement>('cancel-edit-button');
+const editingStatus = element<HTMLElement>('editing-status');
+const editingStatusTitle = element<HTMLElement>('editing-status-title');
 
 function emptyResult(): EvolutionCostResult {
   return {
@@ -156,9 +161,20 @@ function rebuildStepSelectors(preferredFrom?: number, preferredTo?: number): voi
   const previousFrom = Number.isInteger(preferredFrom) ? preferredFrom! : Number(stepFrom.value || 0);
   const previousTo = Number.isInteger(preferredTo) ? preferredTo! : Number(stepTo.value || chain.length - 1);
   stepFrom.innerHTML = chain.slice(0, -1).map((name, index) => `<option value="${index}">${escape(name)}</option>`).join('');
-  stepTo.innerHTML = chain.slice(1).map((name, index) => `<option value="${index + 1}">${escape(name)}</option>`).join('');
   stepFrom.value = String(Math.max(0, Math.min(chain.length - 2, Number.isFinite(previousFrom) ? previousFrom : 0)));
-  const safeTo = Math.max(Number(stepFrom.value) + 1, Math.min(chain.length - 1, Number.isFinite(previousTo) ? previousTo : chain.length - 1));
+  rebuildTargetSelector(previousTo);
+}
+
+/** 시작 단계 이전을 목표로 다시 선택해 빈 계산 결과가 생기지 않도록 목표 후보 자체를 제한한다. */
+function rebuildTargetSelector(preferredTo?: number): void {
+  const chain = getChain();
+  const minimumTo = Math.min(chain.length - 1, Number(stepFrom.value) + 1);
+  const safeTo = Math.max(minimumTo, Math.min(
+    chain.length - 1,
+    Number.isFinite(preferredTo) ? preferredTo! : chain.length - 1,
+  ));
+  stepTo.innerHTML = chain.slice(minimumTo)
+    .map((name, index) => `<option value="${minimumTo + index}">${escape(name)}</option>`).join('');
   stepTo.value = String(safeTo);
 }
 
@@ -199,6 +215,9 @@ function collectExtras(): EvolutionExtraCosts {
     enchantAttemptCostMan: numericInput('enchant-attempt-cost'),
     magicReformCostMan: numericInput('magic-reform-cost'),
     additionalOptionCostMan: numericInput('additional-option-cost'),
+    abilityMountCostMan: numericInput('ability-mount-cost'),
+    attributeGrantCostMan: numericInput('attribute-grant-cost'),
+    enhancementCostMan: numericInput('enhancement-cost'),
   });
 }
 
@@ -206,11 +225,23 @@ function isEclipseIncluded(): boolean {
   return getSelectedSteps().includes('AbyssToEclipse');
 }
 
+function selectedEclipseBaseType(): EvolutionEclipseOptions['baseType'] {
+  const value = document.querySelector<HTMLInputElement>('input[name="eclipse-base-type"]:checked')?.value;
+  if (value === 'abyss-equipment' || value === 'fake-armament') return value;
+  return 'direct-evolution';
+}
+
+function eclipseBaseTypeLabel(baseType: EvolutionEclipseOptions['baseType']): string {
+  if (baseType === 'abyss-equipment') return '어비스 장비 구매';
+  if (baseType === 'fake-armament') return '가짜 달여왕 군단의 무구 구매';
+  return '직접 어비스까지 진화';
+}
+
 function collectEclipseOptions(): EvolutionEclipseOptions {
   const sealMethod = document.querySelector<HTMLInputElement>('input[name="seal-method"]:checked')?.value;
   return api.sanitizeEvolutionEclipseOptions({
     enabled: isEclipseIncluded(),
-    baseType: element<HTMLSelectElement>('eclipse-base-type').value,
+    baseType: selectedEclipseBaseType(),
     baseEquipmentCostMan: numericInput('eclipse-base-cost'),
     sealMethod,
     proxyFeeMan: numericInput('seal-proxy-fee'),
@@ -244,17 +275,39 @@ function applyExtras(extras: EvolutionExtraCosts): void {
   setNumericInput('enchant-attempt-cost', extras.enchantAttemptCostMan);
   setNumericInput('magic-reform-cost', extras.magicReformCostMan);
   setNumericInput('additional-option-cost', extras.additionalOptionCostMan);
+  setNumericInput('ability-mount-cost', extras.abilityMountCostMan);
+  setNumericInput('attribute-grant-cost', extras.attributeGrantCostMan);
+  setNumericInput('enhancement-cost', extras.enhancementCostMan);
 }
 
 function applyEclipse(eclipse: EvolutionEclipseOptions): void {
-  element<HTMLSelectElement>('eclipse-base-type').value = eclipse.baseType;
+  const baseTypeRadio = document.querySelector<HTMLInputElement>(
+    `input[name="eclipse-base-type"][value="${eclipse.baseType}"]`,
+  );
+  if (baseTypeRadio) baseTypeRadio.checked = true;
   setNumericInput('eclipse-base-cost', eclipse.baseEquipmentCostMan);
   const radio = document.querySelector<HTMLInputElement>(`input[name="seal-method"][value="${eclipse.sealMethod}"]`);
   if (radio) radio.checked = true;
   setNumericInput('seal-proxy-fee', eclipse.proxyFeeMan);
   setNumericInput('moon-mineral-cost', eclipse.moonMineralCostMan);
   setNumericInput('rune-stone-cost', eclipse.runeStoneCostMan);
+  renderEclipseBaseMethod();
   renderSealMethod();
+}
+
+function renderEclipseBaseMethod(): void {
+  const baseType = selectedEclipseBaseType();
+  const directEvolution = baseType === 'direct-evolution';
+  element<HTMLElement>('eclipse-base-cost-field').classList.toggle('hidden', directEvolution);
+  element<HTMLElement>('eclipse-base-cost-label').textContent = baseType === 'abyss-equipment'
+    ? '어비스 장비 구매 비용'
+    : '가짜 달여왕 군단의 무구 구매 비용';
+  element<HTMLInputElement>('eclipse-base-cost').placeholder = baseType === 'abyss-equipment'
+    ? '어비스 장비 구매 비용(만원)'
+    : '가짜 무구 구매 비용(만원)';
+  element<HTMLElement>('eclipse-base-help').textContent = directEvolution
+    ? '위에서 선택한 시작 단계부터 어비스까지의 진화 재료비를 사용하며, 별도 장비 구매비는 더하지 않습니다.'
+    : `${eclipseBaseTypeLabel(baseType)} 비용을 최종 합계에 추가합니다.`;
 }
 
 function renderSealMethod(): void {
@@ -263,8 +316,37 @@ function renderSealMethod(): void {
   element<HTMLElement>('seal-proxy-fields').classList.toggle('hidden', !proxy);
 }
 
+function inputManToSeed(inputId: string): number {
+  return Math.round(numericInput(inputId) * 10_000);
+}
+
+function renderInputSubtotal(elementId: string, seed: number): void {
+  const subtotal = element<HTMLElement>(elementId);
+  subtotal.textContent = `소계 ${api.formatEvolutionSeed(seed)} 시드`;
+  subtotal.classList.toggle('has-value', seed > 0);
+}
+
+function renderInputSubtotals(): void {
+  renderInputSubtotal('enchant-scroll-subtotal', Math.round(
+    numericInput('enchant-scroll-count') * inputManToSeed('enchant-scroll-unit-price'),
+  ));
+  renderInputSubtotal('enchant-attempt-subtotal', inputManToSeed('enchant-attempt-cost'));
+  renderInputSubtotal('magic-reform-subtotal', inputManToSeed('magic-reform-cost'));
+  renderInputSubtotal('additional-option-subtotal', inputManToSeed('additional-option-cost'));
+  renderInputSubtotal('ability-mount-subtotal', inputManToSeed('ability-mount-cost'));
+  renderInputSubtotal('attribute-grant-subtotal', inputManToSeed('attribute-grant-cost'));
+  renderInputSubtotal('enhancement-subtotal', inputManToSeed('enhancement-cost'));
+  renderInputSubtotal('eclipse-base-subtotal', selectedEclipseBaseType() === 'direct-evolution'
+    ? 0
+    : inputManToSeed('eclipse-base-cost'));
+  renderInputSubtotal('moon-mineral-subtotal', inputManToSeed('moon-mineral-cost'));
+  renderInputSubtotal('rune-stone-subtotal', inputManToSeed('rune-stone-cost'));
+  renderInputSubtotal('seal-proxy-subtotal', inputManToSeed('seal-proxy-fee'));
+}
+
 function updateTotalCost(): void {
   currentResult = api.calculateEvolutionCost({ materials: materialInputs(), extras: collectExtras(), eclipse: collectEclipseOptions() });
+  renderInputSubtotals();
   element<HTMLElement>('total-cost').textContent = `${api.formatEvolutionSeed(currentResult.totalSeed)} 시드`;
   const elso = element<HTMLElement>('total-elso');
   elso.textContent = `+ ${currentResult.totalElso.toLocaleString('ko-KR')} 엘소`;
@@ -289,10 +371,18 @@ function updateTotalCost(): void {
 }
 
 function attachImageFallback(image: HTMLImageElement): void {
+  const applyAspectFit = () => {
+    if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+    image.classList.toggle('fit-portrait', image.naturalHeight > image.naturalWidth);
+    image.classList.toggle('fit-landscape', image.naturalWidth > image.naturalHeight);
+    image.classList.toggle('fit-square', image.naturalWidth === image.naturalHeight);
+  };
+  image.addEventListener('load', applyAspectFit, { once: true });
   image.addEventListener('error', () => {
     image.classList.add('hidden');
     image.parentElement?.querySelector('svg, i')?.classList.remove('hidden');
   }, { once: true });
+  if (image.complete && image.naturalWidth > 0) applyAspectFit();
 }
 
 function renderMaterials(): void {
@@ -313,8 +403,8 @@ function renderMaterials(): void {
     const price = loadPrice(name);
     const disabled = taecheong && elsoSelected;
     return `<div class="material-row">
-      <div class="material-info"><div class="material-image"><i class="hidden" data-lucide="package"></i><img src="${imagePath}" alt="${escape(name)}"></div><div style="min-width:0"><div class="material-name">${escape(name)}</div>${taecheong ? `<label style="display:flex;align-items:center;gap:4px;margin-top:3px;color:#c084fc;font-size:8px;font-weight:900"><input class="elso-checkbox" type="checkbox" ${elsoSelected ? 'checked' : ''}> 엘소 구입 (개당 23,000)</label>` : ''}<div class="step-tags">${data.steps.map(step => `<span class="step-tag">${escape(STEP_LABELS[step] || step)}</span>`).join('')}</div></div></div>
-      <div style="text-align:right;color:#cbd5e1;font-size:11px;font-weight:900">×${data.quantity.toLocaleString('ko-KR')}</div>
+      <div class="material-info"><div class="material-image"><i class="hidden" data-lucide="package"></i><img src="${imagePath}" alt="${escape(name)}"></div><div style="min-width:0"><div class="material-name">${escape(name)}</div>${taecheong ? `<label class="elso-purchase"><input class="elso-checkbox" type="checkbox" ${elsoSelected ? 'checked' : ''}> 엘소 구입 (개당 23,000)</label>` : ''}<div class="step-tags">${data.steps.map(step => `<span class="step-tag">${escape(STEP_LABELS[step] || step)}</span>`).join('')}</div></div></div>
+      <div class="material-quantity">×${data.quantity.toLocaleString('ko-KR')}</div>
       <input class="number-input material-price-input" type="number" min="0" data-name="${escape(name)}" data-quantity="${data.quantity}" value="${price || ''}" placeholder="단가" ${disabled ? 'disabled' : ''}>
       <div class="material-subtotal money ${price > 0 || disabled ? '' : 'muted'}">0</div>
     </div>`;
@@ -336,46 +426,28 @@ function renderMaterials(): void {
   updateTotalCost();
 }
 
-function equipmentForTier(tier: string): EvolutionEquipmentImageItem | undefined {
-  const chain = getChain();
-  const sourceTier = chain.find(name => preferredEquipmentName.includes(name));
-  const desiredName = sourceTier ? preferredEquipmentName.replace(sourceTier, tier) : '';
-  const expectedPart = currentCategory === 'weapon' ? 'weapon' : PART_TO_DICTIONARY_PART[currentPart];
-  const candidates = equipmentImages.filter(item => item.name.includes(tier) && item.part === expectedPart && item.image);
-  return candidates.find(item => item.name === desiredName) || candidates[0];
-}
-
-function renderTierImage(image: HTMLImageElement, tier: string): void {
-  const equipment = equipmentForTier(tier);
-  image.classList.toggle('hidden', !equipment?.image);
-  image.parentElement?.querySelector('.tier-fallback')?.classList.toggle('hidden', Boolean(equipment?.image));
-  if (equipment?.image) image.src = `assets/img/equipment/${encodeURIComponent(equipment.image)}`;
-}
-
 function updateRoute(): void {
-  const chain = getChain();
-  const fromIndex = Number(stepFrom.value);
-  const toIndex = Number(stepTo.value);
-  const fromTier = chain[fromIndex] || '-';
-  const toTier = chain[toIndex] || '-';
-  startTierName.textContent = fromTier;
-  endTierName.textContent = toTier;
-  renderTierImage(startItemImage, fromTier);
-  renderTierImage(endItemImage, toTier);
   renderMaterials();
+}
+
+function renderEvolutionOptionSelection(): void {
+  const selectedOption = currentCategory === 'weapon' ? 'weapon' : currentPart;
+  document.querySelectorAll<HTMLElement>('[data-evolution-option]').forEach(button => {
+    button.classList.toggle('active', button.dataset.evolutionOption === selectedOption);
+  });
 }
 
 function selectCategory(category: EvolutionCategory, fromIndex?: number, toIndex?: number): void {
   currentCategory = category;
-  document.querySelectorAll<HTMLElement>('[data-category]').forEach(button => button.classList.toggle('active', button.dataset.category === category));
-  partSelector.classList.toggle('hidden', category !== 'equipment');
+  renderEvolutionOptionSelection();
   rebuildStepSelectors(fromIndex, toIndex);
   updateRoute();
 }
 
 function selectPart(part: string, fromIndex?: number, toIndex?: number): void {
+  currentCategory = 'equipment';
   currentPart = part || 'helm';
-  document.querySelectorAll<HTMLElement>('[data-part]').forEach(button => button.classList.toggle('active', button.dataset.part === currentPart));
+  renderEvolutionOptionSelection();
   rebuildStepSelectors(fromIndex, toIndex);
   updateRoute();
 }
@@ -392,19 +464,36 @@ function persistHistory(): void {
   try { localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(records)); } catch { /* keep current calculation usable */ }
 }
 
+function historyPartLabel(selection: EvolutionHistorySelection): string {
+  if (selection.category === 'weapon') return '무기';
+  return PART_LABELS[selection.part] || '장비';
+}
+
+function updateEditingUi(): void {
+  const record = editingRecordId ? records.find(entry => entry.id === editingRecordId) : undefined;
+  editingStatus.classList.toggle('hidden', !record);
+  editingStatusTitle.textContent = record ? `'${record.title}'` : '';
+  saveHistoryButton.textContent = record ? '계산 이력 변경 저장' : '계산 이력 저장';
+  cancelEditButton.classList.toggle('hidden', !record);
+}
+
 function renderHistory(): void {
   const ordered = [...records].sort((a, b) => b.updatedAt - a.updatedAt);
   if (ordered.length === 0) {
     historyList.innerHTML = '<div class="empty-state">저장된 계산 이력이 없습니다.<br>제목과 함께 현재 계산값을 저장해 보세요.</div>';
     return;
   }
-  historyList.innerHTML = ordered.map(record => `<article class="history-card" data-history-id="${escape(record.id)}">
-    <div class="history-title">${escape(record.title)}</div>
-    <div class="history-route">${escape(record.selection.fromLabel)} → ${escape(record.selection.toLabel)}</div>
+  historyList.innerHTML = ordered.map(record => {
+    const editing = record.id === editingRecordId;
+    return `<article class="history-card${editing ? ' editing' : ''}" data-history-id="${escape(record.id)}">
+    <div class="history-title-row"><div class="history-title">${escape(record.title)}</div>${editing ? '<span class="history-editing-badge">수정 중</span>' : ''}</div>
+    <div class="history-context"><span class="history-part">${escape(historyPartLabel(record.selection))}</span><span class="history-route">${escape(record.selection.fromLabel)} → ${escape(record.selection.toLabel)}</span></div>
+    ${record.eclipse.enabled ? `<div class="history-base">베이스: ${escape(eclipseBaseTypeLabel(record.eclipse.baseType))}</div>` : ''}
     <div class="history-total">${api.formatEvolutionSeed(record.result.totalSeed)} 시드</div>
-    ${record.result.totalElso > 0 ? `<div style="margin-top:2px;color:#c084fc;font-size:9px;font-weight:900">+ ${record.result.totalElso.toLocaleString('ko-KR')} 엘소</div>` : ''}
+    ${record.result.totalElso > 0 ? `<div class="history-elso">+ ${record.result.totalElso.toLocaleString('ko-KR')} 엘소</div>` : ''}
     <div class="history-meta"><span>${new Date(record.updatedAt).toLocaleString('ko-KR')}</span><div class="history-actions"><button data-action="edit">수정</button><button data-action="delete">삭제</button></div></div>
-  </article>`).join('');
+  </article>`;
+  }).join('');
 }
 
 function currentSelection(): EvolutionHistorySelection {
@@ -420,6 +509,46 @@ function currentSelection(): EvolutionHistorySelection {
     toLabel: chain[toIndex] || '',
     preferredItemName: preferredEquipmentName,
   };
+}
+
+function captureEditingSnapshot(): EvolutionEditorSnapshot {
+  const priceStorage: Record<string, string> = {};
+  Object.keys(localStorage).filter(key => key.startsWith('evo_price_')).forEach(key => {
+    const value = localStorage.getItem(key);
+    if (value !== null) priceStorage[key] = value;
+  });
+  return {
+    selection: currentSelection(),
+    currentPart,
+    title: historyTitle.value,
+    extras: collectExtras(),
+    eclipse: collectEclipseOptions(),
+    priceStorage,
+    elsoStorage: localStorage.getItem(ELSO_OPTION_KEY),
+    draftStorage: localStorage.getItem(DRAFT_STORAGE_KEY),
+  };
+}
+
+function restoreStorageValue(key: string, value: string | null): void {
+  if (value === null) localStorage.removeItem(key);
+  else localStorage.setItem(key, value);
+}
+
+function restoreEditingSnapshot(snapshot: EvolutionEditorSnapshot): void {
+  Object.keys(localStorage).filter(key => key.startsWith('evo_price_')).forEach(key => localStorage.removeItem(key));
+  Object.entries(snapshot.priceStorage).forEach(([key, value]) => localStorage.setItem(key, value));
+  restoreStorageValue(ELSO_OPTION_KEY, snapshot.elsoStorage);
+  restoreStorageValue(DRAFT_STORAGE_KEY, snapshot.draftStorage);
+  preferredEquipmentName = snapshot.selection.preferredItemName;
+  currentPart = snapshot.currentPart || 'helm';
+  applyExtras(snapshot.extras);
+  applyEclipse(snapshot.eclipse);
+  selectCategory(snapshot.selection.category, snapshot.selection.fromIndex, snapshot.selection.toIndex);
+  if (snapshot.selection.category === 'equipment') {
+    selectPart(currentPart, snapshot.selection.fromIndex, snapshot.selection.toIndex);
+  }
+  historyTitle.value = snapshot.title;
+  updateTotalCost();
 }
 
 function saveHistory(): void {
@@ -441,11 +570,11 @@ function saveHistory(): void {
   };
   records = existing ? records.map(entry => entry.id === existing.id ? record : entry) : [record, ...records];
   persistHistory();
-  renderHistory();
   cancelEditing();
 }
 
 function applyHistory(record: EvolutionHistoryRecord): void {
+  if (!editingSnapshot) editingSnapshot = captureEditingSnapshot();
   preferredEquipmentName = record.selection.preferredItemName;
   currentCategory = record.selection.category;
   currentPart = record.selection.part || 'helm';
@@ -457,16 +586,19 @@ function applyHistory(record: EvolutionHistoryRecord): void {
   if (currentCategory === 'equipment') selectPart(currentPart, record.selection.fromIndex, record.selection.toIndex);
   historyTitle.value = record.title;
   editingRecordId = record.id;
-  saveHistoryButton.textContent = '계산 이력 변경 저장';
-  cancelEditButton.classList.remove('hidden');
+  updateEditingUi();
+  renderHistory();
   updateTotalCost();
 }
 
 function cancelEditing(): void {
+  const snapshot = editingSnapshot;
   editingRecordId = null;
-  historyTitle.value = '';
-  saveHistoryButton.textContent = '계산 이력 저장';
-  cancelEditButton.classList.add('hidden');
+  editingSnapshot = null;
+  if (snapshot) restoreEditingSnapshot(snapshot);
+  else historyTitle.value = '';
+  updateEditingUi();
+  renderHistory();
 }
 
 function deleteHistory(recordId: string): void {
@@ -501,16 +633,24 @@ function handleAutoSelect(data: Partial<EvolutionAutoSelection>): void {
 
 function bindEvents(): void {
   element<HTMLButtonElement>('close-button').addEventListener('click', () => window.close());
-  document.querySelectorAll<HTMLButtonElement>('[data-category]').forEach(button => button.addEventListener('click', () => selectCategory(button.dataset.category === 'equipment' ? 'equipment' : 'weapon')));
-  document.querySelectorAll<HTMLButtonElement>('[data-part]').forEach(button => button.addEventListener('click', () => selectPart(button.dataset.part || 'helm')));
+  document.querySelectorAll<HTMLButtonElement>('[data-evolution-option]').forEach(button => button.addEventListener('click', () => {
+    const option = button.dataset.evolutionOption || 'weapon';
+    if (option === 'weapon') selectCategory('weapon');
+    else selectPart(option);
+  }));
   stepFrom.addEventListener('change', () => {
-    if (Number(stepFrom.value) >= Number(stepTo.value)) stepTo.value = String(Math.min(getChain().length - 1, Number(stepFrom.value) + 1));
+    rebuildTargetSelector(Number(stepTo.value));
     updateRoute();
   });
   stepTo.addEventListener('change', () => updateRoute());
   document.querySelectorAll<HTMLInputElement>('.number-input').forEach(input => input.addEventListener('input', () => { saveDraft(); updateTotalCost(); }));
-  element<HTMLSelectElement>('eclipse-base-type').addEventListener('change', () => { saveDraft(); updateTotalCost(); });
+  document.querySelectorAll<HTMLInputElement>('input[name="eclipse-base-type"]').forEach(radio => radio.addEventListener('change', () => {
+    renderEclipseBaseMethod();
+    saveDraft();
+    updateTotalCost();
+  }));
   document.querySelectorAll<HTMLInputElement>('input[name="seal-method"]').forEach(radio => radio.addEventListener('change', () => { renderSealMethod(); saveDraft(); updateTotalCost(); }));
+  document.querySelectorAll<HTMLImageElement>('.eclipse-item-image img').forEach(attachImageFallback);
   saveHistoryButton.addEventListener('click', saveHistory);
   cancelEditButton.addEventListener('click', cancelEditing);
   element<HTMLButtonElement>('reset-prices-button').addEventListener('click', resetPrices);
@@ -524,8 +664,6 @@ function bindEvents(): void {
       if (record) applyHistory(record);
     } else if (button.dataset.action === 'delete') deleteHistory(id);
   });
-  attachImageFallback(startItemImage);
-  attachImageFallback(endItemImage);
 }
 
 let pendingAutoSelection: Partial<EvolutionAutoSelection> | null = null;
@@ -535,13 +673,9 @@ async function init(): Promise<void> {
   bindEvents();
   loadDraft();
   renderHistory();
-  const [evolutionResponse, equipmentResponse] = await Promise.all([
-    fetch('assets/data/evolution_data.json'),
-    fetch('assets/data/equipment_dic.json'),
-  ]);
+  const evolutionResponse = await fetch('assets/data/evolution_data.json');
   if (!evolutionResponse.ok) throw new Error(`진화 데이터 HTTP ${evolutionResponse.status}`);
   evolutionData = await evolutionResponse.json() as EvolutionSystemData;
-  if (equipmentResponse.ok) equipmentImages = await equipmentResponse.json() as EvolutionEquipmentImageItem[];
   selectCategory('weapon', 0, getChain().length - 1);
   if (pendingAutoSelection) {
     handleAutoSelect(pendingAutoSelection);

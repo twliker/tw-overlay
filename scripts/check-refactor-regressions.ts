@@ -1979,7 +1979,10 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   assert.equal(Object.keys(registry).length, registryModule.MANAGED_WINDOW_COUNT);
   const defaultPositions = require(path.join(projectRoot, 'dist', 'shared', 'windowPositions.js')) as {
     DEFAULT_WINDOW_POSITIONS: Record<string, object>;
+    DEFAULT_HUD_POSITIONS: Record<string, object>;
   };
+  assert.deepEqual(defaultPositions.DEFAULT_HUD_POSITIONS.digsite, { left: 0, bottom: 326 },
+    '발굴지 현황 HUD 기본 위치가 기준 좌표와 다릅니다.');
   assert.deepEqual(
     Object.keys(registry).sort(),
     Object.keys(defaultPositions.DEFAULT_WINDOW_POSITIONS).filter(key => key !== 'overlay').sort(),
@@ -2269,7 +2272,7 @@ function checkSidebarMenuRegistryContracts(): void {
   );
 
   const qte = require(path.join(projectRoot, 'dist', 'shared', 'qteChallenge.js')) as {
-    createQteRound: (randomness: { position: number; yellowPosition?: number; blueSweep: number; yellowSweep: number }, difficulty: {
+    createQteRound: (randomness: { position: number; blueSweep: number; yellowSweep: number }, difficulty: {
       durationMs: number;
       blueSweepDeg: number;
       blueSweepVarianceDeg: number;
@@ -2290,7 +2293,7 @@ function checkSidebarMenuRegistryContracts(): void {
     calculateQteScore: (result: string, combo: number, fever: boolean) => number;
     sanitizeQteChallengeRecords: (value: unknown) => Record<string, unknown>;
   };
-  const practiceRound = qte.createQteRound({ position: 0.98, yellowPosition: 0.1, blueSweep: 0.1, yellowSweep: 0.9 }, qte.getPracticeDifficulty());
+  const practiceRound = qte.createQteRound({ position: 0.98, blueSweep: 0.1, yellowSweep: 0.9 }, qte.getPracticeDifficulty());
   assert.equal(practiceRound.durationMs, 1200, '실전 QTE 한 바퀴 시간이 영상 기준값과 다릅니다.');
   assert.ok(practiceRound.blueSweepDeg > practiceRound.yellowSweepDeg,
     'QTE 파란색 일반 성공 영역이 노란색 대성공 영역보다 넓지 않습니다.');
@@ -2303,12 +2306,9 @@ function checkSidebarMenuRegistryContracts(): void {
   const generatedYellowSweeps = new Set<number>();
   const generatedBlueStarts = new Set<number>();
   const generatedYellowStarts = new Set<number>();
-  let yellowBeforeBlueCount = 0;
-  let yellowAfterBlueCount = 0;
   for (let sample = 0; sample <= 1_000; sample += 1) {
     const generatedRound = qte.createQteRound({
       position: sample / 1_000,
-      yellowPosition: ((sample * 97) % 1_001) / 1_000,
       blueSweep: ((sample * 37) % 1_001) / 1_000,
       yellowSweep: ((sample * 73) % 1_001) / 1_000,
     }, qte.getPracticeDifficulty());
@@ -2322,12 +2322,11 @@ function checkSidebarMenuRegistryContracts(): void {
       `QTE 색상 영역이 시작 경계를 벗어났습니다: ${generatedRound.blueStartDeg}`);
     assert.ok(generatedRound.blueStartDeg + generatedRound.blueSweepDeg <= 350,
       `QTE 파란색 영역이 종료 경계를 벗어났습니다: ${generatedRound.blueStartDeg + generatedRound.blueSweepDeg}`);
-    const yellowIsBeforeBlue = generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg <= generatedRound.blueStartDeg;
-    const yellowIsAfterBlue = generatedRound.yellowStartDeg >= generatedRound.blueStartDeg + generatedRound.blueSweepDeg;
-    assert.ok(yellowIsBeforeBlue || yellowIsAfterBlue,
-      'QTE 파란색·노란색 영역이 서로 겹칩니다.');
-    if (yellowIsBeforeBlue) yellowBeforeBlueCount += 1;
-    if (yellowIsAfterBlue) yellowAfterBlueCount += 1;
+    assert.ok(Math.abs(generatedRound.yellowStartDeg
+      - (generatedRound.blueStartDeg + generatedRound.blueSweepDeg)) < 1e-9,
+    'QTE 노란색 영역이 파란색 바로 뒤에 붙어 있지 않습니다.');
+    assert.ok(generatedRound.yellowStartDeg > generatedRound.blueStartDeg,
+      'QTE 노란색 영역이 회전 방향 기준 파란색 뒤에 배치되지 않습니다.');
     assert.ok(generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg <= 350,
       `QTE 색상 영역이 종료 경계를 벗어났습니다: ${generatedRound.yellowStartDeg + generatedRound.yellowSweepDeg}`);
   }
@@ -2335,8 +2334,6 @@ function checkSidebarMenuRegistryContracts(): void {
     'QTE 파란색·노란색 영역 크기가 매 라운드 무작위로 바뀌지 않습니다.');
   assert.ok(generatedBlueStarts.size > 10 && generatedYellowStarts.size > 10,
     'QTE 파란색·노란색 영역 위치가 매 라운드 무작위로 바뀌지 않습니다.');
-  assert.ok(yellowBeforeBlueCount > 0 && yellowAfterBlueCount > 0,
-    'QTE 노란색 영역이 항상 파란색의 같은 방향에만 배치됩니다.');
   assert.equal(
     qte.classifyQteHit(practiceRound.blueStartDeg + practiceRound.blueSweepDeg / 2, practiceRound),
     'success',
@@ -2405,6 +2402,29 @@ function checkSidebarMenuRegistryContracts(): void {
   });
   assert.equal(proxyEvolutionCost.totalSeed, 50_000_000,
     '인장 대리 제작에서 직접 제작 재료비가 중복 합산됩니다.');
+  const directEvolutionCost = evolution.calculateEvolutionCost({
+    materials: [{ name: '어비스까지 직접 진화 재료', quantity: 2, unitPriceMan: 100, payment: 'seed' }],
+    extras: {},
+    eclipse: {
+      enabled: true, baseType: 'direct-evolution', baseEquipmentCostMan: 9_999,
+      sealMethod: 'proxy', proxyFeeMan: 0,
+    },
+  });
+  assert.equal(directEvolutionCost.materialSeed, 2_000_000,
+    '직접 어비스까지 진화하는 구간의 일반 재료비가 누락됩니다.');
+  assert.equal(directEvolutionCost.eclipseBaseSeed, 0,
+    '직접 어비스까지 진화하는 방식에 완성 장비 구매비가 중복 합산됩니다.');
+  const expandedPostProcessCost = evolution.calculateEvolutionCost({
+    materials: [],
+    extras: {
+      abilityMountCostMan: 100,
+      attributeGrantCostMan: 200,
+      enhancementCostMan: 300,
+    },
+    eclipse: { enabled: false },
+  });
+  assert.equal(expandedPostProcessCost.otherEnhancementSeed, 6_000_000,
+    '어빌리티 장착·속성 부여·강화 비용이 장비 후처리 합계에 반영되지 않습니다.');
   assert.deepEqual(evolution.sanitizeEvolutionHistory([{ id: '', title: '손상', selection: {} }, null]), [],
     '손상된 진화 계산 이력이 안전하게 제외되지 않습니다.');
   assert.equal(
@@ -2607,6 +2627,17 @@ function checkWindowedFullscreenFocusContracts(): void {
     'HUD 효과·편집·게임 부착 창이 중앙 Z-order 정책 밖에서 외부 앱 위로 올라갑니다.');
   assert.match(ipcHandlers, /function reconcileGameAttachedWindows\(\)[\s\S]*?tracker\.reconcileGameZOrder\(gameHwnd, wm\.getAllWindowHwnds\(\)\)/,
     'HUD 효과·편집·사냥 동선 오버레이를 중앙 Z-order 정책으로 복귀하는 경로가 없습니다.');
+  const hudEditHandler = ipcHandlers.match(
+    /ipcMain\.handle\('set-game-overlay-edit-mode'[\s\S]*?\n  \}\);/,
+  )?.[0] || '';
+  assert.match(hudEditHandler, /if \(!tracker\.isGameRunning\(\)\) return false;/,
+    'HUD 위치 편집 시작이 실제 게임 창 존재 여부를 확인하지 않습니다.');
+  assert.match(hudEditHandler, /tracker\.focusGameWindow\(\);/,
+    'HUD 위치 편집 시작 시 최소화된 게임 복원과 전환을 시도하지 않습니다.');
+  assert.doesNotMatch(hudEditHandler, /if \([^\n]*(?:focus|restor)[^\n]*\)[^\n]*return false/i,
+    'HUD 위치 편집이 Windows 포커스 전환 실패를 게임 미실행으로 잘못 판정합니다.');
+  assert.doesNotMatch(tracker, /restoreAndFocusGameWindow|BringWindowToTop|keybd_event/,
+    'HUD 위치 편집용 강제 Z-order/가상 키 포커스 우회가 tracker에 남아 있습니다.');
   const noticeStart = manager.indexOf('export function createUpdateNoticeWindow(): void');
   const noticeEnd = manager.indexOf('export function closeUpdateNoticeWindow(): void', noticeStart);
   assert.ok(noticeStart >= 0 && noticeEnd > noticeStart, '업데이트 공지 창 생성 경로를 찾지 못했습니다.');
@@ -6130,8 +6161,18 @@ function checkDigsiteBoardContracts(): void {
   };
   const { chatParser } = require(path.join(projectRoot, 'dist', 'modules', 'chatParser.js'));
 
-  assert.equal(DIGSITE_BOARD_VISIBLE_MS, 30 * 60 * 1_000,
-    '발굴지 현황판의 고정 표시 시간이 30분이 아닙니다.');
+  assert.equal(DIGSITE_BOARD_VISIBLE_MS, 5 * 60 * 1_000,
+    '발굴지 현황판의 고정 표시 시간이 5분이 아닙니다.');
+  const constants = require(path.join(projectRoot, 'dist', 'modules', 'constants.js')) as {
+    DEFAULT_CONFIG: { digsiteHudEnabled?: boolean };
+  };
+  assert.equal(constants.DEFAULT_CONFIG.digsiteHudEnabled, true,
+    '기존 사용자에게 발굴지 현황 HUD가 기본 활성화되지 않습니다.');
+  const settingsSource = read('src/settings.html');
+  assert.match(settingsSource, /id="digsite-hud-enabled-input"/,
+    '설정 화면에 발굴지 현황 HUD 사용 여부가 없습니다.');
+  assert.match(settingsSource, /digsiteHudEnabled:\s*document\.getElementById\('digsite-hud-enabled-input'\)/,
+    '발굴지 현황 HUD 사용 여부가 설정 저장값에 포함되지 않습니다.');
   const startedAt = 1_000;
   const initial = applyDigsiteBoardEvent(createDigsiteBoardState(), { type: 'entry' }, startedAt);
   assert.equal(initial.expiresAt, startedAt + DIGSITE_BOARD_VISIBLE_MS);

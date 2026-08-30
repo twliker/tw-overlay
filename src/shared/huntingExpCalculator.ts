@@ -28,7 +28,7 @@ const DEFAULT_DOPINGS: readonly HuntingExpDopingDefinition[] = Object.freeze([
   { id: 'izabel-secret-exp', name: '이자벨의 비법 (경험)', percent: 100, duration: '30분', enabled: true, note: '' },
   { id: 'izabel-special-exp', name: '이자벨의 특선 묘약 (경험)', percent: 500, duration: '30분', enabled: true, note: '' },
   { id: 'izabel-elixir-exp', name: '이자벨의 선약 (경험)', percent: 1000, duration: '30분', enabled: false, note: '' },
-  { id: 'club-buff-e2', name: '클럽 버프 스크롤 (E-2)', percent: 200, duration: '30분', enabled: true, note: '클럽 포인트 1,000' },
+  { id: 'club-buff-e2', name: '클럽 상점 버프 (E-2)', percent: 200, duration: '30분', enabled: true, note: '클럽 포인트 1,000' },
   { id: 'exp-heart', name: '경험의 심장', percent: 400, duration: '20분', enabled: true, note: '' },
   { id: 'supreme-eos', name: '최상급 에오스의 파편', percent: 500, duration: '30분', enabled: true, note: '' },
   { id: 'earlybird-exp', name: '얼리버드 경험치 부스터', percent: 300, duration: '30분', enabled: true, note: '' },

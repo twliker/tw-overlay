@@ -60,6 +60,7 @@
     todaySummaryCollapsed?: boolean;
     todaySummaryHudPos?: { left: number; top?: number; bottom?: number };
     showHudShortcuts?: boolean;
+    digsiteHudEnabled?: boolean;
     tradeServer?: string;
     sidebarPosition?: string;
     showSidebarToastOnOverlay?: boolean;
@@ -225,6 +226,7 @@
     setChecked('today-summary-show-input', config.showTodaySummaryHud ?? defaults.showTodaySummaryHud ?? true);
     setChecked('today-summary-collapsed-input', config.todaySummaryCollapsed ?? defaults.todaySummaryCollapsed ?? true);
     setChecked('show-hud-shortcuts-input', config.showHudShortcuts ?? defaults.showHudShortcuts ?? true);
+    setChecked('digsite-hud-enabled-input', config.digsiteHudEnabled ?? defaults.digsiteHudEnabled ?? true);
     const todaySummaryPosition = config.todaySummaryHudPos
       || defaults.todaySummaryHudPos
       || { left: 0, top: 200 };

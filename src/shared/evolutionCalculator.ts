@@ -1,7 +1,7 @@
 const EVOLUTION_MOON_HERB_FIXED_COST_SEED = 650_000_000;
 const EVOLUTION_HISTORY_SCHEMA_VERSION = 1;
 
-type EvolutionEclipseBaseType = 'fake-armament' | 'abyss-equipment';
+type EvolutionEclipseBaseType = 'direct-evolution' | 'fake-armament' | 'abyss-equipment';
 type EvolutionSealMethod = 'self' | 'proxy';
 
 interface EvolutionMaterialCostInput {
@@ -18,6 +18,9 @@ interface EvolutionExtraCosts {
   enchantAttemptCostMan: number;
   magicReformCostMan: number;
   additionalOptionCostMan: number;
+  abilityMountCostMan: number;
+  attributeGrantCostMan: number;
+  enhancementCostMan: number;
 }
 
 interface EvolutionEclipseOptions {
@@ -75,11 +78,14 @@ const DEFAULT_EVOLUTION_EXTRA_COSTS: Readonly<EvolutionExtraCosts> = Object.free
   enchantAttemptCostMan: 0,
   magicReformCostMan: 0,
   additionalOptionCostMan: 0,
+  abilityMountCostMan: 0,
+  attributeGrantCostMan: 0,
+  enhancementCostMan: 0,
 });
 
 const DEFAULT_EVOLUTION_ECLIPSE_OPTIONS: Readonly<EvolutionEclipseOptions> = Object.freeze({
   enabled: false,
-  baseType: 'fake-armament',
+  baseType: 'direct-evolution',
   baseEquipmentCostMan: 0,
   sealMethod: 'self',
   proxyFeeMan: 0,
@@ -108,6 +114,9 @@ function sanitizeEvolutionExtraCosts(value: unknown): EvolutionExtraCosts {
     enchantAttemptCostMan: safeEvolutionNumber(source.enchantAttemptCostMan),
     magicReformCostMan: safeEvolutionNumber(source.magicReformCostMan),
     additionalOptionCostMan: safeEvolutionNumber(source.additionalOptionCostMan),
+    abilityMountCostMan: safeEvolutionNumber(source.abilityMountCostMan),
+    attributeGrantCostMan: safeEvolutionNumber(source.attributeGrantCostMan),
+    enhancementCostMan: safeEvolutionNumber(source.enhancementCostMan),
   };
 }
 
@@ -117,7 +126,9 @@ function sanitizeEvolutionEclipseOptions(value: unknown): EvolutionEclipseOption
     : {};
   return {
     enabled: source.enabled === true,
-    baseType: source.baseType === 'abyss-equipment' ? 'abyss-equipment' : 'fake-armament',
+    baseType: source.baseType === 'abyss-equipment' || source.baseType === 'fake-armament'
+      ? source.baseType
+      : 'direct-evolution',
     baseEquipmentCostMan: safeEvolutionNumber(source.baseEquipmentCostMan),
     sealMethod: source.sealMethod === 'proxy' ? 'proxy' : 'self',
     proxyFeeMan: safeEvolutionNumber(source.proxyFeeMan),
@@ -166,9 +177,16 @@ function calculateEvolutionCost(input: EvolutionCostCalculationInput): Evolution
   );
   const otherEnhancementSeed = evolutionManToSeed(extras.enchantAttemptCostMan)
     + evolutionManToSeed(extras.magicReformCostMan)
-    + evolutionManToSeed(extras.additionalOptionCostMan);
+    + evolutionManToSeed(extras.additionalOptionCostMan)
+    + evolutionManToSeed(extras.abilityMountCostMan)
+    + evolutionManToSeed(extras.attributeGrantCostMan)
+    + evolutionManToSeed(extras.enhancementCostMan);
 
-  const eclipseBaseSeed = eclipse.enabled ? evolutionManToSeed(eclipse.baseEquipmentCostMan) : 0;
+  // 직접 어비스까지 진화하는 경우에는 위에서 선택한 진화 구간의 재료비가 이미 합산된다.
+  // 완제품을 구매하는 두 방식에서만 별도의 베이스 장비 구매비를 더한다.
+  const eclipseBaseSeed = eclipse.enabled && eclipse.baseType !== 'direct-evolution'
+    ? evolutionManToSeed(eclipse.baseEquipmentCostMan)
+    : 0;
   let eclipseSealSeed = 0;
   if (eclipse.enabled) {
     eclipseSealSeed = eclipse.sealMethod === 'proxy'

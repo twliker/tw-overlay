@@ -292,7 +292,6 @@ function beginRound(): void {
     : qteApi.getQteChallengeDifficulty(currentStage());
   currentRound = qteApi.createQteRound({
     position: Math.random(),
-    yellowPosition: Math.random(),
     blueSweep: Math.random(),
     yellowSweep: Math.random(),
   }, difficulty);

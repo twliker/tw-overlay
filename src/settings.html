@@ -966,6 +966,19 @@
                     </button>
                   </div>
                 </div>
+
+                <!-- 6. 발굴지 현황 HUD -->
+                <label id="digsite-hud-settings-card"
+                  class="p-4 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between gap-3 cursor-pointer group">
+                  <div class="min-w-0">
+                    <span class="text-sm font-bold text-slate-200 group-hover:text-white flex items-center gap-2">
+                      <i data-lucide="pickaxe" class="w-4 h-4 text-cyan-400 shrink-0"></i> 발굴지 현황 HUD
+                    </span>
+                    <p class="text-xs text-slate-500 mt-0.5">입장 후 5분 동안 보상과 포탈 방문 현황 표시</p>
+                  </div>
+                  <input type="checkbox" id="digsite-hud-enabled-input"
+                    class="w-5 h-5 accent-cyan-600 cursor-pointer shrink-0 ml-3">
+                </label>
               </div>
             </div>
 
@@ -2806,7 +2819,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                         class="text-purple-400">3.0.2</span></p>
+                         class="text-purple-400">3.1.0</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -4416,6 +4429,12 @@
         groupId: 'game', routeIndex: 0, targetId: 'section-game-overlay'
       },
       {
+        title: '발굴지 현황 HUD 표시',
+        keywords: ['발굴지', '포탈', '미방문', '보상', '현황판', 'hud'],
+        category: '게임 HUD & 알림 > HUD 위젯 관리',
+        groupId: 'game', routeIndex: 0, targetId: 'digsite-hud-settings-card'
+      },
+      {
         title: '지능형 버프 타이머 HUD',
         keywords: ['버프', '도핑', '타이머', 'buff', 'hud'],
         category: '게임 HUD & 알림 > HUD 위젯 관리',
@@ -5824,6 +5843,7 @@
           showTodaySummaryHud: document.getElementById('today-summary-show-input').checked,
           todaySummaryCollapsed: document.getElementById('today-summary-collapsed-input').checked,
           showHudShortcuts: document.getElementById('show-hud-shortcuts-input') ? document.getElementById('show-hud-shortcuts-input').checked : true,
+          digsiteHudEnabled: document.getElementById('digsite-hud-enabled-input') ? document.getElementById('digsite-hud-enabled-input').checked : true,
           forgeQuestHudPos: document.getElementById('forge-hud-pos-left') && document.getElementById('forge-hud-pos-bottom')
             ? {
               left: parseInt(document.getElementById('forge-hud-pos-left').value),

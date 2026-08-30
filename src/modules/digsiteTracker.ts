@@ -3,7 +3,8 @@
  *
  * - 기존 `DIGSITE_ENTRY` 로그를 세션 시작 신호로 사용하고 일반 지역 8개, 포탈 보상 4개,
  *   포탈 1~4 방문 여부, 이공간 1개를 각각 독립적으로 집계합니다.
- * - 발굴지에는 명시적인 종료 채팅이 없으므로 입장 시각부터 30분 동안만 HUD를 표시합니다.
+ * - 발굴지에는 명시적인 종료 채팅이 없으므로 통상 3분 이내에 끝나는 한 판에 여유를 더해
+ *   입장 시각부터 5분 동안만 HUD를 표시합니다.
  *   상자나 포탈 로그가 들어와도 만료 시각은 연장하지 않아 지난 세션 현황이 남지 않게 합니다.
  * - 보상 로그가 중복으로 들어오더라도 각 콘텐츠 최대치에서 멈추며, 입장 전에 들어온 로그나
  *   만료 뒤 로그는 다음 세션에 섞이지 않도록 무시합니다.
@@ -15,7 +16,7 @@ import { log } from './logger';
 import { broadcastToAllWindows } from './windowMessaging';
 import type { DigsiteBoardState } from '../shared/types';
 
-export const DIGSITE_BOARD_VISIBLE_MS = 30 * 60 * 1_000;
+export const DIGSITE_BOARD_VISIBLE_MS = 5 * 60 * 1_000;
 export const DIGSITE_NORMAL_REWARD_MAX = 8;
 export const DIGSITE_PORTAL_REWARD_MAX = 4;
 export const DIGSITE_ALTERNATE_REWARD_MAX = 1;
@@ -112,7 +113,7 @@ class DigsiteTracker {
 
     if (event.type === 'entry') {
       this.scheduleFixedHide();
-      log('[DIGSITE] 입장 감지: 현황판을 초기화하고 30분 표시를 시작합니다.');
+      log('[DIGSITE] 입장 감지: 현황판을 초기화하고 5분 표시를 시작합니다.');
     } else if (wasActive && !this._state.isActive) {
       if (this._hideTimer) clearTimeout(this._hideTimer);
       this._hideTimer = null;
@@ -130,7 +131,7 @@ class DigsiteTracker {
       this._hideTimer = null;
       this._state = applyDigsiteBoardEvent(this._state, { type: 'expire' }, Date.now());
       this.notify();
-      log('[DIGSITE] 종료 로그가 없어 입장 30분 뒤 현황판을 자동으로 숨겼습니다.');
+      log('[DIGSITE] 종료 로그가 없어 입장 5분 뒤 현황판을 자동으로 숨겼습니다.');
     }, DIGSITE_BOARD_VISIBLE_MS);
     this._hideTimer.unref?.();
   }

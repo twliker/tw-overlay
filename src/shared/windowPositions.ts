@@ -46,7 +46,7 @@ export const DEFAULT_HUD_POSITIONS: Record<'xp' | 'buffTimer' | 'abandoned' | 'd
   xp: { left: 200, bottom: 0 },
   buffTimer: { left: 350, bottom: 0 },
   abandoned: { left: 200, bottom: 63 },
-  digsite: { left: 380, bottom: 63 },
+  digsite: { left: 0, bottom: 326 },
   quest: { left: 50, bottom: 215 },
   todaySummary: { left: 0, top: 200 },
 };

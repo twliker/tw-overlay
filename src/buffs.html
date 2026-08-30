@@ -17,7 +17,7 @@
 
     .buff-workspace {
       display: grid;
-      grid-template-columns: 232px minmax(0, 1fr) 292px;
+      grid-template-columns: minmax(0, 1fr) 340px;
       min-height: 0;
       flex: 1;
       background: rgba(2, 6, 23, 0.42);
@@ -34,6 +34,443 @@
       border-left: 1px solid rgba(255, 255, 255, 0.08);
     }
 
+    .catalog-head {
+      flex: 0 0 auto;
+      padding: 16px 18px 13px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(2, 6, 23, 0.34);
+    }
+
+    .catalog-title-row,
+    .catalog-filter-row,
+    .preset-heading-row,
+    .selection-heading-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .official-link {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 9px;
+      border-radius: 9px;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .official-link:hover {
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    .combination-pane {
+      background: rgba(2, 6, 23, 0.76);
+    }
+
+    .combination-head {
+      flex: 0 0 auto;
+      padding: 15px 16px 13px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .buff-summary-footer {
+      flex: 0 0 auto;
+      padding: 11px 16px 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(15, 23, 42, 0.97);
+      box-shadow: 0 -10px 24px rgba(2, 6, 23, 0.22);
+    }
+
+    .buff-summary-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .summary-kicker {
+      color: #f59e0b;
+      font-size: 10px;
+      font-weight: 950;
+      letter-spacing: .08em;
+    }
+
+    .summary-description {
+      margin-top: 2px;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 750;
+    }
+
+    .buff-summary-footer .stat-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .buff-summary-footer .stat-card {
+      padding: 7px 9px;
+      border-radius: 10px;
+    }
+
+    .buff-summary-footer .stat-label {
+      margin-bottom: 1px;
+      font-size: 10px;
+    }
+
+    .buff-summary-footer .stat-value { font-size: 13px; }
+
+    .summary-empty {
+      grid-column: 1 / -1;
+      padding: 12px;
+      border: 1px dashed rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      color: #64748b;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 750;
+    }
+
+    .preset-panel {
+      min-height: 0;
+      flex: 1 1 0;
+      display: flex;
+      flex-direction: column;
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(15, 23, 42, 0.42);
+    }
+
+    .combination-head-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .clear-selection-button {
+      color: #94a3b8;
+      font-size: 10px;
+      font-weight: 850;
+    }
+
+    .clear-selection-button:hover:not(:disabled) { color: #f87171; }
+    .clear-selection-button:disabled { opacity: .4; cursor: not-allowed; }
+
+    .preset-panel-help {
+      margin-top: 4px;
+      color: #64748b;
+      font-size: 10px;
+      line-height: 1.45;
+      font-weight: 750;
+    }
+
+    .preset-save-footer {
+      flex: 0 0 auto;
+      padding: 12px 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(15, 23, 42, 0.96);
+    }
+
+    .preset-save-footer.editing,
+    .preset-save-footer.creating {
+      border-top-color: rgba(245, 158, 11, 0.52);
+      background: linear-gradient(180deg, rgba(120, 53, 15, 0.16), rgba(15, 23, 42, 0.98));
+    }
+
+    .preset-save-description {
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 10px;
+      line-height: 1.45;
+      font-weight: 750;
+    }
+
+    .preset-editing-status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 8px;
+      padding: 7px 9px;
+      border: 1px solid rgba(245, 158, 11, 0.36);
+      border-radius: 8px;
+      color: #fcd34d;
+      background: rgba(120, 53, 15, 0.2);
+      font-size: 10px;
+      font-weight: 850;
+    }
+
+    .preset-editing-status-dot {
+      flex: 0 0 auto;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #f59e0b;
+      box-shadow: 0 0 8px rgba(245, 158, 11, 0.72);
+    }
+
+    .preset-editing-status strong {
+      color: #f8fafc;
+      font-weight: 950;
+      overflow-wrap: anywhere;
+    }
+
+    .side-section {
+      padding: 13px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.62);
+    }
+
+    .side-section + .side-section {
+      margin-top: 10px;
+    }
+
+    .side-section-title {
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .preset-new-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: 8px;
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.08);
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    .preset-new-button:hover {
+      border-color: rgba(251, 191, 36, 0.58);
+      background: rgba(245, 158, 11, 0.15);
+    }
+
+    .preset-create-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 7px;
+      margin-top: 9px;
+    }
+
+    .preset-create-actions .preset-new-button {
+      justify-content: center;
+      min-width: 0;
+      padding: 7px 6px;
+      white-space: nowrap;
+    }
+
+    .preset-new-button:disabled {
+      color: #64748b;
+      border-color: rgba(148, 163, 184, 0.14);
+      background: rgba(148, 163, 184, 0.04);
+      cursor: not-allowed;
+      opacity: .62;
+    }
+
+    .preset-card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      min-height: 0;
+      flex: 1;
+      margin-top: 9px;
+      padding-right: 3px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .preset-card {
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 11px;
+      background: rgba(2, 6, 23, 0.48);
+      transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+    }
+
+    .preset-card:hover {
+      border-color: rgba(251, 191, 36, 0.34);
+      background: rgba(120, 53, 15, 0.08);
+    }
+
+    .preset-card.active {
+      border-color: rgba(245, 158, 11, 0.72);
+      background: rgba(120, 53, 15, 0.16);
+      box-shadow: inset 3px 0 0 #f59e0b, 0 0 0 1px rgba(245, 158, 11, 0.08);
+    }
+
+    .preset-card.modified {
+      border-style: dashed;
+    }
+
+    .preset-card.editing,
+    .preset-card.creating {
+      border-style: solid;
+      border-color: #f59e0b;
+      background: linear-gradient(145deg, rgba(146, 64, 14, 0.24), rgba(120, 53, 15, 0.1));
+      box-shadow: inset 3px 0 0 #fbbf24, 0 0 18px rgba(245, 158, 11, 0.1);
+    }
+
+    .preset-card-main {
+      min-width: 0;
+      padding: 9px 10px 9px 12px;
+      text-align: left;
+    }
+
+    .preset-card-main:focus-visible,
+    .preset-card-action:focus-visible,
+    .preset-new-button:focus-visible {
+      outline: 2px solid rgba(251, 191, 36, 0.9);
+      outline-offset: -2px;
+    }
+
+    .preset-card-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .preset-card-name {
+      min-width: 0;
+      overflow: hidden;
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 950;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .preset-card.active .preset-card-name,
+    .preset-card.editing .preset-card-name,
+    .preset-card.creating .preset-card-name { color: #fcd34d; }
+
+    .preset-card-badge {
+      flex: 0 0 auto;
+      padding: 3px 5px;
+      border: 1px solid rgba(245, 158, 11, 0.32);
+      border-radius: 6px;
+      color: #fcd34d;
+      background: rgba(120, 53, 15, 0.22);
+      font-size: 9px;
+      font-weight: 1000;
+    }
+
+    .preset-card.editing .preset-card-badge,
+    .preset-card.creating .preset-card-badge {
+      color: #271604;
+      border-color: #fbbf24;
+      background: #fbbf24;
+    }
+
+    .preset-card-meta {
+      display: block;
+      margin-top: 3px;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .preset-card-actions {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding: 6px;
+      border-left: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .preset-card-action {
+      padding: 7px 8px;
+      border-radius: 7px;
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.035);
+      font-size: 10px;
+      font-weight: 900;
+    }
+
+    .preset-card-action:hover {
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.12);
+    }
+
+    .preset-card-action:disabled {
+      opacity: .56;
+      cursor: default;
+    }
+
+    .preset-card-action:disabled:hover {
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .preset-card-action.danger:hover {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.11);
+    }
+
+    .preset-card.editing .preset-card-action[data-action="edit-preset"] {
+      color: #fcd34d;
+    }
+
+    .preset-list-empty {
+      padding: 7px 9px;
+      color: #64748b;
+      text-align: center;
+      font-size: 9px;
+      font-weight: 750;
+    }
+
+    .preset-save-fields {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 7px;
+      margin-top: 9px;
+    }
+
+    .preset-save-fields .input-field {
+      min-width: 0;
+      padding: 9px 10px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+
+    .preset-save-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 7px;
+    }
+
+    .preset-save-actions button {
+      padding: 0 12px;
+      min-height: 34px;
+      border-radius: 10px;
+      color: #271604;
+      background: #f59e0b;
+      font-size: 11px;
+      font-weight: 950;
+    }
+
+    .preset-save-actions button:hover { background: #fbbf24; }
+    .preset-save-actions button:disabled { opacity: .42; cursor: not-allowed; }
+
+    .preset-save-fields #cancel-preset-edit-button {
+      color: #cbd5e1;
+      background: #334155;
+    }
+
+    .preset-save-fields #cancel-preset-edit-button:hover { background: #475569; }
+
     .pane-heading {
       font-size: 14px;
       font-weight: 900;
@@ -45,84 +482,6 @@
       font-size: 12px;
       line-height: 1.55;
       color: #94a3b8;
-    }
-
-    .preset-template,
-    .preset-item {
-      width: 100%;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.035);
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .preset-template {
-      padding: 16px;
-      text-align: left;
-      background: linear-gradient(145deg, rgba(245, 158, 11, 0.16), rgba(249, 115, 22, 0.06));
-      border-color: rgba(251, 191, 36, 0.28);
-    }
-
-    .preset-template:hover,
-    .preset-item:hover {
-      border-color: rgba(251, 191, 36, 0.5);
-      background-color: rgba(245, 158, 11, 0.08);
-      transform: translateY(-2px);
-    }
-
-    .preset-template.active,
-    .preset-item.active {
-      border-color: #f59e0b;
-      box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.45), 0 10px 24px rgba(0, 0, 0, 0.2);
-      background: rgba(245, 158, 11, 0.12);
-    }
-
-    .preset-item {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: stretch;
-      overflow: hidden;
-    }
-
-    .preset-apply {
-      min-width: 0;
-      padding: 13px 12px;
-      text-align: left;
-    }
-
-    .preset-actions {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding: 8px;
-      border-left: 1px solid rgba(255, 255, 255, 0.07);
-    }
-
-    .preset-action {
-      width: 30px;
-      height: 30px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 10px;
-      color: #94a3b8;
-    }
-
-    .preset-action:hover {
-      color: #fbbf24;
-      background: rgba(245, 158, 11, 0.12);
-    }
-
-    .preset-action.danger:hover {
-      color: #f87171;
-      background: rgba(239, 68, 68, 0.12);
-    }
-
-    .preset-save-box {
-      border-radius: 16px;
-      padding: 14px;
-      background: rgba(15, 23, 42, 0.72);
-      border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .cat-chip {
@@ -150,18 +509,17 @@
     }
 
     .buff-card {
+      flex: 0 0 auto;
       width: 100%;
-      text-align: left;
       background: rgba(30, 35, 60, 0.4);
       border: 1px solid rgba(255, 255, 255, 0.05);
       border-radius: 14px;
-      padding: 10px 12px;
+      padding: 8px;
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       display: grid;
-      grid-template-columns: 44px minmax(0, 1fr) auto;
-      gap: 11px;
-      align-items: center;
-      min-height: 66px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      min-height: 70px;
     }
 
     .buff-card:hover {
@@ -185,9 +543,93 @@
       border-color: rgba(245, 158, 11, 0.25);
     }
 
-    .buff-card:focus-visible {
+    .buff-card-main {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) auto 18px;
+      gap: 11px;
+      align-items: center;
+      padding: 2px 4px;
+      text-align: left;
+      border-radius: 9px;
+    }
+
+    .buff-card-main:focus-visible,
+    .buff-select-action:focus-visible {
       outline: 2px solid rgba(251, 191, 36, 0.9);
       outline-offset: 2px;
+    }
+
+    .buff-detail-chevron {
+      width: 16px;
+      height: 16px;
+      color: #64748b;
+      transition: transform .16s ease, color .16s ease;
+    }
+
+    .buff-card.inspected .buff-detail-chevron {
+      color: #fbbf24;
+      transform: rotate(180deg);
+    }
+
+    .buff-select-action {
+      align-self: stretch;
+      min-width: 62px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 0 9px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      color: #cbd5e1;
+      background: rgba(255, 255, 255, 0.035);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .buff-select-action:hover {
+      color: #fbbf24;
+      border-color: rgba(251, 191, 36, 0.38);
+      background: rgba(245, 158, 11, 0.1);
+    }
+
+    .buff-select-action.selected {
+      color: #271604;
+      border-color: #f59e0b;
+      background: #f59e0b;
+    }
+
+    .buff-select-action.replace {
+      color: #fde68a;
+      border-color: rgba(251, 191, 36, 0.34);
+      background: rgba(146, 64, 14, 0.22);
+    }
+
+    .buff-card-detail {
+      grid-column: 1 / -1;
+      padding: 10px 11px;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      color: #cbd5e1;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .buff-detail-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .buff-detail-tag {
+      padding: 4px 7px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 7px;
+      color: #94a3b8;
+      background: rgba(2, 6, 23, 0.42);
+      font-size: 10px;
+      font-weight: 800;
     }
 
     .buff-image-shell {
@@ -198,6 +640,7 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      padding: 3px;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       background: rgba(15, 23, 42, 0.78);
@@ -205,9 +648,26 @@
     }
 
     .buff-image {
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
+      margin: auto;
+    }
+
+    .buff-image.fit-portrait {
+      width: auto;
+      height: 100%;
+    }
+
+    .buff-image.fit-landscape {
+      width: 100%;
+      height: auto;
+    }
+
+    .buff-image.fit-square {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
     }
 
     .buff-image-shell.has-image .buff-image-placeholder {
@@ -235,85 +695,6 @@
       border-radius: 9px;
       background: rgba(245, 158, 11, 0.1);
       border: 1px solid rgba(245, 158, 11, 0.16);
-    }
-
-    .buff-detail-tooltip {
-      position: fixed;
-      z-index: 99999;
-      width: min(310px, calc(100vw - 24px));
-      padding: 13px 14px;
-      border-radius: 14px;
-      border: 1px solid rgba(251, 191, 36, 0.26);
-      background: rgba(10, 15, 29, 0.98);
-      color: #e2e8f0;
-      box-shadow: 0 16px 42px rgba(0, 0, 0, 0.48);
-      pointer-events: none;
-      opacity: 0;
-      visibility: hidden;
-      transform: translateY(4px);
-      transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
-    }
-
-    .buff-detail-tooltip.visible {
-      opacity: 1;
-      visibility: visible;
-      transform: translateY(0);
-    }
-
-    .buff-tooltip-title {
-      font-size: 13px;
-      font-weight: 900;
-      color: #fbbf24;
-    }
-
-    .buff-tooltip-description {
-      margin-top: 6px;
-      font-size: 12px;
-      line-height: 1.55;
-      color: #cbd5e1;
-    }
-
-    .buff-tooltip-meta {
-      margin-top: 9px;
-      padding-top: 9px;
-      border-top: 1px solid rgba(255, 255, 255, 0.08);
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      font-size: 12px;
-      line-height: 1.45;
-      color: #94a3b8;
-    }
-
-    .buff-tooltip-meta strong {
-      color: #e2e8f0;
-      font-weight: 800;
-    }
-
-    .selected-item {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 30px;
-      gap: 8px;
-      align-items: center;
-      padding: 11px 10px 11px 12px;
-      border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(255, 255, 255, 0.035);
-    }
-
-    .selected-remove {
-      width: 30px;
-      height: 30px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 10px;
-      color: #94a3b8;
-    }
-
-    .selected-remove:hover {
-      color: #f87171;
-      background: rgba(239, 68, 68, 0.12);
     }
 
     .stat-grid {
@@ -368,7 +749,10 @@
     }
 
     @media (max-width: 980px) {
-      .buff-workspace { grid-template-columns: 210px minmax(0, 1fr) 250px; }
+      .buff-workspace { grid-template-columns: minmax(0, 1fr) 310px; }
+      .buff-card-main { grid-template-columns: 40px minmax(0, 1fr) auto 16px; gap: 8px; }
+      .buff-select-action { min-width: 56px; }
+      .buff-summary-footer .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
 
     .no-drag {
@@ -419,145 +803,120 @@
       </div>
     </div>
 
-    <!-- 사용 흐름 안내 -->
-    <div class="no-drag px-5 py-2.5 bg-amber-500/5 border-b border-white/5 flex justify-between items-center gap-4 shrink-0">
-      <div class="flex items-center gap-2 text-xs text-slate-300 font-medium">
-        <span class="text-amber-400 font-black">1. 조합 불러오기</span>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-600"></i>
-        <span class="text-amber-400 font-black">2. 버프 고르기</span>
-        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-600"></i>
-        <span class="text-amber-400 font-black">3. 합산 결과 확인</span>
-      </div>
-      <button onclick="window.electronAPI.openExternal('https://tales.nexon.com/News/Notice/131192')"
-        class="text-xs text-slate-300 hover:text-amber-400 transition-colors flex items-center gap-1.5">
-        공식 버프 안내 <i data-lucide="external-link" class="w-4 h-4"></i>
-      </button>
-    </div>
-
     <main class="buff-workspace no-drag">
-      <!-- 1. 프리셋 -->
-      <section class="workspace-pane bg-black/20" aria-labelledby="preset-heading">
-        <div class="p-4 border-b border-white/5">
-          <div class="flex items-center gap-2">
-            <span class="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-400 inline-flex items-center justify-center text-xs font-black">1</span>
-            <h2 id="preset-heading" class="pane-heading">조합 불러오기</h2>
-          </div>
-          <p class="pane-description">기본 조합으로 시작하거나 저장한 조합을 불러오세요.</p>
-        </div>
-        <div class="p-4 space-y-4 overflow-y-auto custom-scroll flex-1">
-          <button id="standard-preset-card" type="button" class="preset-template" onclick="selectPreset('standard')">
-            <div class="flex items-center justify-between gap-2">
-              <span class="text-sm font-black text-amber-300">기본 도핑 세트</span>
-              <span id="standard-preset-state" class="text-xs text-amber-200/80 font-bold">적용</span>
-            </div>
-            <p class="mt-2 text-xs text-slate-300 leading-relaxed">자주 사용하는 9종을 한 번에 선택합니다. 적용 후 자유롭게 추가·제거할 수 있습니다.</p>
-          </button>
-
-          <div>
-            <div class="flex items-center justify-between mb-2 px-1">
-              <h3 class="text-xs font-black text-slate-300">나만의 프리셋</h3>
-              <span id="preset-count" class="text-xs text-slate-400">0개</span>
-            </div>
-            <div id="user-preset-list" class="space-y-2"></div>
-          </div>
-
-          <div class="preset-save-box">
-            <label for="preset-name" class="block text-xs font-black text-slate-200">현재 조합 저장</label>
-            <p class="mt-1 text-xs leading-relaxed text-slate-400">오른쪽에 보이는 현재 조합을 새 프리셋으로 저장합니다.</p>
-            <div class="mt-3 space-y-2">
-              <input id="preset-name"
-                class="input-field w-full bg-black/40 border-white/10 focus:border-amber-500/60 rounded-xl text-sm text-white"
-                placeholder="예: 사냥용 도핑" onkeydown="if(event.key === 'Enter') saveCurrentPreset()">
-              <button id="save-preset-button" type="button" onclick="saveCurrentPreset()"
-                class="w-full text-sm bg-amber-600 hover:bg-amber-500 text-white px-3 py-2.5 rounded-xl font-black transition-all active:scale-[0.98]">
-                현재 조합 저장
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 2. 백과 -->
+      <!-- 버프 백과 -->
       <section class="workspace-pane bg-black/10" aria-labelledby="catalog-heading">
-        <div class="p-4 border-b border-white/5 space-y-3">
-          <div class="flex items-start justify-between gap-3">
+        <div class="catalog-head">
+          <div class="catalog-title-row">
             <div>
-              <div class="flex items-center gap-2">
-                <span class="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-400 inline-flex items-center justify-center text-xs font-black">2</span>
-                <h2 id="catalog-heading" class="pane-heading">버프 고르기</h2>
-              </div>
-              <p class="pane-description">카드를 누르면 현재 조합에 바로 추가됩니다.</p>
+              <h2 id="catalog-heading" class="pane-heading">버프 백과</h2>
+              <p class="pane-description">카드를 눌러 설명을 보고, 오른쪽 선택 버튼으로 조합에 추가하세요.</p>
             </div>
-            <button id="selected-only-toggle" type="button" class="catalog-toggle" aria-pressed="false" onclick="toggleSelectedOnly()">
-              <i data-lucide="list-checks" class="w-4 h-4"></i>
-              선택만 보기
+            <button type="button" class="official-link" onclick="window.electronAPI.openExternal('https://tales.nexon.com/News/Notice/131192')">
+              공식 안내 <i data-lucide="external-link"></i>
             </button>
           </div>
-          <div class="relative group">
+          <div class="relative group mt-3">
             <i data-lucide="search"
               class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500 group-focus-within:text-amber-400 transition-colors"></i>
             <input id="search-input"
               class="input-field w-full pl-12 pr-4 py-3 text-sm bg-black/40 border-white/10 focus:border-amber-500/50 rounded-xl text-white"
               placeholder="이름이나 효과로 검색" oninput="handleSearch()">
           </div>
-          <div id="category-container" class="flex gap-2 items-center overflow-x-auto custom-scroll pb-1">
-            <button class="cat-chip active" data-category="ALL" aria-pressed="true" onclick="filterCategory('ALL')">전체</button>
-            <button class="cat-chip" data-category="Experience" aria-pressed="false" onclick="filterCategory('Experience')">경험치</button>
-            <button class="cat-chip" data-category="DropRate" aria-pressed="false" onclick="filterCategory('DropRate')">레어</button>
-            <button class="cat-chip" data-category="Stats" aria-pressed="false" onclick="filterCategory('Stats')">능력치</button>
-            <button class="cat-chip" data-category="Damage" aria-pressed="false" onclick="filterCategory('Damage')">대미지</button>
-            <button class="cat-chip" data-category="Utility" aria-pressed="false" onclick="filterCategory('Utility')">유틸</button>
+          <div class="catalog-filter-row mt-3">
+            <div id="category-container" class="flex gap-2 items-center overflow-x-auto custom-scroll pb-1">
+              <button class="cat-chip active" data-category="ALL" aria-pressed="true" onclick="filterCategory('ALL')">전체</button>
+              <button class="cat-chip" data-category="Experience" aria-pressed="false" onclick="filterCategory('Experience')">경험치</button>
+              <button class="cat-chip" data-category="DropRate" aria-pressed="false" onclick="filterCategory('DropRate')">레어</button>
+              <button class="cat-chip" data-category="Stats" aria-pressed="false" onclick="filterCategory('Stats')">능력치</button>
+              <button class="cat-chip" data-category="Damage" aria-pressed="false" onclick="filterCategory('Damage')">대미지</button>
+              <button class="cat-chip" data-category="Utility" aria-pressed="false" onclick="filterCategory('Utility')">유틸</button>
+            </div>
+            <button id="selected-only-toggle" type="button" class="catalog-toggle" aria-pressed="false" onclick="toggleSelectedOnly()">
+              <i data-lucide="list-checks" class="w-4 h-4"></i> 선택만
+            </button>
           </div>
-          <div class="flex items-center justify-between text-xs font-bold text-slate-400 px-1">
+          <div class="flex items-center justify-between text-xs font-bold text-slate-400 px-1 mt-2">
             <span id="result-count" aria-live="polite">0개 버프</span>
-            <span class="text-slate-400">같은 종류는 새 선택으로 자동 교체</span>
+            <span>같은 종류는 새 선택으로 자동 교체</span>
           </div>
         </div>
         <div id="buff-list" class="flex-1 custom-scroll overflow-y-auto p-4 flex flex-col gap-2"></div>
+        <footer class="buff-summary-footer">
+          <div class="buff-summary-heading">
+            <div>
+              <div class="summary-kicker">TOTAL BUFF EFFECT</div>
+              <div class="summary-description">선택한 버프의 합산 효과를 실시간으로 계산합니다.</div>
+            </div>
+            <span id="summary-selection-count" class="text-xs text-amber-300 font-black">0개 선택</span>
+          </div>
+          <div id="total-stats" class="stat-grid" aria-live="polite"></div>
+        </footer>
       </section>
 
-      <!-- 3. 현재 조합 -->
-      <aside class="workspace-pane bg-slate-950/70" aria-labelledby="selection-heading">
-        <div class="p-4 border-b border-white/5">
-          <div class="flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-              <span class="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-400 inline-flex items-center justify-center text-xs font-black">3</span>
-              <h2 id="selection-heading" class="pane-heading">현재 조합</h2>
+      <!-- 현재 조합과 계산 결과 -->
+      <aside class="workspace-pane combination-pane" aria-labelledby="selection-heading">
+        <div class="combination-head">
+          <div class="selection-heading-row">
+            <h2 id="selection-heading" class="pane-heading">계산 조합</h2>
+            <div class="combination-head-actions">
+              <span id="selection-count" class="text-xs text-amber-300 font-black bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg" aria-live="polite">0개</span>
+              <button id="clear-selection-button" type="button" class="clear-selection-button" onclick="resetSelection()">전체 해제</button>
             </div>
-            <span id="selection-count" class="text-xs text-amber-300 font-black bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg" aria-live="polite">0개</span>
           </div>
-          <p id="selected-preset-label" class="pane-description">직접 고른 조합</p>
+          <p id="selected-preset-label" class="pane-description">프리셋 없이 직접 선택 중</p>
         </div>
 
-        <div class="p-4 border-b border-white/5">
-          <h3 class="text-xs font-black text-slate-300 mb-2">합산 효과</h3>
-          <div id="total-stats" class="stat-grid" aria-live="polite"></div>
-          <div id="warnings" class="mt-3 text-xs text-red-300 font-bold bg-red-400/10 px-3 py-2.5 rounded-xl border border-red-400/20 hidden">
-            <i data-lucide="alert-triangle" class="w-4 h-4 inline align-bottom mr-1"></i>
-            <span id="warning-text"></span>
+        <section class="preset-panel" aria-labelledby="preset-heading">
+          <div class="preset-heading-row">
+            <div>
+              <h3 id="preset-heading" class="side-section-title">프리셋 선택 및 관리</h3>
+              <span id="preset-count" class="text-[10px] text-slate-500 font-bold">사용자 프리셋 0개</span>
+            </div>
           </div>
-        </div>
+          <p class="preset-panel-help">프리셋 없이 계산하거나, 저장된 조합을 적용·수정·삭제할 수 있습니다. 선택한 버프는 왼쪽의 ‘선택만’에서 확인하세요.</p>
+          <div class="preset-create-actions">
+            <button id="begin-empty-preset-button" type="button" class="preset-new-button" onclick="beginPresetCreation('empty')">
+              <i data-lucide="file-plus-2" class="w-3.5 h-3.5"></i> 빈 프리셋 만들기
+            </button>
+            <button id="begin-selected-preset-button" type="button" class="preset-new-button" onclick="beginPresetCreation('selected')" disabled>
+              <i data-lucide="copy-plus" class="w-3.5 h-3.5"></i> 선택된 버프로 프리셋 만들기 <span id="selected-preset-source-count">(0)</span>
+            </button>
+          </div>
+          <div id="preset-list" class="preset-card-list custom-scroll" aria-live="polite"></div>
+        </section>
 
-        <div class="min-h-0 flex-1 flex flex-col">
-          <div class="px-4 pt-4 pb-2 flex items-center justify-between">
-            <h3 class="text-xs font-black text-slate-300">선택한 버프</h3>
-            <button id="clear-selection-button" type="button" onclick="resetSelection()"
-              class="text-xs text-slate-300 hover:text-red-300 transition-colors">전체 해제</button>
+        <footer id="preset-save-footer" class="preset-save-footer">
+          <h3 id="preset-save-title" class="side-section-title">프리셋을 선택하거나 새로 만드세요</h3>
+          <p id="preset-save-description" class="preset-save-description">위의 생성 버튼 또는 저장된 카드의 수정 버튼을 이용하세요.</p>
+          <div id="preset-editing-status" class="preset-editing-status hidden" role="status" aria-live="polite">
+            <span class="preset-editing-status-dot"></span>
+            <span><strong id="preset-editing-name"></strong> <span id="preset-mode-label"></span></span>
           </div>
-          <div id="selected-buff-list" class="min-h-0 flex-1 overflow-y-auto custom-scroll px-4 pb-4 space-y-2"></div>
-        </div>
+          <div id="preset-save-fields" class="preset-save-fields hidden">
+            <input id="preset-name" class="input-field bg-black/40 border-white/10 focus:border-amber-500/60 text-white"
+              placeholder="새 프리셋 이름" onkeydown="if(event.key === 'Enter') saveCurrentPreset()">
+            <div class="preset-save-actions">
+              <button id="cancel-preset-edit-button" type="button" class="hidden" onclick="cancelPresetEditing()">수정 취소</button>
+              <button id="save-preset-button" type="button" onclick="saveCurrentPreset()">새 프리셋 저장</button>
+            </div>
+          </div>
+        </footer>
       </aside>
     </main>
   </div>
-
-  <div id="buff-detail-tooltip" class="buff-detail-tooltip" role="tooltip" aria-hidden="true"></div>
 
   <script>
     let allBuffs = [];
     let selectedBuffIds = new Set();
     let currentCategory = 'ALL';
     let activePresetId = null;
+    let editingPresetId = null;
+    let creatingPreset = false;
+    let presetCreationMode = null;
+    let presetEditingSnapshot = null;
     let showSelectedOnly = false;
+    let inspectedBuffId = null;
 
     const CATEGORY_LABELS = {
       ALL: '전체',
@@ -584,7 +943,14 @@
     async function loadData() {
       try {
         const response = await fetch('assets/data/buffs.json');
-        allBuffs = await response.json();
+        const loadedBuffs = await response.json();
+        allBuffs = (Array.isArray(loadedBuffs) ? loadedBuffs : []).sort((left, right) => {
+          const byName = String(left.name || '').localeCompare(String(right.name || ''), 'ko-KR', {
+            sensitivity: 'base',
+            numeric: true,
+          });
+          return byName || String(left.id || '').localeCompare(String(right.id || ''), 'en');
+        });
         renderList();
       } catch (e) {
         console.error('Failed to load buffs:', e);
@@ -604,35 +970,197 @@
       } catch {
         activePresetId = null;
       }
+      if (activePresetId !== 'standard'
+        && activePresetId !== null
+        && !getPresets().some(preset => Number(preset.id) === Number(activePresetId))) {
+        activePresetId = null;
+      }
       renderList();
     }
-    function getPresets() { const saved = localStorage.getItem('buff_presets'); if (!saved) return []; try { const parsed = JSON.parse(saved); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
+    function getPresets() {
+      const saved = localStorage.getItem('buff_presets');
+      if (!saved) return [];
+      try {
+        const parsed = JSON.parse(saved);
+        if (!Array.isArray(parsed)) return [];
+        if (allBuffs.length === 0) return parsed;
+        const validIds = new Set(allBuffs.map(buff => buff.id));
+        let changed = false;
+        const sanitized = parsed.map(preset => {
+          const originalIds = Array.isArray(preset.buffIds) ? preset.buffIds : [];
+          const buffIds = originalIds.filter(id => validIds.has(id));
+          if (buffIds.length !== originalIds.length || !Array.isArray(preset.buffIds)) changed = true;
+          return { ...preset, buffIds };
+        });
+        if (changed) localStorage.setItem('buff_presets', JSON.stringify(sanitized));
+        return sanitized;
+      } catch {
+        return [];
+      }
+    }
+    function capturePresetEditingSnapshot() {
+      return {
+        buffIds: Array.from(selectedBuffIds),
+        activePresetId,
+        name: document.getElementById('preset-name').value,
+      };
+    }
+    function leavePresetEditing(restoreSnapshot) {
+      const snapshot = presetEditingSnapshot;
+      editingPresetId = null;
+      creatingPreset = false;
+      presetCreationMode = null;
+      presetEditingSnapshot = null;
+      if (restoreSnapshot && snapshot) {
+        selectedBuffIds = new Set(snapshot.buffIds.filter(id => allBuffs.some(buff => buff.id === id)));
+        activePresetId = snapshot.activePresetId;
+        document.getElementById('preset-name').value = snapshot.name;
+      } else {
+        document.getElementById('preset-name').value = '';
+      }
+    }
+    function updatePresetEditingUi() {
+      const presets = getPresets();
+      const preset = editingPresetId === null
+        ? null
+        : presets.find(item => Number(item.id) === Number(editingPresetId));
+      if (editingPresetId !== null && !preset) {
+        editingPresetId = null;
+        presetEditingSnapshot = null;
+      }
+      const isEditing = Boolean(preset);
+      const isCreating = creatingPreset && !isEditing;
+      const hasActiveMode = isEditing || isCreating;
+      const footer = document.getElementById('preset-save-footer');
+      footer.classList.toggle('editing', isEditing);
+      footer.classList.toggle('creating', isCreating);
+      document.getElementById('preset-save-title').textContent = isEditing
+        ? `'${String(preset.name || '프리셋')}' 수정`
+        : isCreating
+          ? (presetCreationMode === 'empty' ? '빈 프리셋 생성' : '선택된 버프로 프리셋 생성')
+          : '프리셋을 선택하거나 새로 만드세요';
+      document.getElementById('preset-save-description').textContent = isEditing
+        ? `이름과 선택 버프 ${selectedBuffIds.size}개를 바꾼 뒤 변경 저장을 누르세요.`
+        : isCreating
+          ? `선택 버프 ${selectedBuffIds.size}개에 이름을 붙인 뒤 새 프리셋 저장을 누르세요.`
+          : '위의 생성 버튼 또는 저장된 카드의 수정 버튼을 이용하세요.';
+      document.getElementById('preset-editing-status').classList.toggle('hidden', !hasActiveMode);
+      document.getElementById('preset-editing-name').textContent = isEditing
+        ? `'${String(preset.name || '프리셋')}'`
+        : isCreating ? `'새 프리셋'` : '';
+      document.getElementById('preset-mode-label').textContent = isEditing ? '프리셋 수정 중' : isCreating ? '생성 중' : '';
+      document.getElementById('preset-save-fields').classList.toggle('hidden', !hasActiveMode);
+      document.getElementById('preset-name').placeholder = isEditing ? '프리셋 이름' : '새 프리셋 이름';
+      const cancelButton = document.getElementById('cancel-preset-edit-button');
+      cancelButton.classList.toggle('hidden', !hasActiveMode);
+      cancelButton.textContent = isEditing ? '수정 취소' : '생성 취소';
+      document.getElementById('save-preset-button').textContent = isEditing ? '변경 저장' : '새 프리셋 저장';
+      updatePresetCreationButtons();
+    }
+    function updatePresetCreationButtons() {
+      const hasActiveMode = creatingPreset || editingPresetId !== null;
+      const emptyButton = document.getElementById('begin-empty-preset-button');
+      const selectedButton = document.getElementById('begin-selected-preset-button');
+      document.getElementById('selected-preset-source-count').textContent = `(${selectedBuffIds.size})`;
+      emptyButton.disabled = hasActiveMode;
+      selectedButton.disabled = hasActiveMode || selectedBuffIds.size === 0;
+    }
+    function beginPresetCreation(mode) {
+      if (mode !== 'empty' && mode !== 'selected') return;
+      if (mode === 'selected' && selectedBuffIds.size === 0) return;
+      if (creatingPreset) {
+        const nameInput = document.getElementById('preset-name');
+        nameInput.focus();
+        nameInput.select();
+        return;
+      }
+      if (editingPresetId !== null) {
+        leavePresetEditing(true);
+        saveCurrentSelection();
+      }
+      presetEditingSnapshot = capturePresetEditingSnapshot();
+      creatingPreset = true;
+      presetCreationMode = mode;
+      activePresetId = null;
+      if (mode === 'empty') selectedBuffIds.clear();
+      const nameInput = document.getElementById('preset-name');
+      nameInput.value = '';
+      saveCurrentSelection();
+      renderPresets();
+      renderList(document.getElementById('search-input').value, true);
+      nameInput.focus();
+      nameInput.select();
+    }
+    function beginPresetEditing(presetId) {
+      const preset = getPresets().find(item => Number(item.id) === Number(presetId));
+      if (!preset) return;
+      if (creatingPreset) {
+        leavePresetEditing(true);
+        saveCurrentSelection();
+      }
+      if (editingPresetId === null) presetEditingSnapshot = capturePresetEditingSnapshot();
+      const isCurrentPreset = Number(activePresetId) === Number(preset.id);
+      if (!isCurrentPreset) {
+        selectedBuffIds = new Set((Array.isArray(preset.buffIds) ? preset.buffIds : []).filter(id => allBuffs.some(buff => buff.id === id)));
+      }
+      activePresetId = preset.id;
+      editingPresetId = preset.id;
+      document.getElementById('preset-name').value = String(preset.name || '');
+      saveCurrentSelection();
+      renderPresets();
+      renderList(document.getElementById('search-input').value, true);
+    }
+    function cancelPresetEditing() {
+      if (editingPresetId === null && !creatingPreset) return;
+      leavePresetEditing(true);
+      saveCurrentSelection();
+      renderPresets();
+      renderList(document.getElementById('search-input').value, true);
+    }
     function saveCurrentPreset() {
+      if (editingPresetId === null && !creatingPreset) return;
       if (selectedBuffIds.size === 0) return alert('먼저 저장할 버프를 선택해 주세요.');
       const nameInput = document.getElementById('preset-name');
-      const name = (nameInput.value.trim() || `프리셋 ${getPresets().length + 1}`).slice(0, 40);
-      const newPreset = { id: Date.now(), name, buffIds: Array.from(selectedBuffIds) };
       const presets = getPresets();
+      const editingIndex = editingPresetId === null
+        ? -1
+        : presets.findIndex(preset => Number(preset.id) === Number(editingPresetId));
+      if (editingIndex >= 0) {
+        const existing = presets[editingIndex];
+        existing.name = (nameInput.value.trim() || String(existing.name || '프리셋')).slice(0, 40);
+        existing.buffIds = Array.from(selectedBuffIds);
+        localStorage.setItem('buff_presets', JSON.stringify(presets));
+        activePresetId = existing.id;
+        leavePresetEditing(false);
+        saveCurrentSelection();
+        renderPresets();
+        renderList(document.getElementById('search-input').value, true);
+        return;
+      }
+      const name = (nameInput.value.trim() || `프리셋 ${presets.length + 1}`).slice(0, 40);
+      const newPreset = { id: Date.now(), name, buffIds: Array.from(selectedBuffIds) };
       presets.push(newPreset);
       localStorage.setItem('buff_presets', JSON.stringify(presets));
       nameInput.value = '';
       activePresetId = newPreset.id;
+      creatingPreset = false;
+      presetCreationMode = null;
+      presetEditingSnapshot = null;
       saveCurrentSelection();
       renderPresets();
-      updateSummary();
+      renderList(document.getElementById('search-input').value, true);
     }
-    function updatePreset(presetId) {
-      const presets = getPresets();
-      const idx = presets.findIndex(p => Number(p.id) === Number(presetId));
-      if (idx === -1) return;
-      presets[idx].buffIds = Array.from(selectedBuffIds);
-      localStorage.setItem('buff_presets', JSON.stringify(presets));
-      activePresetId = presets[idx].id;
+    function useDirectSelection() {
+      if (editingPresetId !== null || creatingPreset) leavePresetEditing(false);
+      selectedBuffIds.clear();
+      activePresetId = null;
+      document.getElementById('preset-name').value = '';
       saveCurrentSelection();
       renderPresets();
-      updateSummary();
+      renderList(document.getElementById('search-input').value, true);
     }
     function selectPreset(id) {
+      if (editingPresetId !== null || creatingPreset) leavePresetEditing(false);
       const nameInput = document.getElementById('preset-name');
       nameInput.value = '';
       if (id === 'standard') {
@@ -646,17 +1174,20 @@
       }
       saveCurrentSelection();
       renderPresets();
-      renderList(document.getElementById('search-input').value);
+      renderList(document.getElementById('search-input').value, true);
     }
     function deselectPreset() {
       selectedBuffIds.clear();
-      activePresetId = null;
+      if (editingPresetId === null) activePresetId = null;
       saveCurrentSelection();
       renderPresets();
-      renderList(document.getElementById('search-input').value);
+      renderList(document.getElementById('search-input').value, true);
     }
     function deletePreset(presetId) {
-      if (!confirm('이 프리셋을 삭제할까요?')) return;
+      const targetPreset = getPresets().find(p => Number(p.id) === Number(presetId));
+      if (!targetPreset) return;
+      if (!confirm(`'${String(targetPreset.name || '프리셋')}' 프리셋을 삭제할까요?`)) return;
+      if (Number(editingPresetId) === Number(presetId)) leavePresetEditing(false);
       const filtered = getPresets().filter(p => Number(p.id) !== Number(presetId));
       localStorage.setItem('buff_presets', JSON.stringify(filtered));
       if (Number(activePresetId) === Number(presetId)) activePresetId = null;
@@ -668,74 +1199,152 @@
       return JSON.stringify(Array.from(left || []).sort()) === JSON.stringify(Array.from(right || []).sort());
     }
     function renderPresets() {
-      const container = document.getElementById('user-preset-list');
       const presets = getPresets();
-      const stdCard = document.getElementById('standard-preset-card');
+      const container = document.getElementById('preset-list');
       const standardIds = window.buffConstants.STANDARD_BUFFS || [];
       const standardActive = activePresetId === 'standard';
-      const standardModified = standardActive && !sameBuffIds(standardIds, selectedBuffIds);
-      stdCard.classList.toggle('active', standardActive);
-      document.getElementById('standard-preset-state').textContent = standardActive
-        ? (standardModified ? '수정됨' : '적용됨')
-        : '적용';
-      document.getElementById('preset-count').textContent = `${presets.length}개`;
       container.replaceChildren();
-      if (presets.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'text-xs text-slate-400 py-3 px-1 leading-relaxed';
-        empty.textContent = '저장된 프리셋이 없습니다. 버프를 고른 뒤 아래에서 저장해 보세요.';
-        container.appendChild(empty);
-        return;
-      }
-      presets.forEach(p => {
-        const presetId = Number(p.id);
-        if (!Number.isFinite(presetId)) return;
-        const isActive = Number(activePresetId) === presetId;
-        const presetBuffIds = Array.isArray(p.buffIds) ? p.buffIds : [];
-        const isModified = isActive && !sameBuffIds(presetBuffIds, selectedBuffIds);
-        const item = document.createElement('div');
-        item.className = `preset-item${isActive ? ' active' : ''}`;
+
+      const appendPresetCard = ({ id, name, buffIds, isStandard = false, isDirect = false, isDraft = false }) => {
+        const numericId = Number(id);
+        if (!isStandard && !isDirect && !isDraft && !Number.isFinite(numericId)) return;
+        const normalizedIds = Array.isArray(buffIds) ? buffIds : [];
+        const isActive = isDraft
+          ? creatingPreset
+          : isDirect
+            ? activePresetId === null && !creatingPreset
+          : isStandard ? standardActive : Number(activePresetId) === numericId;
+        const isEditing = !isStandard && !isDirect && !isDraft && Number(editingPresetId) === numericId;
+        const isCreating = isDraft && creatingPreset;
+        const isModified = !isDirect && !isDraft && isActive && !sameBuffIds(normalizedIds, selectedBuffIds);
+        const displayCount = isActive ? selectedBuffIds.size : normalizedIds.length;
+        const stateLabel = isCreating
+          ? '생성 중'
+          : isEditing
+          ? '수정 중'
+          : isModified ? '변경됨' : isActive ? (isDirect ? '직접 계산 중' : '사용 중') : '';
+        const card = document.createElement('article');
+        card.className = `preset-card${isActive ? ' active' : ''}${isModified ? ' modified' : ''}${isEditing ? ' editing' : ''}${isCreating ? ' creating' : ''}`;
+        card.dataset.presetId = isDraft ? 'new' : isDirect ? 'direct' : isStandard ? 'standard' : String(numericId);
 
         const applyButton = document.createElement('button');
         applyButton.type = 'button';
-        applyButton.className = 'preset-apply';
-        const name = document.createElement('span');
-        name.className = `block text-xs font-black truncate ${isActive ? 'text-amber-300' : 'text-slate-200'}`;
-        name.textContent = String(p.name || `프리셋 ${presetId}`);
-        const meta = document.createElement('span');
-        meta.className = 'block mt-1 text-xs text-slate-400';
-        meta.textContent = `${isActive ? selectedBuffIds.size : presetBuffIds.length}개${isModified ? ' · 수정됨' : ''}`;
-        applyButton.append(name, meta);
-        applyButton.addEventListener('click', () => selectPreset(presetId));
-
-        const actions = document.createElement('div');
-        actions.className = 'preset-actions';
-        if (isModified) {
-          const updateButton = document.createElement('button');
-          updateButton.type = 'button';
-          updateButton.className = 'preset-action';
-          updateButton.title = '현재 조합으로 업데이트';
-          updateButton.setAttribute('aria-label', `${name.textContent} 현재 조합으로 업데이트`);
-          updateButton.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i>';
-          updateButton.addEventListener('click', () => updatePreset(presetId));
-          actions.appendChild(updateButton);
+        applyButton.className = 'preset-card-main';
+        applyButton.dataset.action = 'apply-preset';
+        applyButton.setAttribute('aria-pressed', String(isActive));
+        applyButton.setAttribute('aria-label', isDraft ? '새 프리셋 이름 입력' : isDirect ? '프리셋 없이 직접 선택' : `${name} 프리셋 적용`);
+        const titleRow = document.createElement('span');
+        titleRow.className = 'preset-card-title-row';
+        const title = document.createElement('strong');
+        title.className = 'preset-card-name';
+        title.textContent = String(name);
+        titleRow.appendChild(title);
+        if (stateLabel) {
+          const badge = document.createElement('span');
+          badge.className = 'preset-card-badge';
+          badge.textContent = stateLabel;
+          titleRow.appendChild(badge);
         }
-        const deleteButton = document.createElement('button');
-        deleteButton.type = 'button';
-        deleteButton.className = 'preset-action danger';
-        deleteButton.title = '프리셋 삭제';
-        deleteButton.setAttribute('aria-label', `${name.textContent} 삭제`);
-        deleteButton.innerHTML = '<i data-lucide="trash-2" class="w-4 h-4"></i>';
-        deleteButton.addEventListener('click', () => deletePreset(presetId));
-        actions.appendChild(deleteButton);
-        item.append(applyButton, actions);
-        container.appendChild(item);
+        const meta = document.createElement('span');
+        meta.className = 'preset-card-meta';
+        meta.textContent = isDraft
+          ? `${selectedBuffIds.size}개 버프 · ${presetCreationMode === 'empty' ? '빈 상태에서 구성 중' : '선택값에서 구성 중'}`
+          : isDirect
+          ? '현재 선택 초기화 후 자유롭게 구성'
+          : isStandard ? `${displayCount}개 버프 · 기본 제공` : `${displayCount}개 버프 · 클릭하여 적용`;
+        applyButton.append(titleRow, meta);
+        applyButton.addEventListener('click', () => {
+          if (isDraft) document.getElementById('preset-name').focus();
+          else if (isDirect) useDirectSelection();
+          else selectPreset(isStandard ? 'standard' : numericId);
+        });
+        card.appendChild(applyButton);
+
+        if (!isStandard && !isDirect && !isDraft) {
+          const actions = document.createElement('div');
+          actions.className = 'preset-card-actions';
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.className = 'preset-card-action';
+          editButton.dataset.action = 'edit-preset';
+          editButton.textContent = '수정';
+          editButton.disabled = isEditing;
+          editButton.setAttribute('aria-label', `${name} 프리셋 수정`);
+          editButton.addEventListener('click', () => beginPresetEditing(numericId));
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.className = 'preset-card-action danger';
+          deleteButton.dataset.action = 'delete-preset';
+          deleteButton.textContent = '삭제';
+          deleteButton.setAttribute('aria-label', `${name} 프리셋 삭제`);
+          deleteButton.addEventListener('click', () => deletePreset(numericId));
+          actions.append(editButton, deleteButton);
+          card.appendChild(actions);
+        }
+        container.appendChild(card);
+      };
+
+      if (creatingPreset) {
+        appendPresetCard({
+          id: 'new',
+          name: '새 프리셋',
+          buffIds: Array.from(selectedBuffIds),
+          isDraft: true,
+        });
+      }
+      appendPresetCard({
+        id: 'direct',
+        name: '프리셋 없이 직접 선택',
+        buffIds: Array.from(selectedBuffIds),
+        isDirect: true,
       });
+      appendPresetCard({
+        id: 'standard',
+        name: '기본 도핑 세트',
+        buffIds: standardIds,
+        isStandard: true,
+      });
+      presets.forEach(preset => appendPresetCard({
+        id: preset.id,
+        name: String(preset.name || `프리셋 ${preset.id}`),
+        buffIds: preset.buffIds,
+      }));
+      if (presets.length === 0 && !creatingPreset) {
+        const empty = document.createElement('div');
+        empty.className = 'preset-list-empty';
+        empty.textContent = '저장한 사용자 프리셋이 없습니다.';
+        container.appendChild(empty);
+      }
+      document.getElementById('preset-count').textContent = `사용자 프리셋 ${presets.length}개`;
+      updatePresetEditingUi();
       lucide.createIcons();
     }
-    function renderList(query = '') {
+    function inspectBuff(id) {
+      inspectedBuffId = inspectedBuffId === id ? null : id;
+      renderList(document.getElementById('search-input').value, true);
+    }
+    function attachBuffImageFit(image) {
+      const shell = image.closest('.buff-image-shell');
+      const applyAspectFit = () => {
+        if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+        image.classList.toggle('fit-portrait', image.naturalHeight > image.naturalWidth);
+        image.classList.toggle('fit-landscape', image.naturalWidth > image.naturalHeight);
+        image.classList.toggle('fit-square', image.naturalWidth === image.naturalHeight);
+      };
+      const showFallback = () => {
+        image.remove();
+        shell?.classList.remove('has-image');
+      };
+      image.addEventListener('load', applyAspectFit, { once: true });
+      image.addEventListener('error', showFallback, { once: true });
+      if (image.complete) {
+        if (image.naturalWidth > 0) applyAspectFit();
+        else showFallback();
+      }
+    }
+    function renderList(query = '', preserveScroll = false) {
       const list = document.getElementById('buff-list');
-      hideBuffTooltip();
+      const previousScrollTop = preserveScroll ? list.scrollTop : 0;
       list.replaceChildren();
       const normalizedQuery = String(query || '').trim().toLocaleLowerCase('ko-KR');
       const filtered = allBuffs.filter(item => {
@@ -752,21 +1361,19 @@
       filtered.forEach(buff => {
         const isSelected = selectedBuffIds.has(buff.id);
         const isConflicting = !isSelected && buff.group !== 'none' && activeGroups.has(buff.group);
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = `buff-card ${isSelected ? 'selected' : ''} ${isConflicting ? 'conflicting' : ''}`;
-        card.setAttribute('aria-pressed', String(isSelected));
-        card.setAttribute('aria-label', `${buff.name}, ${buff.effect}, ${isSelected ? '선택 해제' : '선택'}`);
-        card.setAttribute('aria-describedby', 'buff-detail-tooltip');
-        card.onclick = () => toggleSelection(buff.id);
-        card.addEventListener('mouseenter', () => showBuffTooltip(card, buff, isConflicting));
-        card.addEventListener('mouseleave', hideBuffTooltip);
-        card.addEventListener('focus', () => showBuffTooltip(card, buff, isConflicting));
-        card.addEventListener('blur', hideBuffTooltip);
+        const isInspected = inspectedBuffId === buff.id;
+        const card = document.createElement('article');
+        card.className = `buff-card ${isSelected ? 'selected' : ''} ${isConflicting ? 'conflicting' : ''} ${isInspected ? 'inspected' : ''}`;
         const imageMarkup = buff.image
-          ? `<img class="buff-image" src="${escapeHtml(buff.image)}" alt="" onerror="this.remove(); this.parentElement.classList.remove('has-image')">`
+          ? `<img class="buff-image" src="${escapeHtml(buff.image)}" alt="">`
           : '';
-        card.innerHTML = `
+        const detailButton = document.createElement('button');
+        detailButton.type = 'button';
+        detailButton.className = 'buff-card-main';
+        detailButton.setAttribute('aria-expanded', String(isInspected));
+        detailButton.setAttribute('aria-label', `${buff.name} 상세 설명 ${isInspected ? '닫기' : '보기'}`);
+        detailButton.addEventListener('click', () => inspectBuff(buff.id));
+        detailButton.innerHTML = `
           <span class="buff-image-shell ${buff.image ? 'has-image' : ''}">
             ${imageMarkup}
             <span class="buff-image-placeholder" aria-hidden="true"><i data-lucide="sparkles" class="w-5 h-5"></i></span>
@@ -776,8 +1383,35 @@
             <span class="buff-effect mt-1 text-xs text-slate-300 font-bold">${escapeHtml(buff.effect)}</span>
           </span>
           <span class="buff-duration">${escapeHtml(buff.duration)}</span>
+          <i data-lucide="chevron-down" class="buff-detail-chevron" aria-hidden="true"></i>
         `;
+
+        const selectButton = document.createElement('button');
+        selectButton.type = 'button';
+        selectButton.className = `buff-select-action${isSelected ? ' selected' : ''}${isConflicting ? ' replace' : ''}`;
+        selectButton.setAttribute('aria-pressed', String(isSelected));
+        selectButton.setAttribute('aria-label', `${buff.name} ${isSelected ? '선택 해제' : isConflicting ? '같은 종류 버프와 교체' : '조합에 추가'}`);
+        selectButton.innerHTML = isSelected
+          ? '<i data-lucide="check" class="w-4 h-4"></i><span>선택됨</span>'
+          : isConflicting
+            ? '<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i><span>교체</span>'
+            : '<i data-lucide="plus" class="w-4 h-4"></i><span>추가</span>';
+        selectButton.addEventListener('click', () => toggleSelection(buff.id));
+        card.append(detailButton, selectButton);
+
+        if (isInspected) {
+          const detail = document.createElement('div');
+          detail.className = 'buff-card-detail';
+          const detailTags = [`분류 · ${getCategoryLabel(buff.category)}`];
+          if (buff.group && buff.group !== 'none') {
+            detailTags.push(isConflicting ? '같은 종류 선택 시 기존 버프 교체' : '같은 종류와 중복 불가');
+          }
+          detail.innerHTML = `<p>${escapeHtml(buff.description || '추가 설명이 없습니다.')}</p><div class="buff-detail-meta">${detailTags.map(tag => `<span class="buff-detail-tag">${escapeHtml(tag)}</span>`).join('')}</div>`;
+          card.appendChild(detail);
+        }
         list.appendChild(card);
+        const image = card.querySelector('.buff-image');
+        if (image) attachBuffImageFit(image);
       });
       if (filtered.length === 0) {
         const empty = document.createElement('div');
@@ -790,66 +1424,9 @@
       document.getElementById('result-count').textContent = `${filtered.length}개 표시 · 전체 ${allBuffs.length}개`;
       updateSummary();
       lucide.createIcons();
-    }
-    function showBuffTooltip(anchor, buff, isConflicting) {
-      const tooltip = document.getElementById('buff-detail-tooltip');
-      if (!tooltip) return;
-      tooltip.replaceChildren();
-
-      const title = document.createElement('div');
-      title.className = 'buff-tooltip-title';
-      title.textContent = buff.name;
-      const description = document.createElement('p');
-      description.className = 'buff-tooltip-description';
-      description.textContent = buff.description || '추가 설명이 없습니다.';
-      const meta = document.createElement('div');
-      meta.className = 'buff-tooltip-meta';
-
-      const category = document.createElement('div');
-      category.innerHTML = '<strong>분류</strong> ';
-      category.append(document.createTextNode(getCategoryLabel(buff.category)));
-      meta.appendChild(category);
-
-      if (buff.group && buff.group !== 'none') {
-        const stacking = document.createElement('div');
-        stacking.innerHTML = '<strong>중첩</strong> ';
-        stacking.append(document.createTextNode(isConflicting
-          ? '선택하면 현재 선택된 같은 종류 버프를 교체합니다.'
-          : '같은 종류의 다른 버프와 동시에 적용되지 않습니다.'));
-        meta.appendChild(stacking);
+      if (preserveScroll) {
+        list.scrollTop = Math.min(previousScrollTop, Math.max(0, list.scrollHeight - list.clientHeight));
       }
-
-      const cautions = [];
-      if (buff.removeOnDeath) cautions.push('사망 시 삭제');
-      if (buff.removeOnExit) cautions.push('재접속 시 삭제');
-      if (cautions.length > 0) {
-        const caution = document.createElement('div');
-        caution.innerHTML = '<strong>주의</strong> ';
-        caution.append(document.createTextNode(cautions.join(' · ')));
-        meta.appendChild(caution);
-      }
-
-      tooltip.append(title, description, meta);
-      tooltip.setAttribute('aria-hidden', 'false');
-      tooltip.classList.add('visible');
-
-      const anchorRect = anchor.getBoundingClientRect();
-      const tooltipRect = tooltip.getBoundingClientRect();
-      const margin = 10;
-      let left = anchorRect.right + margin;
-      if (left + tooltipRect.width > window.innerWidth - margin) {
-        left = anchorRect.left - tooltipRect.width - margin;
-      }
-      left = Math.max(margin, Math.min(left, window.innerWidth - tooltipRect.width - margin));
-      const top = Math.max(margin, Math.min(anchorRect.top, window.innerHeight - tooltipRect.height - margin));
-      tooltip.style.left = `${left}px`;
-      tooltip.style.top = `${top}px`;
-    }
-    function hideBuffTooltip() {
-      const tooltip = document.getElementById('buff-detail-tooltip');
-      if (!tooltip) return;
-      tooltip.classList.remove('visible');
-      tooltip.setAttribute('aria-hidden', 'true');
     }
     function toggleSelection(id) {
       const buff = allBuffs.find(b => b.id === id);
@@ -861,13 +1438,9 @@
         }
         selectedBuffIds.add(id);
       }
-      saveCurrentSelection(); renderPresets(); renderList(document.getElementById('search-input').value);
-    }
-    function removeSelection(id) {
-      if (!selectedBuffIds.delete(id)) return;
       saveCurrentSelection();
       renderPresets();
-      renderList(document.getElementById('search-input').value);
+      renderList(document.getElementById('search-input').value, true);
     }
     function toggleSelectedOnly() {
       showSelectedOnly = !showSelectedOnly;
@@ -887,69 +1460,35 @@
       return 0;
     }
     function getActivePresetLabel() {
+      if (creatingPreset) return '새 프리셋 생성 중';
       if (activePresetId === 'standard') {
         return sameBuffIds(window.buffConstants.STANDARD_BUFFS || [], selectedBuffIds)
           ? '기본 도핑 세트 적용 중'
           : '기본 도핑 세트에서 수정한 조합';
       }
       const preset = getPresets().find(p => Number(p.id) === Number(activePresetId));
-      if (!preset) return '직접 고른 조합';
+      if (!preset) return '프리셋 없이 직접 선택 중';
+      if (Number(editingPresetId) === Number(preset.id)) return `${String(preset.name || '프리셋')} 수정 중`;
       return sameBuffIds(preset.buffIds || [], selectedBuffIds)
         ? `${String(preset.name || '프리셋')} 적용 중`
         : `${String(preset.name || '프리셋')}에서 수정한 조합`;
     }
-    function renderSelectedBuffs(selectedBuffs) {
-      const container = document.getElementById('selected-buff-list');
-      container.replaceChildren();
-      if (selectedBuffs.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'h-full min-h-32 rounded-2xl border border-dashed border-white/10 flex flex-col items-center justify-center text-center px-4 text-slate-400';
-        empty.innerHTML = '<i data-lucide="mouse-pointer-click" class="w-6 h-6 mb-2 text-amber-400/70"></i><strong class="text-sm text-slate-200">아직 고른 버프가 없습니다.</strong><span class="mt-1 text-xs leading-relaxed">가운데 카드나 왼쪽 프리셋을 선택해 주세요.</span>';
-        container.appendChild(empty);
-        return;
-      }
-      selectedBuffs.forEach(buff => {
-        const item = document.createElement('div');
-        item.className = 'selected-item';
-        const text = document.createElement('div');
-        text.className = 'min-w-0';
-        const name = document.createElement('strong');
-        name.className = 'block text-xs text-slate-100 font-black truncate';
-        name.textContent = buff.name;
-        const effect = document.createElement('span');
-        effect.className = 'block mt-1 text-xs text-amber-300 font-bold truncate';
-        effect.textContent = buff.effect;
-        text.append(name, effect);
-        const removeButton = document.createElement('button');
-        removeButton.type = 'button';
-        removeButton.className = 'selected-remove';
-        removeButton.title = '현재 조합에서 제거';
-        removeButton.setAttribute('aria-label', `${buff.name} 제거`);
-        removeButton.innerHTML = '<i data-lucide="x" class="w-4 h-4"></i>';
-        removeButton.addEventListener('click', () => removeSelection(buff.id));
-        item.append(text, removeButton);
-        container.appendChild(item);
-      });
-    }
     function updateSummary() {
       const summaryEl = document.getElementById('total-stats');
-      const warningEl = document.getElementById('warnings');
-      const warningText = document.getElementById('warning-text');
       const selectedBuffs = allBuffs.filter(buff => selectedBuffIds.has(buff.id));
       document.getElementById('selection-count').textContent = `${selectedBuffIds.size}개`;
+      document.getElementById('summary-selection-count').textContent = `${selectedBuffIds.size}개 선택`;
       document.getElementById('selected-preset-label').textContent = getActivePresetLabel();
       document.getElementById('clear-selection-button').disabled = selectedBuffIds.size === 0;
       document.getElementById('save-preset-button').disabled = selectedBuffIds.size === 0;
-      renderSelectedBuffs(selectedBuffs);
+      updatePresetCreationButtons();
 
       if (selectedBuffIds.size === 0) {
-        summaryEl.innerHTML = '<div class="col-span-2 rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-xs text-slate-400">선택하면 합산 수치가 여기에 표시됩니다.</div>';
-        warningEl.classList.add('hidden');
+        summaryEl.innerHTML = '<div class="summary-empty">버프를 선택하면 합산 수치가 여기에 표시됩니다.</div>';
         lucide.createIcons();
         return;
       }
       const stats = { damage: 0, stat: 0, statRate: 0, exp: 0, expTeam: 0, rare: 0, critical: 0, speed: 0, attribute: 0 };
-      let hasDeathRisk = false, hasExitRisk = false;
       selectedBuffs.forEach(buff => {
         stats.damage += getEffectValue(buff, 'damage', [/대미지\s*\+?(\d+)%/, /공격력\s*\+?(\d+)%/]);
         stats.statRate += getEffectValue(buff, 'statRate', [/능력치\s*\+?(\d+)%/]);
@@ -960,8 +1499,6 @@
         stats.critical += getEffectValue(buff, 'critical', [/크리티컬\s*\+?(\d+)%/]);
         stats.speed += getEffectValue(buff, 'speed', [/이속\s*\+?(\d+)(?!%)/, /이동\s*속도\s*\+?(\d+)(?!%)/]);
         stats.attribute += getEffectValue(buff, 'attribute', [/속성\s*\+?(\d+)(?!%)/]);
-        if (buff.removeOnDeath) hasDeathRisk = true;
-        if (buff.removeOnExit) hasExitRisk = true;
       });
       const entries = [];
       if (stats.damage) entries.push(['대미지', `+${stats.damage}%`, 'text-orange-300']);
@@ -974,8 +1511,7 @@
       if (stats.attribute) entries.push(['속성', `+${stats.attribute}`, 'text-slate-100']);
       summaryEl.innerHTML = entries.length
         ? entries.map(([label, value, color]) => `<div class="stat-card"><span class="stat-label">${label}</span><span class="stat-value ${color}">${value}</span></div>`).join('')
-        : `<div class="col-span-2 rounded-xl border border-white/10 px-3 py-4 text-center text-xs text-slate-300">${selectedBuffIds.size}개 선택 · 합산 가능한 수치 없음</div>`;
-      if (hasDeathRisk || hasExitRisk) { let wrns = []; if (hasDeathRisk) wrns.push("사망 시 삭제"); if (hasExitRisk) wrns.push("재접속 시 삭제"); warningEl.classList.remove('hidden'); warningText.textContent = "주의: " + wrns.join(', '); } else warningEl.classList.add('hidden');
+        : `<div class="summary-empty">${selectedBuffIds.size}개 선택 · 합산 가능한 수치 없음</div>`;
       lucide.createIcons();
     }
     function resetSelection() { if (selectedBuffIds.size === 0 || !confirm('현재 조합을 모두 해제할까요?')) return; deselectPreset(); }

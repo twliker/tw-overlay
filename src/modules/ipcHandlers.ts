@@ -382,10 +382,14 @@ export function register(): void {
   ipcMain.handle('set-game-overlay-edit-mode', (_e, enabled: boolean, saveOnExit: boolean = true) => {
     if (!isBoolean(enabled) || !isBoolean(saveOnExit)) return false;
     if (enabled) {
-      const restored = tracker.restoreAndFocusGameWindow();
-      if (!restored) {
-        return false;
-      }
+      // 편집 가능 여부는 실제 게임 창의 존재로만 판단한다. Windows는 정상적으로 실행 중인
+      // 게임이라도 foreground 강제 전환을 거부할 수 있으므로 포커스 성공 여부를 실행 감지와
+      // 혼용하면 설정창에서 "게임을 실행해 주세요"라는 잘못된 안내가 표시된다.
+      if (!tracker.isGameRunning()) return false;
+
+      // 최소화 복원과 게임 전환은 사용자가 버튼을 누른 시점에 한 번 시도하되, 실패해도
+      // 게임 창이 유효하다면 HUD 편집 모드는 계속 연다. 사용자가 게임/HUD를 직접 클릭할 수 있다.
+      tracker.focusGameWindow();
     }
 
     let overlayWin = wm.getGameOverlayWindow();

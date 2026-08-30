@@ -2088,11 +2088,13 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       nicknameModeInput.innerHTML = '<option value="same">same</option><option value="custom">custom</option>';
       const forgeLeftInput = addInput('forge-hud-pos-left');
       const forgeBottomInput = addInput('forge-hud-pos-bottom');
+      const digsiteHudInput = addInput('digsite-hud-enabled-input');
       window.settingsConfigBinding.applyOverlayDisplayOptions({
         chatOverlaySelectedChannels: ['whisper'],
         chatOverlayShowNpcChat: false,
         chatOverlayNicknameColorMode: 'custom',
-        forgeQuestHudPos: { left: 24, bottom: 36 }
+        forgeQuestHudPos: { left: 24, bottom: 36 },
+        digsiteHudEnabled: false
       }, window.electronAPI.DEFAULT_CONFIG);
 
       const tradeDefaultRadio = addInput('trade-default');
@@ -2125,6 +2127,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         nicknameMode: nicknameModeInput.value,
         forgeLeft: forgeLeftInput.value,
         forgeBottom: forgeBottomInput.value,
+        digsiteHud: digsiteHudInput.checked,
         tradeServer: document.querySelector('input[name="trade-server"]:checked')?.value,
         sidebarPosition: document.querySelector('input[name="sidebar-position"]:checked')?.value,
         showSidebarToast: sidebarToastInput.checked
@@ -2414,6 +2417,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       nicknameMode: 'custom',
       forgeLeft: '24',
       forgeBottom: '36',
+      digsiteHud: false,
       tradeServer: 'TestServer',
       sidebarPosition: 'left',
       showSidebarToast: true,
@@ -2776,7 +2780,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
         DEFAULT_CONFIG: {
           xpWidgetPos: { left: 200, bottom: 0 },
           abandonedWidgetPos: { left: 200, bottom: 0 },
-          digsiteWidgetPos: { left: 380, bottom: 63 },
+          digsiteWidgetPos: { left: 0, bottom: 326 },
           buffTimerHudPos: { left: 350, bottom: 0 },
           forgeQuestHudPos: { left: 200, bottom: 0 },
         },
@@ -2834,6 +2838,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
   }, '게임 오버레이 버프 HUD의 저장 좌표가 그대로 적용되지 않았습니다.');
 
   await window.webContents.executeJavaScript(`
+    let currentConfig = { digsiteHudEnabled: true };
     let currentDigsiteState = null;
     ${digsiteFunctionMatch[1]}
     window.__testUpdateDigsiteUI = updateDigsiteUI;
@@ -2852,8 +2857,28 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
       });
       const portal1 = document.getElementById('digsite-portal-1');
       const portal2 = document.getElementById('digsite-portal-2');
+      const initiallyHidden = document.getElementById('digsite-widget')?.classList.contains('hidden');
+      const portalOrder = Array.from(document.querySelectorAll('.digsite-portals .digsite-portal'))
+        .map(item => item.id.replace('digsite-portal-', ''));
+      currentConfig = { digsiteHudEnabled: false };
+      window.__testUpdateDigsiteUI({
+        isActive: true,
+        normalRewards: 3,
+        portalRewards: 2,
+        portalVisits: { 1: true, 2: false, 3: true, 4: false },
+        alternateRewards: 1,
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      });
+      const hiddenWhenDisabled = document.getElementById('digsite-widget')?.classList.contains('hidden');
+      currentConfig = { digsiteHudEnabled: true };
+      window.__testUpdateDigsiteUI(currentDigsiteState);
+      const visibleWhenReenabled = !document.getElementById('digsite-widget')?.classList.contains('hidden');
       return {
-        hidden: document.getElementById('digsite-widget')?.classList.contains('hidden'),
+        hidden: initiallyHidden,
+        hiddenWhenDisabled,
+        visibleWhenReenabled,
+        portalOrder,
         normal: document.getElementById('digsite-normal-count')?.textContent,
         portal: document.getElementById('digsite-portal-count')?.textContent,
         alternate: document.getElementById('digsite-alternate-count')?.textContent,
@@ -2866,6 +2891,9 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
   `);
   assert.deepEqual(digsiteResult, {
     hidden: false,
+    hiddenWhenDisabled: true,
+    visibleWhenReenabled: true,
+    portalOrder: ['2', '4', '1', '3'],
     normal: '3/8',
     portal: '2/4',
     alternate: '1/1',
@@ -4210,20 +4238,56 @@ async function checkEvolutionCalculatorRenderer(window: BrowserWindow): Promise<
     };
     const from = document.getElementById('step-from') as HTMLSelectElement;
     const to = document.getElementById('step-to') as HTMLSelectElement;
+    const evolutionOptionButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-evolution-option]'));
+    const evolutionOptionLabels = evolutionOptionButtons.map(button => button.textContent?.trim());
+    evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'helm')?.click();
+    const helmSelectedDirectly = evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'helm')?.classList.contains('active');
+    const equipmentStartLabel = from.options[0]?.textContent?.trim();
+    evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'weapon')?.click();
+    const weaponReselectedDirectly = evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'weapon')?.classList.contains('active');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const citrineFit = document.querySelector<HTMLImageElement>('.material-image img[alt="시트린"]')?.className || '';
+    const ancientWeaponFit = document.querySelector<HTMLImageElement>('.material-image img[alt="고대 기사의 무기 파편"]')?.className || '';
     from.value = '3';
     from.dispatchEvent(new Event('change', { bubbles: true }));
+    const targetOptionsAfterStartChange = Array.from(to.options, option => Number(option.value));
     to.value = '4';
     to.dispatchEvent(new Event('change', { bubbles: true }));
     await new Promise(resolve => setTimeout(resolve, 80));
+    const baseTypeRadios = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="eclipse-base-type"]'));
+    const baseTypeValues = baseTypeRadios.map(radio => radio.value);
+    const customRadioStyles = baseTypeRadios.map(radio => {
+      const style = getComputedStyle(radio);
+      return {
+        appearance: style.appearance,
+        width: parseFloat(style.width),
+        height: parseFloat(style.height),
+        borderStyle: style.borderStyle,
+        borderColor: style.borderColor,
+      };
+    });
+    const baseChoiceTextAlignments = Array.from(document.querySelectorAll<HTMLElement>('.eclipse-base-method .choice-copy'),
+      choice => getComputedStyle(choice).textAlign);
+    const baseCostHiddenForDirect = document.getElementById('eclipse-base-cost-field')?.classList.contains('hidden');
+    const fakeArmamentRadio = baseTypeRadios.find(radio => radio.value === 'fake-armament');
+    if (fakeArmamentRadio) {
+      fakeArmamentRadio.checked = true;
+      fakeArmamentRadio.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const baseCostVisibleForPurchase = !document.getElementById('eclipse-base-cost-field')?.classList.contains('hidden');
 
     setInput('enchant-scroll-count', '2');
     setInput('enchant-scroll-unit-price', '100');
     setInput('enchant-attempt-cost', '200');
     setInput('magic-reform-cost', '300');
     setInput('additional-option-cost', '400');
+    setInput('ability-mount-cost', '500');
+    setInput('attribute-grant-cost', '600');
+    setInput('enhancement-cost', '700');
     setInput('eclipse-base-cost', '500');
     setInput('moon-mineral-cost', '600');
     setInput('rune-stone-cost', '700');
+    setInput('seal-proxy-fee', '800');
     await new Promise(resolve => setTimeout(resolve, 0));
 
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
@@ -4231,49 +4295,202 @@ async function checkEvolutionCalculatorRenderer(window: BrowserWindow): Promise<
     const materialNames = Array.from(document.querySelectorAll('.material-name'), element => element.textContent?.trim());
     const visibleMaterialImages = Array.from(document.querySelectorAll<HTMLImageElement>('.material-image img'))
       .filter(image => !image.classList.contains('hidden')).length;
+    const specialMaterialImageNames = Array.from(new Set(
+      Array.from(document.querySelectorAll<HTMLImageElement>('.eclipse-item-image img'))
+        .filter(image => image.complete && image.naturalWidth > 0 && !image.classList.contains('hidden'))
+        .map(image => image.alt),
+    )).sort();
+    const equipmentImageCount = document.querySelectorAll('.tier-image, #start-item-image, #end-item-image').length;
+    const styledTierSelectCount = document.querySelectorAll('.tier-select-wrap > select.tier-select').length;
+    const inputSubtotals = {
+      enchantScroll: document.getElementById('enchant-scroll-subtotal')?.textContent?.trim(),
+      enchantAttempt: document.getElementById('enchant-attempt-subtotal')?.textContent?.trim(),
+      magicReform: document.getElementById('magic-reform-subtotal')?.textContent?.trim(),
+      additionalOption: document.getElementById('additional-option-subtotal')?.textContent?.trim(),
+      abilityMount: document.getElementById('ability-mount-subtotal')?.textContent?.trim(),
+      attributeGrant: document.getElementById('attribute-grant-subtotal')?.textContent?.trim(),
+      enhancement: document.getElementById('enhancement-subtotal')?.textContent?.trim(),
+      eclipseBase: document.getElementById('eclipse-base-subtotal')?.textContent?.trim(),
+      moonMineral: document.getElementById('moon-mineral-subtotal')?.textContent?.trim(),
+      runeStone: document.getElementById('rune-stone-subtotal')?.textContent?.trim(),
+      sealProxy: document.getElementById('seal-proxy-subtotal')?.textContent?.trim(),
+    };
+    const materialNameFontSize = parseFloat(getComputedStyle(document.querySelector('.material-name') as Element).fontSize);
+    const numberInputFontSize = parseFloat(getComputedStyle(document.querySelector('.number-input') as Element).fontSize);
+    const historyTitleFontSize = parseFloat(getComputedStyle(document.querySelector('.history-head h2') as Element).fontSize);
     const totalBeforeSave = document.getElementById('total-cost')?.textContent?.trim();
 
     const historyTitle = document.getElementById('history-title') as HTMLInputElement;
     historyTitle.value = '이클립스 무기 제작안';
     (document.getElementById('save-history-button') as HTMLButtonElement).click();
     const firstCard = document.querySelector<HTMLElement>('.history-card');
+    const weaponHistoryPart = firstCard?.querySelector('.history-part')?.textContent?.trim();
+    from.value = '0';
+    from.dispatchEvent(new Event('change', { bubbles: true }));
+    to.value = '1';
+    to.dispatchEvent(new Event('change', { bubbles: true }));
+    setInput('enchant-attempt-cost', '1234');
+    historyTitle.value = '저장 후 돌아올 계산 초안';
     firstCard?.querySelector<HTMLButtonElement>('[data-action="edit"]')?.click();
     const editLoadedTitle = historyTitle.value;
+    const editingCardHighlighted = document.querySelector('.history-card')?.classList.contains('editing');
+    const editingBadgeText = document.querySelector('.history-editing-badge')?.textContent?.trim();
+    const editingStatusText = document.getElementById('editing-status')?.textContent?.replace(/\s+/g, ' ').trim();
+    const editingStatusVisible = !document.getElementById('editing-status')?.classList.contains('hidden');
     historyTitle.value = '이클립스 무기 수정안';
     (document.getElementById('save-history-button') as HTMLButtonElement).click();
+    const editingClearedAfterSave = document.getElementById('editing-status')?.classList.contains('hidden')
+      && !document.querySelector('.history-card')?.classList.contains('editing');
+    const previousStateRestoredAfterSave = historyTitle.value === '저장 후 돌아올 계산 초안'
+      && from.value === '0'
+      && to.value === '1'
+      && (document.getElementById('enchant-attempt-cost') as HTMLInputElement).value === '1234'
+      && evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'weapon')?.classList.contains('active');
     const cardsAfterEdit = document.querySelectorAll('.history-card').length;
     const editedTitle = document.querySelector('.history-title')?.textContent?.trim();
+    const historyShowsBaseType = document.querySelector('.history-card')?.textContent?.includes('가짜 달여왕 군단의 무구 구매');
     (globalThis as any).confirm = () => true;
     document.querySelector<HTMLButtonElement>('.history-card [data-action="delete"]')?.click();
     const cardsAfterDelete = document.querySelectorAll('.history-card').length;
+    evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'helm')?.click();
+    historyTitle.value = '이클립스 투구 제작안';
+    (document.getElementById('save-history-button') as HTMLButtonElement).click();
+    const equipmentHistoryPart = document.querySelector('.history-part')?.textContent?.trim();
+    evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'weapon')?.click();
+    from.value = '1';
+    from.dispatchEvent(new Event('change', { bubbles: true }));
+    to.value = '2';
+    to.dispatchEvent(new Event('change', { bubbles: true }));
+    setInput('enchant-attempt-cost', '2345');
+    historyTitle.value = '취소 후 돌아올 계산 초안';
+    document.querySelector<HTMLButtonElement>('.history-card [data-action="edit"]')?.click();
+    (document.getElementById('cancel-edit-button') as HTMLButtonElement).click();
+    const editingClearedAfterCancel = document.getElementById('editing-status')?.classList.contains('hidden')
+      && !document.querySelector('.history-card')?.classList.contains('editing');
+    const previousStateRestoredAfterCancel = historyTitle.value === '취소 후 돌아올 계산 초안'
+      && from.value === '1'
+      && to.value === '2'
+      && (document.getElementById('enchant-attempt-cost') as HTMLInputElement).value === '2345'
+      && evolutionOptionButtons.find(button => button.dataset.evolutionOption === 'weapon')?.classList.contains('active');
+    document.querySelector<HTMLButtonElement>('.history-card [data-action="delete"]')?.click();
+    const cardsAfterEquipmentDelete = document.querySelectorAll('.history-card').length;
+    const scrollArea = document.querySelector<HTMLElement>('.scroll-area');
+    if (scrollArea) scrollArea.scrollTop = 120;
+    await new Promise(resolve => requestAnimationFrame(resolve));
 
     return {
       title,
+      evolutionOptionLabels,
+      helmSelectedDirectly,
+      equipmentStartLabel,
+      weaponReselectedDirectly,
+      citrineFit,
+      ancientWeaponFit,
       eclipseVisible,
       materialNames,
       visibleMaterialImages,
+      specialMaterialImageNames,
+      equipmentImageCount,
+      styledTierSelectCount,
+      inputSubtotals,
+      materialNameFontSize,
+      numberInputFontSize,
+      historyTitleFontSize,
+      targetOptionsAfterStartChange,
+      baseTypeValues,
+      customRadioStyles,
+      baseChoiceTextAlignments,
+      baseCostHiddenForDirect,
+      baseCostVisibleForPurchase,
+      historyShowsBaseType,
+      calculatorScrollWorks: Boolean(scrollArea
+        && scrollArea.scrollHeight > scrollArea.clientHeight
+        && scrollArea.scrollTop > 0
+        && ['auto', 'scroll'].includes(getComputedStyle(scrollArea).overflowY)),
       totalBeforeSave,
       editLoadedTitle,
+      editingCardHighlighted,
+      editingBadgeText,
+      editingStatusText,
+      editingStatusVisible,
+      editingClearedAfterSave,
+      editingClearedAfterCancel,
+      previousStateRestoredAfterSave,
+      previousStateRestoredAfterCancel,
+      weaponHistoryPart,
+      equipmentHistoryPart,
       cardsAfterEdit,
       editedTitle,
       cardsAfterDelete,
-      hasBothBaseTypes: (document.getElementById('eclipse-base-type') as HTMLSelectElement).options.length === 2,
+      cardsAfterEquipmentDelete,
       fixedHerbLabel: document.getElementById('seal-self-fields')?.textContent?.includes('6억 5,000만 시드'),
     };
   });
 
   assert.ok(result.title.includes('진화'), '진화 재료 계산기 창 타이틀이 일치하지 않습니다.');
+  assert.deepEqual(result.evolutionOptionLabels, ['무기', '투구', '갑옷', '손', '다리', '몸', '머리', '손목'],
+    '무기와 일곱 장비 부위가 한 줄 선택 항목으로 표시되지 않습니다.');
+  assert.equal(result.helmSelectedDirectly, true, '장비 탭을 거치지 않고 투구를 바로 선택할 수 없습니다.');
+  assert.equal(result.equipmentStartLabel, '엔키라', '투구 직접 선택이 장비 진화 단계로 전환되지 않습니다.');
+  assert.equal(result.weaponReselectedDirectly, true, '무기 선택으로 바로 돌아오지 못합니다.');
+  assert.match(result.citrineFit, /fit-portrait/, '세로가 긴 시트린 이미지가 높이 기준으로 표시되지 않습니다.');
+  assert.match(result.ancientWeaponFit, /fit-landscape/, '가로가 긴 재료 이미지가 너비 기준으로 표시되지 않습니다.');
   assert.equal(result.eclipseVisible, true, '어비스→이클립스 선택에서 전용 비용 입력이 표시되지 않습니다.');
-  assert.equal(result.hasBothBaseTypes, true, '가짜 달여왕 군단의 무구와 어비스 장비 비용 선택이 없습니다.');
+  assert.deepEqual(result.baseTypeValues.sort(), ['abyss-equipment', 'direct-evolution', 'fake-armament'],
+    '직접 진화·어비스 장비 구매·가짜 달여왕 군단의 무구 구매 선택이 모두 제공되지 않습니다.');
+  assert.ok(result.customRadioStyles.every(style => style.appearance === 'none'
+    && style.width >= 16 && style.height >= 16 && style.borderStyle === 'solid'),
+  '이클립스 선택 라디오 버튼에 계산기 전용 디자인이 적용되지 않았습니다.');
+  assert.equal(result.customRadioStyles.find((_, index) => index === 0)?.borderColor, 'rgb(163, 230, 53)',
+    '선택한 라디오 버튼에 진화 재료 비용 계산기의 녹색 강조색이 적용되지 않았습니다.');
+  assert.ok(result.baseChoiceTextAlignments.every(alignment => alignment === 'left' || alignment === 'start'),
+    '베이스 장비 확보 방식의 제목과 설명이 왼쪽 정렬되지 않습니다.');
+  assert.equal(result.baseCostHiddenForDirect, true, '직접 진화 방식에서 불필요한 장비 구매비 입력이 표시됩니다.');
+  assert.equal(result.baseCostVisibleForPurchase, true, '완성 장비 구매 방식에서 구매비 입력이 표시되지 않습니다.');
+  assert.equal(result.historyShowsBaseType, true, '계산 이력에 선택한 베이스 장비 확보 방식이 표시되지 않습니다.');
   assert.equal(result.fixedHerbLabel, true, '직접 제작 달의 약초 6.5억 고정 비용이 표시되지 않습니다.');
   assert.equal(result.materialNames.includes('달의 약초'), false,
     '직접·대리 제작 분기 재료가 일반 재료에도 중복 표시됩니다.');
   assert.ok(result.visibleMaterialImages >= 1, '기존 소스의 진화 재료 이미지가 계산기에 표시되지 않습니다.');
-  assert.equal(result.totalBeforeSave, '6억 7,900만 시드', '추가 비용을 포함한 화면 최종 계산값이 다릅니다.');
+  assert.deepEqual(result.specialMaterialImageNames, [
+    '가공된 달의 광물', '가짜 달여왕 군단의 무구', '가짜 달여왕 군단의 인장', '달의 약초', '룬의 원석',
+  ].sort(), '이클립스 전용 무구·인장·재료 이미지가 모두 표시되지 않습니다.');
+  assert.equal(result.equipmentImageCount, 0, '진화 단계 선택 영역에 불필요한 장비 이미지가 남아 있습니다.');
+  assert.equal(result.styledTierSelectCount, 2, '시작·목표 단계 드롭다운에 전용 디자인이 적용되지 않았습니다.');
+  assert.deepEqual(result.inputSubtotals, {
+    enchantScroll: '소계 200만 시드',
+    enchantAttempt: '소계 200만 시드',
+    magicReform: '소계 300만 시드',
+    additionalOption: '소계 400만 시드',
+    abilityMount: '소계 500만 시드',
+    attributeGrant: '소계 600만 시드',
+    enhancement: '소계 700만 시드',
+    eclipseBase: '소계 500만 시드',
+    moonMineral: '소계 600만 시드',
+    runeStone: '소계 700만 시드',
+    sealProxy: '소계 800만 시드',
+  }, '장비 후처리와 이클립스 전용 비용의 입력별 시드 소계가 올바르지 않습니다.');
+  assert.ok(result.materialNameFontSize >= 13 && result.numberInputFontSize >= 13 && result.historyTitleFontSize >= 16,
+    '진화 재료 계산기의 주요 글자 크기가 읽기 편한 기준보다 작습니다.');
+  assert.ok(result.targetOptionsAfterStartChange.every(value => value > 3),
+    '목표 단계 드롭다운에서 시작 단계 이전 항목을 다시 선택할 수 있습니다.');
+  assert.equal(result.calculatorScrollWorks, true, '진화 재료와 추가 비용 영역을 스크롤할 수 없습니다.');
+  assert.equal(result.totalBeforeSave, '6억 9,700만 시드', '추가 비용을 포함한 화면 최종 계산값이 다릅니다.');
   assert.equal(result.editLoadedTitle, '이클립스 무기 제작안', '계산 이력 수정 시 저장값을 불러오지 못합니다.');
+  assert.equal(result.editingCardHighlighted, true, '현재 수정 중인 계산 이력 카드가 강조되지 않습니다.');
+  assert.equal(result.editingBadgeText, '수정 중', '현재 수정 중인 계산 이력 카드에 상태 배지가 표시되지 않습니다.');
+  assert.equal(result.editingStatusVisible, true, '계산 영역에 수정 중인 이력 안내가 표시되지 않습니다.');
+  assert.match(result.editingStatusText || '', /이클립스 무기 제작안.*수정 중/, '수정 중 안내에 이력 제목이 표시되지 않습니다.');
+  assert.equal(result.editingClearedAfterSave, true, '변경 저장 후 수정 중 표시가 남아 있습니다.');
+  assert.equal(result.editingClearedAfterCancel, true, '수정 취소 후 수정 중 표시가 남아 있습니다.');
+  assert.equal(result.previousStateRestoredAfterSave, true, '변경 저장 후 수정 진입 전 계산 상태가 복원되지 않습니다.');
+  assert.equal(result.previousStateRestoredAfterCancel, true, '수정 취소 후 수정 진입 전 계산 상태가 복원되지 않습니다.');
+  assert.equal(result.weaponHistoryPart, '무기', '무기 계산 이력에 선택 부위가 표시되지 않습니다.');
+  assert.equal(result.equipmentHistoryPart, '투구', '장비 계산 이력에 선택 부위가 표시되지 않습니다.');
   assert.equal(result.cardsAfterEdit, 1, '계산 이력 수정이 새 이력을 중복 생성합니다.');
   assert.equal(result.editedTitle, '이클립스 무기 수정안', '계산 이력 제목 수정이 저장되지 않습니다.');
   assert.equal(result.cardsAfterDelete, 0, '계산 이력 삭제가 동작하지 않습니다.');
+  assert.equal(result.cardsAfterEquipmentDelete, 0, '부위 표시 검사용 계산 이력이 삭제되지 않습니다.');
 }
 
 async function checkSienaAuraRenderer(window: BrowserWindow): Promise<void> {
@@ -4420,15 +4637,117 @@ async function checkGalleryRenderer(window: BrowserWindow): Promise<void> {
 }
 
 async function checkBuffsPopupRenderer(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'buffs.html'));
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  await window.loadFile(path.join(projectRoot, 'dist', 'buffs.html'));
+  await window.webContents.executeJavaScript('localStorage.clear()');
+  await window.reload();
+  await waitForSelector(window, '.buff-card');
 
   const result = await evaluate(window, () => {
     const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
-    return { title };
+    const workspacePaneCount = document.querySelectorAll('.buff-workspace > .workspace-pane').length;
+    const hasLegacyStepGuide = document.body.textContent?.includes('1. 조합 불러오기') || false;
+    const firstCard = document.querySelector<HTMLElement>('.buff-card');
+    const detailButton = firstCard?.querySelector<HTMLButtonElement>('.buff-card-main');
+    const selectButton = firstCard?.querySelector<HTMLButtonElement>('.buff-select-action');
+    const buffList = document.getElementById('buff-list');
+    if (buffList) buffList.scrollTop = Math.min(160, buffList.scrollHeight - buffList.clientHeight);
+    const scrollBeforeDetail = buffList?.scrollTop || 0;
+    detailButton?.click();
+    const scrollAfterDetail = buffList?.scrollTop || 0;
+    const detailVisible = Boolean(document.querySelector('.buff-card.inspected .buff-card-detail'));
+    const selectionCountAfterDetail = document.getElementById('selection-count')?.textContent?.trim();
+    selectButton?.click();
+    const selectionCountAfterSelect = document.getElementById('selection-count')?.textContent?.trim();
+    const duplicateSelectedListRemoved = document.getElementById('selected-buff-list') === null;
+    const hasStandardPreset = Boolean(document.querySelector('[data-preset-id="standard"]'));
+    const selectedCreationButton = document.getElementById('begin-selected-preset-button') as HTMLButtonElement;
+    const selectedCreationEnabled = !selectedCreationButton.disabled;
+    selectedCreationButton.click();
+    const presetName = document.getElementById('preset-name') as HTMLInputElement;
+    const createModeTitle = document.getElementById('preset-save-title')?.textContent?.trim();
+    const createModeButton = document.getElementById('save-preset-button')?.textContent?.trim();
+    const draftPresetVisible = Boolean(document.querySelector('[data-preset-id="new"].creating.active'));
+    presetName.value = '테스트 조합';
+    document.getElementById('save-preset-button')?.click();
+    const customPresetCard = Array.from(document.querySelectorAll<HTMLElement>('.preset-card'))
+      .find(card => !['direct', 'standard', 'new'].includes(card.dataset.presetId || ''));
+    const savedPresetVisible = customPresetCard?.textContent?.includes('테스트 조합') || false;
+    customPresetCard?.querySelector<HTMLButtonElement>('[data-action="edit-preset"]')?.click();
+    const presetEditStatusVisible = !document.getElementById('preset-editing-status')?.classList.contains('hidden');
+    const presetEditStatusText = document.getElementById('preset-editing-status')?.textContent?.replace(/\s+/g, ' ').trim();
+    const presetEditButtonText = document.getElementById('save-preset-button')?.textContent?.trim();
+    presetName.value = '테스트 조합 수정';
+    document.getElementById('save-preset-button')?.click();
+    const savedPresets = JSON.parse(localStorage.getItem('buff_presets') || '[]');
+    const presetEditingClearedAfterSave = document.getElementById('preset-editing-status')?.classList.contains('hidden');
+    const currentCombinationContainsPresetControls = Boolean(document.querySelector('.combination-pane #preset-list')
+      && document.querySelector('.combination-pane #save-preset-button'));
+    const presetListOverflow = getComputedStyle(document.getElementById('preset-list') as Element).overflowY;
+    const summaryFooterFixed = getComputedStyle(document.querySelector('.buff-summary-footer') as Element).flexShrink === '0';
+    const presetSaveFooterFixed = getComputedStyle(document.querySelector('.preset-save-footer') as Element).flexShrink === '0';
+    const names = Array.from(document.querySelectorAll('.buff-name'), element => element.textContent || '');
+    const sortedNames = [...names].sort((left, right) => left.localeCompare(right, 'ko-KR', { sensitivity: 'base', numeric: true }));
+    return {
+      title,
+      workspacePaneCount,
+      hasLegacyStepGuide,
+      hasSeparateDetailButton: Boolean(detailButton),
+      hasSeparateSelectButton: Boolean(selectButton),
+      scrollBeforeDetail,
+      scrollAfterDetail,
+      detailVisible,
+      selectionCountAfterDetail,
+      selectionCountAfterSelect,
+      duplicateSelectedListRemoved,
+      hasStandardPreset,
+      selectedCreationEnabled,
+      createModeTitle,
+      createModeButton,
+      draftPresetVisible,
+      savedPresetVisible,
+      presetEditStatusVisible,
+      presetEditStatusText,
+      presetEditButtonText,
+      savedPresetCount: savedPresets.length,
+      savedPresetName: savedPresets[0]?.name,
+      presetEditingClearedAfterSave,
+      currentCombinationContainsPresetControls,
+      presetListOverflow,
+      summaryFooterFixed,
+      presetSaveFooterFixed,
+      namesSorted: JSON.stringify(names) === JSON.stringify(sortedNames),
+    };
   });
 
   assert.ok(result.title.includes('버프'), '버프 백과 창 타이틀이 일치하지 않습니다.');
+  assert.equal(result.workspacePaneCount, 2, '버프 백과와 현재 조합 중심의 2열 화면으로 구성되지 않았습니다.');
+  assert.equal(result.hasLegacyStepGuide, false, '선택 사항인 프리셋이 필수 단계처럼 보이는 기존 안내가 남아 있습니다.');
+  assert.equal(result.hasSeparateDetailButton, true, '버프 카드의 상세 보기 동작이 제공되지 않습니다.');
+  assert.equal(result.hasSeparateSelectButton, true, '버프 카드의 조합 선택 버튼이 별도로 제공되지 않습니다.');
+  assert.ok(result.scrollBeforeDetail > 0, '버프 상세 펼치기의 스크롤 유지 검사를 수행하지 못했습니다.');
+  assert.ok(Math.abs(result.scrollAfterDetail - result.scrollBeforeDetail) <= 1,
+    `버프 상세 펼치기 후 스크롤 위치가 변경됩니다: ${result.scrollBeforeDetail} -> ${result.scrollAfterDetail}`);
+  assert.equal(result.detailVisible, true, '버프 카드를 눌러도 상세 설명이 펼쳐지지 않습니다.');
+  assert.equal(result.selectionCountAfterDetail, '0개', '버프 상세 보기만 했는데 현재 조합이 변경됩니다.');
+  assert.equal(result.selectionCountAfterSelect, '1개', '버프 선택 버튼이 현재 조합에 반영되지 않습니다.');
+  assert.equal(result.duplicateSelectedListRemoved, true, '선택한 버프 목록이 오른쪽 영역에 중복으로 표시됩니다.');
+  assert.equal(result.hasStandardPreset, true, '기본 도핑 세트 카드가 프리셋 목록에 없습니다.');
+  assert.equal(result.selectedCreationEnabled, true, '버프 선택 후 선택값으로 프리셋 만들기 버튼이 활성화되지 않습니다.');
+  assert.equal(result.createModeTitle, '선택된 버프로 프리셋 생성', '선택값 기반 프리셋 생성 상태의 제목이 명확하지 않습니다.');
+  assert.equal(result.createModeButton, '새 프리셋 저장', '새 프리셋 저장 버튼의 동작이 명확하지 않습니다.');
+  assert.equal(result.draftPresetVisible, true, '생성 중인 새 프리셋 카드가 목록에 강조 표시되지 않습니다.');
+  assert.equal(result.savedPresetVisible, true, '현재 조합을 새 프리셋으로 저장하지 못합니다.');
+  assert.equal(result.presetEditStatusVisible, true, '저장된 프리셋의 수정 상태가 표시되지 않습니다.');
+  assert.match(result.presetEditStatusText || '', /테스트 조합.*프리셋 수정 중/, '수정 중인 프리셋 이름이 안내에 표시되지 않습니다.');
+  assert.equal(result.presetEditButtonText, '변경 저장', '프리셋 수정 저장 버튼이 생성 동작과 구분되지 않습니다.');
+  assert.equal(result.savedPresetCount, 1, '프리셋 수정 저장이 중복 프리셋을 생성합니다.');
+  assert.equal(result.savedPresetName, '테스트 조합 수정', '수정한 프리셋 이름이 기존 항목에 저장되지 않습니다.');
+  assert.equal(result.presetEditingClearedAfterSave, true, '프리셋 변경 저장 후 수정 상태가 남아 있습니다.');
+  assert.equal(result.currentCombinationContainsPresetControls, true, '프리셋 선택과 저장이 계산 조합 영역에 모이지 않았습니다.');
+  assert.ok(['auto', 'scroll'].includes(result.presetListOverflow), '프리셋 목록을 독립적으로 스크롤할 수 없습니다.');
+  assert.equal(result.summaryFooterFixed, true, '합산 결과가 버프 목록 아래에 고정되지 않습니다.');
+  assert.equal(result.presetSaveFooterFixed, true, '현재 조합 저장 영역이 오른쪽 하단에 고정되지 않습니다.');
+  assert.equal(result.namesSorted, true, '버프 이름이 가나다순으로 표시되지 않습니다.');
 }
 
 async function checkGameExitReminderRenderer(window: BrowserWindow): Promise<void> {

@@ -522,6 +522,7 @@ export interface AppConfig {
     abandonedAutoHideMinutes?: number;
     abandonedEnabled?: boolean;
     abandonedWidgetPos?: HudPosition;
+    digsiteHudEnabled?: boolean;
     digsiteWidgetPos?: HudPosition;
 
     // --- Scam Detector Settings ---

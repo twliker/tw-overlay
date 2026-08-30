@@ -227,46 +227,6 @@ export function isGameRunning(): boolean {
     return cachedHwnd !== null;
 }
 
-export function restoreAndFocusGameWindow(): boolean {
-    try {
-        if (!cachedHwnd || !isHwndValid(cachedHwnd)) {
-            cachedHwnd = findGameWindow();
-        }
-        if (!cachedHwnd) return false;
-
-        if (win32.IsIconic && win32.IsIconic(cachedHwnd)) {
-            if (win32.ShowWindow) {
-                win32.ShowWindow(cachedHwnd, win32.SW_RESTORE);
-            }
-        }
-        if (win32.BringWindowToTop) {
-            win32.BringWindowToTop(cachedHwnd);
-        }
-        if (win32.SetForegroundWindow) {
-            win32.SetForegroundWindow(cachedHwnd);
-        }
-
-        // 일반 포커스 실패 시에만 최후 수단으로 Alt 키 트릭 시도
-        const fgHwnd = parseHwnd(win32.GetForegroundWindow());
-        if (fgHwnd !== cachedHwnd && win32.keybd_event) {
-            win32.keybd_event(win32.VK_MENU, 0, 0, 0);
-            win32.keybd_event(win32.VK_MENU, 0, win32.KEYEVENTF_KEYUP, 0);
-            if (win32.SetForegroundWindow) {
-                win32.SetForegroundWindow(cachedHwnd);
-            }
-        }
-        const finalForegroundHwnd = parseHwnd(win32.GetForegroundWindow());
-        const focused = finalForegroundHwnd === cachedHwnd;
-        if (!focused) {
-            log(`[TRACKER] 게임 포커스 복구 실패: target=${cachedHwnd.toString()} foreground=${finalForegroundHwnd.toString()}`);
-        }
-        return focused;
-    } catch (e) {
-        log(`[TRACKER] restoreAndFocusGameWindow Error: ${e}`);
-        return false;
-    }
-}
-
 export function start(): void {
     log('[TRACKER] Native tracker initialized.');
 }

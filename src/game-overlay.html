@@ -1905,22 +1905,22 @@
     </div>
   </div>
 
-  <!-- 발굴지 현황판: 입장 로그부터 30분 동안만 실시간 표시 -->
+  <!-- 발굴지 현황판: 입장 로그부터 5분 동안만 실시간 표시 -->
   <div id="digsite-widget" class="digsite-widget hidden" aria-label="발굴지 현황판">
     <div class="flex items-center justify-between gap-3 mb-1.5">
       <div class="flex items-center gap-1.5">
         <i data-lucide="pickaxe" class="w-3 h-3 text-cyan-300"></i>
         <span class="text-xs font-black text-cyan-300">발굴지 현황</span>
       </div>
-      <span id="digsite-remaining" class="text-[9px] font-black text-slate-500 font-mono">30:00</span>
+      <span id="digsite-remaining" class="text-[9px] font-black text-slate-500 font-mono">05:00</span>
     </div>
     <div class="digsite-summary-row"><span class="text-slate-300">일반 지역</span><strong id="digsite-normal-count">0/8</strong></div>
     <div class="digsite-summary-row"><span class="text-slate-300">포탈 보상</span><strong id="digsite-portal-count">0/4</strong></div>
     <div class="digsite-portals">
-      <div id="digsite-portal-1" class="digsite-portal"><span>포탈 1</span><span>미방문</span></div>
       <div id="digsite-portal-2" class="digsite-portal"><span>포탈 2</span><span>미방문</span></div>
-      <div id="digsite-portal-3" class="digsite-portal"><span>포탈 3</span><span>미방문</span></div>
       <div id="digsite-portal-4" class="digsite-portal"><span>포탈 4</span><span>미방문</span></div>
+      <div id="digsite-portal-1" class="digsite-portal"><span>포탈 1</span><span>미방문</span></div>
+      <div id="digsite-portal-3" class="digsite-portal"><span>포탈 3</span><span>미방문</span></div>
     </div>
     <div class="digsite-summary-row"><span class="text-slate-300">이공간</span><strong id="digsite-alternate-count">0/1</strong></div>
   </div>
@@ -2283,6 +2283,7 @@
     let sessionAccumulatedTime = 0;
     let sessionIsActive = false;
     let currentConfig = null;
+    let currentDigsiteState = null;
 
     /**
      * 게임 오버레이 내부 HUD 위치 계약
@@ -2363,6 +2364,12 @@
       if (buffHud) {
         if (config.showBuffHud === false) buffHud.classList.add('hidden');
         else buffHud.classList.remove('hidden');
+      }
+      const digsiteWidget = document.getElementById('digsite-widget');
+      if (config.digsiteHudEnabled === false) {
+        digsiteWidget?.classList.add('hidden');
+      } else if (currentDigsiteState) {
+        updateDigsiteUI(currentDigsiteState);
       }
       applyConfiguredHudPositions(config);
       updateHudShortcutsDisplay(config);
@@ -2566,12 +2573,15 @@
     });
 
     // ── 발굴지 한 판 현황판 ──
-    let currentDigsiteState = null;
-
     function updateDigsiteRemaining() {
       const widget = document.getElementById('digsite-widget');
       const remaining = document.getElementById('digsite-remaining');
       if (!widget || !remaining || !currentDigsiteState?.isActive) return;
+
+      if (currentConfig?.digsiteHudEnabled === false) {
+        widget.classList.add('hidden');
+        return;
+      }
 
       const remainingMs = Math.max(0, Number(currentDigsiteState.expiresAt || 0) - Date.now());
       if (remainingMs <= 0) {
@@ -2589,7 +2599,9 @@
       if (!widget) return;
       currentDigsiteState = state || null;
 
-      if (!state?.isActive || Number(state.expiresAt || 0) <= Date.now()) {
+      if (currentConfig?.digsiteHudEnabled === false
+        || !state?.isActive
+        || Number(state.expiresAt || 0) <= Date.now()) {
         widget.classList.add('hidden');
         return;
       }
