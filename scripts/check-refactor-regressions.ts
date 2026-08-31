@@ -1105,6 +1105,33 @@ function checkRendererResources() {
 
   const gameOverlay = read('src/game-overlay.html');
   const settingsPage = read('src/settings.html');
+  assert.match(settingsPage, /applySettingsConfirmed\(\{ chatOverlayCustomTabs: nextTabs \}\)/,
+    '사용자 정의 채팅 탭 저장이 결과 확인 가능한 설정 IPC를 사용하지 않습니다.');
+  assert.match(settingsPage, /\.\.\.\(checkedChannels\.includes\('system'\) \? \{ systemColorFilters: systemColors \} : \{\}\)/,
+    '시스템 채널이 없는 사용자 정의 탭에 선택적 시스템 색상 필드가 포함될 수 있습니다.');
+  assert.match(settingsPage, /hasPendingCustomChatTabDraft\(\)[\s\S]*?먼저 “탭 추가”/,
+    '등록 전 사용자 정의 탭 초안을 즉시 적용할 때 보존 안내가 없습니다.');
+  assert.match(read('src/preload.ts'), /applySettingsConfirmed:[\s\S]*?invoke\('apply-settings-confirmed'/,
+    '설정 적용 결과를 확인하는 preload API가 없습니다.');
+  assert.match(read('src/modules/ipcHandlers.ts'), /handle\('apply-settings-confirmed'[\s\S]*?applyExternalSettings/,
+    '설정 적용 결과를 반환하는 IPC 핸들러가 없습니다.');
+  assert.match(read('src/modules/ipcHandlers.ts'), /applyExternalSettings\(newSettings, event\.sender\)/,
+    '설정 저장 요청을 보낸 창이 전체 설정 재전파 대상에서 제외되지 않았습니다.');
+  assert.match(read('src/modules/ipcHandlers.ts'), /settingsWindow\.webContents === sourceWebContents[\s\S]*?excludedSettingsWebContents/,
+    '설정 창 이외의 기능 창까지 자신의 설정 갱신 응답에서 제외될 수 있습니다.');
+  const windowManagerSource = read('src/modules/windowManager.ts');
+  assert.match(windowManagerSource, /win\.webContents === excludedWebContents/,
+    '설정 저장 요청을 보낸 창으로 config-data가 되돌아갈 수 있습니다.');
+  assert.match(windowManagerSource, /if \(!closingSplashWindow\.isDestroyed\(\)\) closingSplashWindow\.close\(\)/,
+    '이미 파괴된 스플래시 창을 시작 완료 시 다시 닫을 수 있습니다.');
+  assert.match(read('src/dock.html'), /\.dock-item\.click-through-active svg[\s\S]*?color:\s*#4ade80/,
+    'Lucide가 SVG로 교체한 독 마우스 투과 아이콘에 초록색 상태가 적용되지 않습니다.');
+  const clickThroughMenu = JSON.parse(read('src/assets/data/sidebar_menus.json'))
+    .find((item: { id?: string }) => item.id === 'click-through-btn');
+  assert.match(clickThroughMenu?.tooltip || '', /웹 브라우저.*채팅.*메인\/보조 1·2.*\n초록색/,
+    '사이드바 마우스 투과 툴팁에 적용 대상 창과 활성 상태 안내가 없습니다.');
+  assert.match(read('src/index.html'), /\.tw-tooltip\s*\{[\s\S]*?max-width:[\s\S]*?white-space:\s*pre-line/,
+    '사이드바의 긴 마우스 투과 안내가 창 안에서 줄바꿈되지 않습니다.');
   assert.deepEqual(
     [...settingsPage.matchAll(/<(?:button|div)[^>]*class="[^"]*\bnav-item\b[^"]*"[^>]*data-settings-group="[^"]+"[^>]*>[\s\S]*?<\/i>\s*([^<]+)/g)].map(match => match[1].trim()),
     ['앱 & 런처', '게임 HUD & 알림', '채팅 & 로그', '모니터링 & 소리', '시스템 & 관리', '앱 정보'],
@@ -5528,6 +5555,54 @@ function checkCorruptedConfigResilience(): void {
     }),
     null,
     '알 수 없는 창 키가 화면 좌표 설정으로 허용되었습니다.',
+  );
+  assert.deepEqual(
+    configModule.sanitizeExternalConfigPatch({
+      chatOverlayCustomTabs: [{
+        id: 'custom_standard',
+        name: '파티용',
+        channels: ['general', 'team', 'club', 'shout'],
+      }],
+    }),
+    {
+      chatOverlayCustomTabs: [{
+        id: 'custom_standard',
+        name: '파티용',
+        channels: ['general', 'team', 'club', 'shout'],
+      }],
+    },
+    '시스템 채널이 없는 정상 사용자 정의 탭이 설정 검증에서 거부되었습니다.',
+  );
+  assert.deepEqual(
+    configModule.sanitizeExternalConfigPatch({
+      chatOverlayCustomTabs: [{
+        id: 'custom_system',
+        name: '시스템',
+        channels: ['system'],
+        systemColorFilters: ['purple', 'red'],
+      }],
+    }),
+    {
+      chatOverlayCustomTabs: [{
+        id: 'custom_system',
+        name: '시스템',
+        channels: ['system'],
+        systemColorFilters: ['purple', 'red'],
+      }],
+    },
+    '시스템 색상 필터가 있는 정상 사용자 정의 탭이 설정 검증에서 거부되었습니다.',
+  );
+  assert.equal(
+    configModule.sanitizeExternalConfigPatch({
+      chatOverlayCustomTabs: [{
+        id: 'custom_invalid',
+        name: '잘못된탭',
+        channels: ['general'],
+        systemColorFilters: ['purple'],
+      }],
+    }),
+    null,
+    '시스템 채널 없이 시스템 색상 필터를 가진 잘못된 사용자 정의 탭이 허용되었습니다.',
   );
 
 }

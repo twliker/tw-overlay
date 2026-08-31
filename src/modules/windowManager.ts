@@ -643,8 +643,9 @@ export function toggleUpdateNoticeWindow(): boolean {
 export function closeSplashWindow(): void {
   if (mandatoryUpdateLock) return; // 필수 업데이트 진행 중에는 스플래시 유지
   if (splashWindow) {
-    splashWindow.close();
+    const closingSplashWindow = splashWindow;
     splashWindow = null;
+    if (!closingSplashWindow.isDestroyed()) closingSplashWindow.close();
 
     // 스플래시가 닫힌 후, 최초 실행(가이드/마법사를 한 번도 확인하지 않은 경우)에만 웰컴 가이드를 띄움
     const cfg = config.load();
@@ -694,6 +695,7 @@ export function createMainWindow(): BrowserWindow {
   const cfg = config.load();
   isOverlayVisible = cfg.overlayVisible !== false;
   isClickThrough = !!cfg.chatOverlayClickThrough;
+  log(`[OVERLAY_VISIBILITY] startup sidebar=${cfg.sidebarPosition || 'right'} chat=${!!cfg.chatOverlayEnabled} sub1=${!!cfg.chatOverlaySubEnabled} sub2=${!!cfg.chatOverlaySub2Enabled} clickThrough=${isClickThrough}`);
   // focusable: true로 변경하여 클릭 신호 수신 안정화
   mainWindow = new BrowserWindow(getStandardOptions(SIDEBAR_WIDTH, SIDEBAR_HEIGHT, { skipTaskbar: true, resizable: false, thickFrame: false, focusable: true, acceptFirstMouse: true }));
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
@@ -1637,7 +1639,10 @@ export function syncOverlay(currentRect: GameRect): void {
     const sidebarPos = cfg.sidebarPosition || 'right';
 
     if (sidebarPos === 'dock' || sidebarPos === 'dock-top') {
-      if (mainWindow.isVisible()) mainWindow.hide();
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+        log(`[WINDOW_SHOW] sidebar reason=dock-mode method=hide mode=${sidebarPos}`);
+      }
       const dockCfg = windowRegistry['dock'];
       if (!isDockVisible) {
         if (!dockCfg.ref || dockCfg.ref.isDestroyed()) {
@@ -1649,7 +1654,10 @@ export function syncOverlay(currentRect: GameRect): void {
         }
       }
     } else {
-      if (!mainWindow.isVisible()) mainWindow.showInactive();
+      if (!mainWindow.isVisible()) {
+        mainWindow.showInactive();
+        log(`[WINDOW_SHOW] sidebar reason=game-resync method=showInactive mode=${sidebarPos}`);
+      }
       const dockCfg = windowRegistry['dock'];
       if (dockCfg.ref && !dockCfg.ref.isDestroyed()) {
         dockCfg.ref.close();
@@ -1940,7 +1948,10 @@ export function syncOverlay(currentRect: GameRect): void {
   }
 }
 
-export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResize?: boolean }): void {
+export function applySettings(
+  newSettings: Partial<AppConfig> & { isSidebarResize?: boolean },
+  excludedWebContents?: WebContents,
+): boolean {
   if (newSettings.isSidebarResize && mainWindow) {
     const b = mainWindow.getBounds();
     const cfg = config.load();
@@ -1972,7 +1983,7 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
         }
       });
     }
-    return;
+    return true;
   }
   const sanitizedSettings = { ...newSettings };
   const current = config.load(), updated = { ...current, ...sanitizedSettings };
@@ -1986,7 +1997,7 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
     log(`[WINDOW_FOCUS] 독 배치 변경 대기: ${current.sidebarPosition} -> ${sanitizedSettings.sidebarPosition}, fullscreen=${isGameFullscreen}`);
   }
   const { isSidebarResize, ...saveSettings } = sanitizedSettings;
-  config.saveImmediate(saveSettings);
+  const saveSucceeded = config.saveImmediate(saveSettings);
   if (overlayWindow) {
     isApplyingSize = true;
     const b = overlayWindow.getBounds();
@@ -1995,18 +2006,17 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
     updateViewBounds();
     setTimeout(() => { isApplyingSize = false; }, 300);
   }
-  [mainWindow, overlayWindow, gameOverlayWindow].forEach(win => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('config-data', updated);
-    }
-  });
+  const sendUpdatedConfig = (win: BrowserWindow | null | undefined): void => {
+    if (!win || win.isDestroyed() || win.webContents === excludedWebContents) return;
+    win.webContents.send('config-data', updated);
+  };
+  [mainWindow, overlayWindow, gameOverlayWindow].forEach(sendUpdatedConfig);
   Object.values(windowRegistry).forEach(winCfg => {
-    if (winCfg.ref && !winCfg.ref.isDestroyed()) {
-      winCfg.ref.webContents.send('config-data', updated);
-    }
+    sendUpdatedConfig(winCfg.ref);
   });
 
-  if (gameOverlayWindow && !gameOverlayWindow.isDestroyed()) {
+  if (gameOverlayWindow && !gameOverlayWindow.isDestroyed()
+    && gameOverlayWindow.webContents !== excludedWebContents) {
     gameOverlayWindow.webContents.send('today-summary-config', updated);
   }
 
@@ -2077,6 +2087,7 @@ export function applySettings(newSettings: Partial<AppConfig> & { isSidebarResiz
   import('./tray').then(mod => {
     if (mod.updateTrayMenu) mod.updateTrayMenu();
   }).catch(e => log(`[WINDOW_MANAGER] 트레이 메뉴 업데이트 실패: ${e}`));
+  return saveSucceeded;
 }
 
 export function toggleClickThrough(): boolean {
@@ -2126,10 +2137,12 @@ export function toggleClickThrough(): boolean {
   if (subWin && !subWin.isDestroyed()) subWin.webContents.send('config-data', updatedCfg);
   if (sub2Win && !sub2Win.isDestroyed()) sub2Win.webContents.send('config-data', updatedCfg);
 
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('click-through-status', isClickThrough);
-    mainWindow.webContents.send('config-data', config.load());
-  }
+  const dockWin = windowRegistry.dock.ref;
+  [mainWindow, dockWin].forEach(win => {
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('click-through-status', isClickThrough);
+    win.webContents.send('config-data', config.load());
+  });
 
   // 설정 화면이 켜져 있는 경우 UI 체크박스 실시간 반응을 위해 config 재송신
   const settingsWin = windowRegistry.settings.ref;

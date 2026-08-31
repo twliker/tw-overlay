@@ -154,6 +154,14 @@
       background: #34d399;
       box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
     }
+
+    /* 긴 안내도 사이드바 창 안에서 잘리지 않도록 줄바꿈 허용 */
+    .tw-tooltip {
+      max-width: calc(100vw - 50px);
+      white-space: pre-line;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+    }
   </style>
 </head>
 

@@ -2,6 +2,7 @@
  * IPC 이벤트 핸들러 모듈
  */
 import { ipcMain, shell, app, BrowserWindow, dialog, screen } from 'electron';
+import type { WebContents } from 'electron';
 import * as path from 'path';
 import * as config from './config';
 import { log } from './logger';
@@ -484,18 +485,29 @@ export function register(): void {
     wm.setOverlayVisible(true, cfg.homeUrl);
   });
 
-  ipcMain.on('apply-settings', (_e, newSettings: Partial<AppConfig> & { isSidebarResize?: boolean }) => {
-    if (!newSettings || typeof newSettings !== 'object' || Array.isArray(newSettings)) return;
+  type ApplySettingsResult = { success: true } | { success: false; error: 'invalid-settings' | 'save-failed' };
+  const applyExternalSettings = (value: unknown, sourceWebContents?: WebContents): ApplySettingsResult => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { success: false, error: 'invalid-settings' };
+    }
+    const newSettings = value as Partial<AppConfig> & { isSidebarResize?: boolean };
     const isSidebarResize = newSettings.isSidebarResize;
-    if (isSidebarResize !== undefined && !isBoolean(isSidebarResize)) return;
+    if (isSidebarResize !== undefined && !isBoolean(isSidebarResize)) {
+      return { success: false, error: 'invalid-settings' };
+    }
     const { isSidebarResize: _ignoredResizeFlag, ...configPatch } = newSettings;
     const sanitizedPatch = config.sanitizeExternalConfigPatch(configPatch);
     if (!sanitizedPatch) {
       log('[IPC] 유효하지 않은 apply-settings payload 차단');
-      return;
+      return { success: false, error: 'invalid-settings' };
     }
     const sanitizedSettings = { ...sanitizedPatch, ...(isSidebarResize !== undefined ? { isSidebarResize } : {}) };
-    wm.applySettings(sanitizedSettings);
+    const settingsWindow = wm.getSettingsWindow();
+    const excludedSettingsWebContents = settingsWindow && !settingsWindow.isDestroyed()
+      && settingsWindow.webContents === sourceWebContents
+      ? sourceWebContents
+      : undefined;
+    const saveSucceeded = wm.applySettings(sanitizedSettings, excludedSettingsWebContents);
     if (sanitizedPatch.analyticsEnabled !== undefined) {
       analytics.refreshEnabledState();
     }
@@ -523,7 +535,19 @@ export function register(): void {
     if (sanitizedPatch.lootKeywords !== undefined) {
       broadcastToAllWindows('diary-updated');
     }
+    if (!saveSucceeded) {
+      log(`[IPC] apply-settings 저장 실패: ${config.getLastSaveError() || 'unknown error'}`);
+      return { success: false, error: 'save-failed' };
+    }
+    return { success: true };
+  };
+
+  ipcMain.on('apply-settings', (event, newSettings: unknown) => {
+    applyExternalSettings(newSettings, event.sender);
   });
+  ipcMain.handle('apply-settings-confirmed', (event, newSettings: unknown) => (
+    applyExternalSettings(newSettings, event.sender)
+  ));
 
   function broadcastChatLogStatus(): void {
     const cfg = config.load();

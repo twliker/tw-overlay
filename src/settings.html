@@ -1608,6 +1608,7 @@
                         <i data-lucide="plus" class="w-3.5 h-3.5"></i> 탭 추가
                       </button>
                     </div>
+                    <p class="text-[10px] text-indigo-300/80">이름과 채널을 선택한 뒤 <span class="font-bold">탭 추가</span>를 눌러야 등록됩니다. 작성 중인 내용은 즉시 적용 버튼만 눌러도 사라지지 않습니다.</p>
                     <div>
                       <span class="text-[11px] font-bold text-slate-400 block mb-1.5">포함할 채널 선택:</span>
                       <div class="flex flex-wrap gap-2">
@@ -2379,7 +2380,7 @@
               <div class="flex items-center justify-between p-4 bg-black/20 rounded-xl border border-white/5 group">
                 <div class="flex flex-col gap-1">
                   <span class="text-sm font-bold text-slate-200">마우스 투과 토글</span>
-                  <p class="text-xs text-slate-500">오버레이 브라우저를 클릭할 수 있게 하거나 통과하게 합니다.</p>
+                  <p class="text-xs text-slate-500 leading-relaxed">웹 브라우저 오버레이와 채팅 오버레이(메인·보조 1·보조 2)의 클릭·휠·드래그를 게임으로 통과시키거나 다시 조작할 수 있게 합니다. 사이드바·독과 설정 창에는 적용되지 않습니다.</p>
                 </div>
                 <div class="flex items-center gap-2">
                   <div class="relative">
@@ -3542,7 +3543,32 @@
       window.refreshIcons();
     }
 
-    function addCustomChatTab() {
+    function getSettingsApplyErrorMessage(result) {
+      if (result && result.error === 'save-failed') {
+        return '설정 파일을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+      }
+      return '설정값을 적용하지 못했습니다. 입력 내용을 확인한 뒤 다시 시도해 주세요.';
+    }
+
+    async function saveCustomChatTabs(nextTabs) {
+      try {
+        const result = await window.electronAPI.applySettingsConfirmed({ chatOverlayCustomTabs: nextTabs });
+        if (result && result.success) return true;
+        alert(getSettingsApplyErrorMessage(result));
+      } catch (error) {
+        console.error('사용자 정의 탭 저장 오류:', error);
+        alert('사용자 정의 탭을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      return false;
+    }
+
+    function hasPendingCustomChatTabDraft() {
+      const name = document.getElementById('custom-tab-name-input')?.value.trim() || '';
+      const hasSelectedChannel = document.querySelector('.custom-tab-ch-check:checked') !== null;
+      return name.length > 0 || hasSelectedChannel;
+    }
+
+    async function addCustomChatTab() {
       const nameInput = document.getElementById('custom-tab-name-input');
       if (!nameInput) return;
       const name = nameInput.value.trim();
@@ -3557,7 +3583,7 @@
         return;
       }
 
-      let systemColors = undefined;
+      let systemColors;
       if (checkedChannels.includes('system')) {
         const sysChecks = Array.from(document.querySelectorAll('.custom-tab-sys-check:checked')).map(el => el.value);
         systemColors = sysChecks.length > 0 ? sysChecks : ['purple', 'yellow', 'red', 'green', 'blue', 'gray'];
@@ -3567,21 +3593,28 @@
         id: `custom_${Date.now()}`,
         name: name,
         channels: checkedChannels,
-        systemColorFilters: systemColors
+        ...(checkedChannels.includes('system') ? { systemColorFilters: systemColors } : {})
       };
-      customTabsList.push(newTab);
+      const nextTabs = [...customTabsList, newTab];
+      const addButton = document.querySelector('button[onclick="addCustomChatTab()"]');
+      if (addButton) addButton.disabled = true;
+      const saved = await saveCustomChatTabs(nextTabs);
+      if (addButton) addButton.disabled = false;
+      if (!saved) return;
+
+      customTabsList = nextTabs;
       renderCustomTabsList();
       nameInput.value = '';
       document.querySelectorAll('.custom-tab-ch-check').forEach(el => { el.checked = false; });
       toggleCustomTabSystemColors();
-      window.electronAPI.applySettings({ chatOverlayCustomTabs: customTabsList });
     }
 
-    function deleteCustomChatTab(index) {
+    async function deleteCustomChatTab(index) {
       if (confirm(`'${customTabsList[index].name}' 탭을 삭제하시겠습니까?`)) {
-        customTabsList.splice(index, 1);
+        const nextTabs = customTabsList.filter((_, tabIndex) => tabIndex !== index);
+        if (!await saveCustomChatTabs(nextTabs)) return;
+        customTabsList = nextTabs;
         renderCustomTabsList();
-        window.electronAPI.applySettings({ chatOverlayCustomTabs: customTabsList });
       }
     }
 
@@ -5875,7 +5908,14 @@
     }
 
     async function applyChatOverlaySettingsOnly() {
+      const btn = document.querySelector('button[onclick="applyChatOverlaySettingsOnly()"]');
+      const origHtml = btn ? btn.innerHTML : '';
       try {
+        if (hasPendingCustomChatTabDraft()) {
+          alert('작성 중인 사용자 정의 탭이 있습니다. 이름과 채널을 확인한 뒤 먼저 “탭 추가”를 눌러 주세요. 작성 내용은 그대로 유지됩니다.');
+          return;
+        }
+        if (btn) btn.disabled = true;
         try {
           const latestConfig = await window.electronAPI.getConfig();
           window.settingsConfigBinding.refreshUntouchedChatOverlaySizes(latestConfig);
@@ -5887,11 +5927,17 @@
           ...window.settingsFormCollection.collectChatAlertSettings(lootKeywordsList, shoutKeywordsList),
         };
 
-        window.electronAPI.applySettings(chatSettings);
+        const result = await window.electronAPI.applySettingsConfirmed(chatSettings);
+        if (!result || !result.success) {
+          if (btn) {
+            btn.innerHTML = `<i data-lucide="circle-alert" class="w-4 h-4 text-rose-400"></i> <span class="text-rose-400">적용하지 못했습니다</span>`;
+            if (window.lucide) window.lucide.createIcons();
+          }
+          alert(getSettingsApplyErrorMessage(result));
+          return;
+        }
 
-        const btn = document.querySelector('button[onclick="applyChatOverlaySettingsOnly()"]');
         if (btn) {
-          const origHtml = btn.innerHTML;
           btn.innerHTML = `<i data-lucide="check" class="w-4 h-4 text-emerald-400"></i> <span class="text-emerald-400">오버레이에 즉시 적용되었습니다!</span>`;
           if (window.lucide) window.lucide.createIcons();
           setTimeout(() => {
@@ -5901,6 +5947,21 @@
         }
       } catch (e) {
         console.error('채팅 오버레이 즉시 적용 오류:', e);
+        if (btn) {
+          btn.innerHTML = `<i data-lucide="circle-alert" class="w-4 h-4 text-rose-400"></i> <span class="text-rose-400">적용하지 못했습니다</span>`;
+          if (window.lucide) window.lucide.createIcons();
+        }
+        alert('채팅 오버레이 설정을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          if (btn.innerHTML.includes('적용하지 못했습니다')) {
+            setTimeout(() => {
+              btn.innerHTML = origHtml;
+              if (window.lucide) window.lucide.createIcons();
+            }, 2000);
+          }
+        }
       }
     }
 

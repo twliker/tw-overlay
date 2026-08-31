@@ -182,6 +182,31 @@ const OPTIONAL_NUMBER_KEYS = new Set([
   'contentsCheckerHeight', 'googleSyncLastTime',
 ]);
 const WINDOW_POSITION_KEYS = new Set(Object.keys(DEFAULT_CONFIG.positions || {}));
+const CHAT_OVERLAY_CHANNELS = new Set(['general', 'whisper', 'team', 'club', 'shout', 'system']);
+const CHAT_OVERLAY_SYSTEM_COLOR_GROUPS = new Set(['purple', 'yellow', 'red', 'green', 'blue', 'gray']);
+
+function isValidChatOverlayCustomTabs(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length > 50) return false;
+  return value.every(tab => {
+    if (!isPlainObject(tab)) return false;
+    if (Object.keys(tab).some(key => !['id', 'name', 'channels', 'systemColorFilters'].includes(key))) return false;
+    if (typeof tab.id !== 'string' || tab.id.length === 0 || tab.id.length > 128) return false;
+    if (typeof tab.name !== 'string' || tab.name.trim().length === 0 || tab.name.length > 10) return false;
+    if (!Array.isArray(tab.channels) || tab.channels.length === 0 || tab.channels.length > CHAT_OVERLAY_CHANNELS.size) return false;
+    if (new Set(tab.channels).size !== tab.channels.length
+      || tab.channels.some(channel => typeof channel !== 'string' || !CHAT_OVERLAY_CHANNELS.has(channel))) return false;
+
+    if (tab.systemColorFilters === undefined) return true;
+    if (!tab.channels.includes('system')
+      || !Array.isArray(tab.systemColorFilters)
+      || tab.systemColorFilters.length > CHAT_OVERLAY_SYSTEM_COLOR_GROUPS.size
+      || new Set(tab.systemColorFilters).size !== tab.systemColorFilters.length
+      || tab.systemColorFilters.some(color => (
+        typeof color !== 'string' || !CHAT_OVERLAY_SYSTEM_COLOR_GROUPS.has(color)
+      ))) return false;
+    return true;
+  });
+}
 
 function isValidScreenPositionMap(value: unknown): value is Record<string, { x: number; y: number }> {
   return isPlainObject(value) && Object.entries(value).every(([key, position]) => (
@@ -303,6 +328,7 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
     if (['galleryKeywords', 'hiddenMenuIds', 'visibleMenuIds'].includes(key)
       && (!Array.isArray(fieldValue) || fieldValue.length > 2_000
         || fieldValue.some(value => typeof value !== 'string' || value.length > 500))) return null;
+    if (key === 'chatOverlayCustomTabs' && !isValidChatOverlayCustomTabs(fieldValue)) return null;
     const range = EXTERNAL_NUMBER_RANGES[key as keyof AppConfig];
     if (range) {
       if (typeof fieldValue !== 'number' || !Number.isFinite(fieldValue) || fieldValue < range[0] || fieldValue > range[1]) {

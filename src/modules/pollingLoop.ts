@@ -91,6 +91,7 @@ export function start(): void {
                 return;
             }
             if (_currentStatus !== 'not-running') {
+                log('[OVERLAY_VISIBILITY] game=not-running action=hide reason=game-window-not-detected');
                 tracker.releaseGameZOrder();
                 wm.resetGameSessionState();
                 if (gameWasEverFound) {
@@ -119,6 +120,7 @@ export function start(): void {
                 return;
             }
             if (_currentStatus !== 'minimized') {
+                log('[OVERLAY_VISIBILITY] game=minimized action=hide reason=game-window-minimized');
                 tracker.releaseGameZOrder();
                 wm.hideAll(); // 최소화되는 순간 모든 창 종료 (운명 공동체)
                 _currentStatus = 'minimized';
@@ -158,6 +160,15 @@ export function start(): void {
 
         if (isStateChanged) {
             const gameJustStarted = _currentStatus !== 'running';
+            if (gameJustStarted) {
+                const visibility = config.loadFields([
+                    'sidebarPosition',
+                    'chatOverlayEnabled',
+                    'chatOverlaySubEnabled',
+                    'chatOverlaySub2Enabled',
+                ] as const);
+                log(`[OVERLAY_VISIBILITY] game=running action=restore sidebar=${visibility.sidebarPosition || 'right'} chat=${!!visibility.chatOverlayEnabled} sub1=${!!visibility.chatOverlaySubEnabled} sub2=${!!visibility.chatOverlaySub2Enabled}`);
+            }
             if (isNewGameSession) {
                 const { abandonedTracker } = await import('./abandonedTracker');
                 const { digsiteTracker } = await import('./digsiteTracker');

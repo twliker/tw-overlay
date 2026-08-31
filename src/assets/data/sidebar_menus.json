@@ -301,7 +301,7 @@
     "id": "click-through-btn",
     "label": "마우스 투과 토글",
     "icon": "mouse-pointer-2",
-    "tooltip": "마우스 투과 토글 (Ctrl+Shift+T)",
+    "tooltip": "마우스 투과: 웹 브라우저 + 채팅(메인/보조 1·2)\n초록색=켜짐 · Ctrl+Shift+T",
     "color": "slate-400",
     "api": "toggleClickThrough",
     "isSystem": true

@@ -105,6 +105,17 @@
       filter: drop-shadow(0 0 6px var(--theme-color));
     }
 
+    .dock-item.click-through-active,
+    .dock-item.click-through-active i,
+    .dock-item.click-through-active svg {
+      color: #4ade80 !important;
+    }
+
+    .dock-item.click-through-active i,
+    .dock-item.click-through-active svg {
+      filter: drop-shadow(0 0 6px rgba(74, 222, 128, 0.6));
+    }
+
     /* 테마 색상 및 글로우 HSL 변수 정의 */
     .color-purple-400 { --theme-color: #c084fc; --theme-glow: rgba(192, 132, 252, 0.15); }
     .color-emerald-400 { --theme-color: #34d399; --theme-glow: rgba(52, 211, 153, 0.15); }
@@ -341,6 +352,23 @@
     let activeKeys = [];
     let isDockMousePassThrough = null;
     let cloudSyncStatus = null;
+    let clickThroughActive = false;
+
+    function updateClickThroughStatus(enabled) {
+      clickThroughActive = Boolean(enabled);
+      const item = document.getElementById('dock-click-through-btn');
+      if (!item) return;
+      item.classList.toggle('click-through-active', clickThroughActive);
+      const icon = item.querySelector('[data-lucide]');
+      if (icon) icon.setAttribute('data-lucide', clickThroughActive ? 'mouse-pointer-off' : 'mouse-pointer-2');
+      const tooltip = item.querySelector('.dock-tooltip');
+      if (tooltip) {
+        tooltip.textContent = clickThroughActive
+          ? '마우스 투과 켜짐 · 웹 브라우저와 채팅 오버레이 입력이 게임으로 전달됩니다'
+          : '마우스 투과 꺼짐 · 웹 브라우저와 채팅 오버레이를 조작할 수 있습니다';
+      }
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
 
     function updateCloudSyncStatus(status) {
       cloudSyncStatus = status;
@@ -629,7 +657,7 @@
         item.innerHTML = `
           <i data-lucide="${menu.icon}"></i>
           <span class="indicator-dot"></span>
-          <span class="dock-tooltip">${menu.label}</span>
+          <span class="dock-tooltip">${menu.tooltip || menu.label}</span>
         `;
 
         item.onclick = () => {
@@ -718,6 +746,7 @@
 
       updateActiveStates();
       updateCloudSyncStatus(cloudSyncStatus);
+      updateClickThroughStatus(clickThroughActive);
     }
 
     function updateActiveStates() {
@@ -780,6 +809,7 @@
     // 설정 데이터 이벤트 수신
     window.electronAPI.onConfigData((config) => {
       appConfig = config;
+      clickThroughActive = Boolean(config.chatOverlayClickThrough);
       renderDock();
     });
 
@@ -794,6 +824,9 @@
     }
     if (window.electronAPI.googleSyncGetStatus) {
       window.electronAPI.googleSyncGetStatus().then(updateCloudSyncStatus).catch(() => {});
+    }
+    if (window.electronAPI.onClickThroughStatus) {
+      window.electronAPI.onClickThroughStatus(updateClickThroughStatus);
     }
 
     window.addEventListener('resize', () => {

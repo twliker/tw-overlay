@@ -813,6 +813,113 @@ async function checkTodaySummarySettingsLayout(window: BrowserWindow): Promise<v
   assert.equal(result.controlsVisible, true);
 }
 
+async function checkCustomChatTabSettings(window: BrowserWindow): Promise<void> {
+  window.setContentSize(1100, 720);
+  await window.loadFile(path.join(projectRoot, 'dist', 'settings.html'));
+  await waitForSelector(window, '#custom-tab-name-input');
+
+  const result = await window.webContents.executeJavaScript(`
+    (async () => {
+      const alerts = [];
+      const saveCalls = [];
+      window.alert = message => alerts.push(message);
+      window.confirm = () => true;
+      window.refreshIcons = () => {};
+      window.electronAPI = {
+        applySettingsConfirmed: async payload => {
+          const tab = payload.chatOverlayCustomTabs?.at(-1);
+          saveCalls.push({
+            payload,
+            lastTabHasSystemFilters: tab
+              ? Object.prototype.hasOwnProperty.call(tab, 'systemColorFilters')
+              : false,
+          });
+          return { success: true };
+        },
+        getConfig: async () => ({}),
+      };
+      customTabsList = [];
+
+      const setChannels = values => {
+        document.querySelectorAll('.custom-tab-ch-check').forEach(input => {
+          input.checked = values.includes(input.value);
+        });
+      };
+      const nameInput = document.getElementById('custom-tab-name-input');
+
+      nameInput.value = '파티용';
+      setChannels(['general', 'team', 'club', 'shout']);
+      await addCustomChatTab();
+      const standardTab = customTabsList[0];
+      const standardDraftCleared = nameInput.value === ''
+        && document.querySelector('.custom-tab-ch-check:checked') === null;
+
+      nameInput.value = '시스템';
+      setChannels(['system']);
+      document.querySelectorAll('.custom-tab-sys-check').forEach(input => {
+        input.checked = input.value === 'purple' || input.value === 'red';
+      });
+      await addCustomChatTab();
+      const systemTab = customTabsList[1];
+
+      window.electronAPI.applySettingsConfirmed = async payload => {
+        const tab = payload.chatOverlayCustomTabs?.at(-1);
+        saveCalls.push({
+          payload,
+          lastTabHasSystemFilters: tab
+            ? Object.prototype.hasOwnProperty.call(tab, 'systemColorFilters')
+            : false,
+        });
+        return { success: false, error: 'invalid-settings' };
+      };
+      nameInput.value = '실패탭';
+      setChannels(['general']);
+      await addCustomChatTab();
+      const failedDraftPreserved = nameInput.value === '실패탭'
+        && document.getElementById('custom-tab-ch-general').checked;
+      const tabCountAfterFailedSave = customTabsList.length;
+
+      const saveCountBeforeDraftApply = saveCalls.length;
+      await applyChatOverlaySettingsOnly();
+
+      return {
+        standardTab,
+        standardDraftCleared,
+        standardHasSystemFilters: saveCalls[0].lastTabHasSystemFilters,
+        systemTab,
+        systemHasSystemFilters: saveCalls[1].lastTabHasSystemFilters,
+        failedDraftPreserved,
+        tabCountAfterFailedSave,
+        draftApplyWasBlocked: saveCalls.length === saveCountBeforeDraftApply,
+        alerts,
+      };
+    })()
+  `) as {
+    standardTab: { name: string; channels: string[]; systemColorFilters?: string[] };
+    standardDraftCleared: boolean;
+    standardHasSystemFilters: boolean;
+    systemTab: { name: string; channels: string[]; systemColorFilters?: string[] };
+    systemHasSystemFilters: boolean;
+    failedDraftPreserved: boolean;
+    tabCountAfterFailedSave: number;
+    draftApplyWasBlocked: boolean;
+    alerts: string[];
+  };
+
+  assert.equal(result.standardTab.name, '파티용');
+  assert.deepEqual(result.standardTab.channels, ['general', 'team', 'club', 'shout']);
+  assert.equal(result.standardHasSystemFilters, false,
+    '시스템 채널이 없는 사용자 정의 탭에 systemColorFilters 필드가 포함되었습니다.');
+  assert.equal(result.standardDraftCleared, true, '저장 성공 후 사용자 정의 탭 입력값이 정리되지 않았습니다.');
+  assert.deepEqual(result.systemTab.systemColorFilters, ['purple', 'red']);
+  assert.equal(result.systemHasSystemFilters, true, '시스템 탭의 색상 필터가 저장 요청에서 누락되었습니다.');
+  assert.equal(result.failedDraftPreserved, true, '저장 실패 후 사용자 정의 탭 초안이 사라졌습니다.');
+  assert.equal(result.tabCountAfterFailedSave, 2, '저장 실패한 사용자 정의 탭이 목록에 추가되었습니다.');
+  assert.equal(result.draftApplyWasBlocked, true, '등록 전 사용자 정의 탭 초안이 즉시 적용 요청에 포함되었습니다.');
+  assert.ok(result.alerts.some(message => message.includes('작성 중인 사용자 정의 탭')),
+    '등록 전 사용자 정의 탭 초안 안내가 표시되지 않았습니다.');
+}
+
 async function checkHudPositionEditSettingsSafety(window: BrowserWindow): Promise<void> {
   window.setContentSize(1100, 720);
   const settingsPath = path.join(projectRoot, 'dist', 'settings.html');
@@ -3054,6 +3161,8 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
 
       switchTab(7);
       const panel7Active = document.getElementById('panel-7')?.classList.contains('active');
+      const mousePassThroughGuideText = document.getElementById('mouse-pass-through-guide')?.textContent || '';
+      const sidebarOverlayControlsImage = document.getElementById('sidebar-overlay-controls-guide-image');
       const tabsOverflowX = getComputedStyle(document.querySelector('.guide-tabs')).overflowX;
 
       return {
@@ -3065,6 +3174,12 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
         panel7Active,
         historyGuideText,
         settingsRoutes,
+        mousePassThroughGuideText,
+        sidebarOverlayControlsImage: {
+          src: sidebarOverlayControlsImage?.getAttribute('src'),
+          loaded: Boolean(sidebarOverlayControlsImage?.complete && sidebarOverlayControlsImage?.naturalWidth > 0),
+          alt: sidebarOverlayControlsImage?.getAttribute('alt'),
+        },
         tabsOverflowX
       };
     })()
@@ -3086,6 +3201,17 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
   assert.deepEqual(result.settingsRoutes, ['chatlog:history-sync'],
     '과거 채팅 로그 동기화 설정 바로가기가 올바르게 연결되지 않았습니다.');
   assert.equal(result.panel7Active, true, '마지막 단축키 탭 전환이 동작하지 않습니다.');
+  assert.match(result.mousePassThroughGuideText, /웹 브라우저 오버레이[\s\S]*채팅 오버레이 메인·보조 1·보조 2/,
+    '프로그램 내부 가이드에 마우스 투과 대상 창 안내가 없습니다.');
+  assert.match(result.mousePassThroughGuideText, /초록색이면 투과가 켜진 상태[\s\S]*클릭·휠 스크롤·드래그가 게임으로 전달/,
+    '프로그램 내부 가이드에 마우스 투과 상태별 동작 안내가 없습니다.');
+  assert.match(result.mousePassThroughGuideText, /상단 이동 영역을 드래그[\s\S]*보이기\/숨기기[\s\S]*서로 다른 기능/,
+    '프로그램 내부 가이드에 채팅창 이동과 표시 상태 구분 안내가 없습니다.');
+  assert.deepEqual(result.sidebarOverlayControlsImage, {
+    src: 'assets/img/guide_overlay.png',
+    loaded: true,
+    alt: '사이드바의 홈, 브라우저 오버레이, 채팅 오버레이, 마우스 투과 버튼 설명',
+  }, '프로그램 내부 가이드의 사이드바 버튼 설명 이미지가 올바르게 로드되지 않았습니다.');
   assert.equal(result.tabsOverflowX, 'auto', '가이드 탭이 늘어날 때 가로 스크롤로 접근할 수 없습니다.');
 }
 
@@ -4135,6 +4261,7 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
       const configCallbacks = [];
       const activeCallbacks = [];
       const syncCallbacks = [];
+      const clickThroughCallbacks = [];
       window.sidebarCategories = ${JSON.stringify(categoryRegistry.SIDEBAR_CATEGORIES)};
       window.lucide = { createIcons: () => {} };
       window.bindEscapeClose = () => {};
@@ -4151,16 +4278,32 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
         onConfigData: callback => configCallbacks.push(callback),
         onActiveWindows: callback => activeCallbacks.push(callback),
         onGoogleSyncStatusChanged: callback => syncCallbacks.push(callback),
+        onClickThroughStatus: callback => clickThroughCallbacks.push(callback),
         googleSyncGetStatus: async () => ({ isLinked: false }),
       };
       ${cloudSyncPresentationCode}
       eval(${JSON.stringify(dockScript)});
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      configCallbacks[0]({ sidebarPosition: 'dock', hiddenMenuIds: [] });
+      configCallbacks[0]({ sidebarPosition: 'dock', hiddenMenuIds: [], chatOverlayClickThrough: false });
       const homework = document.getElementById('dock-contents-checker-btn');
       const swordEnhance = document.getElementById('dock-chip-sword-enhance-btn');
       const qteChallenge = document.getElementById('dock-chip-qte-challenge-btn');
+      const clickThroughItem = document.getElementById('dock-click-through-btn');
+      if (clickThroughItem) clickThroughItem.style.transition = 'none';
+      clickThroughCallbacks[0](true);
+      const clickThroughOn = {
+        active: clickThroughItem?.classList.contains('click-through-active'),
+        icon: clickThroughItem?.querySelector('[data-lucide]')?.getAttribute('data-lucide'),
+        tooltip: clickThroughItem?.querySelector('.dock-tooltip')?.textContent,
+        color: clickThroughItem ? getComputedStyle(clickThroughItem).color : undefined,
+      };
+      clickThroughCallbacks[0](false);
+      const clickThroughOff = {
+        active: clickThroughItem?.classList.contains('click-through-active'),
+        icon: clickThroughItem?.querySelector('[data-lucide]')?.getAttribute('data-lucide'),
+        color: clickThroughItem ? getComputedStyle(clickThroughItem).color : undefined,
+      };
       homework?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
       homework?.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
       homework?.click();
@@ -4218,6 +4361,8 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
         reauthVisible,
         reauthTooltip,
         hiddenAfterLogout,
+        clickThroughOn,
+        clickThroughOff,
       };
 
       configCallbacks[0]({
@@ -4261,6 +4406,8 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
     reauthVisible?: boolean;
     reauthTooltip?: string;
     hiddenAfterLogout?: boolean;
+    clickThroughOn: { active?: boolean; icon?: string; tooltip?: string; color?: string };
+    clickThroughOff: { active?: boolean; icon?: string; color?: string };
     calls: unknown[];
     mousePassThroughCalls: Array<{ ignore: boolean; forward: boolean }>;
     topDockClass: boolean;
@@ -4292,6 +4439,17 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.reauthVisible, true, '재로그인 필요 상태에서 독 동기화 아이콘이 숨겨집니다.');
   assert.match(result.reauthTooltip || '', /다시 로그인/);
   assert.equal(result.hiddenAfterLogout, true, '로그아웃 뒤 독 동기화 아이콘이 숨겨지지 않았습니다.');
+  assert.deepEqual(result.clickThroughOn, {
+    active: true,
+    icon: 'mouse-pointer-off',
+    tooltip: '마우스 투과 켜짐 · 웹 브라우저와 채팅 오버레이 입력이 게임으로 전달됩니다',
+    color: 'rgb(74, 222, 128)',
+  }, '독의 마우스 투과 켜짐 상태가 초록색 상태와 안내 문구로 표시되지 않았습니다.');
+  assert.deepEqual(result.clickThroughOff, {
+    active: false,
+    icon: 'mouse-pointer-2',
+    color: 'rgb(148, 163, 184)',
+  }, '독의 마우스 투과 꺼짐 상태가 복원되지 않았습니다.');
   assert.deepEqual(result.calls.at(-1), ['settings', 'data:google-sync'],
     '독 동기화 아이콘이 Google Drive 설정 카드로 이동하지 않습니다.');
   assert.deepEqual(result.mousePassThroughCalls, [
@@ -4988,6 +5146,8 @@ async function main(): Promise<void> {
     await checkTodaySummaryRenderer(window);
     console.log('[TEST] checkTodaySummarySettingsLayout');
     await checkTodaySummarySettingsLayout(window);
+    console.log('[TEST] checkCustomChatTabSettings');
+    await checkCustomChatTabSettings(window);
     console.log('[TEST] checkHudPositionEditSettingsSafety');
     await checkHudPositionEditSettingsSafety(window);
     console.log('[TEST] checkSettingsDeepLinkRouting');

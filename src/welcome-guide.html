@@ -694,7 +694,7 @@
               </div>
             </div>
             <div class="feature-card-desc">
-              게임 창에 자석처럼 연동되어 화면 가림 없이 투명하게 채팅과 외치기를 감시합니다.
+              게임 창에 자석처럼 연동되어 화면 가림 없이 투명하게 채팅과 외치기를 감시합니다. 스크롤하거나 위치를 옮길 때는 마우스 투과를 먼저 꺼주세요.
             </div>
           </div>
 
@@ -1029,7 +1029,7 @@
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">D</span></td>
             </tr>
             <tr>
-              <td>오버레이 마우스 클릭 투과 토글</td>
+              <td>웹·채팅 오버레이 마우스 투과 토글<br><span style="font-size:11px;color:#94a3b8;">메인·보조 1·보조 2 채팅창 포함 · 초록색이면 클릭/휠/드래그가 게임으로 전달</span></td>
               <td><span class="key-badge">Ctrl</span><span class="key-badge">Shift</span><span class="key-badge">T</span></td>
             </tr>
             <tr>
@@ -1066,6 +1066,39 @@
             </tr>
           </tbody>
         </table>
+
+        <div id="mouse-pass-through-guide" class="card" style="border-left: 4px solid #4ade80; background: rgba(34, 197, 94, 0.06); padding: 14px 18px; gap: 12px;">
+          <div style="font-size: 15px; font-weight: 800; color: #86efac; display: flex; align-items: center; gap: 7px;">
+            <i data-lucide="mouse-pointer-2" style="width:17px;height:17px;"></i>
+            마우스 투과 사용법
+          </div>
+          <figure style="margin: 0; padding: 10px; border-radius: 9px; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(255,255,255,0.07); text-align: center;">
+            <img id="sidebar-overlay-controls-guide-image" src="assets/img/guide_overlay.png"
+              alt="사이드바의 홈, 브라우저 오버레이, 채팅 오버레이, 마우스 투과 버튼 설명"
+              style="display:block; width:min(100%, 504px); height:auto; margin:0 auto; border-radius:4px;">
+            <figcaption style="font-size: 11.5px; color: #94a3b8; margin-top: 7px; line-height: 1.45;">
+              사이드바의 채팅 오버레이 버튼으로 창을 표시하고, 바로 아래 마우스 버튼으로 투과 상태를 전환합니다.
+            </figcaption>
+          </figure>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12.5px; line-height: 1.55;">
+            <div style="padding: 9px 11px; border-radius: 8px; background: rgba(15, 23, 42, 0.45); color: #cbd5e1;">
+              <strong style="color:#a7f3d0;">투과 적용 창</strong><br>
+              웹 브라우저 오버레이<br>채팅 오버레이 메인·보조 1·보조 2
+            </div>
+            <div style="padding: 9px 11px; border-radius: 8px; background: rgba(15, 23, 42, 0.45); color: #cbd5e1;">
+              <strong style="color:#c4b5fd;">투과되지 않는 창</strong><br>
+              사이드바·독, 설정 창<br>체크리스트·계산기 등 일반 기능 창
+            </div>
+          </div>
+          <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.7;">
+            <div><strong style="color:#4ade80;">1.</strong> 사이드바·독의 마우스 아이콘이 <strong style="color:#4ade80;">초록색이면 투과가 켜진 상태</strong>입니다. 클릭·휠 스크롤·드래그가 게임으로 전달됩니다.</div>
+            <div><strong style="color:#4ade80;">2.</strong> 스크롤바가 움직이지 않거나 채팅창을 옮길 수 없다면 아이콘 또는 <span class="key-badge">Ctrl</span> + <span class="key-badge">Shift</span> + <span class="key-badge">T</span>로 투과를 끄세요.</div>
+            <div><strong style="color:#4ade80;">3.</strong> 투과를 끈 뒤 채팅창을 스크롤하고, 상단 이동 영역을 드래그해 위치를 옮길 수 있습니다.</div>
+          </div>
+          <div style="font-size: 12px; color: #fcd34d; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 9px;">
+            ※ 채팅 오버레이 <strong>보이기/숨기기</strong>와 <strong>마우스 투과</strong>는 서로 다른 기능이며, 창을 다시 표시해도 저장된 투과 상태가 유지됩니다.
+          </div>
+        </div>
       </div>
     </main>
     

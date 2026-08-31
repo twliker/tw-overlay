@@ -125,6 +125,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setOpacity: (opacity: number) => ipcRenderer.send('set-opacity', opacity),
   saveQuickSlots: (slots: QuickSlotItem[]) => ipcRenderer.send('save-quick-slots', slots),
   applySettings: (settings: Partial<AppConfig>) => ipcRenderer.send('apply-settings', settings),
+  applySettingsConfirmed: (settings: Partial<AppConfig>) => ipcRenderer.invoke('apply-settings-confirmed', settings),
   getConfig: () => ipcRenderer.invoke('get-config'),
   selectCustomSound: () => ipcRenderer.invoke('select-custom-sound'),
   deleteCustomSound: (filename: string) => ipcRenderer.invoke('delete-custom-sound', filename),
