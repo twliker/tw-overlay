@@ -18,7 +18,6 @@ internal static class Program
     [STAThread]
     private static async Task<int> Main(string[] args)
     {
-        Console.OutputEncoding = Encoding.UTF8;
         if (args.Length == 0)
         {
             WriteError("invalid-arguments", "Expected one of: self-test, check, install");
@@ -62,17 +61,12 @@ internal static class Program
     {
         StoreContext context = StoreContext.GetDefault();
         IReadOnlyList<StorePackageUpdate> updates = await context.GetAppAndOptionalStorePackageUpdatesAsync();
-        StorePackageUpdate? mainUpdate = FindMainPackageUpdate(updates);
 
         WriteEvent("check-result", writer =>
         {
             writer.WriteBoolean("updateAvailable", updates.Count > 0);
             writer.WriteBoolean("mandatory", updates.Any(update => update.Mandatory));
             writer.WriteBoolean("canSilentlyInstall", context.CanSilentlyDownloadStorePackageUpdates);
-            if (mainUpdate is not null)
-            {
-                writer.WriteString("version", FormatVersion(mainUpdate.Package.Id.Version));
-            }
         });
         return 0;
     }
@@ -145,16 +139,6 @@ internal static class Program
         return 0;
     }
 
-    private static StorePackageUpdate? FindMainPackageUpdate(IReadOnlyList<StorePackageUpdate> updates)
-    {
-        string currentPackageName = Package.Current.Id.Name;
-        return updates
-            .Where(update => string.Equals(update.Package.Id.Name, currentPackageName, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(update => ToVersion(update.Package.Id.Version))
-            .FirstOrDefault()
-            ?? updates.OrderByDescending(update => ToVersion(update.Package.Id.Version)).FirstOrDefault();
-    }
-
     private static InstallOptions ParseInstallOptions(string[] args)
     {
         long windowHandle = 0;
@@ -220,12 +204,6 @@ internal static class Program
         });
     }
 
-    private static Version ToVersion(PackageVersion value) =>
-        new(value.Major, value.Minor, value.Build, value.Revision);
-
-    private static string FormatVersion(PackageVersion value) =>
-        $"{value.Major}.{value.Minor}.{value.Build}.{value.Revision}";
-
     private static void WriteProgress(string phase, int percent)
     {
         WriteEvent("progress", writer =>
@@ -275,4 +253,3 @@ internal static class Program
         int ParentProcessId,
         string ApplicationId);
 }
-

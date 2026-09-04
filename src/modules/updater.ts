@@ -229,7 +229,7 @@ async function handleStoreInstallFailure(
   isMandatory = false;
   wm.setMandatoryUpdateLock(false);
   broadcastStatus({
-    state: 'available',
+    state: 'error',
     source: 'store',
     version: pendingStoreUpdate?.version,
     isMandatory: false,

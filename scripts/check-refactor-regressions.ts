@@ -9244,6 +9244,7 @@ function checkStoreUpdateLogic(): void {
 
   const updaterSource = read('src/modules/updater.ts');
   const helperSource = read('native/store-update-helper/Program.cs');
+  const settingsSource = read('src/settings.html');
   const splashSource = read('src/splash.html');
   const packageJson = JSON.parse(read('package.json')) as {
     scripts?: Record<string, string>;
@@ -9257,6 +9258,23 @@ function checkStoreUpdateLogic(): void {
     '필수 Store 업데이트 재시도 뒤 최초 앱 실행 콜백을 복구하는 경로가 누락되었습니다.');
   assert.match(updaterSource, /restoreSettingsAfterManualStoreAttempt/,
     '수동 Store 업데이트 실패 뒤 숨겨진 설정 창을 복구하는 경로가 누락되었습니다.');
+  const installFailureHandler = updaterSource.slice(
+    updaterSource.indexOf('async function handleStoreInstallFailure'),
+    updaterSource.indexOf('async function startStoreUpdateInstallation'),
+  );
+  const optionalInstallFailure = installFailureHandler.slice(installFailureHandler.indexOf('isMandatory = false'));
+  assert.match(optionalInstallFailure, /state: 'error'/,
+    '선택 Store 업데이트 설치 실패가 오류 상태로 전달되지 않습니다.');
+  assert.doesNotMatch(optionalInstallFailure, /state: 'available'/,
+    '선택 Store 업데이트 설치 실패가 업데이트 가능 상태로 잘못 유지됩니다.');
+  assert.doesNotMatch(helperSource, /Console\.OutputEncoding\s*=/,
+    '콘솔이 없는 Store 환경에서 실패할 수 있는 출력 인코딩 설정이 남아 있습니다.');
+  assert.doesNotMatch(helperSource, /Package\.Id\.Version/,
+    'Store의 현재 설치 패키지 버전을 새 업데이트 버전으로 잘못 전달합니다.');
+  assert.match(settingsSource, /case 'available':[\s\S]{0,300}version\s*\?[\s\S]{0,150}: '새 업데이트 발견!'/,
+    'Store가 대상 버전을 제공하지 않을 때 사용할 업데이트 제목이 없습니다.');
+  assert.match(settingsSource, /case 'error':[\s\S]{0,500}openStoreUpdates\(\)/,
+    'Store 설치 실패 시 Microsoft Store를 직접 여는 복구 동작이 없습니다.');
   assert.match(helperSource, /update\.Mandatory/,
     'Partner Center 강제 업데이트 플래그 조회가 누락되었습니다.');
   assert.match(helperSource, /TrySilentDownloadStorePackageUpdatesAsync/,

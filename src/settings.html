@@ -5605,7 +5605,9 @@
           updateActionContainer.innerHTML = '<button disabled class="btn-primary px-6 py-2.5 opacity-50 cursor-not-allowed">확인 중</button>';
           break;
         case 'available':
-          updateStatusTitle.innerText = '새 버전 발견! (v' + version + ')';
+          updateStatusTitle.innerText = version
+            ? '새 버전 발견! (v' + version + ')'
+            : '새 업데이트 발견!';
           updateStatusDesc.innerText = message || '새로운 업데이트를 다운로드할 준비가 되었습니다.';
           updateActionContainer.innerHTML = `<button onclick="startDownload()" class="btn-primary px-6 py-2.5 animate-bounce">${source === 'store' ? 'Microsoft Store에서 업데이트' : '다운로드 시작'}</button>`;
           break;
@@ -5641,7 +5643,9 @@
           updateActionContainer.innerHTML = '<button onclick="checkUpdates()" class="btn-primary px-6 py-2.5">업데이트 확인</button>';
           break;
         case 'mandatory':
-          updateStatusTitle.innerText = '필수 업데이트 발견! (v' + version + ')';
+          updateStatusTitle.innerText = version
+            ? '필수 업데이트 발견! (v' + version + ')'
+            : '필수 업데이트 발견!';
           updateStatusDesc.innerText = '이 버전은 반드시 설치해야 합니다. 자동으로 다운로드를 시작합니다.';
           updateActionContainer.innerHTML = '<button disabled class="btn-primary px-6 py-2.5 opacity-50 cursor-not-allowed">필수 업데이트 진행 중</button>';
           break;
