@@ -669,7 +669,7 @@
         systemSection.appendChild(item);
       });
 
-      // 6. 하드코딩된 시스템 제어 메뉴 추가 고정 노출 (환경 설정, 후원, 종료)
+      // 6. 하드코딩된 시스템 제어 메뉴 추가 고정 노출 (환경 설정, 종료)
       const systemItems = [
         {
           id: 'cloud-sync-status',
@@ -685,14 +685,6 @@
           icon: 'settings',
           color: 'slate-400',
           api: 'toggleSettings',
-          isSystem: true
-        },
-        {
-          id: 'sponsor-btn',
-          label: '후원하기 🧚',
-          icon: 'feather',
-          color: 'purple-400',
-          action: 'openSponsor',
           isSystem: true
         },
         {
@@ -730,8 +722,6 @@
         item.onclick = () => {
           if (menu.api === 'openGoogleSyncSettings') {
             window.electronAPI.toggleSettings('data:google-sync');
-          } else if (menu.action === 'openSponsor') {
-            window.electronAPI.openExternal('https://fairy.hada.io/@filbert');
           } else if (menu.api && window.electronAPI[menu.api]) {
             window.electronAPI[menu.api]();
           }

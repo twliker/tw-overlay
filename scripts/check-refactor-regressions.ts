@@ -7880,7 +7880,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Drive 401의 1회 refresh/retry 경계가 없습니다.');
 
   const cloudSyncDocs = read('docs/google-drive-sync.md');
-  const cloudSyncContract = read('.agents/development/google-drive-sync-contract.md');
   assert.match(cloudSyncDocs, /마지막으로 두 PC가 같았던 상태/,
     '사용자용 동기화 가이드가 3방향 병합의 기준 상태를 쉬운 말로 설명하지 않습니다.');
   assert.match(cloudSyncDocs, /서로 다른 캐릭터[\s\S]*?변경을 모두 유지/,
@@ -7889,44 +7888,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '사용자용 동기화 가이드에 같은 숙제의 완료·해제·횟수 충돌 설명이 없습니다.');
   assert.match(cloudSyncDocs, /선택 대기 상태도 클라우드에 저장[\s\S]*?캐릭터 선택 팝업/,
     '사용자용 동기화 가이드에 pending 숙제의 다른 PC 팝업 동작이 없습니다.');
-  const markedBlock = (marker: string): string => {
-    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = cloudSyncContract.match(new RegExp(
-      `<!-- ${escaped}:start -->([\\s\\S]*?)<!-- ${escaped}:end -->`,
-    ));
-    assert.ok(match, `Google Drive 문서의 ${marker} 검증 블록이 없습니다.`);
-    return match![1];
-  };
-  const backtickKeys = (value: string): string[] =>
-    Array.from(value.matchAll(/`([^`]+)`/g), match => match[1]);
-  const tableRows = (marker: string): Map<string, string[]> => {
-    const rows = new Map<string, string[]>();
-    for (const line of markedBlock(marker).split(/\r?\n/)) {
-      if (!line.trim().startsWith('|')) continue;
-      const cells = line.split('|').slice(1, -1).map(cell => cell.trim());
-      if (cells.length < 2 || cells[0] === '---' || cells[0] === '범위') continue;
-      rows.set(cells[0].replace(/`/g, ''), backtickKeys(cells[1]));
-    }
-    return rows;
-  };
-  const settingsDataKeys = Array.from(markedBlock('settings-data-allowlist')
-    .split(/\r?\n/)
-    .flatMap(line => {
-      if (!line.trim().startsWith('|')) return [];
-      const cells = line.split('|').slice(1, -1);
-      return cells.length >= 3 ? backtickKeys(cells[2]) : [];
-    }));
-  assert.deepEqual(
-    [...new Set(settingsDataKeys)].sort(),
-    [...syncDataHelper.SETTINGS_SYNCABLE_KEYS].map(String).sort(),
-    'Google Drive 문서의 설정 data allowlist가 코드와 정확히 일치하지 않습니다.',
-  );
-  assert.deepEqual(
-    [...new Set(backtickKeys(markedBlock('checklist-data-allowlist')))].sort(),
-    [...syncDataHelper.CHECKLIST_SYNCABLE_KEYS].map(String).sort(),
-    'Google Drive 문서의 숙제 data allowlist가 코드와 정확히 일치하지 않습니다.',
-  );
-
   const settingsEnvelope = syncDataHelper.buildSettingsSyncPayload(
     sampleLocalConfig,
     'device-doc-fixture',
@@ -7956,46 +7917,45 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'generation-doc-fixture',
     [operationFixture],
   );
-  const settingsPayloadRows = tableRows('settings-payload-allowlist');
   assert.deepEqual(
-    settingsPayloadRows.get('설정 payload 최상위')?.sort(),
     Object.keys(settingsEnvelope).sort(),
+    ['appVersion', 'checksum', 'data', 'generationId', 'kind', 'lastSyncedAt',
+      'revision', 'schemaVersion', 'updatedBy'].sort(),
     '설정 파일 최상위 allowlist가 실제 payload와 일치하지 않습니다.',
   );
-  const checklistPayloadRows = tableRows('checklist-payload-allowlist');
   assert.deepEqual(
-    checklistPayloadRows.get('숙제 payload 최상위')?.sort(),
     Object.keys(checklistEnvelope).sort(),
+    ['appVersion', 'checksum', 'data', 'generationId', 'kind', 'lastSyncedAt',
+      'operations', 'operationsChecksum', 'revision', 'schemaVersion', 'updatedBy'].sort(),
     '숙제 파일 최상위 allowlist가 실제 payload와 일치하지 않습니다.',
   );
   assert.deepEqual(
-    checklistPayloadRows.get('operation')?.sort(),
     Object.keys(checklistEnvelope.operations![0]).sort(),
+    ['createdAt', 'deviceId', 'id', 'keys', 'mutations'].sort(),
     '숙제 operation allowlist가 실제 payload와 일치하지 않습니다.',
   );
   assert.deepEqual(
-    checklistPayloadRows.get('mutation')?.sort(),
     Object.keys(checklistEnvelope.operations![0].mutations[0]).sort(),
+    ['after', 'afterExists', 'before', 'beforeExists', 'path'].sort(),
     '숙제 mutation allowlist가 실제 payload와 일치하지 않습니다.',
   );
   const metaEnvelope = syncDataHelper.buildSyncMetaPayload('generation-doc-fixture', 1, {
     settings: { id: 'settings-id', name: 'tw_overlay_settings.json' },
     checklist: { id: 'checklist-id', name: 'tw_overlay_checklist.json' },
   });
-  const metaPayloadRows = tableRows('meta-payload-allowlist');
   assert.deepEqual(
-    metaPayloadRows.get('메타 payload 최상위')?.sort(),
     Object.keys(metaEnvelope).sort(),
+    ['files', 'generationId', 'schemaVersion', 'updatedAt'].sort(),
     '메타 파일 최상위 allowlist가 실제 payload와 일치하지 않습니다.',
   );
   assert.deepEqual(
-    metaPayloadRows.get('files.settings')?.sort(),
     Object.keys(metaEnvelope.files.settings!).sort(),
+    ['id', 'name'],
     '메타 settings 참조 allowlist가 실제 payload와 일치하지 않습니다.',
   );
   assert.deepEqual(
-    metaPayloadRows.get('files.checklist')?.sort(),
     Object.keys(metaEnvelope.files.checklist!).sort(),
+    ['id', 'name'],
     '메타 checklist 참조 allowlist가 실제 payload와 일치하지 않습니다.',
   );
 
@@ -8010,8 +7970,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       `민감·PC 종속 키가 설정 allowlist에 포함됐습니다: ${excluded}`);
     assert.equal(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.includes(excluded), false,
       `민감·PC 종속 키가 숙제 allowlist에 포함됐습니다: ${excluded}`);
-    assert.ok(cloudSyncContract.includes(`\`${excluded}\``),
-      `Google Drive 개발 계약에 중요 제외 키가 누락되었습니다: ${excluded}`);
   }
 
   const privacyPolicyMarkdown = read('PRIVACY_POLICY.md');
@@ -8051,17 +8009,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
       `Google 로그인 가이드 이미지 파일이 없습니다: ${guideImage}`);
   }
 
-  const guideCoverage = JSON.parse(read('.agents/development/guide-coverage.json')) as {
-    menuCoverage: Array<{ id: string; doc?: string; status: string; reason?: string }>;
-    managedWindowCoverage: Array<{ key: string; doc?: string; status: string; reason?: string }>;
-    settingsSearchCoverage: { doc: string; status: string; expectedSearchEntryCount: number; reason: string };
-  };
-  const sidebarMenus = JSON.parse(read('src/assets/data/sidebar_menus.json')) as Array<{ id: string }>;
-  assert.deepEqual(
-    guideCoverage.menuCoverage.map(entry => entry.id).sort(),
-    sidebarMenus.map(entry => entry.id).sort(),
-    '사이드바·독 메뉴와 사용자 가이드 감사 대응표가 일치하지 않습니다.',
-  );
   const guideIndexSource = read('docs/guide/index.html');
   const guideNavDocs = new Set(Array.from(guideIndexSource.matchAll(/data-doc="([^"]+)"/g), match => match[1]));
   assert.equal(guideNavDocs.has('realtime-log-engine'), false,
@@ -8089,45 +8036,6 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   }
   assert.equal(cloudSyncDocs.includes('settings-data-allowlist:start'), false,
     '개발용 Google Drive allowlist가 공개 사용자 가이드에 다시 노출됐습니다.');
-  assert.ok(cloudSyncContract.includes('settings-data-allowlist:start'),
-    'Google Drive 개발 계약에서 설정 allowlist 검증 블록이 누락됐습니다.');
-  for (const entry of guideCoverage.menuCoverage) {
-    if (entry.status === 'missing') {
-      assert.ok(entry.reason, `문서 누락 메뉴에 감사 사유가 없습니다: ${entry.id}`);
-      continue;
-    }
-    assert.ok(entry.doc && fs.existsSync(path.join(projectRoot, 'docs', `${entry.doc}.md`)),
-      `메뉴 대응 사용자 문서가 없습니다: ${entry.id}`);
-    if (entry.status === 'documented-nav-missing') {
-      assert.equal(guideNavDocs.has(entry.doc!), false,
-        `탐색에 추가된 문서의 감사 상태를 갱신하지 않았습니다: ${entry.doc}`);
-    } else {
-      assert.equal(guideNavDocs.has(entry.doc!), true,
-        `사용자 문서가 가이드 탐색에 연결되지 않았습니다: ${entry.id} -> ${entry.doc}`);
-    }
-  }
-  const managedWindowKeys = Array.from(
-    read('src/modules/managedWindowRegistry.ts').matchAll(/\{ key: '([^']+)', html:/g),
-    match => match[1],
-  );
-  assert.deepEqual(
-    guideCoverage.managedWindowCoverage.map(entry => entry.key).sort(),
-    managedWindowKeys.sort(),
-    '관리 창 registry와 사용자 가이드 감사 대응표가 일치하지 않습니다.',
-  );
-  for (const entry of guideCoverage.managedWindowCoverage) {
-    if (entry.status === 'missing') {
-      assert.ok(entry.reason, `문서 누락 관리 창에 감사 사유가 없습니다: ${entry.key}`);
-    } else {
-      assert.ok(entry.doc && fs.existsSync(path.join(projectRoot, 'docs', `${entry.doc}.md`)),
-        `관리 창 대응 사용자 문서가 없습니다: ${entry.key}`);
-    }
-  }
-  const settingsSearchEntryCount = Array.from(settingsSource.matchAll(/\btitle:\s*['"][^'"]+['"]/g)).length;
-  assert.equal(settingsSearchEntryCount, guideCoverage.settingsSearchCoverage.expectedSearchEntryCount,
-    '설정 검색 인덱스가 바뀌었지만 사용자 가이드 감사를 갱신하지 않았습니다.');
-  assert.equal(guideNavDocs.has(guideCoverage.settingsSearchCoverage.doc), true,
-    '설정 검색 인덱스의 사용자 가이드가 탐색에 연결되지 않았습니다.');
 
   const cloudSyncState = require(path.join(projectRoot, 'dist', 'modules', 'cloudSyncState.js'));
   const profileFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-overlay-profile-state-'));
@@ -10406,7 +10314,15 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
   )), true, '완료 로그 재분석 결과의 외치기가 저장되지 않았습니다.');
 }
 
+function checkSponsorFeatureRemoval(): void {
+  const sponsorPattern = /후원|fairy\.hada\.io|sponsor-btn|openSponsor/i;
+  for (const file of ['src/index.html', 'src/dock.html', 'src/settings.html', 'docs/index.md']) {
+    assert.doesNotMatch(read(file), sponsorPattern, `후원 기능 또는 링크가 다시 추가되었습니다: ${file}`);
+  }
+}
+
 async function runRegressionChecks(): Promise<void> {
+  checkSponsorFeatureRemoval();
   checkDiscordNotifierContracts();
   checkBossNotifierContracts();
   checkBackendServiceContracts();

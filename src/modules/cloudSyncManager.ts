@@ -9,8 +9,8 @@
  *   변경은 serial/outbox를 비교해 보존합니다. 단순한 '마지막 응답 승리' 병합으로 바꾸지 않습니다.
  * - 계정 변경·재로그인·원격 세대 불일치·복원 건너뛰기는 profile state와 fingerprint로 명시적으로
  *   처리하고, 사용자의 확인이 필요한 상태에서는 자동 동기화를 멈춥니다.
- * - 재시작 후에도 dirty/outbox가 남아 업로드를 재개해야 합니다. 코드의 payload allowlist를 바꾸면
- *   `.agents/development/google-drive-sync-contract.md`와 회귀 테스트를 함께 변경합니다.
+ * - 재시작 후에도 dirty/outbox가 남아 업로드를 재개해야 합니다. payload allowlist를 바꾸면
+ *   동기화 회귀 테스트의 허용 필드와 보안 제외 필드 검증도 함께 변경합니다.
  */
 import * as crypto from 'crypto';
 import { isDeepStrictEqual } from 'util';
