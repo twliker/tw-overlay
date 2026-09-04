@@ -48,6 +48,7 @@
     chatOverlaySubHeight?: number;
     chatOverlaySub2Width?: number;
     chatOverlaySub2Height?: number;
+    chatOverlayVisibleTabs?: string[];
     chatOverlaySelectedChannels?: string[];
     chatOverlayShowNpcChat?: boolean;
     chatOverlayBlacklistFilters?: string[];
@@ -207,6 +208,12 @@
   ): void {
     const config = configValue as SettingsBindingConfig;
     const defaults = defaultConfigValue as SettingsBindingConfig;
+    const visibleTabs = config.chatOverlayVisibleTabs
+      || defaults.chatOverlayVisibleTabs
+      || [...window.chatChannels.OVERLAY_BUILT_IN_TABS];
+    window.chatChannels.OVERLAY_BUILT_IN_TABS.forEach(tab => {
+      setChecked(`chat-overlay-visible-tab-${tab}`, visibleTabs.includes(tab));
+    });
     const selectedChannels = config.chatOverlaySelectedChannels
       || defaults.chatOverlaySelectedChannels
       || [...window.chatChannels.OVERLAY_CHANNELS];

@@ -86,6 +86,8 @@
   };
 
   function collectChatOverlayDisplaySettings(blacklistFilters?: string[], customTabs?: unknown[]): Record<string, unknown> {
+    const visibleTabs = window.chatChannels.OVERLAY_BUILT_IN_TABS
+      .filter(tab => checkedValue(`chat-overlay-visible-tab-${tab}`, false));
     return {
       chatOverlayFontSize: integerValue('chat-overlay-fontsize-input', defaultConfig.chatOverlayFontSize),
       chatOverlayOpacity: floatValue('chat-overlay-opacity-input', defaultConfig.chatOverlayOpacity),
@@ -108,6 +110,7 @@
       chatOverlayNicknameColorTeam: pickerColor(window.nicknamePickers, 'team', 'chatOverlayNicknameColorTeam', window.chatChannels.COLORS.nickname),
       chatOverlayNicknameColorClub: pickerColor(window.nicknamePickers, 'club', 'chatOverlayNicknameColorClub', window.chatChannels.COLORS.nickname),
       chatOverlayNicknameColorShout: pickerColor(window.nicknamePickers, 'shout', 'chatOverlayNicknameColorShout', window.chatChannels.COLORS.nickname),
+      chatOverlayVisibleTabs: visibleTabs.length > 0 ? visibleTabs : ['Basic'],
       chatOverlaySelectedChannels: window.chatChannels.OVERLAY_CHANNELS
         .filter(channel => checkedValue(`chat-overlay-channel-${channel}`, false)),
       chatOverlayShowNpcChat: checkedValue('chat-overlay-show-npc-chat', defaultConfig.chatOverlayShowNpcChat),

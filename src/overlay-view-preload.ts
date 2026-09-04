@@ -6,3 +6,9 @@ import { ipcRenderer } from 'electron';
 
 document.addEventListener('mouseenter', () => ipcRenderer.send('overlay-wcv-mouse-enter'));
 document.addEventListener('mouseleave', () => ipcRenderer.send('overlay-wcv-mouse-leave'));
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented) return;
+  queueMicrotask(() => {
+    if (!event.defaultPrevented) ipcRenderer.send('embedded-view-escape');
+  });
+});

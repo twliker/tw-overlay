@@ -281,6 +281,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('click-through-status', callback),
   onActiveWindows: (callback: (activeKeys: string[]) => void) =>
     bindIpcListener('active-windows', callback),
+  onManagedWindowResizeEnabled: (callback: (options: { minWidth: number, minHeight: number }) => void) =>
+    bindIpcListener('managed-window-resize-enabled', callback),
   onConfigData: (callback: (config: AppConfig) => void) =>
     bindIpcListener('config-data', callback),
   onChatLogSyncProgress: (callback: (info: SyncProgressInfo) => void) =>
@@ -331,6 +333,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('buff-timer-update', callback),
   onBuffTimerWarning: (callback: (data: { buffId: string, phase: string, warnSec: number }) => void) =>
     bindIpcListener('buff-timer-warning', callback),
+  onBuffHudToggleFeedback: (callback: (data: { enabled: boolean, activeCount: number }) => void) =>
+    bindIpcListener('buff-hud-toggle-feedback', callback),
   toggleBuffTimer: () => ipcRenderer.send('toggle-buff-timer'),
   buffTimerTest: (seconds?: number) => ipcRenderer.send('buff-timer-test', seconds),
   buffTimerClearTest: () => ipcRenderer.send('buff-timer-clear-test'),
@@ -459,14 +463,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'boss-times-data', 'play-sound', 'trade-posts', 'trade-new-activity',
       'trade-connection-status', 'open-settings-tab', 'toolbar-hover', 'reminder-message',
       'incomplete-contents', 'diary-updated', 'xp-update', 'shout-history-updated',
-      'buff-timer-update', 'buff-timer-warning', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
+      'buff-timer-update', 'buff-timer-warning', 'buff-hud-toggle-feedback', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
       'scam-alert', 'scam-progress', 'scam-session-update', 'scam-analysis-token', 'scam-analysis-result', 'wave-warning-alert', 'lokagos-alert', 'chat-updated', 'chat-overlay-mode', 'chat-history-cleared',
       'auto-select-equipment', 'auto-select-evolution',
       'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
       'trigger-jellyppy-rain', 'trigger-firework', 'chat-log-status-changed',
       'alarm-logs-updated', 'highlight-alarm-settings', 'timer-toggle', 'timer-updated',
       'game-overlay-edit-mode', 'game-overlay-reset-positions', 'google-sync-status-changed',
-      'chat-log-sync-progress', 'active-windows'
+      'chat-log-sync-progress', 'active-windows', 'managed-window-resize-enabled'
     ];
     events.forEach(event => ipcRenderer.removeAllListeners(event));
   }

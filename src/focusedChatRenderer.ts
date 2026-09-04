@@ -199,7 +199,9 @@ function setupAutocomplete(input: HTMLInputElement, menu: HTMLDivElement): Autoc
   });
   input.addEventListener('blur', () => window.setTimeout(close, 0));
   input.addEventListener('keydown', event => {
-    if (event.key === 'Escape') {
+    if (event.key === 'Escape' && !menu.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
       close();
       return;
     }

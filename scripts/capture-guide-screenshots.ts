@@ -65,6 +65,9 @@ const guideConfig = {
   showXpWidget: true,
   showTodaySummaryHud: true,
   showBuffHud: true,
+  chatOverlayClickThrough: false,
+  chatOverlayVisibleTabs: ['General', 'Team', 'Club', 'Shout'],
+  chatOverlayTab: 'Club',
   showHudShortcuts: true,
   abandonedEnabled: true,
 };
@@ -114,6 +117,8 @@ const captures: CaptureDefinition[] = [
   { name: 'buff-timer-settings.png', html: 'buff-timer.html', width: 900, height: 850 },
   { name: 'boss-settings.png', html: 'boss-settings.html', width: 520, height: 820, events: [['boss-times-data', { '루미너스': ['20:30', '23:30'], '카타콤': ['21:00'] }]] },
   { name: 'game-overlay.png', html: 'game-overlay.html', width: 1000, height: 650, events: [['xp-update', { total: 1284500000, epm: 24500000, movingEpm: 23100000, lastGain: 3580000, history: [18, 31, 45, 54, 68, 81], kills: 127, essenceCount: 3 }], ['buff-timer-update', [{ id: 'exp_heart', name: '경험의 심장', remainingMs: 720000, durationMs: 1200000, active: true }]], ['digsite-update', { isActive: true, normalRewards: 5, portalRewards: 2, portalVisits: { 1: true, 2: false, 3: true, 4: false }, alternateRewards: 1, startedAt: Date.now(), expiresAt: Date.now() + 4 * 60 * 1000 }], ['today-summary-config', guideConfig]] },
+  { name: 'ethos-gimmick-alert.png', html: 'game-overlay.html', width: 1000, height: 650, setup: `window.testEthos?.('갈퀴 모양 번개')` },
+  { name: 'lokagos-gimmick-alert.png', html: 'game-overlay.html', width: 1000, height: 650, setup: `window.testLokagos?.('TARGET', '브라보')` },
   { name: 'diary-calendar.png', html: 'diary.html', width: 1400, height: 920 },
   { name: 'diary-statistics.png', html: 'diary.html', width: 1400, height: 920, setup: `switchTab('stats')` },
   { name: 'stopwatch.png', html: 'stopwatch.html', width: 900, height: 760 },
@@ -174,7 +179,14 @@ const captures: CaptureDefinition[] = [
     const target = document.getElementById('digsite-hud-settings-card');
     if (area && target) area.scrollTop = target.getBoundingClientRect().top - area.getBoundingClientRect().top + area.scrollTop - 260;
   ` },
-  { name: 'settings-chat-overlay.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSettingsGroup('chat', document.querySelector('[data-settings-group="chat"]'), 1)` },
+  { name: 'settings-chat-overlay.png', html: 'settings.html', width: 1100, height: 720, setup: `
+    document.getElementById('loading-overlay')?.remove();
+    showSettingsGroup('chat', document.querySelector('[data-settings-group="chat"]'), 1);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const area = document.querySelector('.content-area');
+    const target = document.getElementById('chat-overlay-visible-tabs-card');
+    if (area && target) area.scrollTop = target.getBoundingClientRect().top - area.getBoundingClientRect().top + area.scrollTop - 220;
+  ` },
   { name: 'settings-data.png', html: 'settings.html', width: 1100, height: 720, setup: `document.getElementById('loading-overlay')?.remove(); showSection('data', document.querySelector('[data-settings-group="system"]')); updateGoogleSyncUI(${JSON.stringify(linkedSyncStatus)})` },
 ];
 

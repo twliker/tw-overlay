@@ -1,6 +1,6 @@
 {
   "name": "tw-overlay",
-  "version": "3.1.1",
+  "version": "3.1.2",
   "description": "TalesWeaver Companion Browser",
   "main": "dist/main.js",
   "scripts": {
@@ -85,7 +85,7 @@
     ]
   },
   "overrides": {
-    "fast-uri": "^3.1.5",
+    "fast-uri": "^3.1.7",
     "js-yaml": "^4.3.1"
   },
   "keywords": [],

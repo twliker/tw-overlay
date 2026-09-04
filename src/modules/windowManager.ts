@@ -73,6 +73,7 @@ function bringGameAndOverlaysToTop(): void {
 export const isAnyUserDragging = () => programmaticMoves.isAnyUserDragging();
 
 let mainWindow: BrowserWindow | null = null;
+let isMainWindowRendererReady = false;
 let splashWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
 let view: WebContentsView | null = null;
@@ -697,6 +698,7 @@ export function createMainWindow(): BrowserWindow {
   isClickThrough = !!cfg.chatOverlayClickThrough;
   log(`[OVERLAY_VISIBILITY] startup sidebar=${cfg.sidebarPosition || 'right'} chat=${!!cfg.chatOverlayEnabled} sub1=${!!cfg.chatOverlaySubEnabled} sub2=${!!cfg.chatOverlaySub2Enabled} clickThrough=${isClickThrough}`);
   // focusable: true로 변경하여 클릭 신호 수신 안정화
+  isMainWindowRendererReady = false;
   mainWindow = new BrowserWindow(getStandardOptions(SIDEBAR_WIDTH, SIDEBAR_HEIGHT, { skipTaskbar: true, resizable: false, thickFrame: false, focusable: true, acceptFirstMouse: true }));
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
 
@@ -710,15 +712,22 @@ export function createMainWindow(): BrowserWindow {
   };
 
   mainWindow.once('ready-to-show', () => {
+    isMainWindowRendererReady = true;
     if (SHOULD_AUTO_OPEN_DEVTOOLS) mainWindow?.webContents.openDevTools({ mode: 'detach' });
     mainWindow?.webContents.send('config-data', config.load());
     mainWindow?.webContents.send('click-through-status', isClickThrough);
     sendUpdateInfo();
+    const sidebarPosition = config.load().sidebarPosition || 'right';
+    if (gameRect && sidebarPosition !== 'dock' && sidebarPosition !== 'dock-top'
+      && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.showInactive();
+    }
   });
   mainWindow.webContents.on('did-finish-load', () => {
     sendUpdateInfo();
   });
   mainWindow.on('move', () => { consumeProgrammaticMove('main', mainWindow); });
+  mainWindow.on('closed', () => { isMainWindowRendererReady = false; });
   focusController.attach(mainWindow);
   return mainWindow;
 }
@@ -959,6 +968,29 @@ function recoverCompletelyOffscreenBrowserOverlay(
 
 type ManagedWindowShowReason = 'user-open' | 'game-resync' | 'settings-apply' | 'preload';
 
+const WINDOWS_WITH_OWN_RESIZE_HANDLE = new Set<WindowPositionKey>([
+  'chatOverlay',
+  'chatOverlaySub',
+  'chatOverlaySub2',
+  'focusedChat',
+]);
+
+function enableManagedWindowResizeHandle(
+  win: BrowserWindow,
+  key: WindowPositionKey,
+  minWidth: number | undefined,
+  minHeight: number | undefined,
+): void {
+  if (WINDOWS_WITH_OWN_RESIZE_HANDLE.has(key)) return;
+  win.webContents.on('did-finish-load', () => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send('managed-window-resize-enabled', {
+      minWidth: minWidth ?? 100,
+      minHeight: minHeight ?? 100,
+    });
+  });
+}
+
 /** 전환 도중 새 창이 열리면 흔들리는 최신 rect 대신 직전 안정 게임 위치를 기준으로 둡니다. */
 function getStablePlacementAnchorRect(): GameRect | null {
   if (!gameWindowModeTransitioning) return gameRect;
@@ -1010,6 +1042,7 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   }));
   if (sizing.isResizable) {
     win.setResizable(true);
+    enableManagedWindowResizeHandle(win, key, sizing.minWidth, sizing.minHeight);
   }
   // 독은 플라이아웃 배치 공간을 포함한 큰 투명 창이므로, 로딩 전부터 빈 영역의 입력을
   // 게임에 전달합니다. renderer가 실제 독 패널 위에서만 입력을 다시 활성화합니다.
@@ -1030,7 +1063,7 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   win.on('resize', () => {
     if (isClosing) return;
     const b = win.getBounds();
-    const sizePatch = createManagedWindowSizePatch(key, b.width, b.height);
+    const sizePatch = createManagedWindowSizePatch(key, b.width, b.height, config.load().managedWindowSizes);
     if (sizePatch) config.save(sizePatch);
   });
 
@@ -1280,6 +1313,7 @@ export function toggleUniformColorWindow(): void {
     resizable: sizing.isResizable,
     thickFrame: sizing.isResizable,
   }));
+  enableManagedWindowResizeHandle(win, 'uniformColor', sizing.minWidth, sizing.minHeight);
   winCfg.ref = win;
   focusController.attach(win);
   win.loadFile(path.join(__dirname, '..', winCfg.html));
@@ -1296,6 +1330,17 @@ export function toggleUniformColorWindow(): void {
   let isInitialPositionApplied = false;
   let isClosing = false;
   win.on('close', () => { isClosing = true; });
+  win.on('resize', () => {
+    if (isClosing) return;
+    const bounds = win.getBounds();
+    const sizePatch = createManagedWindowSizePatch(
+      'uniformColor',
+      bounds.width,
+      bounds.height,
+      config.load().managedWindowSizes,
+    );
+    if (sizePatch) config.save(sizePatch);
+  });
 
   win.once('ready-to-show', () => {
     const placementAnchor = getStablePlacementAnchorRect();
@@ -1351,6 +1396,7 @@ export function toggleSwordEnhanceWindow(): void {
     minWidth: sizing.minWidth,
     minHeight: sizing.minHeight,
   }));
+  enableManagedWindowResizeHandle(win, 'swordEnhance', sizing.minWidth, sizing.minHeight);
   winCfg.ref = win;
   focusController.attach(win);
   win.loadFile(path.join(__dirname, '..', winCfg.html));
@@ -1366,6 +1412,17 @@ export function toggleSwordEnhanceWindow(): void {
   let isInitialPositionApplied = false;
   let isClosing = false;
   win.on('close', () => { isClosing = true; });
+  win.on('resize', () => {
+    if (isClosing) return;
+    const bounds = win.getBounds();
+    const sizePatch = createManagedWindowSizePatch(
+      'swordEnhance',
+      bounds.width,
+      bounds.height,
+      config.load().managedWindowSizes,
+    );
+    if (sizePatch) config.save(sizePatch);
+  });
 
   win.once('ready-to-show', () => {
     const placementAnchor = getStablePlacementAnchorRect();
@@ -1654,7 +1711,7 @@ export function syncOverlay(currentRect: GameRect): void {
         }
       }
     } else {
-      if (!mainWindow.isVisible()) {
+      if (isMainWindowRendererReady && !mainWindow.isVisible()) {
         mainWindow.showInactive();
         log(`[WINDOW_SHOW] sidebar reason=game-resync method=showInactive mode=${sidebarPos}`);
       }
@@ -2161,16 +2218,22 @@ export function toggleSidebar(): boolean {
   return isSidebarCollapsed;
 }
 
-export function hideAll(): void {
+export function hideAll(options: { preserveForResume?: boolean } = {}): void {
+  const preserveForResume = options.preserveForResume === true;
+  const cfg = config.load();
   // 게임 종료/최소화 시 포커스 복구 억제 (closed 이벤트가 동기 발생하는 경우 방어)
   focusController.setRestoreSuppressed(true);
 
-  // 오버레이 창 종료 (Close)
+  // 최소화 복원에서는 브라우저 renderer와 WebContentsView를 유지하고, 게임 종료 때만 정리합니다.
   if (overlayWindow) {
     savePosition('overlay', overlayPos, true);
-    if (view) { try { overlayWindow.contentView.removeChildView(view); view.webContents.close(); } catch (e) { } view = null; }
-    overlayWindow.close();
-    overlayWindow = null;
+    if (preserveForResume && !overlayWindow.isDestroyed()) {
+      if (overlayWindow.isVisible()) overlayWindow.hide();
+    } else {
+      if (view) { try { overlayWindow.contentView.removeChildView(view); view.webContents.close(); } catch (e) { } view = null; }
+      overlayWindow.close();
+      overlayWindow = null;
+    }
   }
 
   // 사이드바는 숨김 (Hide) - 앱 실행 유지를 위함
@@ -2183,10 +2246,21 @@ export function hideAll(): void {
     gameOverlayWindow.hide();
   }
 
-  // 모든 유틸리티 창 종료 (Close)
-  Object.values(windowRegistry).forEach(winCfg => {
+  // 최소화 때 자동 복원 대상은 숨겨 재사용하고, 나머지는 기존 계약대로 닫습니다.
+  Object.entries(windowRegistry).forEach(([key, winCfg]) => {
     if (winCfg.ref && !winCfg.ref.isDestroyed()) {
-      winCfg.ref.close(); // closed 이벤트에 의해 winCfg.ref = null 처리됨
+      const shouldPreserve = preserveForResume && (
+        (key === 'chatOverlay' && isChatOverlayVisible)
+        || (key === 'chatOverlaySub' && isChatOverlayVisible && isChatOverlaySubVisible)
+        || (key === 'chatOverlaySub2' && isChatOverlayVisible && isChatOverlaySub2Visible)
+        || (key === 'contentsChecker' && cfg.autoOpenContentsChecker && isContentsCheckerVisible)
+        || (key === 'dock' && (cfg.sidebarPosition === 'dock' || cfg.sidebarPosition === 'dock-top'))
+      );
+      if (shouldPreserve) {
+        if (winCfg.ref.isVisible()) winCfg.ref.hide();
+      } else {
+        winCfg.ref.close(); // closed 이벤트에 의해 winCfg.ref = null 처리됨
+      }
     }
   });
 

@@ -22,6 +22,7 @@ let cachedHwnd: bigint | null = null;
 let lastProcessId: number | null = null;
 let hEventHook: bigint | null = null;
 let hLocationEventHook: bigint | null = null;
+let hMinimizeEventHook: bigint | null = null;
 let onWindowEventCallback: (() => void) | null = null;
 let onForegroundChangeCallback: ((isGameFocused: boolean, focusedHwnd: string) => void) | null = null;
 let lastNotifiedForegroundHwnd: bigint | null = null;
@@ -183,6 +184,17 @@ function setupEventHook(): void {
             win32.WINEVENT_OUTOFCONTEXT
         );
     }
+    if (!hMinimizeEventHook) {
+        hMinimizeEventHook = win32.SetWinEventHook(
+            win32.EVENT_SYSTEM_MINIMIZESTART,
+            win32.EVENT_SYSTEM_MINIMIZEEND,
+            0n,
+            winEventProcInstance,
+            0,
+            0,
+            win32.WINEVENT_OUTOFCONTEXT
+        );
+    }
 }
 
 function findGameWindow(): bigint | null {
@@ -303,6 +315,10 @@ export function stop() {
     if (hLocationEventHook) {
         win32.UnhookWinEvent(hLocationEventHook);
         hLocationEventHook = null;
+    }
+    if (hMinimizeEventHook) {
+        win32.UnhookWinEvent(hMinimizeEventHook);
+        hMinimizeEventHook = null;
     }
     cachedHwnd = null;
     lastNotifiedForegroundHwnd = null;

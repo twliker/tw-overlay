@@ -1587,6 +1587,37 @@
                   </div>
                 </div>
 
+                <!-- 오버레이 상단 기본 탭 표시 -->
+                <div id="chat-overlay-visible-tabs-card" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-3">
+                  <div>
+                    <h4 class="text-xs font-bold text-slate-300">오버레이 상단 기본 탭 표시</h4>
+                    <p class="text-xs text-slate-300 mt-1">체크한 기본 탭만 채팅 오버레이 상단에 표시합니다. 모두 해제하면 통합 탭이 자동으로 유지됩니다.</p>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                      <input type="checkbox" id="chat-overlay-visible-tab-Basic" class="accent-indigo-500"><span>통합</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                      <input type="checkbox" id="chat-overlay-visible-tab-General" class="accent-indigo-500"><span>일반</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                      <input type="checkbox" id="chat-overlay-visible-tab-Whisper" class="accent-indigo-500"><span>귓속말</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                      <input type="checkbox" id="chat-overlay-visible-tab-Team" class="accent-indigo-500"><span>팀</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                      <input type="checkbox" id="chat-overlay-visible-tab-Club" class="accent-indigo-500"><span>클럽</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                      <input type="checkbox" id="chat-overlay-visible-tab-Shout" class="accent-indigo-500"><span>외치기</span>
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-black/40 px-2.5 py-1 rounded-lg border border-white/5">
+                      <input type="checkbox" id="chat-overlay-visible-tab-System" class="accent-indigo-500"><span>시스템</span>
+                    </label>
+                  </div>
+                </div>
+
                 <!-- 사용자 정의 탭 관리 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <div class="flex items-center justify-between">
@@ -1594,7 +1625,7 @@
                       <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
                         <i data-lucide="layers" class="w-3.5 h-3.5 text-indigo-400"></i> 사용자 정의(커스텀) 탭 관리
                       </h4>
-                      <p class="text-[9px] text-slate-500 mt-0.5">원하는 채널을 조합하여 오버레이 상단에 커스텀 탭을 추가합니다.</p>
+                      <p class="text-xs text-slate-300 mt-1">선택한 채널들을 하나의 새 탭으로 묶습니다. 탭 이름을 입력하고 반드시 ‘탭 추가’를 눌러 주세요.</p>
                     </div>
                   </div>
 
@@ -2828,7 +2859,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                         class="text-purple-400">3.1.1</span></p>
+                        class="text-purple-400">3.1.2</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">

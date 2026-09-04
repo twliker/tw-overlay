@@ -257,6 +257,7 @@ interface Window {
   replayAnimation(element: HTMLElement | null, className?: string): void;
   bindEscapeClose(): void;
   bindElectronListenerCleanup(): void;
+  installManagedWindowResizeHandle(options?: { minWidth?: number; minHeight?: number }): void;
   highlightElement(
     element: HTMLElement | null,
     activeStyle: { borderColor: string; boxShadow: string },

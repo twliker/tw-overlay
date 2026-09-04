@@ -39,6 +39,9 @@ export class EmbeddedWebTool {
       },
     });
     window.contentView.addChildView(this.view);
+    this.view.webContents.ipc.on('embedded-view-escape', () => {
+      if (!window.isDestroyed()) window.close();
+    });
 
     this.updateBounds = () => {
       if (!this.view) return;

@@ -3320,6 +3320,34 @@
       }
     }
 
+    function createHudStatusToast({ enabled, activeCount }) {
+      const toastContainer = document.getElementById('dock-toast-container');
+      if (!toastContainer) return;
+
+      document.getElementById('buff-hud-status-toast')?.remove();
+      const toast = document.createElement('div');
+      toast.id = 'buff-hud-status-toast';
+      toast.className = 'boss-toast show';
+      toast.style.borderLeft = `3px solid ${enabled ? '#a78bfa' : '#64748b'}`;
+      const detail = enabled && activeCount === 0
+        ? '활성화된 버프가 없어 타이머 항목은 아직 표시되지 않습니다.'
+        : enabled
+          ? `활성 버프 ${activeCount}개를 표시합니다.`
+          : '버프 타이머 HUD를 숨겼습니다.';
+      toast.innerHTML = `
+        <div class="flex items-start gap-2.5">
+          <i data-lucide="${enabled ? 'timer-reset' : 'eye-off'}" class="w-4 h-4 ${enabled ? 'text-violet-300' : 'text-slate-400'} mt-0.5 shrink-0"></i>
+          <div>
+            <div class="boss-toast-name">버프 타이머 HUD ${enabled ? '켜짐' : '꺼짐'}</div>
+            <div class="text-xs text-slate-400 mt-1 leading-snug">${detail}</div>
+          </div>
+        </div>
+      `;
+      toastContainer.appendChild(toast);
+      refreshIcons();
+      setTimeout(() => removeDockToast(toast.id), 3500);
+    }
+
     function createDockScamToast(result) {
       const isDock = currentConfig && (currentConfig.sidebarPosition === 'dock' || currentConfig.sidebarPosition === 'dock-top');
       const showOnOverlay = currentConfig && !!currentConfig.showSidebarToastOnOverlay;
@@ -3373,6 +3401,10 @@
 
       window.electronAPI.onScamAlert((result) => {
         createDockScamToast(result);
+      });
+
+      window.electronAPI.onBuffHudToggleFeedback(({ enabled, activeCount }) => {
+        createHudStatusToast({ enabled, activeCount });
       });
 
       window.electronAPI.onTimerToggle((state) => {

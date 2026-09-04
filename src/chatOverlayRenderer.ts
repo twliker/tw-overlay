@@ -165,7 +165,8 @@ function checkAndLoadInitialTab() {
     ? (chatOverlayAppConfig.chatOverlayTab || 'Basic')
     : (chatOverlayMode === 'sub1' ? (chatOverlayAppConfig.chatOverlaySubTab || 'Basic') : (chatOverlayAppConfig.chatOverlaySub2Tab || 'Basic'));
 
-  selectTab(savedTab, false);
+  const availableTab = resolveAvailableTab(savedTab);
+  selectTab(availableTab, availableTab !== savedTab);
 }
 
 const btnOpenSub1 = document.getElementById('btnOpenSub1') as HTMLButtonElement;
@@ -202,6 +203,33 @@ const tabTypeMap: Record<string, string> = {
   'System': 'system'
 };
 
+const builtInTabIds = [...window.chatChannels.OVERLAY_BUILT_IN_TABS];
+
+function getVisibleBuiltInTabs(config: BrowserAppConfig | null = chatOverlayAppConfig): string[] {
+  const configuredTabs = config?.chatOverlayVisibleTabs;
+  if (!Array.isArray(configuredTabs)) return builtInTabIds;
+  const visibleTabs = builtInTabIds.filter(tab => configuredTabs.includes(tab));
+  return visibleTabs.length > 0 ? visibleTabs : ['Basic'];
+}
+
+function resolveAvailableTab(tabName: string): string {
+  const visibleBuiltInTabs = getVisibleBuiltInTabs();
+  if (visibleBuiltInTabs.includes(tabName)) return tabName;
+
+  const customTabs = chatOverlayAppConfig?.chatOverlayCustomTabs || [];
+  const customTab = customTabs.find(tab => tab.id === tabName || tab.name === tabName);
+  if (customTab) return customTab.id;
+
+  return visibleBuiltInTabs[0] || 'Basic';
+}
+
+function renderBuiltInTabs() {
+  builtInTabIds.forEach(tabId => {
+    const tab = tabsBar?.querySelector(`.tab-item[data-tab="${tabId}"]`);
+    tab?.classList.toggle('tab-hidden', !getVisibleBuiltInTabs().includes(tabId));
+  });
+}
+
 function renderCustomTabs() {
   if (!tabsBar) return;
   // 기존 커스텀 탭 제거
@@ -222,12 +250,6 @@ function renderCustomTabs() {
     tabsBar.appendChild(tabEl);
   });
 
-  // 현재 활성화된 탭이 삭제된 커스텀 탭인 경우 Basic(통합) 탭으로 안전 복귀
-  const isDefaultTab = ['Basic', 'General', 'Team', 'Club', 'Shout', 'Whisper', 'System'].includes(chatOverlayCurrentTab);
-  const isCustomTabExist = customTabs.some(t => t.id === chatOverlayCurrentTab || t.name === chatOverlayCurrentTab);
-  if (!isDefaultTab && !isCustomTabExist && isInitialTabLoaded) {
-    selectTab('Basic');
-  }
 }
 
 // Initialize Icons
@@ -689,9 +711,10 @@ function scrollToBottom() {
 
 // Switch Active Tab
 function selectTab(tabName: string, save = true) {
-  chatOverlayCurrentTab = tabName;
+  const resolvedTab = resolveAvailableTab(tabName);
+  chatOverlayCurrentTab = resolvedTab;
   document.querySelectorAll('.tab-item').forEach(el => {
-    if (el.getAttribute('data-tab') === tabName) {
+    if (el.getAttribute('data-tab') === resolvedTab) {
       el.classList.add('active');
     } else {
       el.classList.remove('active');
@@ -708,11 +731,11 @@ function selectTab(tabName: string, save = true) {
 
   if (save) {
     if (chatOverlayMode === 'main') {
-      window.electronAPI.applySettings({ chatOverlayTab: tabName });
+      window.electronAPI.applySettings({ chatOverlayTab: resolvedTab });
     } else if (chatOverlayMode === 'sub1') {
-      window.electronAPI.applySettings({ chatOverlaySubTab: tabName });
+      window.electronAPI.applySettings({ chatOverlaySubTab: resolvedTab });
     } else if (chatOverlayMode === 'sub2') {
-      window.electronAPI.applySettings({ chatOverlaySub2Tab: tabName });
+      window.electronAPI.applySettings({ chatOverlaySub2Tab: resolvedTab });
     }
   }
 }
@@ -730,6 +753,7 @@ function handleMouseLeave() {
 function updateHeaderVisibility(config: BrowserAppConfig) {
   if (!config) return;
   const clickThrough = !!config.chatOverlayClickThrough;
+  document.body.classList.toggle('click-through', clickThrough);
   
   // clickThrough 상태가 변경되었는지 또는 최초 설정 로드인지 확인
   const prevClickThrough = lastKnownConfig ? !!lastKnownConfig.chatOverlayClickThrough : null;
@@ -785,6 +809,9 @@ function applyConfigStyles(config: BrowserAppConfig) {
   document.documentElement.style.setProperty('--bg-overlay', `rgba(15, 14, 26, ${normalOpacity})`);
   document.documentElement.style.setProperty('--bg-overlay-hover', `rgba(15, 14, 26, ${hoverOpacity})`);
 
+  renderBuiltInTabs();
+  renderCustomTabs();
+
   isConfigReceived = true;
   if (!isInitialTabLoaded) {
     checkAndLoadInitialTab();
@@ -823,9 +850,6 @@ function applyConfigStyles(config: BrowserAppConfig) {
       }
     }
   }
-
-  // 커스텀 탭 렌더링
-  renderCustomTabs();
 
   updateHeaderVisibility(config);
 }
@@ -876,6 +900,8 @@ if (searchInput) {
     if (e.key === 'Enter') {
       executeSearch();
     } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
       closeSearchBar();
     }
   });
@@ -896,11 +922,22 @@ if (btnClearSearchInput) {
 }
 
 // Global Shortcuts (Ctrl+F, Esc)
+function closeCurrentChatOverlay(): void {
+  if (chatOverlayMode === 'main') {
+    window.electronAPI.toggleChatOverlay();
+  } else if (chatOverlayMode === 'sub1') {
+    window.electronAPI.toggleChatOverlaySub(1);
+  } else if (chatOverlayMode === 'sub2') {
+    window.electronAPI.toggleChatOverlaySub(2);
+  }
+}
+
 window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
     e.preventDefault();
     openSearchBar(true);
   } else if (e.key === 'Escape' && isSearchMode) {
+    e.preventDefault();
     closeSearchBar();
   }
 });
@@ -983,7 +1020,7 @@ window.electronAPI.onConfigData((config) => {
   const isFirstConfig = !lastKnownConfig;
 
   // Calculate current active tab configured for this specific window mode
-  const currentConfigTab = chatOverlayMode === 'main'
+  const configuredTab = chatOverlayMode === 'main'
     ? (config.chatOverlayTab || 'Basic')
     : (chatOverlayMode === 'sub1' ? (config.chatOverlaySubTab || 'Basic') : (config.chatOverlaySub2Tab || 'Basic'));
 
@@ -991,6 +1028,7 @@ window.electronAPI.onConfigData((config) => {
   let channelsChanged = false;
   let npcChatSettingChanged = false;
   let blacklistFiltersChanged = false;
+  let visibleTabsChanged = false;
   if (lastKnownConfig) {
     const oldChannels = lastKnownConfig.chatOverlaySelectedChannels || [];
     const newChannels = config.chatOverlaySelectedChannels || [];
@@ -1007,6 +1045,8 @@ window.electronAPI.onConfigData((config) => {
       }
     }
     npcChatSettingChanged = (lastKnownConfig.chatOverlayShowNpcChat !== config.chatOverlayShowNpcChat);
+    visibleTabsChanged = JSON.stringify(lastKnownConfig.chatOverlayVisibleTabs || builtInTabIds)
+      !== JSON.stringify(config.chatOverlayVisibleTabs || builtInTabIds);
 
     const oldFilters = lastKnownConfig.chatOverlayBlacklistFilters || [];
     const newFilters = config.chatOverlayBlacklistFilters || [];
@@ -1024,6 +1064,7 @@ window.electronAPI.onConfigData((config) => {
     channelsChanged = true;
     npcChatSettingChanged = true;
     blacklistFiltersChanged = true;
+    visibleTabsChanged = true;
   }
 
   // 색상 변경 감지
@@ -1079,12 +1120,13 @@ window.electronAPI.onConfigData((config) => {
     return;
   }
 
+  const currentConfigTab = resolveAvailableTab(configuredTab);
   const tabChangedExternally = (currentConfigTab !== chatOverlayCurrentTab);
   if (tabChangedExternally) {
-    selectTab(currentConfigTab, false);
-  } else if ((channelsChanged || npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged) && chatOverlayCurrentTab === 'Basic') {
+    selectTab(currentConfigTab, currentConfigTab !== configuredTab);
+  } else if ((channelsChanged || npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged || visibleTabsChanged) && chatOverlayCurrentTab === 'Basic') {
     loadHistory();
-  } else if (npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged) {
+  } else if (npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged || visibleTabsChanged) {
     loadHistory();
   }
 });
@@ -1132,15 +1174,7 @@ if (btnOpenSub2) {
 
 const btnClose = document.getElementById('btnCloseOverlay') as HTMLButtonElement;
 if (btnClose) {
-  btnClose.addEventListener('click', () => {
-    if (chatOverlayMode === 'main') {
-      window.electronAPI.toggleChatOverlay();
-    } else if (chatOverlayMode === 'sub1') {
-      window.electronAPI.toggleChatOverlaySub(1);
-    } else if (chatOverlayMode === 'sub2') {
-      window.electronAPI.toggleChatOverlaySub(2);
-    }
-  });
+  btnClose.addEventListener('click', closeCurrentChatOverlay);
 }
 
 // Resize Drag Control

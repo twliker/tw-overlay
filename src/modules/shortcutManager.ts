@@ -19,7 +19,7 @@ import { FOCUS_DELAY_MS } from './constants';
 import { log } from './logger';
 import { chatLogProcessor } from './chatLogProcessor';
 import { buffTimerManager } from './buffTimerManager';
-import { broadcastToAllWindows } from './windowMessaging';
+import { broadcastToAllWindows, sendToFirstWindowByPage } from './windowMessaging';
 import { abandonedTracker } from './abandonedTracker';
 import { analytics } from './analytics';
 
@@ -77,7 +77,12 @@ export function registerAll(): void {
       log('[SHORTCUT] Toggle Buff HUD');
       analytics.trackEvent('toggle_buff_hud');
       const current = config.load();
-      wm.applySettings({ showBuffHud: !current.showBuffHud });
+      const enabled = !current.showBuffHud;
+      wm.applySettings({ showBuffHud: enabled });
+      sendToFirstWindowByPage('game-overlay.html', 'buff-hud-toggle-feedback', {
+        enabled,
+        activeCount: buffTimerManager.getActiveBuffs().length,
+      });
     });
     if (!registered) {
       log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.toggleBuffHud}`);

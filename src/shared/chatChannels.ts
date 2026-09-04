@@ -1,5 +1,6 @@
 interface ChatChannelConstants {
   OVERLAY_CHANNELS: readonly string[];
+  OVERLAY_BUILT_IN_TABS: readonly import('./types').ChatOverlayBuiltInTab[];
   COLOR_SWATCHES: readonly string[];
   COLORS: Readonly<{
     general: string;
@@ -35,6 +36,9 @@ interface Window {
     nickname: '#94a3b8',
   });
   const OVERLAY_CHANNELS = Object.freeze(['general', 'whisper', 'team', 'club', 'shout', 'system']);
+  const OVERLAY_BUILT_IN_TABS = Object.freeze([
+    'Basic', 'General', 'Whisper', 'Team', 'Club', 'Shout', 'System',
+  ] as const);
   const OVERLAY_COLORS = Object.freeze({
     general: COLORS.general,
     whisper: COLORS.whisper,
@@ -161,6 +165,7 @@ interface Window {
 
   const chatChannels: ChatChannelConstants = Object.freeze({
     OVERLAY_CHANNELS,
+    OVERLAY_BUILT_IN_TABS,
     COLOR_SWATCHES,
     COLORS,
     OVERLAY_COLORS,

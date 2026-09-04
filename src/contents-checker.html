@@ -1373,7 +1373,11 @@
 
         document.getElementById('prompt-input').onkeydown = (e) => {
             if (e.key === 'Enter') document.getElementById('prompt-ok').click();
-            if (e.key === 'Escape') document.getElementById('prompt-cancel').click();
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                document.getElementById('prompt-cancel').click();
+            }
         };
 
         // 캐릭터 관리 모달 렌더링
@@ -1642,7 +1646,12 @@
 
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                if (!document.getElementById('char-modal').classList.contains('hidden')) {
+                e.preventDefault();
+                if (!document.getElementById('custom-prompt').classList.contains('hidden')) {
+                    document.getElementById('prompt-cancel').click();
+                } else if (!document.getElementById('pending-modal').classList.contains('hidden')) {
+                    document.getElementById('pending-modal').classList.add('hidden');
+                } else if (!document.getElementById('char-modal').classList.contains('hidden')) {
                     document.getElementById('char-modal').classList.add('hidden');
                 } else if (!document.getElementById('help-modal').classList.contains('hidden')) {
                     document.getElementById('help-modal').classList.add('hidden');

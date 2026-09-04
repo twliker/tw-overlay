@@ -205,6 +205,19 @@
       background: rgba(52, 211, 153, 0.55);
     }
 
+    /* 마우스 투과 중에는 네이티브 창이 입력을 받을 수 없으므로 조작 가능한 것처럼 보이지 않게 합니다. */
+    body.click-through .chat-scroll-area {
+      scrollbar-width: none;
+    }
+
+    body.click-through .chat-scroll-area::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tab-item.tab-hidden {
+      display: none !important;
+    }
+
     /* 개별 채팅 항목 */
     .chat-message-row {
       display: flex;

@@ -1978,6 +1978,9 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       addInput('chat-overlay-opacity-input', '0.75');
       addInput('chat-overlay-channel-general', '', true);
       addInput('chat-overlay-channel-whisper', '', false);
+      for (const tab of ['Basic', 'General', 'Whisper', 'Team', 'Club', 'Shout', 'System']) {
+        addInput('chat-overlay-visible-tab-' + tab, '', ['General', 'Team', 'Club', 'Shout'].includes(tab));
+      }
       addInput('chat-overlay-show-npc-chat', '', false);
       addInput('chat-overlay-user-server-input', '2');
       addInput('wave-warning-enabled', '', true);
@@ -2245,6 +2248,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       const digsiteHudInput = addInput('digsite-hud-enabled-input');
       window.settingsConfigBinding.applyOverlayDisplayOptions({
         chatOverlaySelectedChannels: ['whisper'],
+        chatOverlayVisibleTabs: ['General', 'Team', 'Club', 'Shout'],
         chatOverlayShowNpcChat: false,
         chatOverlayNicknameColorMode: 'custom',
         forgeQuestHudPos: { left: 24, bottom: 36 },
@@ -2276,6 +2280,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       const overlayAndRadioBinding = {
         generalChannel: document.getElementById('chat-overlay-channel-general').checked,
         whisperChannel: document.getElementById('chat-overlay-channel-whisper').checked,
+        visibleTabs: ['Basic', 'General', 'Whisper', 'Team', 'Club', 'Shout', 'System']
+          .filter(tab => document.getElementById('chat-overlay-visible-tab-' + tab).checked),
         showNpc: document.getElementById('chat-overlay-show-npc-chat').checked,
         showXp: xpGainInput.checked,
         nicknameMode: nicknameModeInput.value,
@@ -2295,6 +2301,23 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       toastRegistry.remove('boss-toast');
       toastRegistry.remove('scam-toast');
 
+      const originalWindowClose = window.close;
+      let escapeCloseCount = 0;
+      window.close = () => { escapeCloseCount++; };
+      window.bindEscapeClose();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+      await Promise.resolve();
+      const unhandledEscapeCloseCount = escapeCloseCount;
+      const preventEscapeClose = event => {
+        if (event.key === 'Escape') event.preventDefault();
+      };
+      window.addEventListener('keydown', preventEscapeClose);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+      await Promise.resolve();
+      window.removeEventListener('keydown', preventEscapeClose);
+      const preventedEscapeCloseCount = escapeCloseCount;
+      window.close = originalWindowClose;
+
       return {
         alertShown: alert.classList.contains('show'),
         contentCompleteAlert: {
@@ -2313,6 +2336,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
           opacity: overlaySettings.chatOverlayOpacity,
           color: overlaySettings.chatOverlayColorGeneral,
           channels: overlaySettings.chatOverlaySelectedChannels,
+          visibleTabs: overlaySettings.chatOverlayVisibleTabs,
           showNpc: overlaySettings.chatOverlayShowNpcChat,
           blacklistFilters: overlaySettings.chatOverlayBlacklistFilters,
           userServer: overlaySettings.userServer,
@@ -2386,6 +2410,10 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         toastRegistry: {
           counts: toastInteractionCounts,
           finalCount: toastRegistry.count()
+        },
+        escapeClose: {
+          unhandledEscapeCloseCount,
+          preventedEscapeCloseCount
         }
       };
     })()
@@ -2404,6 +2432,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     audioControls: Record<string, unknown>;
     configBinding: Record<string, unknown>;
     toastRegistry: { counts: number[]; finalCount: number };
+    escapeClose: { unhandledEscapeCloseCount: number; preventedEscapeCloseCount: number };
   };
 
   assert.equal(result.alertShown, true);
@@ -2421,12 +2450,17 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     counts: [1, 2, 1, 0],
     finalCount: 0,
   }, '동시 토스트 중 하나만 종료했을 때 click-through 참조가 조기 해제됩니다.');
+  assert.deepEqual(result.escapeClose, {
+    unhandledEscapeCloseCount: 1,
+    preventedEscapeCloseCount: 1,
+  }, '화면이 처리한 Escape까지 공통 닫기 동작으로 이어집니다.');
   assert.deepEqual(result.overlaySettings, {
     width: 512,
     height: 400,
     opacity: 0.75,
     color: '#123456',
     channels: ['general'],
+    visibleTabs: ['General', 'Team', 'Club', 'Shout'],
     showNpc: false,
     blacklistFilters: ['필터테스트123'],
     userServer: 2,
@@ -2566,6 +2600,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     overlayAndRadioBinding: {
       generalChannel: false,
       whisperChannel: true,
+      visibleTabs: ['General', 'Team', 'Club', 'Shout'],
       showNpc: false,
       showXp: false,
       nicknameMode: 'custom',
@@ -3407,6 +3442,32 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
 
       const highlightElements = Array.from(document.querySelectorAll('.search-highlight')).map(el => el.textContent);
 
+      // 6. 기본 탭 표시 설정과 숨겨진 저장 탭의 안전 전환
+      window.__configCallback({
+        chatOverlayTab: 'Basic',
+        chatOverlayOpacity: 100,
+        chatOverlayClickThrough: true,
+        chatOverlayVisibleTabs: ['General', 'Team', 'Club', 'Shout'],
+        chatOverlayShowNpcChat: true,
+        chatOverlaySelectedChannels: ['general', 'whisper', 'team', 'club', 'shout', 'system'],
+      });
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const visibleBuiltInTabs = Array.from(document.querySelectorAll('.tabs-bar > .tab-item:not(.custom-tab-item)'))
+        .filter(tab => !tab.classList.contains('tab-hidden'))
+        .map(tab => tab.getAttribute('data-tab'));
+      const hiddenSavedTabFallback = document.querySelector('.tab-item.active')?.getAttribute('data-tab');
+      const clickThroughClassApplied = document.body.classList.contains('click-through');
+
+      window.__configCallback({
+        chatOverlayTab: 'Basic',
+        chatOverlayOpacity: 100,
+        chatOverlayClickThrough: false,
+        chatOverlayVisibleTabs: ['Basic', 'General', 'Whisper', 'Team', 'Club', 'Shout', 'System'],
+        chatOverlayShowNpcChat: true,
+        chatOverlaySelectedChannels: ['general', 'whisper', 'team', 'club', 'shout', 'system'],
+      });
+      await new Promise(resolve => setTimeout(resolve, 50));
+
       return {
         basicRows,
         hasXss: xssAttempt !== null,
@@ -3415,6 +3476,9 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
         liveSystemRows,
         searchContainerVisible,
         highlightElements,
+        visibleBuiltInTabs,
+        hiddenSavedTabFallback,
+        clickThroughClassApplied,
         historyRequests: window.__chatHistoryRequests,
       };
     })()
@@ -3426,6 +3490,9 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
     liveSystemRows: Array<{ badge: string; sender: string; message: string }>;
     searchContainerVisible: boolean;
     highlightElements: string[];
+    visibleBuiltInTabs: string[];
+    hiddenSavedTabFallback: string;
+    clickThroughClassApplied: boolean;
     historyRequests: string[];
   };
 
@@ -3454,6 +3521,12 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
 
   assert.equal(result.searchContainerVisible, true, '검색창이 열리지 않았습니다.');
   assert.ok(result.highlightElements.includes('시드'), '검색어 하이라이트(search-highlight)가 생성되지 않았습니다.');
+  assert.deepEqual(result.visibleBuiltInTabs, ['General', 'Team', 'Club', 'Shout'],
+    '선택한 기본 채팅 탭만 오버레이 상단에 표시되지 않습니다.');
+  assert.equal(result.hiddenSavedTabFallback, 'General',
+    '숨긴 탭이 저장 탭일 때 첫 표시 탭으로 안전하게 전환되지 않습니다.');
+  assert.equal(result.clickThroughClassApplied, true,
+    '마우스 투과 상태를 스크롤 UI에 반영하지 않습니다.');
 
   const generationResult = await window.webContents.executeJavaScript(`
     (async () => {

@@ -19,8 +19,9 @@ Semantic Versioning 형식 `X.Y.Z`를 사용합니다.
 - [ ] `README.md`의 버전 뱃지, 최신 버전 섹션, 다운로드 링크 파일명(`twOverlay-Setup-X.Y.Z.exe`) 및 주요 기능 설명 갱신
 - [ ] `release-note/CHANGELOG-vX.X.X.md` 작성
   - `Added`, `Changed`, `Fixed` 기준으로 사용자에게 의미 있는 변경 정리
-- [ ] `src/assets/notice/notice.json` 및 첨부 이미지(`src/assets/notice/`) 갱신
+- [ ] `src/assets/notice/notice.json` 및 필요한 경우 첨부 이미지(`src/assets/notice/`) 갱신
   - 공지 팝업은 프로그램 용량 최적화를 위해 버전별 누적이 아닌 `src/assets/notice/` 단일 폴더에서 최신 공지만 관리합니다.
+  - 공지에 이미지가 필요하지 않으면 `images`를 빈 배열로 두고 이전 버전의 `notice_*` 이미지를 제거합니다. 이 경우 이미지 갤러리는 표시되지 않습니다.
   - **첨부 이미지는 사용자가 직접 제작/캡처하여 첨부합니다.** (AI 에이전트가 임의로 생성하지 않음)
   - 사용자가 준비한 이미지를 `src/assets/notice/` 폴더에 `notice_1.png`, `notice_2.png`, `notice_3.png` ... 형식으로 번호 순서대로 배치하면 앱에서 자동으로 감지하여 순서대로 노출하고 클릭 시 확대 보기(Lightbox)를 제공합니다.
   - 공지 텍스트는 일반 사용자가 이해하기 쉬운 단어들로 구성하고, 사용자 입장에서 읽어야 할 주요 변경 사항 및 사용법 위주로 작성합니다.

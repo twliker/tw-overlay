@@ -160,6 +160,11 @@ export type WindowPositionKey =
     | 'discordAlarm' | 'huntingPathSimulator' | 'stopwatch' | 'chatOverlay'
     | 'chatOverlaySub' | 'chatOverlaySub2' | 'huntingExpCalculator' | 'relicCalculator' | 'equipmentSimulator' | 'dock';
 
+export interface ManagedWindowSize {
+    width: number;
+    height: number;
+}
+
 export interface XpStats {
     total: number;
     epm: number;
@@ -210,6 +215,8 @@ export interface EquipmentDictionaryItem {
     subCategory?: string;
     [key: string]: unknown;
 }
+
+export type ChatOverlayBuiltInTab = 'Basic' | 'General' | 'Whisper' | 'Team' | 'Club' | 'Shout' | 'System';
 
 /**
  * 장비 사전에서 진화 계산기로 넘기는 최소 선택 정보.
@@ -554,6 +561,7 @@ export interface AppConfig {
     chatOverlaySub2Opacity?: number;
     chatOverlayFontSize?: number;
     chatOverlayClickThrough?: boolean;
+    chatOverlayVisibleTabs?: ChatOverlayBuiltInTab[];
     chatOverlayKeywords?: string[];
     userServer?: number; // 16: 네냐플, 7: 하이아칸
     etaDataUrl?: string;
@@ -565,6 +573,7 @@ export interface AppConfig {
     etaRankingHeight?: number;
     contentsCheckerWidth?: number;
     contentsCheckerHeight?: number;
+    managedWindowSizes?: Partial<Record<WindowPositionKey, ManagedWindowSize>>;
     followGameWindow?: boolean;
     chatOverlaySelectedChannels?: string[];
     chatOverlaySubWidth?: number;

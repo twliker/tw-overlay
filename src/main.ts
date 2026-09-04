@@ -17,6 +17,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 import * as tracker from './modules/tracker';
 import * as wm from './modules/windowManager';
+import { attachRendererHealthGuard } from './modules/rendererHealthGuard';
 import * as ipcHandlers from './modules/ipcHandlers';
 import * as gallery from './modules/galleryMonitor';
 import * as tray from './modules/tray';
@@ -83,6 +84,7 @@ function prepareFastSessionEnd(): void {
 
 // Windows 로그오프·시스템 종료는 긴 비동기 대기를 막지 않고 내구 상태만 즉시 기록한다.
 app.on('browser-window-created', (_event, window) => {
+  attachRendererHealthGuard(window);
   window.on('query-session-end', () => prepareFastSessionEnd());
 });
 

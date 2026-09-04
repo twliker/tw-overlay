@@ -34,7 +34,6 @@ export const IsIconic = user32.func('__stdcall', 'IsIconic', 'bool', ['intptr'])
 export const SetForegroundWindow = user32.func('__stdcall', 'SetForegroundWindow', 'bool', ['intptr']);
 export const ShowWindow = user32.func('__stdcall', 'ShowWindow', 'bool', ['intptr', 'int']);
 export const BringWindowToTop = user32.func('__stdcall', 'BringWindowToTop', 'bool', ['intptr']);
-export const keybd_event = user32.func('__stdcall', 'keybd_event', 'void', ['uint8', 'uint8', 'uint32', 'intptr']);
 export const GetWindowThreadProcessId = user32.func('__stdcall', 'GetWindowThreadProcessId', 'uint32', ['intptr', koffi.out(koffi.pointer('uint32'))]);
 export const EnumWindows = user32.func('__stdcall', 'EnumWindows', 'bool', ['void *', 'intptr']);
 export const GetWindowTextW = user32.func('__stdcall', 'GetWindowTextW', 'int', ['intptr', koffi.out(koffi.pointer('char16')), 'int']);
@@ -110,8 +109,6 @@ export const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
 export const SW_RESTORE = 9;
 
 export const VK_LBUTTON = 0x01;
-export const VK_MENU = 0x12; // Alt key
-export const KEYEVENTF_KEYUP = 0x0002;
 
 export const PROCESS_SET_INFORMATION = 0x0200;
 export const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;

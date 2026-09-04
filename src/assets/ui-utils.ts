@@ -29,15 +29,22 @@ window.replayAnimation = function (element, className = 'show') {
   element.classList.add(className);
 };
 
-// Escape 키로 창 닫기 바인딩
+/**
+ * [기능 계약: Escape 키로 보조 창 닫기]
+ *
+ * 화면별 모달·검색·입력 편집이 Escape를 먼저 소비하면 그 동작만 수행하고 창은 유지합니다.
+ * 공통 닫기는 같은 키 이벤트의 모든 리스너가 끝난 뒤 defaultPrevented를 다시 확인해야 하며,
+ * 아무 화면도 처리하지 않은 Escape만 현재 보조 창을 닫습니다.
+ */
 window.bindEscapeClose = function () {
   if (window.__twEscapeCloseBound) return;
   window.__twEscapeCloseBound = true;
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !e.defaultPrevented) {
-      // 닫기 전 추가 로직이 필요한 경우를 위해 이벤트를 전파하지 않음
-      window.close();
-    }
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    const closeWindow = window.close.bind(window);
+    queueMicrotask(() => {
+      if (!e.defaultPrevented) closeWindow();
+    });
   });
 };
 
@@ -52,6 +59,71 @@ window.bindElectronListenerCleanup = function () {
     }
   });
 };
+
+/**
+ * 투명·무테 창은 운영체제 기본 테두리가 보이지 않아 `resizable`만 켜도 사용자가 잡을 곳을
+ * 찾기 어렵습니다. 메인 프로세스가 허용한 일반 창에만 우하단 손잡이를 설치합니다.
+ */
+window.installManagedWindowResizeHandle = function (
+  options: { minWidth?: number; minHeight?: number } = {},
+): void {
+  if (document.getElementById('tw-managed-window-resize-handle')) return;
+  const api = getElectronApi();
+  if (!api?.setWindowSize) return;
+
+  const handle = document.createElement('div');
+  handle.id = 'tw-managed-window-resize-handle';
+  handle.title = '창 크기 조절';
+  handle.setAttribute('aria-label', '창 크기 조절');
+  handle.style.cssText = [
+    'position:fixed', 'right:3px', 'bottom:3px', 'width:18px', 'height:18px',
+    'z-index:2147483647', 'cursor:nwse-resize', 'opacity:.7', 'pointer-events:auto',
+    '-webkit-app-region:no-drag',
+    'background:linear-gradient(135deg,transparent 48%,rgba(148,163,184,.65) 49%,rgba(148,163,184,.65) 58%,transparent 59%,transparent 69%,rgba(148,163,184,.85) 70%,rgba(148,163,184,.85) 79%,transparent 80%)',
+  ].join(';');
+
+  handle.addEventListener('mousedown', (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.screenX;
+    const startY = event.screenY;
+    const startWidth = window.innerWidth;
+    const startHeight = window.innerHeight;
+    const minWidth = Math.max(100, Number(options.minWidth) || 100);
+    const minHeight = Math.max(100, Number(options.minHeight) || 100);
+    let resizeFrame: number | null = null;
+    let pendingWidth = startWidth;
+    let pendingHeight = startHeight;
+
+    const flushResize = () => {
+      resizeFrame = null;
+      api.setWindowSize(pendingWidth, pendingHeight);
+    };
+    const onMove = (moveEvent: MouseEvent) => {
+      pendingWidth = Math.max(minWidth, Math.round(startWidth + moveEvent.screenX - startX));
+      pendingHeight = Math.max(minHeight, Math.round(startHeight + moveEvent.screenY - startY));
+      if (resizeFrame === null) resizeFrame = window.requestAnimationFrame(flushResize);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      api.setWindowSize(pendingWidth, pendingHeight);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp, { once: true });
+  });
+
+  document.body.appendChild(handle);
+};
+
+const resizeApi = getElectronApi();
+if (resizeApi?.onManagedWindowResizeEnabled) {
+  resizeApi.onManagedWindowResizeEnabled((options: { minWidth?: number; minHeight?: number }) => {
+    window.installManagedWindowResizeHandle(options);
+  });
+}
 
 // 설정 카드 강조 애니메이션
 window.highlightElement = function (

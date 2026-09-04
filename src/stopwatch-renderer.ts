@@ -287,7 +287,11 @@ function attachTableEvents() {
 
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') saveTitle();
-        if (e.key === 'Escape') fetchRecords();
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          fetchRecords();
+        }
       });
       input.addEventListener('blur', saveTitle);
 

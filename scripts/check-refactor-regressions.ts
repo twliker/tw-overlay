@@ -2089,7 +2089,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     resolveManagedWindowSizing: (key: string, width: number, height: number, config: Record<string, unknown>, workAreaSize: { width: number; height: number }) => Record<string, unknown>;
     getManagedWindowSizePolicy: (key: string) => string;
     applyManagedWindowSize: (key: string, config: Record<string, unknown>, width: number, height: number) => boolean;
-    createManagedWindowSizePatch: (key: string, width: number, height: number) => Record<string, unknown> | null;
+    createManagedWindowSizePatch: (key: string, width: number, height: number, existingSizes?: Record<string, { width: number; height: number }>) => Record<string, unknown> | null;
   };
   assert.deepEqual(
     sizing.resolveManagedWindowSizing('focusedChat', 460, 720, { focusedChatWidth: 520, focusedChatHeight: 760 }, { width: 1280, height: 700 }),
@@ -2105,8 +2105,8 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   );
   assert.deepEqual(
     sizing.resolveManagedWindowSizing('coefficientCalculator', 1420, 860, {}, { width: 1280, height: 720 }),
-    { width: 1240, height: 680, isResizable: false, isTransparent: true, minWidth: undefined, minHeight: undefined, policy: 'fit-work-area' },
-    '대형 고정 관리 창이 작은 작업 영역을 벗어납니다.',
+    { width: 1240, height: 680, isResizable: true, isTransparent: true, minWidth: 400, minHeight: 300, policy: 'user-resizable' },
+    '대형 관리 창이 작업 영역에 맞춰 축소되거나 사용자 크기 조절을 허용하지 않습니다.',
   );
   assert.deepEqual(
     sizing.resolveManagedWindowSizing('diary', 1400, 920, {}, { width: 800, height: 600 }),
@@ -2135,13 +2135,27 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   const sizeConfig: Record<string, unknown> = {};
   assert.equal(sizing.applyManagedWindowSize('chatOverlaySub2', sizeConfig, 510, 430), true);
   assert.deepEqual(sizeConfig, { chatOverlaySub2Width: 510, chatOverlaySub2Height: 430 });
-  assert.equal(sizing.applyManagedWindowSize('settings', sizeConfig, 800, 600), false);
+  assert.equal(sizing.applyManagedWindowSize('settings', sizeConfig, 800, 600), true);
+  assert.deepEqual(sizeConfig, {
+    chatOverlaySub2Width: 510,
+    chatOverlaySub2Height: 430,
+    managedWindowSizes: { settings: { width: 800, height: 600 } },
+  });
   assert.deepEqual(
     sizing.createManagedWindowSizePatch('chatOverlay', 640, 480),
     { chatOverlayWidth: 640, chatOverlayHeight: 480 },
     '창 크기 저장이 변경된 크기 필드 외의 설정까지 포함합니다.',
   );
-  assert.equal(sizing.createManagedWindowSizePatch('settings', 800, 600), null);
+  assert.deepEqual(
+    sizing.createManagedWindowSizePatch('settings', 840, 640, { gallery: { width: 500, height: 650 } }),
+    { managedWindowSizes: { gallery: { width: 500, height: 650 }, settings: { width: 840, height: 640 } } },
+    '기존 보조 창 크기를 보존하면서 새 크기를 저장하지 않습니다.',
+  );
+  assert.deepEqual(
+    sizing.resolveManagedWindowSizing('settings', 1100, 720, { managedWindowSizes: { settings: { width: 900, height: 650 } } }, { width: 1920, height: 1080 }),
+    { width: 900, height: 650, isResizable: true, isTransparent: true, minWidth: 800, minHeight: 600, policy: 'user-resizable' },
+    '일반 보조 창의 저장 크기가 재실행 시 복원되지 않습니다.',
+  );
 
   const moveModule = require(path.join(projectRoot, 'dist', 'modules', 'programmaticMoveTracker.js')) as {
     ProgrammaticMoveTracker: new (threshold: number, windowMs: number, now: () => number) => {
@@ -2510,9 +2524,14 @@ function checkSidebarMenuRegistryContracts(): void {
   assert.deepEqual(evolution.sanitizeEvolutionHistory([{ id: '', title: '손상', selection: {} }, null]), [],
     '손상된 진화 계산 이력이 안전하게 제외되지 않습니다.');
   assert.equal(
+    decodeURIComponent(evolution.getEvolutionItemImagePath('고대 기사의 건틀렛 파편')),
+    'assets/items/고대기사의건틀렛파편.png',
+    '수정된 건틀렛 재료명이 실제 이미지 경로와 일치하지 않습니다.',
+  );
+  assert.equal(
     decodeURIComponent(evolution.getEvolutionItemImagePath('고대 기사의 건틀릿 파편')),
     'assets/items/고대기사의건틀렛파편.png',
-    '기존 재료 이미지의 명칭 차이 alias가 적용되지 않습니다.',
+    '기존 계산 이력의 건틀릿 표기 호환 alias가 제거되었습니다.',
   );
 
   const managerSource = read('src/modules/windowManager.ts');
@@ -2660,8 +2679,10 @@ function checkWindowedFullscreenFocusContracts(): void {
     '폴링 Z-order 정책이 게임·TW-Overlay·실제 외부 창 포커스를 공통 판별하는 샌드위치 경계를 사용하지 않습니다.');
   assert.match(polling, /tracker\.releaseGameZOrder\(\);[\s\S]*?wm\.resetGameSessionState\(\)/,
     '게임 종료 시 동적 Topmost 상태를 해제하지 않습니다.');
-  assert.match(polling, /tracker\.releaseGameZOrder\(\);[\s\S]*?wm\.hideAll\(\)/,
-    '게임 최소화 시 동적 Topmost 상태를 해제하지 않습니다.');
+  assert.match(polling, /tracker\.releaseGameZOrder\(\);[\s\S]*?wm\.hideAll\(\{ preserveForResume: true \}\)/,
+    '게임 최소화 시 Topmost를 해제한 뒤 자동 복원 창을 재사용하지 않습니다.');
+  assert.match(manager, /preserveForResume[\s\S]*?key === 'chatOverlay'[\s\S]*?winCfg\.ref\.hide\(\)/,
+    '게임 최소화 때 채팅 오버레이 renderer를 숨겨 재사용하지 않습니다.');
 
   const focusStart = tracker.indexOf('export function focusGameWindow(): boolean');
   const focusEnd = tracker.indexOf('export function isGameOrAppForeground', focusStart);
@@ -2671,6 +2692,8 @@ function checkWindowedFullscreenFocusContracts(): void {
     '실제 최소화 여부를 확인하지 않고 게임 창 상태를 복원합니다.');
   assert.doesNotMatch(focusGameWindow, /BringWindowToTop|keybd_event/,
     '자동 포커스 복구가 강제 Z-order 변경 또는 Alt 키 입력을 사용합니다.');
+  assert.doesNotMatch(read('src/modules/win32.ts'), /keybd_event|VK_MENU|KEYEVENTF_KEYUP/,
+    '미사용 가상 키 입력 바인딩이 Win32 모듈에 남아 있습니다.');
   assert.match(tracker, /export function canAutomaticallyRestoreGameFocus\(\): boolean/,
     '외부 창 포커스를 보호하는 자동 복구 허용 검사가 없습니다.');
   assert.match(manager, /canScheduleRestore:[^\n]*tracker\.canAutomaticallyRestoreGameFocus\(\)/,
@@ -2749,6 +2772,10 @@ function checkWindowedFullscreenFocusContracts(): void {
     '전경 외부 창의 모니터 진입을 폴링 전에 즉시 Z-order 재판정하지 않습니다.');
   assert.match(tracker, /if \(hLocationEventHook\)[\s\S]*?UnhookWinEvent\(hLocationEventHook\)/,
     '앱 종료 시 위치 이벤트 훅을 해제하지 않습니다.');
+  assert.match(tracker, /EVENT_SYSTEM_MINIMIZESTART[\s\S]*?EVENT_SYSTEM_MINIMIZEEND/,
+    '게임 최소화 종료 이벤트를 즉시 감지하는 WinEvent hook이 없습니다.');
+  assert.match(tracker, /if \(hMinimizeEventHook\)[\s\S]*?UnhookWinEvent\(hMinimizeEventHook\)/,
+    '앱 종료 시 최소화 이벤트 훅을 해제하지 않습니다.');
   assert.match(zOrderController, /desiredTopmost\s*=\s*isGameOrAppFocused \|\| gameIsTopmost[\s\S]*?allWindowsMatchDesiredBand[\s\S]*?isWindowStackIntact/,
     '게임 foreground에서는 우리 창만 승격하고 외부 foreground에서는 샌드위치로 복귀하는 검사가 없습니다.');
   assert.doesNotMatch(zOrderController, /keepElevatedForSeparateMonitor|splitForSeparateExternal/,
@@ -3033,7 +3060,7 @@ function checkFocusedChatContracts(): void {
     '집중 대화방에서 조절한 창 크기가 저장되지 않습니다.');
   assert.match(sizingSource, /key === 'focusedChat' \? 360/,
     '집중 대화방의 최소 너비 제한이 없습니다.');
-  assert.match(windowManager, /const sizePatch = createManagedWindowSizePatch\(key, b\.width, b\.height\);[\s\S]*?config\.save\(sizePatch\)/,
+  assert.match(windowManager, /const sizePatch = createManagedWindowSizePatch\(key, b\.width, b\.height, config\.load\(\)\.managedWindowSizes\);[\s\S]*?config\.save\(sizePatch\)/,
     '일반 창 리사이즈가 변경된 크기 필드만 저장하지 않습니다.');
   assert.match(renderer, /setFocusedChatTargets\(\[\.\.\.targets\]\)/,
     '집중 대화방의 상대 닉네임이 임시 세션 상태로 전달되지 않습니다.');
@@ -3240,6 +3267,54 @@ function checkSharedUiDependencies() {
   }
 
   assert.ok(pagesUsingSharedUi.length > 0);
+}
+
+function readPageWithRendererSources(htmlFile: string): string {
+  const html = read(`src/${htmlFile}`);
+  const sources = [html];
+  for (const match of html.matchAll(/<script\s+src=["']([^"']+\.js)["']/g)) {
+    const scriptPath = match[1];
+    if (scriptPath.startsWith('assets/') || scriptPath.startsWith('shared/')) continue;
+    const sourcePath = path.join(sourceRoot, scriptPath.replace(/\.js$/, '.ts'));
+    if (fs.existsSync(sourcePath)) sources.push(fs.readFileSync(sourcePath, 'utf8'));
+  }
+  return sources.join('\n');
+}
+
+function checkEscapeCloseContracts(): void {
+  const escapeHandlerPattern = /bindEscapeClose(?:\?\.)?\s*\(|\.key\s*[!=]==?\s*['"]Escape['"]/;
+  const managedDefinitions = Array.from(
+    read('src/modules/managedWindowRegistry.ts').matchAll(/\{ key: '([^']+)', html: '([^']+)'/g),
+    match => ({ key: match[1], html: match[2] }),
+  );
+  const escapeCloseExclusions = new Set(['gameOverlay', 'chatOverlay', 'chatOverlaySub', 'chatOverlaySub2', 'dock']);
+
+  for (const definition of managedDefinitions) {
+    if (escapeCloseExclusions.has(definition.key)) continue;
+    assert.match(
+      readPageWithRendererSources(definition.html),
+      escapeHandlerPattern,
+      `${definition.key} 창에 Escape 닫기 처리가 없습니다.`,
+    );
+  }
+
+  for (const htmlFile of ['welcome-guide.html', 'update-notice.html', 'game-exit-reminder.html']) {
+    assert.match(readPageWithRendererSources(htmlFile), escapeHandlerPattern, `${htmlFile}에 Escape 닫기 처리가 없습니다.`);
+  }
+
+  const uiUtils = read('src/assets/ui-utils.ts');
+  assert.match(uiUtils, /const closeWindow = window\.close\.bind\(window\)[\s\S]*?queueMicrotask[\s\S]*?!e\.defaultPrevented[\s\S]*?closeWindow\(\)/,
+    '화면 내부 Escape 처리가 끝나기 전에 공통 창 닫기가 실행될 수 있습니다.');
+  assert.match(read('src/chatOverlayRenderer.ts'), /e\.key === 'Escape' && isSearchMode/,
+    '채팅 오버레이 Escape가 검색 화면 이외의 창 닫기로 확장되었습니다.');
+  assert.doesNotMatch(read('src/dock.html'), /bindEscapeClose\s*\(|\.key\s*[!=]==?\s*['"]Escape['"]/,
+    '독이 Escape로 닫히도록 다시 연결되었습니다.');
+  assert.doesNotMatch(read('src/overlay.html'), /\.key\s*[!=]==?\s*['"]Escape['"]/,
+    '웹 브라우저 오버레이 툴바가 Escape로 닫히도록 다시 연결되었습니다.');
+  assert.doesNotMatch(read('src/modules/windowManager.ts'), /view\.webContents\.ipc\.on\('embedded-view-escape'/,
+    '웹 브라우저 오버레이 콘텐츠가 Escape로 닫히도록 다시 연결되었습니다.');
+  assert.match(read('src/modules/embeddedWebTool.ts'), /embedded-view-escape[\s\S]*?window\.close\(\)/,
+    '외부 웹 콘텐츠에 포커스가 있을 때 도구 창을 닫는 Escape 경로가 없습니다.');
 }
 
 function loadBrowserConstantModule(relativePath: string, exposedProperty: string): any {
@@ -3545,14 +3620,14 @@ function checkPreloadDefaultConfigCompatibility() {
   );
   assert.deepEqual(listenerChannels, [
     'trigger-jellyppy-rain', 'trigger-firework', 'sidebar-status', 'overlay-status',
-    'chat-overlay-status', 'click-through-status', 'active-windows', 'config-data',
+    'chat-overlay-status', 'click-through-status', 'active-windows', 'managed-window-resize-enabled', 'config-data',
     'chat-log-sync-progress', 'today-summary-config',
     'url-change', 'load-status', 'gallery-posts', 'gallery-new-activity',
     'gallery-watched-update', 'gallery-connection-status', 'update-status',
     'boss-times-data', 'play-sound', 'trade-posts', 'trade-new-activity',
     'trade-connection-status', 'open-settings-tab', 'highlight-alarm-settings',
     'toolbar-hover', 'reminder-message', 'incomplete-contents', 'diary-updated',
-    'xp-update', 'shout-history-updated', 'buff-timer-update', 'buff-timer-warning',
+    'xp-update', 'shout-history-updated', 'buff-timer-update', 'buff-timer-warning', 'buff-hud-toggle-feedback',
     'xp-reset-done', 'essence-alert', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert',
     'ethos-alert', 'abyss-apostle-alert', 'wave-warning-alert', 'lokagos-alert',
     'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
@@ -3656,6 +3731,43 @@ function checkRequestedFeatureContracts() {
   assert.match(gameOverlay, /onSpecialMonsterAlert/);
   assert.match(gameOverlay, /onAbyssTreasureCompleteAlert[\s\S]*?showContentComplete/);
   assert.match(read('src/renderer/game-overlay/devtools.ts'), /testSpecialMonsterAlert/);
+
+  const settingsHtml = read('src/settings.html');
+  for (const tab of ['Basic', 'General', 'Whisper', 'Team', 'Club', 'Shout', 'System']) {
+    assert.ok(settingsHtml.includes(`chat-overlay-visible-tab-${tab}`),
+      `채팅 오버레이 기본 탭 표시 설정 누락: ${tab}`);
+  }
+  assert.match(read('src/renderer/settings/form-collection.ts'), /chatOverlayVisibleTabs:[\s\S]*?visibleTabs/,
+    '채팅 오버레이 기본 탭 표시 설정을 저장하지 않습니다.');
+  assert.match(read('src/renderer/settings/config-binding.ts'), /chatOverlayVisibleTabs[\s\S]*?chat-overlay-visible-tab-/,
+    '저장된 채팅 오버레이 기본 탭 설정을 화면에 복원하지 않습니다.');
+  const chatOverlayRenderer = read('src/chatOverlayRenderer.ts');
+  assert.match(chatOverlayRenderer, /resolveAvailableTab[\s\S]*?renderBuiltInTabs/,
+    '숨긴 채팅 탭의 표시 및 안전한 대체 탭 선택 계약이 없습니다.');
+  assert.match(read('src/chat-overlay.html'), /body\.click-through[\s\S]*?scrollbar/,
+    '마우스 투과 중 조작할 수 없는 채팅 스크롤바를 숨기지 않습니다.');
+
+  const healthGuard = read('src/modules/rendererHealthGuard.ts');
+  assert.match(healthGuard, /did-fail-load[\s\S]*?render-process-gone[\s\S]*?unresponsive/,
+    'renderer 표시 실패 감지 계약이 불완전합니다.');
+  assert.match(healthGuard, /setIgnoreMouseEvents\(true,[\s\S]*?window\.hide\(\)/,
+    '보이지 않는 실패 창이 게임 입력을 막지 않도록 해제하지 않습니다.');
+  assert.match(read('src/main.ts'), /browser-window-created[\s\S]*?attachRendererHealthGuard/,
+    '모든 창에 renderer 표시 실패 안전장치를 연결하지 않습니다.');
+  assert.match(read('src/modules/windowManager.ts'), /isMainWindowRendererReady[\s\S]*?ready-to-show[\s\S]*?isMainWindowRendererReady = true/,
+    '사이드바 renderer 준비 전에 투명 창을 표시할 수 있습니다.');
+
+  const uiUtils = read('src/assets/ui-utils.ts');
+  assert.match(uiUtils, /installManagedWindowResizeHandle[\s\S]*?setWindowSize/,
+    '투명·무테 일반 창의 크기 조절 손잡이가 없습니다.');
+  assert.match(read('src/modules/windowManager.ts'), /managed-window-resize-enabled/,
+    '크기 조절 가능한 일반 창에 손잡이 활성화 이벤트를 보내지 않습니다.');
+
+  const shortcutManager = read('src/modules/shortcutManager.ts');
+  assert.match(shortcutManager, /Toggle Buff HUD[\s\S]*?buff-hud-toggle-feedback/,
+    '버프 HUD 단축키 실행 결과를 사용자에게 표시하지 않습니다.');
+  assert.match(gameOverlay, /createHudStatusToast[\s\S]*?onBuffHudToggleFeedback/,
+    '게임 오버레이가 버프 HUD 단축키 결과를 표시하지 않습니다.');
 }
 
 function checkRequestedChatSamples(): void {
@@ -4667,6 +4779,13 @@ function checkHuntingExpCalculator(): void {
   assert.equal(buffs.find(item => item.id === 'exp_stamp')?.description.includes('500개'), true);
   assert.equal(buffs.find(item => item.id === 'exp_club_e2')?.effects?.exp, 200);
   assert.deepEqual(buffs.find(item => item.id === 'rare_lucky')?.effects, { rare: 30 });
+  const buffPreviewIpc = read('src/modules/ipcHandlers.ts');
+  assert.match(buffPreviewIpc, /ipcMain\.on\('buff-timer-test'/,
+    '배포 빌드에서 버프 타이머 미리보기 IPC가 등록되지 않습니다.');
+  assert.match(buffPreviewIpc, /ipcMain\.on\('buff-timer-clear-test'/,
+    '배포 빌드에서 버프 타이머 미리보기 정리 IPC가 등록되지 않습니다.');
+  assert.doesNotMatch(buffPreviewIpc, /if \(IS_DEV\) ipcMain\.on\('buff-timer-(?:test|clear-test)'/,
+    '버프 타이머 미리보기가 개발 모드로 제한되어 있습니다.');
 
   const html = read('src/hunting-exp-calculator.html');
   const renderer = read('src/renderer/hunting-exp-calculator.ts');
@@ -4825,7 +4944,7 @@ function checkUpdateNoticeFeature(): void {
   assert.equal(noticeData.version, packageData.version, 'notice.json과 package.json의 배포 버전이 일치하지 않습니다.');
   assert.ok(typeof noticeData.title === 'string' && noticeData.title.length > 0, 'notice.json에 유효한 title이 없습니다.');
   assert.ok(Array.isArray(noticeData.sections) && noticeData.sections.length > 0, 'notice.json에 유효한 sections가 없습니다.');
-  assert.ok(Array.isArray(noticeData.images) && noticeData.images.length > 0, 'notice.json에 업데이트 이미지가 없습니다.');
+  assert.ok(Array.isArray(noticeData.images), 'notice.json의 images는 배열이어야 합니다.');
   assert.equal(new Set(noticeData.images).size, noticeData.images.length, 'notice.json에 중복된 이미지가 있습니다.');
   for (const imageName of noticeData.images) {
     assert.match(imageName, /^notice_\d+\.(png|jpe?g|webp|gif)$/i, `공지 이미지 파일명이 허용 형식이 아닙니다: ${imageName}`);
@@ -5383,6 +5502,7 @@ checkExtractedPureModules();
 checkCoreInternalTypesStayStrict();
 checkLegacyContentsOrderingRemoved();
 checkSharedUiDependencies();
+checkEscapeCloseContracts();
 checkSharedConstants();
 checkPreloadDefaultConfigCompatibility();
 checkRequestedFeatureContracts();

@@ -14,7 +14,7 @@ function validateGuideScreenshotCoverage(): void {
 
   const multiScreenDocs = new Set([
     'quickstart', 'contents-checker', 'google-drive-sync', 'overlay',
-    'diary', 'equipment-dic', 'buffs', 'settings',
+    'diary', 'equipment-dic', 'buffs', 'settings', 'gimmick-alerts',
   ]);
 
   for (const docName of docNames) {

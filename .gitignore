@@ -67,3 +67,6 @@ env.json
 test-pitta.js
 .agents/plan
 *.db
+.agents/reviews
+.agents/development
+ga-dashboard

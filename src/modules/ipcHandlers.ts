@@ -1105,8 +1105,8 @@ export function register(): void {
     }
   });
 
-  // 버프 타이머 테스트 — 모든 감지 대상 버프 강제 활성화
-  if (IS_DEV) ipcMain.on('buff-timer-test', (event, seconds?: number) => {
+  // 버프 타이머 미리보기 — 설정 창에서 배포 빌드도 동일하게 확인할 수 있어야 합니다.
+  ipcMain.on('buff-timer-test', (_event, seconds?: number) => {
    if (seconds !== undefined && !isFiniteInRange(seconds, 1, 24 * 60 * 60)) return;
    const TEST_BUFFS = [
      'exp_heart', 'rare_heart', 'stat_exorcist', 'stat_sami_sunryeong',
@@ -1118,7 +1118,7 @@ export function register(): void {
    TEST_BUFFS.forEach(buffId => buffTimerManager.activateBuff(buffId, 'test', durationMs));
   });
   // 버프 타이머 테스트 종료 — 테스트 버프 제거
-  if (IS_DEV) ipcMain.on('buff-timer-clear-test', () => {
+  ipcMain.on('buff-timer-clear-test', () => {
     buffTimerManager.clearTestBuffs();
   });
   // 버프 타이머 모든 버프 삭제

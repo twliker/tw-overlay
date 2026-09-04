@@ -118,6 +118,7 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'chatOverlaySubOpacity',
   'chatOverlaySub2Opacity',
   'chatOverlayClickThrough',
+  'chatOverlayVisibleTabs',
   'chatOverlaySelectedChannels',
   'chatOverlayTab',
   'chatOverlaySubTab',

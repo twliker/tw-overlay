@@ -58,10 +58,10 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'discordAlertEnabled', 'discordKeywords', 'discordRules', 'volumeContentsChecker',
   'volumeCalculators', 'sidebarPosition', 'chatOverlayEnabled', 'chatOverlaySubEnabled',
   'chatOverlaySub2Enabled', 'chatOverlayOpacity', 'chatOverlaySubOpacity',
-  'chatOverlaySub2Opacity', 'chatOverlayFontSize', 'chatOverlayClickThrough',
+  'chatOverlaySub2Opacity', 'chatOverlayFontSize', 'chatOverlayClickThrough', 'chatOverlayVisibleTabs',
   'chatOverlayKeywords', 'userServer', 'etaDataUrl', 'chatOverlayWidth', 'chatOverlayHeight',
   'focusedChatWidth', 'focusedChatHeight', 'etaRankingWidth', 'etaRankingHeight',
-  'contentsCheckerWidth', 'contentsCheckerHeight',
+  'contentsCheckerWidth', 'contentsCheckerHeight', 'managedWindowSizes',
   'followGameWindow', 'chatOverlaySelectedChannels', 'chatOverlaySubWidth',
   'chatOverlaySubHeight', 'chatOverlayTab', 'chatOverlaySubTab', 'chatOverlaySub2Width',
   'chatOverlaySub2Height', 'chatOverlaySub2Tab', 'chatOverlayShowNpcChat',
@@ -230,6 +230,21 @@ function isValidRelativePositionMap(value: unknown): value is Record<string, { o
   ));
 }
 
+function isValidWindowSizeMap(value: unknown): value is Record<string, { width: number; height: number }> {
+  return isPlainObject(value) && Object.entries(value).every(([key, size]) => (
+    WINDOW_POSITION_KEYS.has(key)
+    && isPlainObject(size)
+    && typeof size.width === 'number'
+    && Number.isFinite(size.width)
+    && size.width >= 100
+    && size.width <= 16_384
+    && typeof size.height === 'number'
+    && Number.isFinite(size.height)
+    && size.height >= 80
+    && size.height <= 16_384
+  ));
+}
+
 /** 창모드 전체화면 위치도 빈 기본 객체의 중첩 타입을 별도로 검증합니다. */
 function normalizeWindowedFullscreenPositions(
   value: unknown,
@@ -306,6 +321,11 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
     if (key === 'scamGpuVariant' && !['cpu', 'vulkan', 'cuda-12.4', 'cuda-13.1'].includes(String(fieldValue))) return null;
     if (key === 'windowedFullscreenPositions' && !isValidRelativePositionMap(fieldValue)) return null;
     if (key === 'fixedWindowPositions' && !isValidScreenPositionMap(fieldValue)) return null;
+    if (key === 'managedWindowSizes' && !isValidWindowSizeMap(fieldValue)) return null;
+    if (key === 'chatOverlayVisibleTabs' && (!Array.isArray(fieldValue)
+      || fieldValue.length > (DEFAULT_CONFIG.chatOverlayVisibleTabs?.length ?? 0)
+      || fieldValue.some(tab => typeof tab !== 'string'
+        || !((DEFAULT_CONFIG.chatOverlayVisibleTabs ?? []) as readonly string[]).includes(tab)))) return null;
     if (key === 'quickSlots' && (!Array.isArray(fieldValue) || fieldValue.length > 100
       || fieldValue.some(slot => {
         if (!isPlainObject(slot)

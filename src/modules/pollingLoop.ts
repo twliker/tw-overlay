@@ -122,7 +122,8 @@ export function start(): void {
             if (_currentStatus !== 'minimized') {
                 log('[OVERLAY_VISIBILITY] game=minimized action=hide reason=game-window-minimized');
                 tracker.releaseGameZOrder();
-                wm.hideAll(); // 최소화되는 순간 모든 창 종료 (운명 공동체)
+                // 자주 사용하는 오버레이는 숨겨 둔 채 renderer를 재사용해 복원 지연을 줄입니다.
+                wm.hideAll({ preserveForResume: true });
                 _currentStatus = 'minimized';
                 lastRect = null;
             }
