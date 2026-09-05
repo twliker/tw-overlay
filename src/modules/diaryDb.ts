@@ -312,7 +312,10 @@ export function checkpointWal(): void {
   }
 }
 
+let restoreSuspended = false;
+
 export function initDb(): void {
+  if (restoreSuspended) return;
   if (db) return; // 이미 초기화된 경우 스킵
   try {
     let userDataPath = '';
@@ -987,6 +990,20 @@ function getCalendarWeekKey(dateKey: string): string {
   const daysSinceMonday = (date.getDay() + 6) % 7;
   date.setDate(date.getDate() - daysSinceMonday);
   return formatLocalDateKey(date);
+}
+
+/** 복원 완료 안내를 기다리는 동안에도 조회/기록 경로가 교체된 DB를 다시 열지 못하게 한다. */
+export function suspendForRestore(): () => void {
+  if (restoreSuspended) throw new Error('일지 복원이 이미 진행 중입니다.');
+  if (!closeDb()) {
+    initDb();
+    throw new Error('복원 전 일지의 대기 기록을 저장하지 못했습니다.');
+  }
+  restoreSuspended = true;
+  return () => {
+    restoreSuspended = false;
+    initDb();
+  };
 }
 
 /**

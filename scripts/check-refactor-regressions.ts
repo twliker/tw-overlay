@@ -539,6 +539,7 @@ function checkMainPartialRestoreConfirmationGate(): void {
   };
 
   const partial = run('partial');
+  assert.equal(partial.rendererStoragePending, false, 'main 시작에서 도구 저장소 복원이 완료되지 않았습니다.');
   assert.equal(partial.observation.profileState, 'needs-confirmation');
   assert.equal(partial.observation.settingsStatus, 'invalid');
   assert.equal(partial.observation.checklistStatus, 'restored');
@@ -668,8 +669,8 @@ async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
     }
     assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'company').length >= 1);
     assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'home').length >= 1);
-    assert.ok(company.remoteStore.checklistUploadOrder.length >= 3,
-      `${scenario} 교차 overwrite 뒤 누락 operation 재게시가 발생하지 않았습니다.`);
+    assert.ok(company.observation.writeConflicts + home.observation.writeConflicts >= 1,
+      `${scenario} 동일 revision의 교차 업로드가 조건부 저장 충돌을 검출하지 않았습니다.`);
     assert.deepEqual(new Set(company.remoteStore.checklistUploadOrder.slice(0, 2)), new Set(['company', 'home']),
       `${scenario} 최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.`);
     assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
@@ -8232,6 +8233,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     const file = memoryFiles.get(fileId);
     return file ? structuredClone(file.payload) : null;
   };
+  googleDrive.getFileEtag = async (fileId: string) => `"${memoryFiles.get(fileId)?.modifiedTime || fileId}"`;
   googleDrive.uploadJsonPayload = async (fileName: string, payloadValue: any, existingFileId?: string) => {
     uploadCount++;
     const id = existingFileId || `mock-file-${nextFileId++}`;
@@ -9481,9 +9483,10 @@ function checkTradeMonitorWindowReferenceContracts(): void {
   const ipcSource = read('src/modules/ipcHandlers.ts');
   assert.match(
     ipcSource,
-    /trade\.updateWindows\(null, null\)/,
+    /applyRuntimeSettings\(previousConfig, config\.load\(\), sanitizedPatch\)/,
     '설정 저장 경로의 거래소 모니터 갱신 계약이 바뀌었습니다.',
   );
+  assert.match(read('src/modules/runtimeSettings.ts'), /trade\.updateWindows\(null, null\)/);
   const windowManagerSource = read('src/modules/windowManager.ts');
   assert.match(
     windowManagerSource,

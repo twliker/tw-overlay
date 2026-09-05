@@ -319,7 +319,7 @@
   function renderEnchantExpectation(): void {
     const opts = getEnchantOptions();
     const targetSucc = Number(($('enchant-target-success') as HTMLInputElement).value) || 1;
-    const res = api.calculateEnchantExpectation(opts);
+    const res = api.calculateEnchantExpectation(opts, targetSucc);
     const container = $('enchant-exp-metrics');
 
     const totalAttempts = res.expectedAttemptsPerSuccess * targetSucc;

@@ -318,6 +318,7 @@ interface Window {
   settingsMenuManagement: SettingsMenuManagement;
   settingsAudioControls: SettingsAudioControls;
   settingsConfigBinding: SettingsConfigBinding;
+  settingsDraft: { beforeRefresh(extras: Record<string, any>): { restore(extras: Record<string, any>): Record<string, any> } };
   recordShortcut(key: string): void;
   resetShortcut(key: string): void;
   toggleMute(type: string): void;

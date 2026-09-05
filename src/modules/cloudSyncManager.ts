@@ -5,6 +5,8 @@
  *   채팅 원문, Google 토큰, Discord 웹훅 같은 로컬/민감 데이터는 동기화 payload에 넣지 않습니다.
  * - 설정과 숙제는 파일·dirty 상태·debounce가 분리되어 한 종류의 원격 복원/업로드가 다른 종류의 로컬
  *   변경을 덮지 않습니다. 모든 네트워크 전송은 single-flight queue로 직렬화합니다.
+ * - 기존 원격 파일은 본문 조회 전 ETag로 조건부 저장한다. 다른 PC가 먼저 쓰면 최신 상태를 읽고
+ *   최대 4번 시도하며, 실패하면 dirty/outbox를 유지한다. 수신 설정은 로컬 저장과 같은 런타임 경로로 적용한다.
  * - 원격 적용 중 발생한 config 저장을 새 로컬 변경으로 되올리지 않으며, 원격 조회와 동시에 생긴 로컬
  *   변경은 serial/outbox를 비교해 보존합니다. 단순한 '마지막 응답 승리' 병합으로 바꾸지 않습니다.
  * - 계정 변경·재로그인·원격 세대 불일치·복원 건너뛰기는 profile state와 fingerprint로 명시적으로
@@ -51,6 +53,7 @@ let activeSyncActivity: SyncActivity | undefined;
 let applyingCloud = false;
 let settingsChangeSerial = 0;
 let backgroundStarted = false;
+let localRestoreSuspended = false;
 const uploadFailureCount: Record<SyncKind, number> = { settings: 0, checklist: 0 };
 const uploadLastError: Partial<Record<SyncKind, string>> = {};
 let pullFailureCount = 0;
@@ -75,6 +78,7 @@ function fileNameForKind(kind: SyncKind): string {
 }
 
 function canAutoSync(): boolean {
+  if (localRestoreSuspended) return false;
   const cfg = config.load();
   return cfg.googleSyncEnabled === true
     && cfg.googleSyncAutoSync !== false
@@ -173,6 +177,7 @@ function broadcastStatus(): void {
 
 function enqueueTransfer<T>(label: string, activity: SyncActivity, task: () => Promise<T>): Promise<T> {
   const run = async (): Promise<T> => {
+    if (localRestoreSuspended) throw new Error('로컬 백업 복원 중에는 동기화할 수 없습니다.');
     activeTransfers++;
     activeSyncActivity = activity;
     broadcastStatus();
@@ -416,6 +421,7 @@ function buildRestoreFailure(
 }
 
 async function applyConfigFromCloud(nextConfig: AppConfig, createBackup = true): Promise<void> {
+  const previous = config.load();
   if (createBackup && !syncDataHelper.createLocalBackupBeforeSync(config.load())) {
     throw new Error('클라우드 데이터를 적용하기 전 로컬 백업을 생성하지 못했습니다.');
   }
@@ -424,6 +430,8 @@ async function applyConfigFromCloud(nextConfig: AppConfig, createBackup = true):
     if (!config.saveImmediate(nextConfig)) {
       throw new Error(`클라우드 데이터를 로컬에 저장하지 못했습니다: ${config.getLastSaveError() || '알 수 없는 오류'}`);
     }
+    const { applyRuntimeSettings } = await import('./runtimeSettings');
+    applyRuntimeSettings(previous, config.load());
     try {
       const contentsChecker = await import('./contentsChecker');
       contentsChecker.init();
@@ -432,7 +440,8 @@ async function applyConfigFromCloud(nextConfig: AppConfig, createBackup = true):
     }
     try {
       const wm = await import('./windowManager');
-      wm.applySettings(nextConfig);
+      // 런타임/숙제 초기화가 파생시킨 값(서버 변경 시 확인 번호 등)을 오래된 스냅샷으로 되돌리지 않는다.
+      wm.applySettings(config.load());
     } catch (error) {
       log(`[CloudSyncManager] 창 설정 갱신 실패: ${error}`);
     }
@@ -605,6 +614,7 @@ function markChecklistDirty(keys: string[]): void {
       createdAt: Date.now(),
       keys: Array.from(new Set(keys)),
       mutations: syncDataHelper.createChecklistOperationMutations(operationBase, currentChecklist),
+      orders: syncDataHelper.createChecklistOrderChanges(operationBase, currentChecklist),
     });
     state.checklistOutbox = state.checklistOutbox.slice(-1_000);
   });
@@ -686,85 +696,97 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
     return { success: false, error: '로컬 설정 저장이 완료되지 않아 클라우드 업로드를 보류했습니다.' };
   }
 
-  const files = await discoverFiles();
+  let files = await discoverFiles();
   let latestAt = 0;
   let metaNeedsUpdate = !files.meta;
   for (const kind of kinds) {
-    const before = cloudState.load();
-    if (kind === 'settings' && before.settingsDirtyKeys.length === 0) continue;
-    if (kind === 'checklist' && before.checklistOutbox.length === 0) continue;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const before = cloudState.load();
+        if (kind === 'settings' && before.settingsDirtyKeys.length === 0) break;
+        if (kind === 'checklist' && before.checklistOutbox.length === 0) break;
 
-    if (kind !== 'settings' || !forceLocalSettings) {
-      await reconcileRemoteBeforeUpload(kind, files);
-    }
-    const current = config.load();
-    const state = cloudState.load();
-    if (kind === 'settings' && state.settingsDirtyKeys.length === 0) continue;
-    if (kind === 'checklist' && state.checklistOutbox.length === 0) continue;
-    const dirtyKeys = [...state.settingsDirtyKeys];
-    const outboxIds = state.checklistOutbox.map(entry => entry.id);
-    const capturedSerial = settingsChangeSerial;
-    const checklistOperations = kind === 'checklist'
-      ? Array.from(new Map([
-        ...state.confirmedChecklistOperations,
-        ...state.checklistOutbox.map(operation => ({ ...operation, deviceId: state.deviceId })),
-      ].map(operation => [operation.id, operation])).values())
-      : [];
-    const payload = kind === 'settings'
-      ? syncDataHelper.buildSettingsSyncPayload(current, state.deviceId, state.generationId)
-      : syncDataHelper.buildChecklistSyncPayload(
-        {
-          ...current,
-          ...syncDataHelper.replayChecklistOperations(
-            syncDataHelper.extractChecklistSyncData(current),
-            checklistOperations,
-          ),
-        },
-        state.deviceId,
-        state.generationId,
-        checklistOperations,
-      );
-    const previousFileId = fileForKind(files, kind)?.id;
-    const fileId = await googleDriveSync.uploadJsonPayload(
-      fileNameForKind(kind),
-      payload,
-      fileForKind(files, kind)?.id,
-    );
-    const meta: googleDriveSync.DriveFileMeta = { id: fileId, name: fileNameForKind(kind) };
-    if (kind === 'settings') files.settings = meta;
-    else files.checklist = meta;
-    if (fileId !== previousFileId) metaNeedsUpdate = true;
-    latestAt = Math.max(latestAt, payload.lastSyncedAt);
-
-    if (kind === 'checklist') {
-      const verified = await downloadValidated('checklist', files.checklist, state.generationId);
-      const verifiedIds = new Set((verified?.operations || []).map(operation => operation.id));
-      if (!verified || revisionOf(verified) !== revisionOf(payload)
-        || outboxIds.some(operationId => !verifiedIds.has(operationId))) {
-        throw new Error('숙제 업로드 확인에 실패했습니다. outbox를 유지하고 다시 시도합니다.');
-      }
-    }
-
-    cloudState.update(next => {
-      next.fileIds[kind] = fileId;
-      next.remoteRevisions[kind] = revisionOf(payload);
-      delete next.remoteFileFingerprints[kind];
-      delete next.skippedRestoreFingerprints[kind];
-      next.skippedRestoreDirtyKinds = next.skippedRestoreDirtyKinds.filter(value => value !== kind);
-      if (kind === 'settings') {
-        next.baseSettings = structuredClone(payload.data);
-        if (settingsChangeSerial === capturedSerial) {
-          next.settingsDirtyKeys = next.settingsDirtyKeys.filter(key => !dirtyKeys.includes(key));
-          for (const key of dirtyKeys) delete next.settingsDirtyAt[key];
+        const existingFile = fileForKind(files, kind);
+        // 본문을 읽기 전의 ETag로 읽기와 쓰기 사이의 다른 PC 변경까지 검출한다.
+        if (existingFile) existingFile.etag = await googleDriveSync.getFileEtag(existingFile.id);
+        if (kind !== 'settings' || !forceLocalSettings) {
+          await reconcileRemoteBeforeUpload(kind, files);
         }
-      } else {
-        next.baseChecklist = structuredClone(payload.data);
-        next.checklistOutbox = next.checklistOutbox.filter(entry => !outboxIds.includes(entry.id));
-        const confirmedById = new Map(next.confirmedChecklistOperations.map(operation => [operation.id, operation]));
-        for (const operation of payload.operations || []) confirmedById.set(operation.id, structuredClone(operation));
-        next.confirmedChecklistOperations = Array.from(confirmedById.values()).slice(-1_000);
+        const current = config.load();
+        const state = cloudState.load();
+        if (kind === 'settings' && state.settingsDirtyKeys.length === 0) break;
+        if (kind === 'checklist' && state.checklistOutbox.length === 0) break;
+        const dirtyKeys = [...state.settingsDirtyKeys];
+        const outboxIds = state.checklistOutbox.map(entry => entry.id);
+        const capturedSerial = settingsChangeSerial;
+        const checklistOperations = kind === 'checklist'
+          ? Array.from(new Map([
+            ...state.confirmedChecklistOperations,
+            ...state.checklistOutbox.map(operation => ({ ...operation, deviceId: state.deviceId })),
+          ].map(operation => [operation.id, operation])).values())
+          : [];
+        const payload = kind === 'settings'
+          ? syncDataHelper.buildSettingsSyncPayload(current, state.deviceId, state.generationId)
+          : syncDataHelper.buildChecklistSyncPayload(
+            {
+              ...current,
+              ...syncDataHelper.replayChecklistOperations(
+                syncDataHelper.extractChecklistSyncData(current),
+                checklistOperations,
+              ),
+            },
+            state.deviceId,
+            state.generationId,
+            checklistOperations,
+          );
+        const previousFileId = fileForKind(files, kind)?.id;
+        const fileId = await googleDriveSync.uploadJsonPayload(
+          fileNameForKind(kind),
+          payload,
+          fileForKind(files, kind)?.id,
+          existingFile?.etag,
+        );
+        const meta: googleDriveSync.DriveFileMeta = { id: fileId, name: fileNameForKind(kind) };
+        if (kind === 'settings') files.settings = meta;
+        else files.checklist = meta;
+        if (fileId !== previousFileId) metaNeedsUpdate = true;
+        latestAt = Math.max(latestAt, payload.lastSyncedAt);
+
+        if (kind === 'checklist') {
+          const verified = await downloadValidated('checklist', files.checklist, state.generationId);
+          const verifiedIds = new Set((verified?.operations || []).map(operation => operation.id));
+          if (!verified || revisionOf(verified) !== revisionOf(payload)
+            || outboxIds.some(operationId => !verifiedIds.has(operationId))) {
+            throw new Error('숙제 업로드 확인에 실패했습니다. outbox를 유지하고 다시 시도합니다.');
+          }
+        }
+
+        cloudState.update(next => {
+          next.fileIds[kind] = fileId;
+          next.remoteRevisions[kind] = revisionOf(payload);
+          delete next.remoteFileFingerprints[kind];
+          delete next.skippedRestoreFingerprints[kind];
+          next.skippedRestoreDirtyKinds = next.skippedRestoreDirtyKinds.filter(value => value !== kind);
+          if (kind === 'settings') {
+            next.baseSettings = structuredClone(payload.data);
+            if (settingsChangeSerial === capturedSerial) {
+              next.settingsDirtyKeys = next.settingsDirtyKeys.filter(key => !dirtyKeys.includes(key));
+              for (const key of dirtyKeys) delete next.settingsDirtyAt[key];
+            }
+          } else {
+            next.baseChecklist = structuredClone(payload.data);
+            next.checklistOutbox = next.checklistOutbox.filter(entry => !outboxIds.includes(entry.id));
+            const confirmedById = new Map(next.confirmedChecklistOperations.map(operation => [operation.id, operation]));
+            for (const operation of payload.operations || []) confirmedById.set(operation.id, structuredClone(operation));
+            next.confirmedChecklistOperations = Array.from(confirmedById.values()).slice(-1_000);
+          }
+        });
+        break;
+      } catch (error) {
+        if (!(error instanceof googleDriveSync.DriveWriteConflictError) || attempt === 3) throw error;
+        files = await discoverFiles();
       }
-    });
+    }
   }
 
   if (latestAt > 0) {
@@ -1311,6 +1333,23 @@ export function startBackgroundSync(): void {
 export function stopBackgroundSync(): void {
   backgroundStarted = false;
   pullTimer = clearTimer(pullTimer);
+}
+
+/** 새 전송을 막고 기존 전송을 취소·배출한 다음에만 로컬 파일 교체를 허용한다. */
+export async function suspendForLocalRestore(): Promise<() => void> {
+  if (localRestoreSuspended) throw new Error('로컬 백업 복원이 이미 진행 중입니다.');
+  const resumeBackground = backgroundStarted;
+  localRestoreSuspended = true;
+  stopBackgroundSync();
+  settingsTimer = clearTimer(settingsTimer);
+  checklistTimer = clearTimer(checklistTimer);
+  googleDriveSync.cancelPendingRequests();
+  await transferTail;
+  return () => {
+    localRestoreSuspended = false;
+    if (resumeBackground) startBackgroundSync();
+    requestDebouncedSync();
+  };
 }
 
 /** 절전 복귀·네트워크 복구·게임 시작 시 호출하는 즉시 pull 경계. */

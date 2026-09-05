@@ -9,16 +9,22 @@
  *   중간 실패나 앱 종료가 발생하면 다음 시작에서 복구할 수 있어야 하며, 성공한 뒤에만 journal을 지웁니다.
  * - 설정만 선택 복원할 때 일지 DB를 건드리지 않고, 일지 복원 시 열린 DB 연결과 WAL 상태를 안전하게
  *   조정합니다. 복원 완료 후 재시작이 필요하다는 사용자 흐름을 유지합니다.
+ * - 교체 전 config 지연 저장과 전송 큐를 비우고, 완료 안내부터 재시작까지 설정 쓰기와 DB 재연결을
+ *   차단합니다. 실패 시 rollback 파일을 복구한 후에만 캐시·DB·동기화를 재개합니다.
  * - 레거시 백업은 명시된 기존 파일만 허용합니다. 호환성을 이유로 ZIP의 임의 파일까지 복원 범위를
  *   넓히지 않습니다.
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { app, dialog, BrowserWindow } from 'electron';
 import AdmZip = require('adm-zip');
 import { log } from './logger';
 import * as diaryDb from './diaryDb';
 import * as cloudSyncState from './cloudSyncState';
+import * as config from './config';
+import { captureRendererStorage } from './rendererStorageBackup';
+import { RENDERER_STORAGE_FILE } from '../shared/rendererStorage';
 import {
   createUserDataSnapshot,
   isRestorableSnapshotPath,
@@ -28,6 +34,7 @@ import {
 
 const LEGACY_BACKUP_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm']);
 const RESTORE_JOURNAL_FILE = 'restore-journal.json';
+let operationActive = false;
 
 interface RestoreJournal {
   formatVersion: 1;
@@ -215,6 +222,8 @@ export function recoverInterruptedRestore(): boolean {
 
 /** 설정, SQLite 파일 집합, 커스텀 사운드를 검증 스냅샷으로 묶어 내보냅니다. */
 export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean> {
+  if (operationActive) return false;
+  operationActive = true;
   const userDataPath = app.getPath('userData');
   let stagingPath: string | null = null;
   try {
@@ -226,6 +235,8 @@ export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean
     });
     if (!filePath) return false;
 
+    const rendererStorage = await captureRendererStorage();
+    if (!config.flushPending()) throw new Error('대기 중인 설정을 저장하지 못했습니다.');
     if (!diaryDb.flushPendingElso()) throw new Error('대기 중인 엘소 기록을 저장하지 못했습니다.');
     if (!diaryDb.flushPendingGoldPouchSeed()) throw new Error('대기 중인 금화 주머니 환산 SEED 기록을 저장하지 못했습니다.');
     diaryDb.checkpointWal();
@@ -233,6 +244,7 @@ export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean
     const snapshotPath = path.join(stagingPath, 'snapshot');
     createUserDataSnapshot(userDataPath, snapshotPath, {
       reason: 'manual-export', appVersion: app.getVersion(), allowedDestinationRoot: stagingPath,
+      rendererStorage,
     });
     verifyUserDataSnapshot(snapshotPath, { enforceRestoreAllowlist: true });
 
@@ -245,16 +257,25 @@ export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean
     log(`[BACKUP] 내보내기 실패: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   } finally {
+    operationActive = false;
     if (stagingPath) removeStagingDirectory(stagingPath, userDataPath);
   }
 }
 
 /** 압축을 격리 디렉터리에서 검증하고, 복원 직전 원본 스냅샷을 남긴 뒤 적용합니다. */
 export async function importBackup(parentWindow: BrowserWindow): Promise<boolean> {
+  if (operationActive) return false;
+  operationActive = true;
   const userDataPath = app.getPath('userData');
   let stagingPath: string | null = null;
   let rollbackPath: string | null = null;
   let restorePaths: string[] = [];
+  let resumeConfig: (() => void) | undefined;
+  let resumeDiary: (() => void) | undefined;
+  let resumeCloud: (() => void) | undefined;
+  let committed = false;
+  let rollbackFailed = false;
+  let filesReplaced = false;
   try {
     const { filePaths } = await dialog.showOpenDialog(parentWindow, {
       title: '백업 파일 선택', properties: ['openFile'],
@@ -278,20 +299,26 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
       ? verifyUserDataSnapshot(extractedPath, { enforceRestoreAllowlist: true })
       : legacyManifest(extractedPath);
 
+    const cloudSync = await import('./cloudSyncManager');
+    resumeCloud = await cloudSync.suspendForLocalRestore();
+    const rendererStorage = await captureRendererStorage();
+    resumeConfig = config.beginExternalRestore();
     if (!diaryDb.flushPendingElso()) throw new Error('복원 전 엘소 기록을 저장하지 못했습니다.');
     if (!diaryDb.flushPendingGoldPouchSeed()) throw new Error('복원 전 금화 주머니 환산 SEED 기록을 저장하지 못했습니다.');
     diaryDb.checkpointWal();
-    if (!diaryDb.closeDb()) throw new Error('복원 전 엘소 기록 정리를 완료하지 못했습니다.');
+    resumeDiary = diaryDb.suspendForRestore();
     const backupsRoot = path.join(userDataPath, 'backups');
     fs.mkdirSync(backupsRoot, { recursive: true });
-    rollbackPath = path.join(backupsRoot, `pre-restore-${timestamp()}`);
+    rollbackPath = path.join(backupsRoot, `pre-restore-${timestamp()}-${randomUUID()}`);
     createUserDataSnapshot(userDataPath, rollbackPath, {
       reason: 'pre-manual-restore', appVersion: app.getVersion(), allowedDestinationRoot: backupsRoot,
+      rendererStorage,
     });
     verifyUserDataSnapshot(rollbackPath, { enforceRestoreAllowlist: true });
 
     restorePaths = manifest.entries.map(entry => entry.relativePath);
     writeRestoreJournal(userDataPath, rollbackPath, restorePaths);
+    filesReplaced = true;
     applySnapshotFiles(extractedPath, userDataPath, manifest);
     cloudSyncState.invalidateRemoteValidationAfterLocalRestore();
     removeRestoreJournal(userDataPath);
@@ -303,22 +330,32 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
       buttons: ['확인'],
     });
     app.relaunch();
+    committed = true;
     app.exit(0);
     return true;
   } catch (error) {
     log(`[BACKUP] 복원 실패: ${error instanceof Error ? error.message : String(error)}`);
-    if (rollbackPath) {
+    if (rollbackPath && filesReplaced) {
       try {
         const rollbackManifest = verifyUserDataSnapshot(rollbackPath, { enforceRestoreAllowlist: true });
         rollbackSnapshotFiles(rollbackPath, userDataPath, rollbackManifest, restorePaths);
+        // 현재 렌더러 저장소는 아직 변경하지 않았으므로 실패 뒤 다음 부팅에 다시 적용할 필요가 없다.
+        fs.rmSync(path.join(userDataPath, RENDERER_STORAGE_FILE), { force: true });
         removeRestoreJournal(userDataPath);
         log(`[BACKUP] 복원 실패 후 원본 롤백 완료: ${rollbackPath}`);
       } catch (rollbackError) {
+        rollbackFailed = true;
         log(`[BACKUP] 치명적 오류: 롤백도 실패했습니다. ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
       }
     }
     return false;
   } finally {
+    if (!committed && !rollbackFailed) {
+      resumeConfig?.();
+      resumeDiary?.();
+      resumeCloud?.();
+    }
+    operationActive = false;
     if (stagingPath) removeStagingDirectory(stagingPath, userDataPath);
   }
 }

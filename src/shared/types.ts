@@ -408,6 +408,14 @@ export interface DiscordKeywordRule {
     targetSender?: string;    // 특정 보낸 사람 필터 (비어있으면 전체 감지)
 }
 
+export interface TradeSearchState {
+    version: 1;
+    server: string;
+    cursors: Array<{ keyword: string; postNo: number; initialized: boolean }>;
+    /** 아직 뒤처진 키워드가 다시 찾을 수 있는, 이미 알린 글 번호의 정렬된 구간. */
+    notifiedRanges: Array<[number, number]>;
+}
+
 export interface AppConfig {
     width: number;
     height: number;
@@ -443,6 +451,8 @@ export interface AppConfig {
     tradeKeywords?: string[];
     tradeNotify?: boolean;
     tradeLastSeen?: number;
+    /** PC별 거래 검색 확인 위치와 중복 알림 억제 상태. 클라우드에는 올리지 않는다. */
+    tradeSearchState?: TradeSearchState;
     gameExitReminderEnabled?: boolean;
     gameExitReminderMessage?: string;
     contentsCheckerItems?: ContentsCheckerItem[];
@@ -707,6 +717,8 @@ export interface GoogleChecklistSyncOperation {
     createdAt: number;
     keys: string[];
     mutations: GoogleChecklistSyncMutation[];
+    /** ID별 값 변경과 독립적인 사용자 정렬 변경. 기존 operation은 이 필드 없이 재생된다. */
+    orders?: Partial<Record<'contentsCheckerItems' | 'characterPresets', { before: string[]; after: string[] }>>;
 }
 
 export interface GoogleChecklistSyncMutation {

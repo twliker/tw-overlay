@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { RENDERER_STORAGE_FILE, RendererStorageSnapshot, validateRendererStorageSnapshot } from '../shared/rendererStorage';
 
 export interface SnapshotEntry {
   relativePath: string;
@@ -24,6 +25,7 @@ export interface SnapshotOptions {
   appVersion: string;
   includeCredentials?: boolean;
   includeCaches?: boolean;
+  rendererStorage?: RendererStorageSnapshot;
   /** destinationRoot가 포함되어야 하는 신뢰 경계. 기본값은 sourceRoot. */
   allowedDestinationRoot?: string;
 }
@@ -38,7 +40,7 @@ const CORE_ENTRIES = [
 
 const CREDENTIAL_ENTRIES = ['google_auth.enc', 'google_user.json'];
 const CACHE_ENTRIES = ['eta_ranking_cache.json', 'analytics.json'];
-const RESTORABLE_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm']);
+const RESTORABLE_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm', RENDERER_STORAGE_FILE]);
 
 function ensureRelativePath(relativePath: string): string {
   const normalized = path.normalize(relativePath);
@@ -186,6 +188,13 @@ export function createUserDataSnapshot(
     }
   }
 
+  if (options.rendererStorage) {
+    const serialized = JSON.stringify(validateRendererStorageSnapshot(options.rendererStorage));
+    const filePath = path.join(resolvedDestination, RENDERER_STORAGE_FILE);
+    fs.writeFileSync(filePath, serialized, { flag: 'wx', mode: 0o600 });
+    flushFile(filePath);
+    entries.push({ relativePath: RENDERER_STORAGE_FILE, kind: 'file', size: fs.statSync(filePath).size, sha256: hashFile(filePath) });
+  }
   const manifest: SnapshotManifest = {
     formatVersion: 1,
     reason: options.reason,
@@ -232,6 +241,7 @@ export function verifyUserDataSnapshot(
     if (stat.size !== entry.size || hashFile(filePath) !== entry.sha256) {
       throw new Error(`스냅샷 무결성 검증 실패: ${entry.relativePath}`);
     }
+    if (safeRelativePath === RENDERER_STORAGE_FILE) validateRendererStorageSnapshot(JSON.parse(fs.readFileSync(filePath, 'utf8')));
   }
   return parsed;
 }

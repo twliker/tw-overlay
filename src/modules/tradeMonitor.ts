@@ -11,11 +11,16 @@
  *   공유하는 원본입니다. 서버를 바꾸면 이전 서버의 글 번호 기준은 반드시 초기화합니다.
  * - 요청 간 랜덤 지연과 오류 백오프는 외부 사이트 차단 방지 정책입니다. 파싱/요청 실패 때 마지막
  *   확인 번호를 전진시키지 않아야 하며, 열린 모니터 창에는 연결 실패 상태를 전달합니다.
+ * - 일부 검색이 실패해도 성공한 검색의 새 글은 기존처럼 알립니다. `tradeSearchState`에 키워드별
+ *   확인 위치와 이미 알린 글을 저장하므로 실패한 키워드는 재시작 뒤에도 건너뛰거나 중복 알림 없이 재개합니다.
+ * - 최초 기준점과 한 회차 최대 3건+나머지 요약 알림을 유지합니다. UI 목록 조회는 알림 확인 위치를 바꾸지 않습니다.
  */
 import { BrowserWindow, shell } from 'electron';
 import { log } from './logger';
 import * as config from './config';
 import { normalizeNotificationKeywords } from '../shared/keywordSanitizer';
+import type { TradeSearchState } from '../shared/types';
+import { applyTradeSearchResult, createTradeSearchState, pruneTradeNotifications } from '../shared/tradeSearchState';
 import { showDesktopNotification } from './desktopNotification';
 import {
     calculateBackoffMs,
@@ -69,6 +74,9 @@ let isRunning = false;
 let notifyEnabled = true;
 let sidebarWindowRef: BrowserWindow | null = null;
 let tradeWindowRef: BrowserWindow | null = null;
+let keywordSearchInFlight: Promise<boolean> | null = null;
+let searchState: TradeSearchState | null = null;
+let monitorGeneration = 0;
 
 // ─── HTTP 요청 ───
 function fetchPage(url: string, skipSSLVerify = false, maxRedirects = 5): Promise<string> {
@@ -224,57 +232,63 @@ function notify(title: string, body: string, url?: string): void {
 
 // ─── 새 글 알림용 카페 검색 감지 ───
 async function checkKeywordsSearch(): Promise<boolean> {
+    if (keywordSearchInFlight) return keywordSearchInFlight;
+    const pending = performKeywordSearch().finally(() => {
+        if (keywordSearchInFlight === pending) keywordSearchInFlight = null;
+    });
+    keywordSearchInFlight = pending;
+    return pending;
+}
+
+async function performKeywordSearch(): Promise<boolean> {
+    const serverId = currentServer;
+    const keywords = [...tradeKeywords];
     const server = SERVERS[currentServer];
     if (!server) return false;
 
     // 키워드가 없으면 검색하지 않음
     if (tradeKeywords.length === 0) return true;
 
+    const activeState = searchState = createTradeSearchState(
+        searchState || config.load().tradeSearchState, serverId, keywords, lastSeenPostNo,
+    );
+    const nextState = structuredClone(activeState);
+    const cycleBaseline = lastSeenPostNo;
+    const initializing = nextState.cursors.some(cursor => !cursor.initialized);
+
     try {
         let maxNo = lastSeenPostNo;
         const toNotify: TradePost[] = [];
         let hasError = false;
+        let successfulKeywords = 0;
 
         // 알림 기능 시에는 각각의 검색 API를 쏜다
-        for (const kw of tradeKeywords) {
+        for (const kw of keywords) {
             try {
                 await waitRandomDelay(MONITOR_RATE_LIMIT.MIN_DELAY_MS, MONITOR_RATE_LIMIT.MAX_DELAY_MS); // 키워드당 딜레이 (블락 방지)
                 const html = await fetchPage(SEARCH_URL(server.fldid, kw));
                 const posts = parsePostList(html, server.fldid, true);
 
-                if (posts.length === 0) continue;
-
-                const latestNo = Math.max(...posts.map(p => p.no));
-
-                if (lastSeenPostNo === 0) {
-                    maxNo = Math.max(maxNo, latestNo);
-                    continue; // 초기 상태면 알림 없이 최신 글 번호만 기록
-                }
-
-                const newPosts = posts.filter(p => p.no > lastSeenPostNo);
-                if (newPosts.length > 0) {
-                    maxNo = Math.max(maxNo, latestNo);
-                    // 중복방지 (서로 다른 키워드에서 같은 글이 검색될 수 있음)
-                    for (const p of newPosts) {
-                        if (!toNotify.some(n => n.no === p.no)) {
-                            toNotify.push(p);
-                        }
-                    }
-                }
+                const fresh = new Set(applyTradeSearchResult(nextState, kw, posts.map(post => post.no), cycleBaseline));
+                toNotify.push(...posts.filter(post => fresh.has(post.no)));
+                maxNo = Math.max(maxNo, ...posts.map(post => post.no));
+                successfulKeywords++;
             } catch (err) {
                 log(`[TRADE] '${kw}' 검색 실패: ${err instanceof Error ? err.message : String(err)}`);
                 hasError = true;
             }
         }
 
-        if (hasError && toNotify.length === 0) return false;
+        if (!isRunning || !notifyEnabled || searchState !== activeState || currentServer !== serverId
+            || JSON.stringify(keywords) !== JSON.stringify(tradeKeywords)) return false;
 
-        if (lastSeenPostNo === 0) {
-            lastSeenPostNo = maxNo;
-            config.save({ tradeLastSeen: maxNo });
-            // 검색 후 forceCheck를 호출하여 UI 목록을 갱신
-            await checkNewPostsUI();
-            return true;
+        pruneTradeNotifications(nextState);
+        searchState = nextState;
+        lastSeenPostNo = maxNo;
+        // 실패한 키워드의 이전 확인 위치도 함께 저장해 다음 실행에서 높은 공용 번호로 건너뛰지 않는다.
+        const stored = config.load();
+        if (stored.tradeLastSeen !== maxNo || JSON.stringify(stored.tradeSearchState) !== JSON.stringify(nextState)) {
+            config.save({ tradeLastSeen: maxNo, tradeSearchState: nextState });
         }
 
         if (toNotify.length > 0) {
@@ -288,14 +302,10 @@ async function checkKeywordsSearch(): Promise<boolean> {
                 notify(`🛒 ${server.name} 거래`, `외 ${toNotify.length - 3}개의 키워드 일치 새 글이 있습니다.`);
             }
 
-            lastSeenPostNo = Math.max(lastSeenPostNo, maxNo);
-            config.save({ tradeLastSeen: lastSeenPostNo });
-
-            // 새 글이 있을 때는 bbs_list도 한 번 갱신해서 UI에 뿌려줌
-            await checkNewPostsUI();
         }
 
-        return true;
+        if (toNotify.length > 0 || (initializing && successfulKeywords > 0)) await checkNewPostsUI();
+        return !hasError;
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRADE] 검색 체크 (알림루프) 실패: ${msg}`);
@@ -327,6 +337,7 @@ async function checkNewPostsUI(): Promise<boolean> {
 // ─── 주기 체크 루프 ───
 async function doCheck(): Promise<void> {
     if (!isRunning) return;
+    const generation = monitorGeneration;
 
     // 키워드가 없으면 폴링 안 함
     if (tradeKeywords.length === 0) {
@@ -339,19 +350,9 @@ async function doCheck(): Promise<void> {
         return;
     }
 
-    const backoff = calculateBackoffMs(
-        consecutiveErrors,
-        MONITOR_RATE_LIMIT.BACKOFF_BASE_MS,
-        MONITOR_RATE_LIMIT.MAX_BACKOFF_MS,
-    );
-    if (backoff > 0) {
-        consecutiveErrors = Math.max(0, consecutiveErrors - 1);
-        checkTimer = setTimeout(doCheck, backoff);
-        return;
-    }
-
     // bbs_list가 아닌, 알림용으로 등록된 모든 키워드를 순회하며 각각 cafesearch
     const success = await checkKeywordsSearch();
+    if (!isRunning || monitorGeneration !== generation) return;
 
     if (success) {
         if (consecutiveErrors > 0) {
@@ -368,7 +369,8 @@ async function doCheck(): Promise<void> {
         }
     }
 
-    checkTimer = setTimeout(doCheck, MONITOR_CHECK_INTERVAL_MS);
+    const backoff = calculateBackoffMs(consecutiveErrors, MONITOR_RATE_LIMIT.BACKOFF_BASE_MS, MONITOR_RATE_LIMIT.MAX_BACKOFF_MS);
+    checkTimer = setTimeout(doCheck, backoff || MONITOR_CHECK_INTERVAL_MS);
 }
 
 // ─── 내부 유틸 ───
@@ -388,12 +390,15 @@ function sendNewActivity(count: number): void {
 // ─── 공개 API ───
 export function start(sidebarWin: BrowserWindow): void {
     sidebarWindowRef = sidebarWin;
+    if (isRunning) { updateWindows(sidebarWin); return; }
 
     const cfg = config.load();
     currentServer = cfg.tradeServer || 'RyXp';
     tradeKeywords = normalizeNotificationKeywords(cfg.tradeKeywords);
     lastSeenPostNo = cfg.tradeLastSeen || 0;
     notifyEnabled = cfg.tradeNotify !== false;
+    searchState = createTradeSearchState(cfg.tradeSearchState, currentServer, tradeKeywords, lastSeenPostNo);
+    monitorGeneration++;
 
     isRunning = true;
     log(`[TRADE] 거래 게시판 모니터 시작 (서버: ${SERVERS[currentServer]?.name || currentServer}, 키워드: ${tradeKeywords.length}개)`);
@@ -402,6 +407,9 @@ export function start(sidebarWin: BrowserWindow): void {
 
 export function stop(): void {
     isRunning = false;
+    monitorGeneration++;
+    searchState = null;
+    keywordSearchInFlight = null;
     if (checkTimer) { clearTimeout(checkTimer); checkTimer = null; }
     log('[TRADE] 거래 게시판 모니터 중지');
 }
@@ -414,8 +422,14 @@ export function updateWindows(sidebarWin: BrowserWindow | null, tradeWin: Browse
     if (tradeWin) tradeWindowRef = tradeWin;
 
     const cfg = config.load();
-    tradeKeywords = normalizeNotificationKeywords(cfg.tradeKeywords);
-    currentServer = cfg.tradeServer || 'RyXp';
+    const keywords = normalizeNotificationKeywords(cfg.tradeKeywords);
+    if (JSON.stringify(keywords) !== JSON.stringify(tradeKeywords)) {
+        tradeKeywords = keywords;
+        searchState = createTradeSearchState(searchState || cfg.tradeSearchState, currentServer, tradeKeywords, lastSeenPostNo);
+    }
+    const nextServer = cfg.tradeServer || 'RyXp';
+    if (nextServer !== currentServer) setServer(nextServer);
+    notifyEnabled = cfg.tradeNotify !== false;
 }
 
 export async function forceCheck(): Promise<TradePost[]> {
@@ -433,13 +447,6 @@ export async function forceCheck(): Promise<TradePost[]> {
         const posts = parsePostList(html, server.fldid, false);
         sendPostListToWindow(posts);
 
-        if (posts.length > 0) {
-            const latestNo = Math.max(...posts.map(p => p.no));
-            if (latestNo > lastSeenPostNo) {
-                lastSeenPostNo = latestNo;
-                config.save({ tradeLastSeen: latestNo });
-            }
-        }
         return posts;
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -458,10 +465,11 @@ export function getNotifyEnabled(): boolean {
 }
 
 export function setServer(serverId: string): void {
-    if (SERVERS[serverId]) {
+    if (SERVERS[serverId] && serverId !== currentServer) {
         currentServer = serverId;
         lastSeenPostNo = 0;
-        config.save({ tradeServer: serverId, tradeLastSeen: 0 });
+        searchState = createTradeSearchState(undefined, serverId, tradeKeywords, 0);
+        config.save({ tradeServer: serverId, tradeLastSeen: 0, tradeSearchState: searchState });
         log(`[TRADE] 서버 변경: ${SERVERS[serverId].name}`);
     }
 }

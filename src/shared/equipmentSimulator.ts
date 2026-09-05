@@ -1,5 +1,8 @@
 /**
  * 테일즈위버 장비 강화 / 인챈트 / 인크립트 공식 확률 기반 시뮬레이터 및 기댓값 계산 모듈
+ * 인챈트의 초기 축복치는 첫 성공 구간에만, 비아누의 현재 횟수는 성공할 때마다 증가시켜 반영한다.
+ * 다회 목표의 비용은 구간별 합이며 성공당 기대 시도·파괴 수는 그 합의 평균이다.
+ * 회귀: scripts/check-audit-regressions.ts (축복치 100%, 2회 목표, 비아누 상한 구간).
  * 출처:
  * - 장비 강화: https://static.tales.nexon.com/Probability/Game/1
  * - 인챈트: https://static.tales.nexon.com/Probability/Game/2
@@ -727,8 +730,8 @@ function runEnchantSimulation(
   };
 }
 
-/** 인챈트 기댓값 정밀 계산 (축복치 누적 모델 해석적 계산) */
-function calculateEnchantExpectation(options: EnchantSimulationOptions): EnchantExpectationResult {
+/** 현재 축복치는 첫 성공에만 적용되고 이후 성공은 축복치 0에서 다시 시작한다. 반환값은 목표 성공당 평균이다. */
+function calculateEnchantExpectation(options: EnchantSimulationOptions, targetSuccesses = 1): EnchantExpectationResult {
   const isPrim = isPrimaryStat(options.statType);
   const baseRate = options.baseSuccessRate !== undefined ? options.baseSuccessRate : 0.02;
   const blessingGain = options.blessingGainOnFail !== undefined ? options.blessingGainOnFail : (isPrim ? 0.02 : 0.01);
@@ -736,24 +739,28 @@ function calculateEnchantExpectation(options: EnchantSimulationOptions): Enchant
   const scrolls = isFixedScroll ? 0 : Math.max(0, Math.min(5, options.enhanceScrollCount));
   const currencyType = options.currencyType || 'seed';
 
-  let expectedAttemptsPerSuccess = 0;
-
-  if (blessingGain <= 0) {
-    // 축복치 없는 독립 시행 기하분포 기댓값 E = 1 / p
-    expectedAttemptsPerSuccess = baseRate > 0 ? 1.0 / baseRate : 0;
-  } else {
+  const expectedAttempts = (initialBlessing: number): number => {
+    const firstProbability = Math.max(0, Math.min(1, baseRate + initialBlessing));
+    if (blessingGain <= 0) return firstProbability > 0 ? 1 / firstProbability : Infinity;
+    let expectation = 0;
     let probFailAccum = 1.0;
-    const maxK = Math.ceil((1.0 - baseRate) / blessingGain) + 1;
+    const maxK = Math.max(1, Math.ceil((1.0 - baseRate - initialBlessing) / blessingGain) + 1);
 
     for (let k = 1; k <= maxK + 10; k += 1) {
-      const blessing = (k - 1) * blessingGain;
+      const blessing = initialBlessing + (k - 1) * blessingGain;
       const succProb = Math.min(1.0, baseRate + blessing);
       const probSuccessAtK = probFailAccum * succProb;
-      expectedAttemptsPerSuccess += k * probSuccessAtK;
+      expectation += k * probSuccessAtK;
       probFailAccum *= (1.0 - succProb);
       if (succProb >= 1.0 || probFailAccum <= 1e-12) break;
     }
-  }
+    return expectation;
+  };
+  const target = Math.max(1, Math.trunc(targetSuccesses) || 1);
+  const initialBlessing = Math.max(0, Math.min(1, options.initialBlessing || 0));
+  const firstAttempts = expectedAttempts(initialBlessing);
+  const expectedAttemptsPerSuccess = target === 1 ? firstAttempts
+    : (firstAttempts + expectedAttempts(0) * (target - 1)) / target;
 
   let expectedStatGain = 0;
   const statDistribution: { value: number; probability: number }[] = [];
@@ -953,7 +960,7 @@ function runIncryptSimulation(
   while (successes < targetSuccesses && attempts < maxAttempts) {
     attempts += 1;
     const step = simulateIncryptSingleStep(
-      { ...options, currentIncryptCount: successes },
+      { ...options, currentIncryptCount: (options.currentIncryptCount || 0) + successes },
       random
     );
     step.attemptIndex = attempts;
@@ -999,7 +1006,7 @@ function runIncryptSimulation(
   };
 }
 
-/** 인크립트 기댓값 계산 */
+/** 비아누는 성공 회차마다 확률이 내려가므로 시도/파괴 기댓값을 합하고 생존 확률은 곱한다. */
 function calculateIncryptExpectation(
   options: IncryptSimulationOptions,
   targetSuccesses: number = 1
@@ -1018,20 +1025,28 @@ function calculateIncryptExpectation(
   const overallDestroyRate = pFail * effectiveDestroyRateOnFail;
   const overallSurvivalRate = 1.0 - overallDestroyRate;
 
-  const expectedAttemptsPerSuccess = 1.0 / pSucc;
-  const expectedDestroyedEquips = overallDestroyRate / pSucc;
-
-  const singleSuccessSurviveProb = pSucc + overallDestroyRate > 0 ? pSucc / (pSucc + overallDestroyRate) : 1.0;
-  const survivalProbabilityUntilTarget = Math.pow(singleSuccessSurviveProb, targetSuccesses);
+  const target = Math.max(1, Math.trunc(targetSuccesses) || 1);
+  let scrollCount = 0;
+  let totalDestroyedEquips = 0;
+  let survivalProbabilityUntilTarget = 1;
+  for (let success = 0; success < target; success++) {
+    const index = Math.max(0, Math.min(12, Math.trunc(options.currentIncryptCount || 0) + success));
+    const rate = options.scrollType === 'vianu' ? VIANU_RATES_BY_COUNT[index] : pSucc;
+    const destroyed = (1 - rate) * effectiveDestroyRateOnFail;
+    scrollCount += 1 / rate;
+    totalDestroyedEquips += destroyed / rate;
+    survivalProbabilityUntilTarget *= rate / (rate + destroyed);
+  }
+  const expectedAttemptsPerSuccess = scrollCount / target;
+  const expectedDestroyedEquips = totalDestroyedEquips / target;
 
   const currencyType = options.currencyType || 'seed';
-  const scrollCount = expectedAttemptsPerSuccess * targetSuccesses;
   const totalProtectionCount = scrollCount * protects;
   const feeCost = scrollCount * (options.costPerAttempt || 0);
   const itemCostSeed =
     scrollCount * (options.scrollPrice || 0) +
     totalProtectionCount * (options.protectionScrollPrice || 0);
-  const equipLossSeed = expectedDestroyedEquips * targetSuccesses * (options.equipmentPrice || 0);
+  const equipLossSeed = totalDestroyedEquips * (options.equipmentPrice || 0);
   const totalSeedCostWithEquipLoss =
     itemCostSeed + (currencyType === 'seed' ? feeCost : 0) + equipLossSeed;
 

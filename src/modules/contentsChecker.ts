@@ -11,6 +11,8 @@
  *   순서 변경이 가능하며 저장된 배열 순서가 재시작·Drive 동기화 후에도 유지되어야 합니다.
  * - 자동 완료 로그와 수동 체크는 동일 상태를 갱신할 수 있으므로 source event ID를 사용해 재생·동기화
  *   중복을 막습니다. 설정 원본은 `contentsCheckerItems`이고 일지/HUD는 이 값을 읽어 표시합니다.
+ * - 목록·캐릭터·최대 횟수 변경 후 현재 일지 집계를 함께 갱신합니다. 완료 해제는 기존 완료 일시의
+ *   기록을 취소하며, 자정이 지났다는 이유로 다른 날짜의 행을 삭제하지 않습니다.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -993,8 +995,10 @@ function syncHomeworkDiary(
   characterId: string,
   state: ContentsCheckerItem['completedState'][string],
   previousCompleted?: boolean,
+  previousCompletedAt?: number,
 ): boolean {
-  const date = getLocalDateKey();
+  const date = !state.isCompleted && previousCompletedAt
+    ? getLocalDateKey(new Date(previousCompletedAt)) : getLocalDateKey();
   const characterName =
     cfg.characterPresets?.find(preset => preset.id === characterId)?.name
     || '알수없음';
@@ -1055,13 +1059,14 @@ export function toggleItem(id: string, characterId?: string): void {
 
     const max = item.maxCount || 1;
 
+    const previousCompletedAt = state.lastCompletedAt;
     state.isCompleted = !state.isCompleted;
     state.currentCount = state.isCompleted ? max : 0;
     state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
 
     config.saveImmediate({ contentsCheckerItems: items });
 
-    syncHomeworkDiary(cfg, item, targetCharId, state);
+    syncHomeworkDiary(cfg, item, targetCharId, state, undefined, previousCompletedAt);
 
     // 전 캐릭터 통합 다이어리 통계 동기화
     syncDiaryStats(items);
@@ -1083,16 +1088,18 @@ export function toggleExcludeItem(id: string, characterId: string): void {
     }
 
     const state = item.completedState[characterId];
+    const previousCompletedAt = state.lastCompletedAt;
     state.isExcluded = !state.isExcluded;
     
     // 제외 처리 시 완료 상태는 해제
     if (state.isExcluded) {
       state.isCompleted = false;
+      state.currentCount = 0;
       state.lastCompletedAt = undefined;
       
       // 일지에서도 제거
       const diaryContentId = `${item.id}_${characterId}`;
-      const diaryDate = getLocalDateKey();
+      const diaryDate = previousCompletedAt ? getLocalDateKey(new Date(previousCompletedAt)) : getLocalDateKey();
       runDiaryWriteWithRetry(
         `homework-log:${diaryDate}:${diaryContentId}`,
         () => diaryDb.removeHomeworkLog(diaryDate, diaryContentId),
@@ -1120,6 +1127,7 @@ export function addCharacter(name: string): void {
     characterPresets: presets,
     selectedCharacterId: newId // 추가하면 바로 선택
   });
+  syncDiaryStats(cloneItems(cfg.contentsCheckerItems));
   refreshUI();
 }
 
@@ -1179,6 +1187,7 @@ export function toggleVisibility(id: string): void {
     // 레거시 데이터의 undefined는 보임 상태이므로 첫 토글에서는 숨김(false)이 되어야 한다.
     item.isVisible = item.isVisible === false;
     config.saveImmediate({ contentsCheckerItems: items });
+    syncDiaryStats(items);
     refreshUI();
   }
 }
@@ -1194,17 +1203,19 @@ export function updateItem(id: string, name: string, category: string, rule: Res
     item.resetRule = rule;
     
     if (rule.type === 'weekly') {
-      const newMax = maxCount !== undefined ? maxCount : 1;
+      const newMax = Math.max(1, Math.trunc(maxCount !== undefined ? maxCount : 1));
       item.maxCount = newMax;
       
       // 캐릭터별 완료 횟수가 새로운 maxCount를 초과하는 경우 한도 내로 자동 조정
       if (item.completedState) {
         Object.keys(item.completedState).forEach(charId => {
           const state = item.completedState[charId];
-          if (state.currentCount !== undefined && state.currentCount > newMax) {
-            state.currentCount = newMax;
-            state.isCompleted = true;
-          }
+          const wasCompleted = state.isCompleted;
+          const previousMax = cfg.contentsCheckerItems?.find(candidate => candidate.id === id)?.maxCount || 1;
+          state.currentCount = state.isExcluded ? 0 : Math.max(0, Math.min(newMax, state.currentCount ?? (wasCompleted ? previousMax : 0)));
+          state.isCompleted = !state.isExcluded && state.currentCount === newMax;
+          if (state.isCompleted && !wasCompleted) state.lastCompletedAt = Date.now();
+          if (state.currentCount === 0) state.lastCompletedAt = undefined;
         });
       }
     } else {
@@ -1219,8 +1230,14 @@ export function updateItem(id: string, name: string, category: string, rule: Res
     }
     
     // 규칙이 변경되었을 수 있으므로 초기화 체크 수행
-    config.saveImmediate({ contentsCheckerItems: items });
+    if (!config.saveImmediate({ contentsCheckerItems: items })) return;
+    const previousItem = cfg.contentsCheckerItems?.find(candidate => candidate.id === id);
+    for (const [charId, state] of Object.entries(item.completedState || {})) {
+      const previous = previousItem?.completedState?.[charId];
+      syncHomeworkDiary(cfg, item, charId, state, previous?.isCompleted, previous?.lastCompletedAt);
+    }
     checkReset(); 
+    syncDiaryStats(cloneItems(config.load().contentsCheckerItems));
     refreshUI();
   }
 }
@@ -1269,6 +1286,7 @@ export function addCustomItem(name: string, category: string, rule: ResetRule, m
   
   items.push(newItem);
   config.saveImmediate({ contentsCheckerItems: items });
+  syncDiaryStats(items);
   refreshUI();
 }
 
@@ -1278,6 +1296,7 @@ export function removeItem(id: string): void {
   let items = cloneItems(cfg.contentsCheckerItems);
   items = items.filter(i => i.id !== id);
   config.saveImmediate({ contentsCheckerItems: items });
+  syncDiaryStats(items);
   refreshUI();
 }
 
@@ -1438,13 +1457,14 @@ export function updateItemCount(id: string, characterId: string, count: number):
     const max = item.maxCount || 1;
     const prevCompleted = state.isCompleted;
 
+    const previousCompletedAt = state.lastCompletedAt;
     state.currentCount = Math.max(0, Math.min(max, count));
     state.isCompleted = (state.currentCount === max);
     state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
 
     config.saveImmediate({ contentsCheckerItems: items });
 
-    syncHomeworkDiary(cfg, item, targetCharId, state, prevCompleted);
+    syncHomeworkDiary(cfg, item, targetCharId, state, prevCompleted, previousCompletedAt);
 
     // 전 캐릭터 통합 다이어리 통계 동기화
     syncDiaryStats(items);

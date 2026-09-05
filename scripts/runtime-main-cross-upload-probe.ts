@@ -260,7 +260,9 @@ void app.whenReady().then(() => {
   };
   googleDriveSync.cancelPendingRequests = () => undefined;
   let firstChecklistUpload = true;
-  googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, existingFileId?: string) => {
+  let writeConflicts = 0;
+  googleDriveSync.getFileEtag = async (fileId: string) => Object.values(loadStore().files).find(file => file.id === fileId)?.version;
+  googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, existingFileId?: string, etag?: string) => {
     if (fileName === checklistFileName && firstChecklistUpload) {
       firstChecklistUpload = false;
       fs.writeFileSync(path.join(probeRoot, `${device}-first-checklist-upload.ready`), 'ready', 'utf8');
@@ -272,6 +274,10 @@ void app.whenReady().then(() => {
     }
     const id = existingFileId || `${fileName}-id`;
     updateStore(store => {
+      if (existingFileId && etag && etag !== store.files[fileName]?.version) {
+        writeConflicts++;
+        throw new googleDriveSync.DriveWriteConflictError();
+      }
       const previousVersion = Number(store.files[fileName]?.version || 0);
       store.uploadCounts[device] = (store.uploadCounts[device] || 0) + 1;
       store.uploadOrder.push(device);
@@ -344,6 +350,7 @@ void app.whenReady().then(() => {
           uploadOrder: [...store.uploadOrder],
           checklistUploadOrder: [...store.checklistUploadOrder],
           firstChecklistRevision,
+          writeConflicts,
         };
         finishRunProbe();
         return;

@@ -2998,6 +2998,7 @@
   <script src="renderer/settings/menu-management.js"></script>
   <script src="renderer/settings/audio-controls.js"></script>
   <script src="renderer/settings/config-binding.js"></script>
+  <script src="renderer/settings/draft.js"></script>
   <script>
     window.bindElectronListenerCleanup();
   </script>
@@ -5260,7 +5261,27 @@
       initChatAndNicknameColorPickers(cfg);
     }
 
+    function collectSettingsDraftExtras() {
+      const colors = {};
+      for (const name of ['chatPickers', 'nicknamePickers']) {
+        colors[name] = {};
+        for (const channel of Object.keys(window.chatChannels.OVERLAY_COLORS || {})) {
+          const prefix = name === 'chatPickers' ? 'chatOverlayColor' : 'chatOverlayNicknameColor';
+          const key = prefix + channel.charAt(0).toUpperCase() + channel.slice(1);
+          const fallback = name === 'chatPickers' ? window.chatChannels.OVERLAY_COLORS[channel] : window.chatChannels.COLORS.nickname;
+          colors[name][channel] = (lastConfig?.[key] || fallback).toUpperCase();
+        }
+        for (const [channel, picker] of Object.entries(window[name] || {})) {
+          colors[name][channel] = picker.getColor()?.toHEXA().toString(0).toUpperCase();
+        }
+      }
+      return { currentSlots, currentKeywords, tradeKeywordsList, lootKeywordsList, shoutKeywordsList,
+        chatOverlayFilterList, customTabsList, hasCustomLootKeywords,
+        shortcuts: window.settingsShortcuts.getShortcuts(), colors };
+    }
+
     window.electronAPI.onConfigData((config) => {
+      const draftRefresh = window.settingsDraft.beforeRefresh(collectSettingsDraftExtras());
       lastConfig = config;
       window.lastConfig = config;
       window.settingsConfigBinding.applyGeneralSettings(config, window.electronAPI.DEFAULT_CONFIG);
@@ -5326,6 +5347,22 @@
 
       window.settingsConfigBinding.applyRadioSettings(config, window.electronAPI.DEFAULT_CONFIG);
 
+      const draft = draftRefresh.restore(collectSettingsDraftExtras());
+      for (const type of ['contents-checker', 'calculators']) {
+        window.settingsAudioControls.bindVolumeControl(type, Number(document.getElementById(`volume-${type}`).value));
+      }
+      toggleNicknameColorPickers();
+      ({ currentSlots, currentKeywords, tradeKeywordsList, lootKeywordsList, shoutKeywordsList,
+        chatOverlayFilterList, customTabsList, hasCustomLootKeywords } = draft);
+      window.settingsShortcuts.mergeShortcuts(draft.shortcuts);
+      window.settingsShortcuts.renderInputs();
+      for (const [name, colors] of Object.entries(draft.colors)) {
+        for (const [channel, color] of Object.entries(colors)) {
+          if (color) window[name]?.[channel]?.setColor(color, true);
+        }
+      }
+      renderChatOverlayFilterList();
+      renderCustomTabsList();
       renderEditList();
       renderKeywordList();
       renderTradeKeywordList();
@@ -5875,7 +5912,6 @@
         const tradeServerValue = tradeServerParams
           ? tradeServerParams.value
           : window.electronAPI.DEFAULT_CONFIG.tradeServer;
-        window.electronAPI.tradeSetServer(tradeServerValue);
 
         const sidebarPosParams = document.querySelector('input[name="sidebar-position"]:checked');
         const sidebarPosValue = sidebarPosParams
@@ -5928,10 +5964,10 @@
             }
             : { ...window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos }
         };
-        window.electronAPI.applySettings(settings);
-        window.electronAPI.saveQuickSlots(validSlots);
-        setTimeout(() => { window.close(); }, 50);
-      } catch (e) { console.error(e); }
+        const result = await window.electronAPI.applySettingsConfirmed(settings);
+        if (!result?.success) throw new Error('설정을 저장하지 못했습니다. 입력을 유지했습니다. 다시 저장해 주세요.');
+        window.close();
+      } catch (e) { console.error(e); alert(e instanceof Error ? e.message : '설정을 저장하지 못했습니다. 다시 저장해 주세요.'); }
     }
 
     async function applyChatOverlaySettingsOnly() {

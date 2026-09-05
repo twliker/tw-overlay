@@ -54,6 +54,7 @@ npm audit --omit=dev --audit-level=critical
   1. 전체 빌드
   2. `check-refactor-regressions.ts` 정적·기능 회귀 검사
   3. `check-renderer-behavior.ts` Electron DOM 통합 검사
+  - `check-audit-regressions.ts`도 실행하여 백업·동시 동기화·설정 초안·알림 복구·계산기 경계 조건을 격리 userData에서 검사합니다.
 - `npm run test:stress`
   - 초당 100건 이상 burst와 10초간 1,200건 지속 유입에서 채팅·숙제·XP·렌더 DOM 정합성 및 이벤트 루프 지연 검사
 - `npm audit --omit=dev`

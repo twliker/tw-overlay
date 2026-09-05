@@ -11,6 +11,7 @@
  *   사이드바의 새 활동 배지는 추가하지 않습니다.
  * - 서버 HTML/API 변경은 정상적인 '새 글 없음'과 구분해 연결 상태와 로그에 오류로 노출해야 하며,
  *   파싱 실패 시 마지막 확인 번호를 전진시켜 글을 영구 누락시키면 안 됩니다.
+ * - 실패 횟수는 성공한 요청 뒤에만 초기화하고 복구 상태를 보낸다. 게시글·댓글 요청의 TLS 검증을 우회하지 않는다.
  */
 import * as https from 'https';
 import { BrowserWindow, shell } from 'electron';
@@ -128,7 +129,7 @@ function extractEsno(html: string): string {
 }
 
 /** POST 방식 댓글 API로 댓글 수 조회 (가벼움, JSON 응답) */
-function fetchCommentCount(postNo: number, skipSSLVerify = false): Promise<number> {
+function fetchCommentCount(postNo: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const body = [
       `id=${GALLERY_ID}`,
@@ -157,10 +158,10 @@ function fetchCommentCount(postNo: number, skipSSLVerify = false): Promise<numbe
       },
       timeout: 10000,
     };
-    if (skipSSLVerify) options.rejectUnauthorized = false;
 
     const req = https.request(options, (res) => {
       let data = '';
+      res.on('error', reject);
       res.setEncoding('utf-8');
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
@@ -177,14 +178,7 @@ function fetchCommentCount(postNo: number, skipSSLVerify = false): Promise<numbe
         }
       });
     });
-    req.on('error', (err) => {
-      if (!skipSSLVerify && (err.message.includes('certificate') || err.message.includes('SSL') || err.message.includes('CERT'))) {
-        log(`[GALLERY] 댓글 API SSL 검증 실패, 재시도: ${err.message}`);
-        fetchCommentCount(postNo, true).then(resolve).catch(reject);
-        return;
-      }
-      reject(err);
-    });
+    req.on('error', reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
     req.write(body);
     req.end();
@@ -311,18 +305,8 @@ async function doCheck(): Promise<void> {
     return;
   }
 
-  const backoff = calculateBackoffMs(
-    consecutiveErrors,
-    MONITOR_RATE_LIMIT.BACKOFF_BASE_MS,
-    MONITOR_RATE_LIMIT.MAX_BACKOFF_MS,
-  );
-  if (backoff > 0) {
-    consecutiveErrors = Math.max(0, consecutiveErrors - 1);
-    checkTimer = setTimeout(doCheck, backoff);
-    return;
-  }
-
   const listSuccess = await checkNewPosts();
+  if (!isRunning) return;
 
   if (listSuccess) {
     await waitRandomDelay(MONITOR_RATE_LIMIT.MIN_DELAY_MS, MONITOR_RATE_LIMIT.MAX_DELAY_MS);
@@ -341,13 +325,17 @@ async function doCheck(): Promise<void> {
     }
   }
 
-  checkTimer = setTimeout(doCheck, MONITOR_CHECK_INTERVAL_MS);
+  if (isRunning) {
+    const backoff = calculateBackoffMs(consecutiveErrors, MONITOR_RATE_LIMIT.BACKOFF_BASE_MS, MONITOR_RATE_LIMIT.MAX_BACKOFF_MS);
+    checkTimer = setTimeout(doCheck, backoff || MONITOR_CHECK_INTERVAL_MS);
+  }
 }
 
 // ─── 공개 API ───
 
 export function start(_overlayWin: BrowserWindow | null, sidebarWin: BrowserWindow): void {
   sidebarWindowRef = sidebarWin;
+  if (isRunning) { updateWindows(_overlayWin, sidebarWin); return; }
 
   const cfg = config.load();
   lastSeenPostNo = cfg.galleryLastSeen || 0;
@@ -370,6 +358,7 @@ export function updateWindows(_overlayWin: BrowserWindow | null, sidebarWin: Bro
 
   const cfg = config.load();
   galleryKeywords = normalizeNotificationKeywords(cfg.galleryKeywords);
+  if (notifyEnabled !== (cfg.galleryNotify === true)) setNotifyEnabled(cfg.galleryNotify === true);
 }
 
 /** 글 감시 추가 */

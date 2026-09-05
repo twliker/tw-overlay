@@ -18,6 +18,7 @@ import { get_CONFIG_PATH, DEFAULT_CONFIG, SAVE_DEBOUNCE_MS, AppConfig, get_RESOU
 import { log } from './logger';
 import type { WindowPositionKey } from '../shared/types';
 import { repairLegacyHiddenHudPositions } from '../shared/windowPositions';
+import { isTradeSearchState } from '../shared/tradeSearchState';
 
 const CONFIG_QUARANTINE_FILENAME = 'config.quarantine.json';
 const WRITE_RETRY_DELAYS_MS = [0, 25, 75, 150];
@@ -34,7 +35,7 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'fieldBossNotifyEnabled', 'fieldBossNotifyOffsets', 'fieldBossNotifyVolume', 'fieldBossSettings',
   'notifyWhenGameClosed', 'positions', 'windowedFullscreenPositions', 'storedPositionKeys', 'fixedWindowPositions',
   'fixedWindowPositionsActive', 'tradeServer', 'tradeKeywords',
-  'tradeNotify', 'tradeLastSeen', 'gameExitReminderEnabled', 'gameExitReminderMessage',
+  'tradeNotify', 'tradeLastSeen', 'tradeSearchState', 'gameExitReminderEnabled', 'gameExitReminderMessage',
   'contentsCheckerItems', 'characterPresets', 'selectedCharacterId', 'pendingHomeworks',
   'lastContentsResetCheck', 'shortcuts', 'customAlerts', 'customSounds', 'chatLogPath',
   'chatLogAutoDeleteDays', 'diaryKeepDays', 'lootKeywords', 'lootKeywordsMigratedV2',
@@ -92,6 +93,7 @@ let _cachedConfig: AppConfig | null = null;
 let _loadWarning: string | null = null;
 let _lastSaveError: string | null = null;
 let _saveRetryIndex = 0;
+let _externalRestoreActive = false;
 const _storedPositionKeys = new Set<WindowPositionKey>();
 
 type ConfigChangeListener = (changedConfig: Partial<AppConfig>) => void;
@@ -319,6 +321,7 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
       if (OPTIONAL_NUMBER_KEYS.has(key) && (typeof fieldValue !== 'number' || !Number.isFinite(fieldValue))) return null;
     }
     if (key === 'scamGpuVariant' && !['cpu', 'vulkan', 'cuda-12.4', 'cuda-13.1'].includes(String(fieldValue))) return null;
+    if (key === 'tradeSearchState' && !isTradeSearchState(fieldValue)) return null;
     if (key === 'windowedFullscreenPositions' && !isValidRelativePositionMap(fieldValue)) return null;
     if (key === 'fixedWindowPositions' && !isValidScreenPositionMap(fieldValue)) return null;
     if (key === 'managedWindowSizes' && !isValidWindowSizeMap(fieldValue)) return null;
@@ -775,6 +778,7 @@ function schedulePendingRetry(): void {
 
 /** 현재 pending을 원자 저장한다. 실패 시 pending을 유지한다. */
 export function flushPending(): boolean {
+  if (_externalRestoreActive) return !_pendingConfig;
   if (!_pendingConfig) return true;
   try {
     writeJsonAtomicSync(get_CONFIG_PATH(), _pendingConfig);
@@ -793,6 +797,7 @@ export function flushPending(): boolean {
 
 /** 디바운스 저장 - move/resize 등 빈번한 이벤트에 사용 */
 export function save(newConfig: Partial<AppConfig>): void {
+  if (_externalRestoreActive) return;
   try {
     const changed = deepClone(newConfig);
     if (!_pendingConfig) _pendingConfig = load();
@@ -815,6 +820,10 @@ export function save(newConfig: Partial<AppConfig>): void {
 
 /** 즉시 저장 - 앱 종료·복원 등 결과 확인이 필요한 경로에서 사용 */
 export function saveImmediate(newConfig: Partial<AppConfig> = {}): boolean {
+  if (_externalRestoreActive) {
+    _lastSaveError = '백업 복원 중에는 설정을 변경할 수 없습니다.';
+    return false;
+  }
   try {
     if (_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = null;
@@ -834,6 +843,23 @@ export function saveImmediate(newConfig: Partial<AppConfig> = {}): boolean {
 
 export function hasPending(): boolean {
   return _pendingConfig !== null;
+}
+
+/** 파일 교체부터 재시작까지 이전 캐시를 쓰는 이벤트를 차단한다. 실패 시 반환된 함수로 재개한다. */
+export function beginExternalRestore(): () => void {
+  if (_externalRestoreActive) throw new Error('설정 복원이 이미 진행 중입니다.');
+  if (!flushPending()) throw new Error(`복원 전 설정 저장 실패: ${_lastSaveError}`);
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = null;
+  _externalRestoreActive = true;
+  return () => {
+    _pendingConfig = null;
+    _cachedConfig = null;
+    _storedPositionKeys.clear();
+    _externalRestoreActive = false;
+    _lastSaveError = null;
+    load();
+  };
 }
 
 export function getLastSaveError(): string | null {

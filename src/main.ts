@@ -102,7 +102,8 @@ if (!gotTheLock) {
   });
 }
 
-app.whenReady().then(() => {
+let startupWindowsCreated = false;
+app.whenReady().then(async () => {
   const bootstrapError = bootstrap.getFatalBootstrapError();
   if (bootstrapError) {
     dialog.showErrorBox(
@@ -117,6 +118,14 @@ app.whenReady().then(() => {
       '데이터 복원 복구 실패',
       '이전 데이터 복원이 중단되었고 자동 롤백에도 실패했습니다. backups 폴더의 복원 전 스냅샷을 확인해 주세요.',
     );
+    app.quit();
+    return;
+  }
+  try {
+    const { restoreRendererStorageOnStartup } = await import('./modules/rendererStorageBackup');
+    await restoreRendererStorageOnStartup();
+  } catch (error) {
+    dialog.showErrorBox('도구 데이터 복원 실패', String(error));
     app.quit();
     return;
   }
@@ -176,6 +185,7 @@ app.whenReady().then(() => {
 
   // 스플래시 창 생성
   wm.createSplashWindow();
+  startupWindowsCreated = true;
 
   // 기본 리소스 준비
   tray.createTray();
@@ -375,4 +385,5 @@ app.on('before-quit', (event) => {
   })();
 });
 
-app.on('window-all-closed', () => app.quit());
+// 시작 전 저장소 복원용 숨김 창을 닫는 것은 앱 종료 요청이 아니다.
+app.on('window-all-closed', () => { if (startupWindowsCreated) app.quit(); });

@@ -18,7 +18,7 @@ import * as optimizer from './optimizer';
 import { fetchEtaRanking } from './etaRanking';
 import { MAIN_CHAR_ID } from '../shared/types';
 import type { EtaRankingParams, EvolutionCalculatorSelection, TimerRecord } from '../shared/types';
-import { setupAutoStart } from './autoStart';
+import { applyRuntimeSettings } from './runtimeSettings';
 import * as sm from './shortcutManager';
 import { analytics } from './analytics';
 import * as tracker from './tracker';
@@ -507,34 +507,13 @@ export function register(): void {
       && settingsWindow.webContents === sourceWebContents
       ? sourceWebContents
       : undefined;
+    const previousConfig = config.load();
     const saveSucceeded = wm.applySettings(sanitizedSettings, excludedSettingsWebContents);
-    if (sanitizedPatch.analyticsEnabled !== undefined) {
-      analytics.refreshEnabledState();
-    }
-    if (sanitizedPatch.autoLaunch !== undefined) {
-      setupAutoStart(sanitizedPatch.autoLaunch);
-    }
-    if (sanitizedPatch.shortcuts) {
-      sm.reloadShortcuts();
-    }
-    // 설정 변경 후 모니터러 상태 갱신 (윈도우 참조 없이 설정 재로드만)
-    gallery.updateWindows(null, null, null);
-    trade.updateWindows(null, null);
+    if (saveSucceeded) applyRuntimeSettings(previousConfig, config.load(), sanitizedPatch);
     
     // 챗로그 상태 변경 여부를 모든 창에 브로드캐스트
     broadcastChatLogStatus();
 
-    // 모험 일지 보관 설정 변경 시 즉시 오래된 데이터 정리 실행
-    if (sanitizedPatch.diaryKeepDays !== undefined) {
-      const keepDays = sanitizedPatch.diaryKeepDays;
-      if (keepDays > 0) {
-        analytics.trackEvent('diary_data_cleanup', { keepDays, trigger: 'settings_change' });
-        diaryDb.cleanOldDiaryData(keepDays);
-      }
-    }
-    if (sanitizedPatch.lootKeywords !== undefined) {
-      broadcastToAllWindows('diary-updated');
-    }
     if (!saveSucceeded) {
       log(`[IPC] apply-settings 저장 실패: ${config.getLastSaveError() || 'unknown error'}`);
       return { success: false, error: 'save-failed' };

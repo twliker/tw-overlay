@@ -526,6 +526,26 @@ export function createChecklistOperationMutations(
   return result;
 }
 
+export function createChecklistOrderChanges(
+  beforeData: Partial<AppConfig> | undefined,
+  afterData: Partial<AppConfig>,
+): GoogleChecklistSyncOperation['orders'] {
+  const orders: NonNullable<GoogleChecklistSyncOperation['orders']> = {};
+  for (const key of ['contentsCheckerItems', 'characterPresets'] as const) {
+    const before = (beforeData?.[key] || []).map(value => value.id);
+    const after = (afterData[key] || []).map(value => value.id);
+    if (!valuesEqual(before, after)) orders[key] = { before, after };
+  }
+  return Object.keys(orders).length ? orders : undefined;
+}
+
+/** 같은 정렬 필드를 양쪽에서 바꾸면 로컬 순서를 우선하고 다른 쪽의 신규 ID도 남긴다. */
+function mergeEntityOrder(base: string[], local: string[], remote: string[], ids: Iterable<string>): string[] {
+  const present = new Set(ids);
+  const preferred = resolveValue(base, local, remote) || [];
+  return [...new Set([...preferred, ...local, ...remote, ...base, ...present])].filter(id => present.has(id));
+}
+
 function isValidChecklistMutation(value: unknown, operationKeys?: Set<string>): value is GoogleChecklistSyncMutation {
   if (!isPlainObject(value)
     || !Array.isArray(value.path) || value.path.length < 2 || value.path.length > 32
@@ -551,6 +571,18 @@ export function isValidChecklistOperation(value: unknown): value is GoogleCheckl
       || !CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig))
     || !Array.isArray(value.mutations) || value.mutations.length > 10_000) return false;
   const operationKeys = new Set(value.keys as string[]);
+  if (value.orders !== undefined) {
+    if (!isPlainObject(value.orders)) return false;
+    for (const [key, order] of Object.entries(value.orders)) {
+      if (!['contentsCheckerItems', 'characterPresets'].includes(key) || !operationKeys.has(key)
+        || !isPlainObject(order)) return false;
+      for (const ids of [order.before, order.after]) {
+        if (!Array.isArray(ids) || ids.length > 10_000
+          || ids.some(id => typeof id !== 'string' || !id || id.length > 500 || BLOCKED_MUTATION_PATHS.has(id))
+          || new Set(ids).size !== ids.length) return false;
+      }
+    }
+  }
   return value.mutations.every(mutation => isValidChecklistMutation(mutation, operationKeys));
 }
 
@@ -587,10 +619,14 @@ export function replayChecklistOperations(
   operations: GoogleChecklistSyncOperation[],
 ): Partial<AppConfig> {
   const normalized = normalizeChecklistForMutations(remoteData);
+  const orderState = Object.fromEntries(CHECKLIST_SYNCABLE_KEYS.map(key => [key,
+    (remoteData[key] as Array<{ id: string }> | undefined || []).map(value => checklistEntityId(key, value)!),
+  ])) as Record<string, string[]>;
   const ordered = [...operations].sort((left, right) => left.createdAt - right.createdAt
     || left.deviceId.localeCompare(right.deviceId)
     || left.id.localeCompare(right.id));
   for (const operation of ordered) {
+    if (!isValidChecklistOperation(operation)) throw new Error('숙제 operation의 형식이 올바르지 않습니다.');
     const operationKeys = new Set(operation.keys);
     for (const mutation of operation.mutations) {
       if (!isValidChecklistMutation(mutation, operationKeys)) {
@@ -604,8 +640,17 @@ export function replayChecklistOperations(
       );
       writeMutationPath(normalized, mutation.path, resolved !== undefined, resolved);
     }
+    for (const [key, change] of Object.entries(operation.orders || {})) {
+      orderState[key] = mergeEntityOrder(change.before, change.after, orderState[key] || [], Object.keys(normalized[key] as object));
+    }
   }
   const replayed = denormalizeChecklistMutations(normalized);
+  for (const key of CHECKLIST_SYNCABLE_KEYS) {
+    const values = replayed[key] as Array<{ id: string }>;
+    const byId = new Map(values.map(value => [checklistEntityId(key, value)!, value]));
+    (replayed as any)[key] = [...new Set([...orderState[key], ...byId.keys()])]
+      .filter(id => byId.has(id)).map(id => byId.get(id));
+  }
   const sanitized = sanitizeExternalConfigPatch(replayed);
   if (!sanitized) throw new Error('숙제 operation 재실행 결과가 설정 스키마를 벗어났습니다.');
   return extractChecklistSyncData(sanitized as AppConfig);
@@ -659,7 +704,8 @@ function mergeItemsThreeWay(
   const local = new Map(localItems.map(item => [item.id, item]));
   const remote = new Map(remoteItems.map(item => [item.id, item]));
   const result: ContentsCheckerItem[] = [];
-  const ids = new Set([...base.keys(), ...local.keys(), ...remote.keys()]);
+  const ids = mergeEntityOrder([...base.keys()], [...local.keys()], [...remote.keys()],
+    new Set([...base.keys(), ...local.keys(), ...remote.keys()]));
 
   for (const id of ids) {
     const baseItem = base.get(id);
@@ -696,7 +742,8 @@ function mergeIdArrayThreeWay<T extends { id: string }>(
   const local = new Map(localValues.map(value => [value.id, value]));
   const remote = new Map(remoteValues.map(value => [value.id, value]));
   const result: T[] = [];
-  for (const id of new Set([...base.keys(), ...local.keys(), ...remote.keys()])) {
+  for (const id of mergeEntityOrder([...base.keys()], [...local.keys()], [...remote.keys()],
+    new Set([...base.keys(), ...local.keys(), ...remote.keys()]))) {
     const resolved = resolveValue(base.get(id), local.get(id), remote.get(id));
     if (resolved) result.push(resolved);
   }

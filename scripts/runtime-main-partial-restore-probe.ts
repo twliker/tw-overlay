@@ -45,6 +45,8 @@ function loadStore(): RemoteStore {
 }
 
 if (mode === 'partial' || mode === 'reverse-partial') {
+  // 복원용 숨김 창이 마지막으로 닫혀도 실제 main 시작이 끝까지 진행되어야 한다.
+  fs.writeFileSync(path.join(userData, 'renderer-storage.json'), JSON.stringify({ schemaVersion: 1, values: { buff_presets: '[]' } }));
   const now = Date.now();
   fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify({
     userServer: 7,
@@ -156,8 +158,10 @@ googleDriveSync.downloadJsonPayload = async (fileId: string) => {
   return file ? structuredClone(file.payload) : null;
 };
 googleDriveSync.cancelPendingRequests = () => undefined;
-googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, existingFileId?: string) => {
+googleDriveSync.getFileEtag = async (fileId: string) => loadStore().files[fileId]?.modifiedTime;
+googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, existingFileId?: string, etag?: string) => {
   const store = loadStore();
+  if (existingFileId && etag !== store.files[existingFileId]?.modifiedTime) throw new googleDriveSync.DriveWriteConflictError();
   const id = existingFileId || `${fileName}-id`;
   store.uploadCounts[fileName] = (store.uploadCounts[fileName] || 0) + 1;
   store.files[id] = {
@@ -185,6 +189,7 @@ app.on('quit', () => {
     characterPresetIds: config.characterPresets.map((character: any) => character.id),
     downloadCount,
     phaseStartUploadCounts,
+    rendererStoragePending: fs.existsSync(path.join(userData, 'renderer-storage.json')),
     remoteStore: loadStore(),
   }), 'utf8');
 });

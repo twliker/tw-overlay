@@ -99,8 +99,10 @@ googleDriveSync.downloadJsonPayload = async (fileId: string) => {
 };
 let cancelledRequestCount = 0;
 googleDriveSync.cancelPendingRequests = () => { cancelledRequestCount++; };
-googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, existingFileId?: string) => {
+googleDriveSync.getFileEtag = async (fileId: string) => Object.values(loadStore().files).find(file => file.id === fileId)?.modifiedTime;
+googleDriveSync.uploadJsonPayload = async (fileName: string, payload: any, existingFileId?: string, etag?: string) => {
   const store = loadStore();
+  if (existingFileId && etag && etag !== store.files[fileName]?.modifiedTime) throw new googleDriveSync.DriveWriteConflictError();
   const id = existingFileId || `${fileName}-id`;
   store.uploadCounts[fileName] = (store.uploadCounts[fileName] || 0) + 1;
   store.files[fileName] = {

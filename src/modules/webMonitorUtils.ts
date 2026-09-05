@@ -1,6 +1,6 @@
 /**
  * 게시판 모니터가 공유하는 요청 간격, 백오프, HTTPS 텍스트 요청 유틸리티.
- * 사이트별 헤더/타임아웃/로그 접두사는 호출부가 제공해 기존 동작을 유지한다.
+ * 인증서 검증 오류는 연결 실패로 전달하며 검증을 자동 해제하지 않는다.
  */
 import * as https from 'https';
 
@@ -35,7 +35,7 @@ export function calculateBackoffMs(
 export function fetchTextWithSslRetry(
   url: string,
   options: FetchTextOptions,
-  skipSslVerify = false,
+  _legacySkipSslVerify = false,
   maxRedirects = 5,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -48,9 +48,9 @@ export function fetchTextWithSslRetry(
       headers: options.headers,
       timeout: options.timeoutMs,
     };
-    if (skipSslVerify) requestOptions.rejectUnauthorized = false;
 
     const request = https.get(url, requestOptions, response => {
+      response.on('error', reject);
       if (
         response.statusCode
         && response.statusCode >= 300
@@ -58,11 +58,12 @@ export function fetchTextWithSslRetry(
         && response.headers.location
       ) {
         fetchTextWithSslRetry(
-          response.headers.location,
+          new URL(response.headers.location, url).toString(),
           options,
-          skipSslVerify,
+          false,
           maxRedirects - 1,
         ).then(resolve).catch(reject);
+        response.resume();
         return;
       }
 
@@ -78,17 +79,7 @@ export function fetchTextWithSslRetry(
       response.on('end', () => resolve(data));
     });
 
-    request.on('error', error => {
-      const isSslError = error.message.includes('certificate')
-        || error.message.includes('SSL')
-        || error.message.includes('CERT');
-      if (!skipSslVerify && isSslError) {
-        options.onSslRetry(error.message);
-        fetchTextWithSslRetry(url, options, true, maxRedirects).then(resolve).catch(reject);
-        return;
-      }
-      reject(error);
-    });
+    request.on('error', reject);
     request.on('timeout', () => {
       request.destroy();
       reject(new Error('Timeout'));
