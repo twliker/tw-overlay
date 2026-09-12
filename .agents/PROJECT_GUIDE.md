@@ -85,6 +85,8 @@ TW-Overlay는 테일즈위버 게임 창을 추적하여 사이드바, 게임 �
 
 Store의 첫 실행은 구버전 launcher의 내용과 Run 항목 소유권을 확인해 Store 등록만 정리한다. Store 설정 변경은 직렬 적용하고 Windows의 `DisabledByUser`/정책 상태를 보존한다. `scripts/check-auto-start.ts`와 `verify-appx-package.ts`가 마이그레이션·동시 변경·실제 NSIS 바로가기 및 Store 패키지 구성을 검사한다.
 
+NSIS의 VBS 대상 바로가기는 Electron `shell.writeShortcutLink`로 동기 생성하고 성공한 경우에만 Run에 등록한다. WScript.Shell의 시스템 ANSI 문자셋 의존성과 cscript의 오류 시 종료 코드 0 문제를 피한다. 자동 실행 검사는 한글·공백 및 ANSI 문자셋 밖의 이모지 경로에서 실제 바로가기를 읽어 검증하고, 생성 실패 시 등록하지 않는지 확인한다.
+
 ### 채팅 로그 처리
 
 채팅 기반 기능은 다음 흐름을 공유합니다.

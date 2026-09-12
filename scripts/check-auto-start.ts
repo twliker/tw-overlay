@@ -3,8 +3,7 @@ import fs = require('node:fs');
 import os = require('node:os');
 import path = require('node:path');
 import vm = require('node:vm');
-import childProcess = require('node:child_process');
-import { app } from 'electron';
+import { app, shell } from 'electron';
 
 const root = path.resolve(__dirname, '..');
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-autostart-'));
@@ -17,8 +16,8 @@ const source = fs.readFileSync(path.join(root, 'dist', 'modules', 'autoStart.js'
 const storeExe = 'C:\\Program Files\\WindowsApps\\FilbertLab.TW-Overlay_3.1.3.0_x64__f5qg8d8cz1kn2\\app\\twOverlay.exe';
 const legacy = (exe: string) => `Set UAC = CreateObject("Shell.Application")\r\nUAC.ShellExecute "${exe}", "", "", "runas", 1`;
 
-function createHarness(store = true, packaged = true) {
-    const data = fs.mkdtempSync(path.join(fixtureRoot, '설정-'));
+function createHarness(store = true, packaged = true, directoryPrefix = '설정-') {
+    const data = fs.mkdtempSync(path.join(fixtureRoot, directoryPrefix));
     const registry: Array<Record<string, unknown>> = [];
     const requests: boolean[] = [];
     const dialogs: unknown[] = [];
@@ -27,7 +26,8 @@ function createHarness(store = true, packaged = true) {
     const lnk = path.join(data, 'twOverlay.lnk');
     const vbs = path.join(data, 'twOverlayLauncher.vbs');
     const exports: Record<string, any> = {};
-    let cscriptRuns = 0;
+    let shortcutWrites = 0;
+    let writeShortcut: (() => boolean) | undefined;
     const app = {
         isPackaged: packaged,
         getPath: (key: string) => key === 'exe' ? (store ? storeExe : path.join(data, '일반 설치', 'twOverlay.exe')) : data,
@@ -43,21 +43,24 @@ function createHarness(store = true, packaged = true) {
         require: (name: string) => {
             if (name === 'electron') return { app,
                 dialog: { showMessageBox: async (options: unknown) => { dialogs.push(options); return { response: 1 }; } },
-                shell: { openExternal: async () => {} },
+                shell: { openExternal: async () => {},
+                    writeShortcutLink: (shortcutPath: string, operation: 'create', options: Electron.ShortcutDetails) => {
+                        shortcutWrites++;
+                        return writeShortcut ? writeShortcut() : shell.writeShortcutLink(shortcutPath, operation, options);
+                    },
+                },
             };
             if (name === './logger') return { log: (line: string) => logs.push(line) };
             if (name === './storeAutoStart') return {
                 StoreAutoStartQueue,
                 configureStoreAutoStart: (enabled: boolean) => { requests.push(enabled); return run(enabled); },
             };
-            if (name === 'child_process') return {
-                exec: (...args: Parameters<typeof childProcess.exec>) => { cscriptRuns++; return childProcess.exec(...args); },
-            };
             return require(name);
         },
     });
     return { data, lnk, vbs, registry, requests, dialogs, logs, exports, app,
-        setRun: (value: typeof run) => { run = value; }, cscriptRuns: () => cscriptRuns };
+        setRun: (value: typeof run) => { run = value; }, shortcutWrites: () => shortcutWrites,
+        setShortcutWriter: (writer: () => boolean) => { writeShortcut = writer; } };
 }
 
 async function until(check: () => boolean): Promise<void> {
@@ -85,7 +88,7 @@ async function main(): Promise<void> {
     assert.equal(fs.existsSync(store.lnk), false);
     assert.equal(store.registry.length, 1, '다른 앱 또는 시스템 등록을 변경했습니다.');
     assert.equal(store.registry[0].openAtLogin, false);
-    assert.equal(store.cscriptRuns(), 0, 'Store에서 버전별 EXE 바로가기를 생성했습니다.');
+    assert.equal(store.shortcutWrites(), 0, 'Store에서 버전별 EXE 바로가기를 생성했습니다.');
     assert.equal(store.exports.isLegacyStoreLauncher(legacy(storeExe.replace('3.1.3.0', '3.0.0.0'))), true);
     assert.equal(store.exports.isLegacyStoreLauncher(legacy(storeExe.replace('C:\\Program Files\\', 'D:\\'))), true);
     assert.equal(store.exports.isLegacyStoreLauncher(legacy(storeExe) + '\r\nRunOtherProgram'), false);
@@ -130,34 +133,46 @@ async function main(): Promise<void> {
 
     const dev = createHarness(false, false);
     dev.exports.setupAutoStart(true);
-    assert.equal(dev.cscriptRuns(), 0);
+    assert.equal(dev.shortcutWrites(), 0);
     assert.equal(dev.registry.length, 0);
 
-    // 실제 Windows Script Host로 한글/공백 경로의 바로가기를 만들되 앱 실행은 하지 않는다.
-    const normal = createHarness(false);
-    fs.mkdirSync(path.dirname(normal.app.getPath('exe')), { recursive: true });
-    normal.exports.setupAutoStart(true);
-    await until(() => normal.registry.length === 1 || normal.logs.some(line => line.includes('FAIL')));
-    assert.equal(normal.registry[0]?.openAtLogin, true, normal.logs.join('\n'));
-    const inspectScript = path.join(normal.data, 'inspect.vbs');
-    const inspectOutput = path.join(normal.data, 'shortcut.txt');
-    fs.writeFileSync(inspectScript, '\ufeff' + [
-        'Set s = CreateObject("WScript.Shell").CreateShortcut(WScript.Arguments(0))',
-        'Set f = CreateObject("Scripting.FileSystemObject").CreateTextFile(WScript.Arguments(1), True, True)',
-        'f.WriteLine s.WorkingDirectory', 'f.WriteLine s.TargetPath', 'f.Close',
-    ].join('\r\n'), 'utf16le');
-    const inspection = childProcess.spawnSync('cscript.exe', ['//Nologo', inspectScript, normal.lnk, inspectOutput],
-        { windowsHide: true });
-    assert.equal(inspection.status, 0);
-    const inspected = fs.readFileSync(inspectOutput, 'utf16le').trim().split(/\r?\n/);
-    assert.equal(inspected[0], path.dirname(normal.app.getPath('exe')));
-    assert.equal(inspected[1], normal.vbs);
-    normal.exports.setupAutoStart(false);
-    assert.equal(normal.registry[normal.registry.length - 1]?.openAtLogin, false);
-    assert.equal(fs.existsSync(normal.vbs), false);
-    assert.equal(fs.existsSync(normal.lnk), false);
+    // 시스템 ANSI 문자셋 밖의 경로도 검사한다. 실제 바로가기를 쓰고 읽되 앱 실행·Run 등록은 하지 않는다.
+    for (const directoryPrefix of ['설정-', '설정-🧪-']) {
+        const normal = createHarness(false, true, directoryPrefix);
+        fs.mkdirSync(path.dirname(normal.app.getPath('exe')), { recursive: true });
+        normal.exports.setupAutoStart(true);
+        await until(() => normal.registry.length === 1 || normal.logs.some(line => line.includes('FAIL')));
+        assert.equal(normal.registry[0]?.openAtLogin, true, normal.logs.join('\n'));
+        assert.equal(fs.existsSync(normal.lnk), true, '바로가기 생성 실패를 등록 성공으로 처리했습니다.');
+        const inspected = shell.readShortcutLink(normal.lnk);
+        assert.equal(inspected.cwd, path.dirname(normal.app.getPath('exe')));
+        assert.equal(inspected.target, normal.vbs);
+        assert.equal(inspected.icon, normal.app.getPath('exe'));
+        assert.equal(inspected.iconIndex, 0);
+        assert.equal(inspected.description, 'twOverlay Auto Start');
+        assert.equal(fs.readFileSync(normal.vbs, 'utf16le'), '\ufeff' + legacy(normal.app.getPath('exe')));
+        normal.exports.setupAutoStart(false);
+        assert.equal(normal.registry[normal.registry.length - 1]?.openAtLogin, false);
+        assert.equal(fs.existsSync(normal.vbs), false);
+        assert.equal(fs.existsSync(normal.lnk), false);
+        normal.exports.setupAutoStart(true);
+        assert.equal(normal.registry[normal.registry.length - 1]?.openAtLogin, true);
+        assert.equal(shell.readShortcutLink(normal.lnk).target, normal.vbs);
+        normal.exports.setupAutoStart(false);
+        assert.deepEqual(normal.registry.map(item => item.openAtLogin), [true, false, true, false]);
+    }
+
+    for (const writeShortcut of [() => false, () => { throw new Error('fixture shortcut failure'); }]) {
+        const failed = createHarness(false);
+        failed.setShortcutWriter(writeShortcut);
+        failed.exports.setupAutoStart(true);
+        assert.equal(failed.registry.length, 0, '바로가기 생성 실패 후 Run에 등록했습니다.');
+        assert.equal(failed.logs.some(line => line.includes('FAIL')), true);
+        assert.equal(failed.shortcutWrites(), 1);
+    }
     console.log(JSON.stringify({ passed: true, storeMigration: true, coexistence: true,
-        requestOrdering: true, windowsDisabledState: true, developmentIsolation: true, nativeShortcut: true }));
+        requestOrdering: true, windowsDisabledState: true, developmentIsolation: true,
+        nativeShortcut: true, unicodeShortcut: true, shortcutFailure: true }));
 }
 
 main().then(() => { fs.rmSync(fixtureRoot, { recursive: true, force: true }); process.exit(0); })

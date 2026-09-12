@@ -4,12 +4,14 @@
  * - Store는 패키지의 StartupTask를 사용한다. 일반 권한 도우미가 버전 없는 AppsFolder ID로
  *   앱을 활성화하며, WindowsApps의 EXE를 직접 runas 실행하지 않는다. 앱의 관리자 권한은 유지한다.
  * - NSIS는 userData의 VBS가 `runas`로 EXE를 실행하고 그 VBS의 바로가기를 Run에 등록한다.
+ *   바로가기는 시스템 ANSI 문자셋에 의존하지 않는 Electron 네이티브 API로 동기 생성하며,
+ *   생성 성공을 확인한 뒤에만 Run에 등록한다. 한글/이모지 경로에서도 대상·작업 폴더를 보존한다.
  * - 개발 실행은 설치본의 자동 시작 설정을 변경하지 않는다. Store는 구버전 VBS가 실제로
  *   TW-Overlay Store EXE를 가리킬 때만 기존 Run/바로가기를 정리하며 NSIS 등록은 보존한다.
  * - 해제 시 로그인 항목과 앱이 만든 VBS/바로가기만 제거합니다. 다른 시작프로그램이나 임의 경로는
  *   삭제하지 않습니다.
- * - 설정 저장이 빠르게 연속 호출될 수 있으므로 generation이 가장 최신인 요청만 등록 결과를
- *   확정합니다. 늦게 끝난 이전 enable 작업이 최종 disable 선택을 되돌리면 안 됩니다.
+ * - NSIS 등록·해제는 동기로 완료한다. Store는 generation이 가장 최신인 요청만 등록 결과를
+ *   확정한다. 늦게 끝난 이전 enable 작업이 최종 disable 선택을 되돌리면 안 된다.
  * - Store의 비동기 변경은 직렬 적용하고 Windows에서 사용자가 해제한 상태를 덮어쓰지 않는다.
  *   관련 회귀 검사는 scripts/check-auto-start.ts와 AppX 검증에 포함한다.
  */
@@ -17,7 +19,6 @@ import { app, dialog, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { log } from './logger';
-import { exec } from 'child_process';
 import { configureStoreAutoStart, StoreAutoStartQueue } from './storeAutoStart';
 
 export class AutoStartRequestTracker {
@@ -126,49 +127,24 @@ export function setupAutoStart(enable: boolean, interactive = false): void {
             return;
         }
 
-        // 2. 바로가기(.lnk) 생성용 스크립트 (userData 폴더 내에 생성)
-        // VBScript는 역슬래시를 escape 문자로 해석하지 않는다.
-        const escapedLnkPath = lnkPath.replace(/"/g, '""');
-        const escapedVbsPath = vbsPath.replace(/"/g, '""');
-        const escapedExePath = exePath.replace(/"/g, '""');
-        const escapedWorkingDir = path.dirname(exePath).replace(/"/g, '""');
-
-        const createLnkScript = `
-            Set oWS = WScript.CreateObject("WScript.Shell")
-            sLinkFile = "${escapedLnkPath}"
-            Set oLink = oWS.CreateShortcut(sLinkFile)
-            oLink.TargetPath = "${escapedVbsPath}"
-            oLink.IconLocation = "${escapedExePath}, 0"
-            oLink.Description = "twOverlay Auto Start"
-            oLink.WorkingDirectory = "${escapedWorkingDir}"
-            oLink.Save
-        `;
-        
-        // 겹쳐 실행된 설정 저장이 같은 임시 스크립트를 덮어쓰지 않도록 요청별로 분리한다.
-        const lnkCreatorPath = path.join(
-            userDataPath,
-            `create_lnk-${process.pid}-${requestGeneration}.vbs`,
-        );
+        // WScript.Shell은 ANSI 문자셋 밖의 TargetPath에서 실패해도 cscript가 0으로 끝날 수 있다.
+        // 네이티브 API의 성공 여부를 확인해 존재하지 않는 바로가기를 Run에 등록하지 않는다.
         try {
-            fs.writeFileSync(lnkCreatorPath, '\ufeff' + createLnkScript, 'utf16le');
-            exec(`cscript //Nologo "${lnkCreatorPath}"`, (error) => {
-                if (error) {
-                    log('[AUTOSTART] LNK Creation FAIL: ' + error);
-                } else if (autoStartRequests.isCurrent(requestGeneration, true)) {
-                    // 3. 생성된 .lnk 파일을 레지스트리에 등록
-                    app.setLoginItemSettings({
-                        openAtLogin: true,
-                        path: lnkPath // exe 대신 lnk 경로를 등록하여 아이콘/이름 유지
-                    });
-                    log('[AUTOSTART] Successfully registered LNK to registry');
-                } else if (autoStartRequests.isDisabled()) {
-                    // 끄기 뒤 늦게 끝난 cscript가 공유 .lnk를 다시 만들 수 있으므로 제거한다.
-                    removeAutoStartFiles(lnkPath, vbsPath);
-                }
-                try { fs.unlinkSync(lnkCreatorPath); } catch {}
+            const created = shell.writeShortcutLink(lnkPath, 'create', {
+                target: vbsPath,
+                cwd: path.dirname(exePath),
+                icon: exePath,
+                iconIndex: 0,
+                description: 'twOverlay Auto Start',
             });
+            if (!created) {
+                log('[AUTOSTART] LNK Creation FAIL: native shortcut creation returned false');
+                return;
+            }
+            app.setLoginItemSettings({ openAtLogin: true, path: lnkPath });
+            log('[AUTOSTART] Successfully registered LNK to registry');
         } catch (err) {
-            log('[AUTOSTART] LNK Process Error: ' + err);
+            log('[AUTOSTART] LNK Creation FAIL: ' + err);
         }
 
     } else {

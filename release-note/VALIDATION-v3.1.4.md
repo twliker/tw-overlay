@@ -28,3 +28,22 @@
 | twOverlay-3.1.4.appx | `706d9c622a9bd8ea248b8f500bf97dc89c2ecdc6f818a8635dc7de6d0eaa157c` |
 
 통합 후보의 변경 파일 57개에 대한 SHA-256 목록 지문: `6d85def37d4ce645b4ba540d9f9c4d40f5d758fd2a02d0e9989cdd44d3b94a52`. 이 검증 기록 문서는 검사 후 추가했으며 제품 코드와 산출물에는 영향을 주지 않는다.
+
+## GitHub Actions 실패 후속 수정
+
+[최초 v3.1.4 실행](https://github.com/twliker/tw-overlay/actions/runs/34692684310)은 자동 실행의 실제 바로가기 검사에서 실패했다. 회귀 검사 이후 단계는 실행되지 않아 설치 파일과 Draft Release가 생성되지 않았다.
+
+- 발생 조건: Windows 시스템 ANSI 문자셋으로 표현할 수 없는 문자가 설정 경로에 포함되는 경우. GitHub Windows 러너의 한글 경로에서 실패했고, 한국어 Windows에서도 이모지 경로로 재현했다.
+- 변경 전: WScript.Shell의 바로가기 TargetPath 설정이 실패해도 cscript가 종료 코드 0을 반환했다. 앱은 바로가기가 없는 상태를 등록 성공으로 처리했다.
+- 변경 후: Electron의 네이티브 `shell.writeShortcutLink`로 동기 생성하고, 성공한 경우에만 Run에 등록한다. VBS의 관리자 권한 실행, Store StartupTask와 사용자 데이터 처리 방식은 유지한다.
+- 회귀 범위: 실제 한글·공백·이모지 바로가기의 대상·작업 폴더·아이콘, 켜기→끄기→다시 켜기, 생성 실패 반환 및 예외 시 미등록을 검사한다. 동일한 새 검사에서 원래 태그의 구현은 실패했다.
+
+위 표와 산출물 해시는 최초 태그 후보의 기록이다. 후속 수정의 CI 재실행과 새 산출물 검증 결과는 별도로 기록하며, 최초 후보의 실기 결과를 새 설치본의 실기 통과로 표시하지 않는다.
+
+후속 수정의 로컬 `npm run typecheck`, `npm test`, `npm run test:stress`와 프로덕션 의존성 감사가 통과했다(취약점 0건). 새 NSIS에서 추출한 앱 리소스 816개가 빌드와 일치하며 네이티브 바로가기 코드 포함, latest.yml 및 blockmap 일치를 확인했다. 새 설치본의 실제 설치·로그인 검수와 GitHub Actions 재실행은 별도 확인 대상이다.
+
+| 후속 NSIS 산출물 | SHA-256 |
+| --- | --- |
+| twOverlay-Setup-3.1.4.exe | `e5cc2f63fb1041f583c91483c5c42a66400d8eaf031280d7ddfc11aae25326f9` |
+| twOverlay-Setup-3.1.4.exe.blockmap | `96504c83a14f385375aedeb06aae55b7143caf67848ed6abb3b5941c5b10b602` |
+| latest.yml | `dcac2a5a54f9294e55dfee0258acdfab057ed5f705c1c165c19d7e94b237b89e` |

@@ -9522,14 +9522,9 @@ function checkAutoStartRequestOrderingContracts(): void {
 
   const source = read('src/modules/autoStart.ts');
   assert.match(source,
-    /create_lnk-\$\{process\.pid\}-\$\{requestGeneration\}\.vbs/,
-    '동시에 실행되는 자동 시작 바로가기 생성기가 요청별 임시 파일을 사용하지 않습니다.');
-  assert.match(source,
-    /autoStartRequests\.isCurrent\(requestGeneration, true\)[\s\S]*?openAtLogin: true/,
-    '현재 자동 시작 켜기 요청만 레지스트리에 반영하는 세대 검사가 없습니다.');
-  assert.match(source,
-    /autoStartRequests\.isDisabled\(\)[\s\S]*?removeAutoStartFiles\(lnkPath, vbsPath\)/,
-    '끄기 뒤 늦게 생성된 자동 시작 파일을 정리하지 않습니다.');
+    /configureStoreAutoStart\(enable\)[\s\S]*?autoStartRequests\.isCurrent\(requestGeneration, enable\)/,
+    '늦게 끝난 Store 요청의 결과를 현재 설정으로 처리하면 안 됩니다.');
+  // 동기로 완료되는 NSIS의 켜기/끄기와 실제 Unicode 바로가기는 check-auto-start.ts에서 검사한다.
 }
 
 function checkLocalCalendarDateContracts(): void {
