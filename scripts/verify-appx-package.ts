@@ -91,6 +91,9 @@ function verifyManifest(manifest: string): void {
   assertManifestValue(manifest, /<rescap:Capability\s+Name=["']allowElevation["']\s*\/>/i,
     '관리자 권한 실행에 필요한 AppX allowElevation capability가 누락되었습니다.');
   assertManifestValue(manifest,
+    /<desktop:Extension\s+Category="windows.startupTask"\s+Executable="app\\resources\\app\.asar\.unpacked\\dist\\store-update-helper\\TWOverlay\.StoreUpdateHelper\.exe"\s+EntryPoint="Windows.FullTrustApplication">\s*<desktop:StartupTask TaskId="TWOverlayStartup" Enabled="false" DisplayName="TW-Overlay"\s*\/>\s*<\/desktop:Extension>/,
+    'Store 자동 실행은 기본 해제된 StartupTask와 일반 권한 도우미를 사용해야 합니다.');
+  assertManifestValue(manifest,
     /<PackageDependency\s[^>]*Name=["']Microsoft\.VCLibs\.140\.00\.UWPDesktop["'][^>]*MinVersion=["']14\.0\.24217\.0["'][^>]*Publisher=["']CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US["'][^>]*\/>/i,
     'Koffi 실행에 필요한 Microsoft.VCLibs.140.00.UWPDesktop 의존성이 누락되었습니다.');
   assertManifestValue(manifest, new RegExp(`MinVersion=["']${appx.minVersion.replace(/\\./g, '\\.')}["']`, 'i'),
@@ -121,6 +124,11 @@ function verifyPackagedApplication(entries: Map<string, AdmZip.IZipEntry>): void
   const storeHelperBinary = entries.get(storeHelperEntryName)!.getData();
   assert.ok(storeHelperBinary.length > 1_000_000, 'Store 업데이트 도우미가 비정상적으로 작습니다.');
   assert.equal(storeHelperBinary.subarray(0, 2).toString('ascii'), 'MZ', 'Store 업데이트 도우미가 Windows 실행 파일이 아닙니다.');
+  const peOffset = storeHelperBinary.readUInt32LE(0x3c);
+  assert.equal(storeHelperBinary.readUInt16LE(peOffset + 24 + 68), 2,
+    '로그인 시 콘솔 창이 뜨지 않도록 Store 도우미는 Windows GUI 실행 파일이어야 합니다.');
+  assert.ok(storeHelperBinary.includes(Buffer.from('level="asInvoker"')),
+    'StartupTask 도우미는 UAC 없이 시작할 수 있어야 합니다.');
 
   const koffiBinary = entries.get(koffiEntryName)!.getData();
   for (const runtimeDll of ['MSVCP140.dll', 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll']) {
@@ -146,6 +154,11 @@ function verifyPackagedApplication(entries: Map<string, AdmZip.IZipEntry>): void
     assert.match(updaterSource, /checkStoreUpdatePolicy/,
       'AppX 실행 시 Microsoft Store 업데이트 정책을 확인하는 경로가 누락되었습니다.');
     const storeUpdaterSource = extractAsarFile(asarPath, 'dist/modules/storeUpdater.js').toString('utf8');
+    const autoStartSource = extractAsarFile(asarPath, 'dist/modules/autoStart.js').toString('utf8');
+    assert.match(autoStartSource, /process\.windowsStore[\s\S]*configureStoreAutoStart/,
+      'Store 자동 실행 전용 분기가 패키지에 없습니다.');
+    assert.match(autoStartSource, /removeLegacyStoreAutoStart/,
+      '구버전 Store 자동 실행 등록을 정리하는 마이그레이션이 없습니다.');
     assert.match(storeUpdaterSource, /app\.asar\.unpacked/,
       'Store 업데이트 도우미를 ASAR 밖에서 실행하는 경로가 누락되었습니다.');
     assert.match(storeUpdaterSource, /installStoreUpdates/,

@@ -1006,7 +1006,14 @@ function runIncryptSimulation(
   };
 }
 
-/** 비아누는 성공 회차마다 확률이 내려가므로 시도/파괴 기댓값을 합하고 생존 확률은 곱한다. */
+const MAX_INCRYPT_TARGET_SUCCESSES = 20;
+
+/** 직접 입력/붙여넣기와 공통 함수 호출 모두 화면의 목표 범위(1~20회)를 지킨다. */
+function normalizeIncryptTargetSuccesses(value: number): number {
+  return Number.isFinite(value) ? Math.max(1, Math.min(MAX_INCRYPT_TARGET_SUCCESSES, Math.trunc(value))) : 1;
+}
+
+/** 비아누는 성공 회차마다 확률이 내려가므로 최대 20회 안에서 시도/파괴 기댓값을 합하고 생존 확률은 곱한다. */
 function calculateIncryptExpectation(
   options: IncryptSimulationOptions,
   targetSuccesses: number = 1
@@ -1025,7 +1032,7 @@ function calculateIncryptExpectation(
   const overallDestroyRate = pFail * effectiveDestroyRateOnFail;
   const overallSurvivalRate = 1.0 - overallDestroyRate;
 
-  const target = Math.max(1, Math.trunc(targetSuccesses) || 1);
+  const target = normalizeIncryptTargetSuccesses(targetSuccesses);
   let scrollCount = 0;
   let totalDestroyedEquips = 0;
   let survivalProbabilityUntilTarget = 1;
@@ -1125,6 +1132,8 @@ const equipmentSimulator = Object.freeze({
   FIXED_ENCHANT_SCROLL_PRESETS,
   INCRYPT_SCROLLS,
   VIANU_RATES_BY_COUNT,
+  MAX_INCRYPT_TARGET_SUCCESSES,
+  normalizeIncryptTargetSuccesses,
   simulateEnhanceSingleStep,
   runEnhanceSimulation,
   calculateEnhanceExpectation,

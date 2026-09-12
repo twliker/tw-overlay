@@ -283,8 +283,8 @@ app.whenReady().then(async () => {
 
     if (currentAppConfig.overlayVisible !== false) wm.setOverlayVisible(true);
 
-    if (currentAppConfig.autoLaunch !== undefined) {
-      setupAutoStart(currentAppConfig.autoLaunch);
+    if (process.windowsStore || currentAppConfig.autoLaunch !== undefined) {
+      setupAutoStart(currentAppConfig.autoLaunch === true);
     }
 
     gallery.start(null, sidebar);

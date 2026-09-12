@@ -60,6 +60,12 @@ TW-Overlay는 테일즈위버 게임 창을 추적하여 사이드바, 게임 �
 
 일반 설정의 외부 저장과 클라우드 수신은 `runtimeSettings.ts`를 공유합니다. 명시적 저장은 patch에 포함한 항목을 값이 같아도 재적용하고, 클라우드 수신은 실제 변경만 반영합니다. 설정 화면의 `renderer/settings/draft.ts`는 최근 수신값과 비교한 미저장 입력만 보존합니다. Drive 기존 파일은 본문 조회 전에 얻은 ETag로 조건부 갱신하고, 충돌 시 다시 병합합니다. 숙제 operation의 선택적 `orders`는 ID 배열의 정렬 변경을 기존 mutation과 함께 기록합니다.
 
+설정의 즉시 적용은 `applySettingsWithDraft`에서 저장 성공을 확인한 뒤 제출한 필드와 배열만 초안 기준에 반영합니다. `form-collection.ts`가 값 수집과 함께 해당 필드 ID를 기록하므로 다른 탭의 초안은 저장 완료로 처리하지 않습니다. 라디오는 그룹별, 메뉴 표시 여부는 메뉴 ID별로 보존하며, 비동기 생성된 메뉴는 초기값 적용 후 초안 기준에 등록합니다.
+
+게임 HUD 창에서 저장한 좌표는 메인에서 발신 창을 확인하고 `config-data`의 선택적 `ConfigDataContext.savedHudPositionKeys`로 알립니다. `windowManager.applySettings`는 저장 성공 때만 이 정보를 보내며, 설정 화면은 해당 좌표 필드의 이전 초안만 새 위치로 교체합니다. 숙제 항목 수정은 새 초기화 규칙을 원래 수행 시각에 먼저 적용한 뒤 최대 횟수를 보정하므로 지난 주기의 기록을 오늘 완료로 바꾸지 않습니다.
+
+선택지가 없는 select는 아직 초안 기준에 넣지 않고 알림음 초기화 직후 등록합니다. 저장 중 설정 수신이 있었다면 수신값과 현재 입력을 비교하여 사용자 편집만 저장 승인하며, 객체는 하위 항목별로 처리합니다. 클라우드 적용과 되돌리기는 `applyLoadedConfigToRuntime`으로 기능·창 적용을 공유하지만, 백업 생성과 cloud dirty 억제는 수신 경로만 담당합니다.
+
 거래 검색의 `tradeSearchState`는 키워드별 확인 위치와 이미 알린 글 번호 구간을 config에 보관합니다. 성공한 키워드는 일부 실패와 독립적으로 알리고, 실패한 키워드는 이전 위치부터 재개합니다. 모든 활성 키워드가 지나간 중복 방지 구간은 삭제합니다. 이 상태는 로컬 ZIP에는 포함하고 Drive 동기화에서는 제외합니다.
 
 1. preload의 동기 기본 설정 조회가 가능하도록 IPC 핸들러를 먼저 등록합니다.
@@ -72,6 +78,12 @@ TW-Overlay는 테일즈위버 게임 창을 추적하여 사이드바, 게임 �
 8. 설정이 활성화된 경우 로컬 사기 탐지 모니터를 시작합니다.
 
 반복 호출될 수 있는 `start()`와 등록 함수는 중복 타이머, 중복 이벤트 리스너와 중복 콘솔 출력이 생기지 않도록 멱등성을 유지해야 합니다.
+
+### Windows 자동 실행
+
+`autoStart.ts`는 배포 종류별로 등록을 분리한다. NSIS는 관리자 권한 VBS/Run 등록을 유지하고, Store는 manifest의 `TWOverlayStartup`을 `storeAutoStart.ts`와 Store 도우미의 WinRT API로 제어한다. StartupTask는 일반 권한 WinExe 도우미를 호출하며, 도우미가 버전 없는 패키지 AppsFolder ID를 활성화해 앱의 UAC 실행을 요청한다. 개발 실행은 등록을 변경하지 않는다.
+
+Store의 첫 실행은 구버전 launcher의 내용과 Run 항목 소유권을 확인해 Store 등록만 정리한다. Store 설정 변경은 직렬 적용하고 Windows의 `DisabledByUser`/정책 상태를 보존한다. `scripts/check-auto-start.ts`와 `verify-appx-package.ts`가 마이그레이션·동시 변경·실제 NSIS 바로가기 및 Store 패키지 구성을 검사한다.
 
 ### 채팅 로그 처리
 

@@ -2859,7 +2859,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                        class="text-purple-400">3.1.3</span></p>
+                                class="text-purple-400">3.1.4</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -3141,9 +3141,18 @@
         alert('챗로그 폴더를 먼저 선택해주세요.');
         return;
       }
-      window.electronAPI.applySettings({ chatLogPath: rawPath });
-      window.electronAPI.startChatLogWatch();
-      alert('챗로그 인식을 시작했습니다.');
+      try {
+        const saved = await applySettingsWithDraft({ chatLogPath: rawPath }, ['chat-log-path-input']);
+        if (!saved?.success) {
+          alert(getSettingsApplyErrorMessage(saved));
+          return;
+        }
+        window.electronAPI.startChatLogWatch();
+        alert('챗로그 인식을 시작했습니다.');
+      } catch (error) {
+        console.error('챗로그 경로 저장 실패:', error);
+        alert('챗로그 경로를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
     }
 
     let manualChatLogSyncRunning = false;
@@ -3576,7 +3585,7 @@
 
     async function saveCustomChatTabs(nextTabs) {
       try {
-        const result = await window.electronAPI.applySettingsConfirmed({ chatOverlayCustomTabs: nextTabs });
+        const result = await applySettingsWithDraft({ chatOverlayCustomTabs: nextTabs }, [], { customTabsList: nextTabs });
         if (result && result.success) return true;
         alert(getSettingsApplyErrorMessage(result));
       } catch (error) {
@@ -4184,6 +4193,7 @@
     async function initSettings() {
       await window.settingsAudioControls.initializeAlertSoundSelects();
       if (lastConfig) window.settingsAudioControls.applyAlertSoundConfig(lastConfig);
+      window.settingsDraft.initializeNewFields();
 
       window.bindEscapeClose();
       window.addEventListener('beforeunload', () => {
@@ -4194,6 +4204,7 @@
       initIconList();
       await window.settingsMenuManagement.initialize();
       if (lastConfig) window.settingsMenuManagement.applyConfig(lastConfig);
+      window.settingsDraft.initializeNewFields();
       renderCustomSounds();
 
       if (window.electronAPI && window.electronAPI.onAlarmLogsUpdated) {
@@ -5148,16 +5159,20 @@
       }
     }
 
-    function applyQuestHudPositionOnly() {
+    async function applyQuestHudPositionOnly() {
       try {
         const defaultPosition = window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos;
         const left = document.getElementById('forge-hud-pos-left') ? parseInt(document.getElementById('forge-hud-pos-left').value) : defaultPosition.left;
         const bottom = document.getElementById('forge-hud-pos-bottom') ? parseInt(document.getElementById('forge-hud-pos-bottom').value) : defaultPosition.bottom;
 
         // 1) 위치 정보 설정을 오버레이에 즉시 전송
-        window.electronAPI.applySettings({
+        const result = await applySettingsWithDraft({
           forgeQuestHudPos: { left, bottom }
-        });
+        }, ['forge-hud-pos-left', 'forge-hud-pos-bottom']);
+        if (!result?.success) {
+          alert(getSettingsApplyErrorMessage(result));
+          return;
+        }
 
         // 2) 임시로 대장간 도전과제를 실행해 사용자 눈에 HUD가 띄도록 함
         if (typeof window.testQuestStart === 'function') {
@@ -5280,8 +5295,13 @@
         shortcuts: window.settingsShortcuts.getShortcuts(), colors };
     }
 
-    window.electronAPI.onConfigData((config) => {
-      const draftRefresh = window.settingsDraft.beforeRefresh(collectSettingsDraftExtras());
+    window.electronAPI.onConfigData((config, context) => {
+      const hudPositionFields = {
+        todaySummaryHudPos: ['today-summary-pos-left', 'today-summary-pos-top'],
+        forgeQuestHudPos: ['forge-hud-pos-left', 'forge-hud-pos-bottom'],
+      };
+      const savedFieldIds = (context?.savedHudPositionKeys || []).flatMap(key => hudPositionFields[key] || []);
+      const draftRefresh = window.settingsDraft.beforeRefresh(collectSettingsDraftExtras(), savedFieldIds);
       lastConfig = config;
       window.lastConfig = config;
       window.settingsConfigBinding.applyGeneralSettings(config, window.electronAPI.DEFAULT_CONFIG);
@@ -5970,6 +5990,13 @@
       } catch (e) { console.error(e); alert(e instanceof Error ? e.message : '설정을 저장하지 못했습니다. 다시 저장해 주세요.'); }
     }
 
+    async function applySettingsWithDraft(settings, fieldIds = [], extras = {}) {
+      const savedDraft = window.settingsDraft.beforeSave(fieldIds, extras, collectSettingsDraftExtras);
+      const result = await window.electronAPI.applySettingsConfirmed(settings);
+      if (result?.success) savedDraft.commit();
+      return result;
+    }
+
     async function applyChatOverlaySettingsOnly() {
       const btn = document.querySelector('button[onclick="applyChatOverlaySettingsOnly()"]');
       const origHtml = btn ? btn.innerHTML : '';
@@ -5985,12 +6012,15 @@
         } catch (error) {
           console.warn('최신 채팅 오버레이 크기를 불러오지 못했습니다:', error);
         }
-        const chatSettings = {
+        const { settings: chatSettings, fieldIds } = window.settingsFormCollection.collectWithFieldIds(() => ({
           ...window.settingsFormCollection.collectChatOverlayDisplaySettings(chatOverlayFilterList, customTabsList),
           ...window.settingsFormCollection.collectChatAlertSettings(lootKeywordsList, shoutKeywordsList),
-        };
+        }));
 
-        const result = await window.electronAPI.applySettingsConfirmed(chatSettings);
+        const result = await applySettingsWithDraft(chatSettings, fieldIds, {
+          chatOverlayFilterList, customTabsList, lootKeywordsList, shoutKeywordsList,
+          colors: collectSettingsDraftExtras().colors,
+        });
         if (!result || !result.success) {
           if (btn) {
             btn.innerHTML = `<i data-lucide="circle-alert" class="w-4 h-4 text-rose-400"></i> <span class="text-rose-400">적용하지 못했습니다</span>`;
@@ -6028,9 +6058,12 @@
       }
     }
 
-    function applyTodaySummaryHudSettingsOnly() {
+    async function applyTodaySummaryHudSettingsOnly() {
       try {
-        window.electronAPI.applySettings(window.settingsFormCollection.collectTodaySummaryHudSettings());
+        const { settings, fieldIds } = window.settingsFormCollection.collectWithFieldIds(
+          () => window.settingsFormCollection.collectTodaySummaryHudSettings());
+        const result = await applySettingsWithDraft(settings, fieldIds);
+        if (!result?.success) alert(getSettingsApplyErrorMessage(result));
       } catch (e) {
         console.error('Failed to apply today summary HUD settings:', e);
       }
@@ -6146,9 +6179,12 @@
       applyTodaySummaryHudSettingsOnly();
     }
 
-    function toggleHudShortcuts(checked) {
-      if (window.electronAPI && window.electronAPI.applySettings) {
-        window.electronAPI.applySettings({ showHudShortcuts: Boolean(checked) });
+    async function toggleHudShortcuts(checked) {
+      try {
+        const result = await applySettingsWithDraft({ showHudShortcuts: Boolean(checked) }, ['show-hud-shortcuts-input']);
+        if (!result?.success) alert(getSettingsApplyErrorMessage(result));
+      } catch (error) {
+        console.error('HUD 단축키 표시 설정 저장 실패:', error);
       }
     }
 

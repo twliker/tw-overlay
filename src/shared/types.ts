@@ -136,6 +136,11 @@ export interface HudPosition {
     top?: number;
 }
 
+/** 일반 설정 수신과 구분해야 하는, 저장 성공한 HUD 좌표 입력의 갱신 정보. */
+export interface ConfigDataContext {
+    savedHudPositionKeys?: Array<'todaySummaryHudPos' | 'forgeQuestHudPos'>;
+}
+
 export interface HuntingExpDoping {
     id: string;
     name: string;

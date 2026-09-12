@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, DigsiteBoardState, ChatItem, TimerRecord, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
+import type { ConfigDataContext } from './shared/types';
 
 // sandbox preload은 로컬 모듈 require가 제한되므로 메인 프로세스의 단일 기본값 원본을 동기 조회합니다.
 const MAIN_DEFAULT_CONFIG = ipcRenderer.sendSync('get-default-config-sync') as AppConfig;
@@ -283,7 +284,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('active-windows', callback),
   onManagedWindowResizeEnabled: (callback: (options: { minWidth: number, minHeight: number }) => void) =>
     bindIpcListener('managed-window-resize-enabled', callback),
-  onConfigData: (callback: (config: AppConfig) => void) =>
+  onConfigData: (callback: (config: AppConfig, context?: ConfigDataContext) => void) =>
     bindIpcListener('config-data', callback),
   onChatLogSyncProgress: (callback: (info: SyncProgressInfo) => void) =>
     bindIpcListener('chat-log-sync-progress', callback),

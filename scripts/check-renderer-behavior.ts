@@ -814,6 +814,8 @@ async function checkTodaySummarySettingsLayout(window: BrowserWindow): Promise<v
 }
 
 async function checkCustomChatTabSettings(window: BrowserWindow): Promise<void> {
+  const defaultConfig = require(path.join(projectRoot, 'dist', 'modules', 'constants.js')).DEFAULT_CONFIG;
+  const shortcutsSource = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'settings', 'shortcuts.js'), 'utf8');
   window.setContentSize(1100, 720);
   await window.loadFile(path.join(projectRoot, 'dist', 'settings.html'));
   await waitForSelector(window, '#custom-tab-name-input');
@@ -826,6 +828,7 @@ async function checkCustomChatTabSettings(window: BrowserWindow): Promise<void> 
       window.confirm = () => true;
       window.refreshIcons = () => {};
       window.electronAPI = {
+        DEFAULT_CONFIG: ${JSON.stringify(defaultConfig)},
         applySettingsConfirmed: async payload => {
           const tab = payload.chatOverlayCustomTabs?.at(-1);
           saveCalls.push({
@@ -838,6 +841,8 @@ async function checkCustomChatTabSettings(window: BrowserWindow): Promise<void> 
         },
         getConfig: async () => ({}),
       };
+      // preload 없이 여는 fixture에서도 저장 초안이 읽는 실제 단축키 모듈을 초기화한다.
+      ${shortcutsSource}
       customTabsList = [];
 
       const setChannels = values => {
@@ -881,6 +886,8 @@ async function checkCustomChatTabSettings(window: BrowserWindow): Promise<void> 
 
       const saveCountBeforeDraftApply = saveCalls.length;
       await applyChatOverlaySettingsOnly();
+
+      if (saveCalls.length !== 3) throw new Error('커스텀 탭 저장 경로 실패: ' + JSON.stringify(alerts));
 
       return {
         standardTab,

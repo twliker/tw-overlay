@@ -29,7 +29,7 @@ import * as tracker from './tracker';
 import { log } from './logger';
 import { buffTimerManager } from './buffTimerManager';
 import * as diaryDb from './diaryDb';
-import type { EquipmentDictionaryItem, EvolutionCalculatorSelection, ScreenPosition, WindowPositionKey } from '../shared/types';
+import type { ConfigDataContext, EquipmentDictionaryItem, EvolutionCalculatorSelection, ScreenPosition, WindowPositionKey } from '../shared/types';
 import { copyDefaultWindowPosition } from '../shared/windowPositions';
 import { collectIncompleteContents } from './contentsSummary';
 import { getStandardOptions, isValidCoordinate } from './windowOptions';
@@ -2008,6 +2008,7 @@ export function syncOverlay(currentRect: GameRect): void {
 export function applySettings(
   newSettings: Partial<AppConfig> & { isSidebarResize?: boolean },
   excludedWebContents?: WebContents,
+  configDataContext?: ConfigDataContext,
 ): boolean {
   if (newSettings.isSidebarResize && mainWindow) {
     const b = mainWindow.getBounds();
@@ -2065,7 +2066,8 @@ export function applySettings(
   }
   const sendUpdatedConfig = (win: BrowserWindow | null | undefined): void => {
     if (!win || win.isDestroyed() || win.webContents === excludedWebContents) return;
-    win.webContents.send('config-data', updated);
+    // 저장에 실패한 좌표가 사용자 초안을 저장 완료로 처리하지 않도록 성공한 요청만 표시한다.
+    win.webContents.send('config-data', updated, saveSucceeded ? configDataContext : undefined);
   };
   [mainWindow, overlayWindow, gameOverlayWindow].forEach(sendUpdatedConfig);
   Object.values(windowRegistry).forEach(winCfg => {

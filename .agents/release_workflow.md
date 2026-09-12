@@ -250,6 +250,7 @@ npm run verify:appx -- dist_electron/twOverlay-X.Y.Z.appx
 
 * **패키지 식별자**: `package.json`의 `appx` 설정(`applicationId: twOverlay`, `identityName: FilbertLab.TW-Overlay`, `publisher: CN=6BAF7511-7890-43A4-8630-498F620A5370`)을 참조합니다.
 * **Store 아이콘**: `build/appx/` 폴더의 `StoreLogo.png`, `Square44x44Logo.png`, `Square150x150Logo.png`, `Wide310x150Logo.png`를 사용합니다. 파일이 누락되면 Electron 기본 AppX 자산으로 대체되므로 빌드 후 패키지 내부 자산을 확인합니다.
+* **Store 자동 실행**: `TWOverlayStartup`은 ASAR 밖의 Store 도우미를 가리켜야 합니다. 도우미는 `asInvoker` Windows GUI 실행 파일이며, 인수 없이 시작되면 패키지 ID로 앱을 활성화합니다. `startup-enable`/`startup-disable` 명령은 WinRT StartupTask를 제어합니다. `npm test`의 자동 실행 검사와 AppX 검증이 이 구성을 확인합니다.
 * **관리자 권한**: EXE의 `requireAdministrator`와 AppX의 `runFullTrust`, `allowElevation` capability를 함께 유지합니다. `allowElevation`은 Microsoft Store의 제한 capability이므로 제출 메모에 게임 창 추적·Win32 오버레이 및 네트워크 최적화 기능에 승격이 필요한 이유와 테스트 방법을 명시합니다.
 
 ### 2. 실제 Store 패키지 설치·실행 게이트
@@ -265,6 +266,9 @@ Store 제출용 AppX는 로컬에서 의도적으로 서명하지 않으며 Micr
 - [ ] 설치된 package dependency에 `Microsoft.VCLibs.140.00.UWPDesktop` x64가 존재한다.
 - [ ] 시작 메뉴의 정사각형·와이드 타일이 Electron 기본 이미지가 아니라 TW-Overlay 전용 이미지다.
 - [ ] 앱을 실행하면 UAC가 한 번 표시되고 승인 뒤 사이드바가 열린다.
+- [ ] 3.1.3의 Store 자동 실행이 켜진 상태에서 업데이트 후 앱을 실행하면 구형 Run/launcher가 정리되고 `TWOverlayStartup`이 켜진다. 일반 설치본을 가리키는 기존 등록은 보존된다.
+- [ ] 로그아웃·로그인 후 경로 접근 오류와 콘솔 창 없이 UAC 승인 뒤 앱이 실행된다. Store 버전을 한 번 더 업데이트해도 같은 결과다.
+- [ ] 앱에서 자동 실행을 끄면 다음 로그인에 실행되지 않는다. Windows에서 직접 끈 항목은 앱이 강제로 활성화하지 않는다.
 - [ ] 첫 실행과 완전 종료 후 두 번째 실행 모두 `A JavaScript error occurred in the main process` 대화상자가 없다.
 - [ ] 주요 오버레이 하나와 숙제 체크리스트를 열고 종료할 수 있다.
 - [ ] Store 빌드에서 GitHub 자체 업데이트 다운로드가 시작되지 않는다.

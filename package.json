@@ -1,6 +1,6 @@
 {
   "name": "tw-overlay",
-  "version": "3.1.3",
+  "version": "3.1.4",
   "description": "TalesWeaver Companion Browser",
   "main": "dist/main.js",
   "scripts": {
@@ -25,11 +25,12 @@
     "test:xp-policy": "electron dist-tools/check-xp-hud-policy.js",
     "test:abandoned-visibility": "electron dist-tools/check-abandoned-visibility-policy.js",
     "test:audit": "electron dist-tools/check-audit-regressions.js",
+    "test:autostart": "electron dist-tools/check-auto-start.js",
     "test:stress": "npm run build && electron dist-tools/stress-test-high-throughput.js && electron dist-tools/stress-test-sustained.js",
     "capture:guide": "npm run build && electron dist-tools/capture-guide-screenshots.js",
     "build:zorder-fixture": "dotnet build scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj --configuration Release --nologo",
     "test:zorder:windows": "npm run build && npm run build:zorder-fixture && electron dist-tools/runtime-zorder-windows-probe.js",
-    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:abandoned-visibility && npm run test:audit"
+    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:abandoned-visibility && npm run test:audit && npm run test:autostart"
   },
   "build": {
     "appId": "com.filbertlab.twoverlay",
@@ -87,13 +88,13 @@
   },
   "overrides": {
     "fast-uri": "^3.1.7",
-    "js-yaml": "^4.3.1"
+    "js-yaml": "^4.3.2"
   },
   "keywords": [],
   "author": "filbertlab",
   "license": "MIT",
   "dependencies": {
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "better-sqlite3": "^13.0.3",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",

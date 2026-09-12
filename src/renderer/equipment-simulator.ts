@@ -371,6 +371,7 @@
 
     scrollSelect.addEventListener('change', refreshIncryptUI);
     protectInput.addEventListener('input', refreshIncryptUI);
+    ($('incrypt-target-success') as HTMLInputElement).max = String(api.MAX_INCRYPT_TARGET_SUCCESSES);
     $('incrypt-target-success').addEventListener('input', renderIncryptExpectation);
     $('incrypt-currency-type').addEventListener('change', () => {
       const type = ($('incrypt-currency-type') as HTMLSelectElement).value;
@@ -399,7 +400,10 @@
 
   function renderIncryptExpectation(): void {
     const opts = getIncryptOptions();
-    const targetSucc = Number(($('incrypt-target-success') as HTMLInputElement).value) || 1;
+    const targetInput = $('incrypt-target-success') as HTMLInputElement;
+    const targetSucc = api.normalizeIncryptTargetSuccesses(Number(targetInput.value));
+    // 빈 입력은 다음 숫자를 입력할 수 있게 두고, 붙여넣은 큰 값은 계산 전에 보정한다.
+    if (targetInput.value !== '') targetInput.value = String(targetSucc);
     const res = api.calculateIncryptExpectation(opts, targetSucc);
     const container = $('incrypt-exp-metrics');
 

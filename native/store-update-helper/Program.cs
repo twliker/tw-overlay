@@ -14,23 +14,27 @@ namespace TWOverlay.StoreUpdateHelper;
 internal static class Program
 {
     private const int ProtocolVersion = 1;
+    private const string StartupTaskId = "TWOverlayStartup";
 
     [STAThread]
     private static async Task<int> Main(string[] args)
     {
-        if (args.Length == 0)
-        {
-            WriteError("invalid-arguments", "Expected one of: self-test, check, install");
-            return 2;
-        }
-
         try
         {
+            // StartupTask는 인수 없이 일반 권한 WinExe를 실행한다. 버전이 붙은 WindowsApps
+            // 경로를 직접 runas 실행하지 않고 Windows의 패키지 활성화로 UAC를 처리한다.
+            if (args.Length == 0)
+            {
+                ActivatePackageApplication("twOverlay");
+                return 0;
+            }
             return args[0].ToLowerInvariant() switch
             {
                 "self-test" => RunSelfTest(),
                 "check" => await CheckForUpdatesAsync(),
                 "install" => await InstallUpdatesAsync(ParseInstallOptions(args.Skip(1).ToArray())),
+                "startup-enable" => await SetStartupAsync(true),
+                "startup-disable" => await SetStartupAsync(false),
                 _ => InvalidCommand(args[0]),
             };
         }
@@ -39,6 +43,33 @@ internal static class Program
             WriteError($"0x{error.HResult:X8}", error.Message);
             return 1;
         }
+    }
+
+    private static async Task<int> SetStartupAsync(bool enable)
+    {
+        StartupTask task = await StartupTask.GetAsync(StartupTaskId);
+        StartupTaskState state = task.State;
+        if (enable && state == StartupTaskState.Disabled)
+            state = await task.RequestEnableAsync();
+        else if (!enable && state == StartupTaskState.Enabled)
+        {
+            task.Disable();
+            state = task.State;
+        }
+        WriteEvent("startup-result", writer => writer.WriteString("state", state.ToString()));
+        return 0;
+    }
+
+    private static void ActivatePackageApplication(string applicationId)
+    {
+        string appUserModelId = $"{Package.Current.Id.FamilyName}!{applicationId}";
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+            Arguments = $"shell:AppsFolder\\{appUserModelId}",
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+        });
     }
 
     private static int RunSelfTest()
@@ -194,14 +225,7 @@ internal static class Program
         }
 
         await Task.Delay(500);
-        string appUserModelId = $"{Package.Current.Id.FamilyName}!{options.ApplicationId}";
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = "explorer.exe",
-            Arguments = $"shell:AppsFolder\\{appUserModelId}",
-            UseShellExecute = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-        });
+        ActivatePackageApplication(options.ApplicationId);
     }
 
     private static void WriteProgress(string phase, int percent)

@@ -508,7 +508,13 @@ export function register(): void {
       ? sourceWebContents
       : undefined;
     const previousConfig = config.load();
-    const saveSucceeded = wm.applySettings(sanitizedSettings, excludedSettingsWebContents);
+    // HUD 편집 저장은 같은 사용자가 명시적으로 확정한 좌표다. 일반 외부 수신과 달리
+    // 해당 좌표의 이전 입력 초안만 교체한다. 발신 창은 메인에서 확인한다.
+    const savedHudPositionKeys = sourceWebContents && sourceWebContents === wm.getGameOverlayWindow()?.webContents
+      ? (['todaySummaryHudPos', 'forgeQuestHudPos'] as const).filter(key => sanitizedPatch[key] !== undefined)
+      : [];
+    const saveSucceeded = wm.applySettings(sanitizedSettings, excludedSettingsWebContents,
+      savedHudPositionKeys.length ? { savedHudPositionKeys } : undefined);
     if (saveSucceeded) applyRuntimeSettings(previousConfig, config.load(), sanitizedPatch);
     
     // 챗로그 상태 변경 여부를 모든 창에 브로드캐스트

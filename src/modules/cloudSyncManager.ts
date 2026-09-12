@@ -7,6 +7,8 @@
  *   변경을 덮지 않습니다. 모든 네트워크 전송은 single-flight queue로 직렬화합니다.
  * - 기존 원격 파일은 본문 조회 전 ETag로 조건부 저장한다. 다른 PC가 먼저 쓰면 최신 상태를 읽고
  *   최대 4번 시도하며, 실패하면 dirty/outbox를 유지한다. 수신 설정은 로컬 저장과 같은 런타임 경로로 적용한다.
+ * - 마지막 복원 되돌리기도 모니터·단축키·창에 적용한다. 복원 전 백업은 유지하며 되돌린 값은
+ *   일반 로컬 변경으로 기록해 재동기화한다. 클라우드 수신의 dirty 억제를 되돌리기에 사용하지 않는다.
  * - 원격 적용 중 발생한 config 저장을 새 로컬 변경으로 되올리지 않으며, 원격 조회와 동시에 생긴 로컬
  *   변경은 serial/outbox를 비교해 보존합니다. 단순한 '마지막 응답 승리' 병합으로 바꾸지 않습니다.
  * - 계정 변경·재로그인·원격 세대 불일치·복원 건너뛰기는 profile state와 fingerprint로 명시적으로
@@ -430,23 +432,28 @@ async function applyConfigFromCloud(nextConfig: AppConfig, createBackup = true):
     if (!config.saveImmediate(nextConfig)) {
       throw new Error(`클라우드 데이터를 로컬에 저장하지 못했습니다: ${config.getLastSaveError() || '알 수 없는 오류'}`);
     }
-    const { applyRuntimeSettings } = await import('./runtimeSettings');
-    applyRuntimeSettings(previous, config.load());
-    try {
-      const contentsChecker = await import('./contentsChecker');
-      contentsChecker.init();
-    } catch (error) {
-      log(`[CloudSyncManager] 숙제 화면 갱신 실패: ${error}`);
-    }
-    try {
-      const wm = await import('./windowManager');
-      // 런타임/숙제 초기화가 파생시킨 값(서버 변경 시 확인 번호 등)을 오래된 스냅샷으로 되돌리지 않는다.
-      wm.applySettings(config.load());
-    } catch (error) {
-      log(`[CloudSyncManager] 창 설정 갱신 실패: ${error}`);
-    }
+    await applyLoadedConfigToRuntime(previous);
   } finally {
     applyingCloud = false;
+  }
+}
+
+/** config 저장/백업/dirty 정책은 호출부가 결정하고 실제 기능 적용만 공유한다. */
+async function applyLoadedConfigToRuntime(previous: AppConfig): Promise<void> {
+  const { applyRuntimeSettings } = await import('./runtimeSettings');
+  applyRuntimeSettings(previous, config.load());
+  try {
+    const contentsChecker = await import('./contentsChecker');
+    contentsChecker.init();
+  } catch (error) {
+    log(`[CloudSyncManager] 숙제 화면 갱신 실패: ${error}`);
+  }
+  try {
+    const wm = await import('./windowManager');
+    // 서버 변경·숙제 초기화가 파생시킨 값을 오래된 스냅샷으로 되돌리지 않는다.
+    wm.applySettings(config.load());
+  } catch (error) {
+    log(`[CloudSyncManager] 창 설정 갱신 실패: ${error}`);
   }
 }
 
@@ -1215,9 +1222,11 @@ export async function rollbackLastRestore(): Promise<GoogleSyncResult> {
   try {
     return await enqueueTransfer('복원 되돌리기', 'rollback', async () => {
       const backup = syncDataHelper.loadLocalSyncBackup();
+      const previous = config.load();
       if (!config.saveImmediate(backup)) {
         return { success: false, error: config.getLastSaveError() || '로컬 백업 적용에 실패했습니다.' };
       }
+      await applyLoadedConfigToRuntime(previous);
       return {
         success: true,
         message: '클라우드 복원 전 이 PC의 설정으로 되돌렸습니다.',

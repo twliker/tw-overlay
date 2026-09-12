@@ -370,7 +370,8 @@ async function doCheck(): Promise<void> {
     }
 
     const backoff = calculateBackoffMs(consecutiveErrors, MONITOR_RATE_LIMIT.BACKOFF_BASE_MS, MONITOR_RATE_LIMIT.MAX_BACKOFF_MS);
-    checkTimer = setTimeout(doCheck, backoff || MONITOR_CHECK_INTERVAL_MS);
+    // 오류 지연은 정상 폴링 간격에 추가한다. 실패가 요청 빈도를 높여서는 안 된다.
+    checkTimer = setTimeout(doCheck, MONITOR_CHECK_INTERVAL_MS + backoff);
 }
 
 // ─── 내부 유틸 ───

@@ -1106,8 +1106,10 @@ function checkRendererResources() {
 
   const gameOverlay = read('src/game-overlay.html');
   const settingsPage = read('src/settings.html');
-  assert.match(settingsPage, /applySettingsConfirmed\(\{ chatOverlayCustomTabs: nextTabs \}\)/,
-    '사용자 정의 채팅 탭 저장이 결과 확인 가능한 설정 IPC를 사용하지 않습니다.');
+  assert.match(settingsPage, /applySettingsWithDraft\(\{ chatOverlayCustomTabs: nextTabs \}/,
+    '사용자 정의 채팅 탭 저장이 초안 기준을 갱신하는 공통 저장 경로를 사용하지 않습니다.');
+  assert.match(settingsPage, /async function applySettingsWithDraft\([\s\S]*?await window\.electronAPI\.applySettingsConfirmed\(settings\)/,
+    '초안 저장 경로가 결과 확인 가능한 설정 IPC를 사용하지 않습니다.');
   assert.match(settingsPage, /\.\.\.\(checkedChannels\.includes\('system'\) \? \{ systemColorFilters: systemColors \} : \{\}\)/,
     '시스템 채널이 없는 사용자 정의 탭에 선택적 시스템 색상 필드가 포함될 수 있습니다.');
   assert.match(settingsPage, /hasPendingCustomChatTabDraft\(\)[\s\S]*?먼저 “탭 추가”/,
@@ -2295,7 +2297,7 @@ function checkDependencyOverrideContracts(): void {
     1,
     'package.json에 overrides 키가 중복되어 앞쪽 보안 고정값이 무시될 수 있습니다.',
   );
-  assert.match(packageData.overrides?.['js-yaml'] || '', /^\^4\.3\.1$/,
+  assert.match(packageData.overrides?.['js-yaml'] || '', /^\^4\.3\.2$/,
     '취약한 js-yaml 버전이 다시 설치될 수 있습니다.');
   assert.equal(packageData.scripts?.postinstall, 'electron-builder install-app-deps',
     'npm ci 후 Electron용 네이티브 모듈 ABI 재빌드가 실행되지 않습니다.');

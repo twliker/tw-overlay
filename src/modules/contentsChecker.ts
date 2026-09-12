@@ -13,6 +13,9 @@
  *   중복을 막습니다. 설정 원본은 `contentsCheckerItems`이고 일지/HUD는 이 값을 읽어 표시합니다.
  * - 목록·캐릭터·최대 횟수 변경 후 현재 일지 집계를 함께 갱신합니다. 완료 해제는 기존 완료 일시의
  *   기록을 취소하며, 자정이 지났다는 이유로 다른 날짜의 행을 삭제하지 않습니다.
+ * - 최대 횟수에서 다시 누르는 등 횟수·완료 상태가 그대로인 입력은 완료 일시나 일지를 갱신하지 않습니다.
+ * - 초기화 규칙 수정은 원래 수행 시각으로 만료 여부를 먼저 판정하고 유효한 횟수만 최대값에 맞춥니다.
+ *   주기 만료는 과거 완료 일지를 취소하거나 오늘 완료로 다시 기록하지 않습니다.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1201,6 +1204,11 @@ export function updateItem(id: string, name: string, category: string, rule: Res
     item.name = name;
     item.category = category;
     item.resetRule = rule;
+
+    // 새 최대값 도달로 완료 시각을 바꾸기 전에, 변경된 규칙의 지난 주기를 비운다.
+    const resetResult = resetExpiredHomeworkItems([item]);
+    item.completedState = resetResult.items[0].completedState;
+    const resetCharacterIds = new Set(resetResult.resetEntries.map(entry => entry.characterId));
     
     if (rule.type === 'weekly') {
       const newMax = Math.max(1, Math.trunc(maxCount !== undefined ? maxCount : 1));
@@ -1233,6 +1241,7 @@ export function updateItem(id: string, name: string, category: string, rule: Res
     if (!config.saveImmediate({ contentsCheckerItems: items })) return;
     const previousItem = cfg.contentsCheckerItems?.find(candidate => candidate.id === id);
     for (const [charId, state] of Object.entries(item.completedState || {})) {
+      if (resetCharacterIds.has(charId)) continue; // 주기 초기화는 과거 일지의 완료 취소가 아니다.
       const previous = previousItem?.completedState?.[charId];
       syncHomeworkDiary(cfg, item, charId, state, previous?.isCompleted, previous?.lastCompletedAt);
     }
@@ -1456,10 +1465,13 @@ export function updateItemCount(id: string, characterId: string, count: number):
 
     const max = item.maxCount || 1;
     const prevCompleted = state.isCompleted;
+    const nextCount = Math.max(0, Math.min(max, count));
+    const nextCompleted = nextCount === max;
+    if (nextCount === (state.currentCount ?? (prevCompleted ? max : 0)) && nextCompleted === prevCompleted) return;
 
     const previousCompletedAt = state.lastCompletedAt;
-    state.currentCount = Math.max(0, Math.min(max, count));
-    state.isCompleted = (state.currentCount === max);
+    state.currentCount = nextCount;
+    state.isCompleted = nextCompleted;
     state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
 
     config.saveImmediate({ contentsCheckerItems: items });
@@ -1696,18 +1708,21 @@ export function applyPendingHomeworks(characterId: string): void {
     }
 
     const max = item.maxCount || 1;
-    const current = state.currentCount || 0;
+    const current = getStateCount(state, max);
     const prevCompleted = state.isCompleted;
+    const previousCompletedAt = state.lastCompletedAt;
 
-    // 범위 보정 (최대 완료 횟수 제한 적용)
-    state.currentCount = resolvePendingHomeworkCount(current, pending, max);
+    // 이미 반영된 횟수의 보류 이벤트는 소비하되 기존 완료 날짜를 유지한다.
+    const nextCount = resolvePendingHomeworkCount(current, pending, max);
+    appliedPending.add(pending);
+    if (nextCount === current && (nextCount === max) === prevCompleted) return;
+    state.currentCount = nextCount;
     state.isCompleted = (state.currentCount === max);
     state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
 
-    appliedPending.add(pending);
     log(`[Contents Checker] 반영 완료 - 숙제: ${item.name}, 카운트: ${current} -> ${state.currentCount} (${state.isCompleted ? '완료' : '진행중'})`);
 
-    syncHomeworkDiary(cfg, item, characterId, state, prevCompleted);
+    syncHomeworkDiary(cfg, item, characterId, state, prevCompleted, previousCompletedAt);
   });
 
   // 반영되지 못한 항목(N/A 제외 캐릭터 선택 등) 중, 리셋 주기가 지나지 않은 유효 항목만 보존

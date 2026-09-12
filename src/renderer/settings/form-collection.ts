@@ -49,8 +49,20 @@
   const defaultConfig = (window.electronAPI as typeof window.electronAPI & {
     DEFAULT_CONFIG: RendererDefaults;
   }).DEFAULT_CONFIG;
-  const input = (id: string): HTMLInputElement | HTMLSelectElement | null =>
-    document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+  let collectedFieldIds: Set<string> | undefined;
+  const input = (id: string): HTMLInputElement | HTMLSelectElement | null => {
+    collectedFieldIds?.add(id);
+    return document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+  };
+
+  /** 값 수집과 같은 경로에서 저장 대상 DOM을 기록해 별도 필드 목록과의 불일치를 막는다. */
+  function collectWithFieldIds(collect: () => Record<string, unknown>): { settings: Record<string, unknown>; fieldIds: string[] } {
+    const previous = collectedFieldIds;
+    const ids = new Set<string>();
+    collectedFieldIds = ids;
+    try { return { settings: collect(), fieldIds: [...ids] }; }
+    finally { collectedFieldIds = previous; }
+  }
 
   const integerValue = (id: string, fallback: number): number => {
     const element = input(id);
@@ -164,6 +176,7 @@
   }
 
   window.settingsFormCollection = Object.freeze({
+    collectWithFieldIds,
     collectChatOverlayDisplaySettings,
     collectChatAlertSettings,
     collectTodaySummaryHudSettings,

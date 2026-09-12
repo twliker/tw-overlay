@@ -144,6 +144,7 @@ interface SettingsColorPicker {
 }
 
 interface SettingsFormCollection {
+  collectWithFieldIds(collect: () => Record<string, unknown>): { settings: Record<string, unknown>; fieldIds: string[] };
   collectChatOverlayDisplaySettings(blacklistFilters?: string[], customTabs?: unknown[]): Record<string, unknown>;
   collectChatAlertSettings(lootKeywords: string[], shoutKeywords: string[]): Record<string, unknown>;
   collectTodaySummaryHudSettings(): Record<string, unknown>;
@@ -318,7 +319,11 @@ interface Window {
   settingsMenuManagement: SettingsMenuManagement;
   settingsAudioControls: SettingsAudioControls;
   settingsConfigBinding: SettingsConfigBinding;
-  settingsDraft: { beforeRefresh(extras: Record<string, any>): { restore(extras: Record<string, any>): Record<string, any> } };
+  settingsDraft: {
+    initializeNewFields(): void;
+    beforeSave(fieldIds: string[], extras?: Record<string, any>, readExtras?: () => Record<string, any>): { commit(): void };
+    beforeRefresh(extras: Record<string, any>, savedFieldIds?: string[]): { restore(extras: Record<string, any>): Record<string, any> };
+  };
   recordShortcut(key: string): void;
   resetShortcut(key: string): void;
   toggleMute(type: string): void;
