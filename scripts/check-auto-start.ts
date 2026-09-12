@@ -140,14 +140,18 @@ async function main(): Promise<void> {
     for (const directoryPrefix of ['설정-', '설정-🧪-']) {
         const normal = createHarness(false, true, directoryPrefix);
         fs.mkdirSync(path.dirname(normal.app.getPath('exe')), { recursive: true });
+        fs.writeFileSync(normal.app.getPath('exe'), 'shortcut icon path fixture; never executed');
         normal.exports.setupAutoStart(true);
         await until(() => normal.registry.length === 1 || normal.logs.some(line => line.includes('FAIL')));
         assert.equal(normal.registry[0]?.openAtLogin, true, normal.logs.join('\n'));
         assert.equal(fs.existsSync(normal.lnk), true, '바로가기 생성 실패를 등록 성공으로 처리했습니다.');
         const inspected = shell.readShortcutLink(normal.lnk);
-        assert.equal(inspected.cwd, path.dirname(normal.app.getPath('exe')));
-        assert.equal(inspected.target, normal.vbs);
-        assert.equal(inspected.icon, normal.app.getPath('exe'));
+        assert.ok(inspected.cwd, '바로가기 작업 폴더가 비어 있습니다.');
+        assert.ok(inspected.icon, '바로가기 아이콘 경로가 비어 있습니다.');
+        // Shell은 RUNNER~1 같은 8.3 별칭을 긴 이름으로 확장할 수 있다. 실제 파일 경로를 비교한다.
+        assert.equal(fs.realpathSync.native(inspected.cwd), fs.realpathSync.native(path.dirname(normal.app.getPath('exe'))));
+        assert.equal(fs.realpathSync.native(inspected.target), fs.realpathSync.native(normal.vbs));
+        assert.equal(fs.realpathSync.native(inspected.icon), fs.realpathSync.native(normal.app.getPath('exe')));
         assert.equal(inspected.iconIndex, 0);
         assert.equal(inspected.description, 'twOverlay Auto Start');
         assert.equal(fs.readFileSync(normal.vbs, 'utf16le'), '\ufeff' + legacy(normal.app.getPath('exe')));
@@ -157,7 +161,7 @@ async function main(): Promise<void> {
         assert.equal(fs.existsSync(normal.lnk), false);
         normal.exports.setupAutoStart(true);
         assert.equal(normal.registry[normal.registry.length - 1]?.openAtLogin, true);
-        assert.equal(shell.readShortcutLink(normal.lnk).target, normal.vbs);
+        assert.equal(fs.realpathSync.native(shell.readShortcutLink(normal.lnk).target), fs.realpathSync.native(normal.vbs));
         normal.exports.setupAutoStart(false);
         assert.deepEqual(normal.registry.map(item => item.openAtLogin), [true, false, true, false]);
     }

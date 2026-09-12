@@ -47,3 +47,5 @@
 | twOverlay-Setup-3.1.4.exe | `e5cc2f63fb1041f583c91483c5c42a66400d8eaf031280d7ddfc11aae25326f9` |
 | twOverlay-Setup-3.1.4.exe.blockmap | `96504c83a14f385375aedeb06aae55b7143caf67848ed6abb3b5941c5b10b602` |
 | latest.yml | `dcac2a5a54f9294e55dfee0258acdfab057ed5f705c1c165c19d7e94b237b89e` |
+
+후속 CI 실행에서는 바로가기 생성 자체가 성공했으며, 테스트가 `RUNNER~1`과 `runneradmin`이라는 같은 경로의 8.3 별칭·긴 이름을 서로 다르다고 판정했다. 바로가기 대상·작업 폴더·아이콘을 `fs.realpathSync.native`로 정규화해 같은 파일인지 확인하도록 검사만 보정했다. 제품 코드는 위 네이티브 API 수정 이후 변경하지 않았다.
