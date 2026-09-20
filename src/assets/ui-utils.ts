@@ -48,6 +48,19 @@ window.bindEscapeClose = function () {
   });
 };
 
+/** 같은 표시 원인·회차의 살아 있는 토스트만 묶는다. 원래 종료 시각과 기록 버튼은 유지한다. */
+window.mergeRepeatedToast = function (container, key) {
+  const toast = Array.from(container.querySelectorAll<HTMLElement>('.boss-toast.show'))
+    .find(node => node.dataset.repeatKey === key && node.dataset.removing !== 'true');
+  if (!toast) return false;
+  const count = (Number(toast.dataset.repeatCount) || 1) + 1;
+  toast.dataset.repeatCount = String(count);
+  let badge = toast.querySelector<HTMLElement>('.toast-repeat-count');
+  if (!badge) { badge = document.createElement('span'); badge.className = 'toast-repeat-count ui-hud-caption'; toast.appendChild(badge); }
+  badge.textContent = `같은 알림 ${count}회`;
+  return true;
+};
+
 // preload에 등록된 IPC 이벤트 구독 정리 바인딩
 window.bindElectronListenerCleanup = function () {
   if (window.__twElectronListenerCleanupBound) return;
@@ -64,9 +77,13 @@ window.bindElectronListenerCleanup = function () {
  * 투명·무테 창은 운영체제 기본 테두리가 보이지 않아 `resizable`만 켜도 사용자가 잡을 곳을
  * 찾기 어렵습니다. 메인 프로세스가 허용한 일반 창에만 우하단 손잡이를 설치합니다.
  */
+const managedWindowResizeMinimum = { width: 100, height: 100 };
 window.installManagedWindowResizeHandle = function (
   options: { minWidth?: number; minHeight?: number } = {},
 ): void {
+  // 프리셋이 작업 영역을 바꿔도 손잡이·리스너는 재사용하고 제한만 최신 값으로 갱신한다.
+  managedWindowResizeMinimum.width = Math.max(100, Number(options.minWidth) || 100);
+  managedWindowResizeMinimum.height = Math.max(100, Number(options.minHeight) || 100);
   if (document.getElementById('tw-managed-window-resize-handle')) return;
   const api = getElectronApi();
   if (!api?.setWindowSize) return;
@@ -89,8 +106,6 @@ window.installManagedWindowResizeHandle = function (
     const startY = event.screenY;
     const startWidth = window.innerWidth;
     const startHeight = window.innerHeight;
-    const minWidth = Math.max(100, Number(options.minWidth) || 100);
-    const minHeight = Math.max(100, Number(options.minHeight) || 100);
     let resizeFrame: number | null = null;
     let pendingWidth = startWidth;
     let pendingHeight = startHeight;
@@ -100,8 +115,8 @@ window.installManagedWindowResizeHandle = function (
       api.setWindowSize(pendingWidth, pendingHeight);
     };
     const onMove = (moveEvent: MouseEvent) => {
-      pendingWidth = Math.max(minWidth, Math.round(startWidth + moveEvent.screenX - startX));
-      pendingHeight = Math.max(minHeight, Math.round(startHeight + moveEvent.screenY - startY));
+      pendingWidth = Math.max(managedWindowResizeMinimum.width, Math.round(startWidth + moveEvent.screenX - startX));
+      pendingHeight = Math.max(managedWindowResizeMinimum.height, Math.round(startHeight + moveEvent.screenY - startY));
       if (resizeFrame === null) resizeFrame = window.requestAnimationFrame(flushResize);
     };
     const onUp = () => {

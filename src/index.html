@@ -227,6 +227,8 @@
     let sidebarPos = 'right';
     let isCollapsed = false;
     let wasCloudReauthRequired = false;
+    let keyboardMenuCategory = null;
+    let lastPointerPosition = { clientX: -Infinity, clientY: -Infinity };
 
     const audioPlayback = window.createAudioPlaybackController({
       getDefaultVolume: () => bossNotifyVolume,
@@ -354,6 +356,11 @@
             `;
 
             catItem.onmouseenter = () => {
+              document.querySelectorAll('.category-item').forEach(other => {
+                if (other === catItem) return;
+                if (keyboardMenuCategory === other) keyboardMenuCategory = null;
+                other.onmouseleave?.(new MouseEvent('mouseleave'));
+              });
               const flyout = catItem.querySelector('.flyout-submenu');
               if (flyout) {
                 // 먼저 렌더링되게 하여 offsetHeight를 측정할 수 있도록 함
@@ -380,6 +387,7 @@
             };
 
             catItem.onmouseleave = () => {
+              if (keyboardMenuCategory === catItem) return;
               const flyout = catItem.querySelector('.flyout-submenu');
               if (flyout) {
                 flyout.classList.add('hidden');
@@ -388,9 +396,17 @@
               }
             };
 
-            catItem.addEventListener('focusin', () => catItem.onmouseenter?.(new MouseEvent('mouseenter')));
+            catItem.addEventListener('focusin', event => {
+              if (event.target.matches(':focus-visible')) keyboardMenuCategory = catItem;
+              catItem.onmouseenter?.(new MouseEvent('mouseenter'));
+              if (keyboardMenuCategory) checkMouseIgnore(lastPointerPosition, true);
+            });
             catItem.addEventListener('focusout', event => {
-              if (!catItem.contains(event.relatedTarget)) catItem.onmouseleave?.(new MouseEvent('mouseleave'));
+              if (!catItem.contains(event.relatedTarget)) {
+                if (keyboardMenuCategory === catItem) keyboardMenuCategory = null;
+                catItem.onmouseleave?.(new MouseEvent('mouseleave'));
+                checkMouseIgnore(lastPointerPosition, true);
+              }
             });
 
             const flyout = catItem.querySelector('.flyout-submenu');
@@ -545,7 +561,7 @@
     }
 
     const interactiveToasts = window.createInteractiveToastRegistry((count) => {
-      const hasInteractiveToast = count > 0;
+      const hasInteractiveToast = count > 0 || keyboardMenuCategory !== null;
       updateIgnoreMouseEvents(!hasInteractiveToast);
       updateSidebarWindowWidth(hasInteractiveToast ? 400 : 50);
     });
@@ -564,10 +580,13 @@
         iconName,
         iconColor,
       } = window.getBossToastPresentation(bossName, isCustomFromApi, spawnTime, offset);
+      const repeatKey = JSON.stringify([bossName, !!isCustomFromApi, spawnTime || '', offset ?? null]);
+      if (window.mergeRepeatedToast(toastContainer, repeatKey)) return;
       const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
 
       const toast = document.createElement('div');
       toast.id = toastId;
+      toast.dataset.repeatKey = repeatKey;
       toast.className = 'boss-toast show';
 
       const buttonHtml = isAlreadyRecorded
@@ -912,8 +931,18 @@
       }, 300);
     }
 
-    function checkMouseIgnore(e) {
-      if (isResizing) return;
+    // 기능 계약: 키보드로 연 메뉴도 포인터와 같은 창 폭·입력·런처 우선순위를 확보한다.
+    // 메뉴 내부 Tab 이동/투명 여백의 mousemove/토스트 만료로 접지 않고,
+    // 메뉴 밖 포커스 이동 또는 창 비활성화 뒤에는 기존 포인터 정책으로 돌아간다.
+    // check-window-visibility에서 실제 index.html → preload/IPC → 네이티브 폭을 검증한다.
+    function checkMouseIgnore(e, force = false) {
+      lastPointerPosition = { clientX: e.clientX, clientY: e.clientY };
+      if (keyboardMenuCategory) {
+        updateIgnoreMouseEvents(false);
+        updateSidebarWindowWidth(400);
+        return;
+      }
+      if (isResizing && !force) return;
 
       const wrapperRect = wrapper.getBoundingClientRect();
       const hitPadding = 14;
@@ -963,6 +992,13 @@
     }
     // 전역 마우스 이동 감시
     window.addEventListener('mousemove', checkMouseIgnore);
+    window.addEventListener('blur', () => {
+      const category = keyboardMenuCategory;
+      if (!category) return;
+      keyboardMenuCategory = null;
+      category.onmouseleave?.(new MouseEvent('mouseleave'));
+      checkMouseIgnore({ clientX: -Infinity, clientY: -Infinity }, true);
+    });
 
     // 초기 상태 설정
     updateIgnoreMouseEvents(true);

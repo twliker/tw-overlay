@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <title>거래 게시판 모니터</title>
     <link rel="stylesheet" href="style.css">
     <script src="assets/tailwind.min.js"></script>
     <script src="assets/lucide.min.js"></script>
@@ -93,7 +94,7 @@
                     <span id="keyword-badge" class="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-black border border-emerald-500/30">키워드 부족</span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <span id="server-badge" class="win-title-sub">서버 확인중</span>
+                    <span id="server-badge" class="win-title-sub cursor-pointer hover:underline" title="클릭하여 서버 설정 열기" onclick="window.electronAPI.toggleSettings('trade')">서버 확인중</span>
                     <span id="conn-status" class="win-title-sub">Connected</span>
                 </div>
             </div>
@@ -133,10 +134,19 @@
                 열기</button>
         </div>
 
+        <!-- 실시간 검색 필터 바 -->
+        <div class="relative group shrink-0">
+            <i data-lucide="search" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-emerald-400 transition-colors"></i>
+            <input type="text" id="trade-search"
+                placeholder="아이템명 또는 작성자 검색..."
+                class="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-2 text-xs font-bold text-slate-200 outline-none focus:border-emerald-500/50 transition-all placeholder:text-slate-600"
+                oninput="handleTradeSearch(this.value)">
+        </div>
+
         <div class="flex-1 custom-scroll overflow-y-auto space-y-6 pr-1">
             <div>
                 <div class="px-1 mb-3">
-                    <h3 class="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <h3 id="post-list-heading" class="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                         <i data-lucide="list" class="w-3 h-3"></i> 최근 매칭된 게시글
                     </h3>
                 </div>
@@ -147,6 +157,57 @@
 
     <script>
         let isForcingCheck = false;
+        let cachedTradePosts = [];
+        let currentTradeQuery = '';
+
+        function handleTradeSearch(query) {
+            currentTradeQuery = (query || '').trim().toLowerCase();
+            renderFilteredTradePosts();
+        }
+
+        function renderFilteredTradePosts() {
+            const list = document.getElementById('post-list');
+            if (!list) return;
+            list.innerHTML = '';
+
+            const filtered = currentTradeQuery
+                ? cachedTradePosts.filter(p => 
+                    (p.title && p.title.toLowerCase().includes(currentTradeQuery)) || 
+                    (p.writer && p.writer.toLowerCase().includes(currentTradeQuery))
+                  )
+                : cachedTradePosts;
+
+            if (!filtered || filtered.length === 0) {
+                list.innerHTML = currentTradeQuery
+                    ? '<div class="text-xs text-slate-700 text-center py-10 font-bold uppercase tracking-widest opacity-50">검색 결과가 없습니다.</div>'
+                    : '<div class="text-xs text-slate-700 text-center py-10 font-bold uppercase tracking-widest opacity-50">게시글이 없습니다.</div>';
+                return;
+            }
+
+            filtered.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'post-item group border border-white/5 bg-black/20';
+
+                const safeTitle = escapeHtml(p.title);
+                const safeWriter = escapeHtml(p.writer);
+                const safeDate = escapeHtml(p.date);
+                let dateHtml = `<div class="text-xs text-slate-500 min-w-[3rem] text-right font-mono">${safeDate}</div>`;
+
+                div.innerHTML = `
+                    <div class="flex-1 overflow-hidden">
+                        <div class="truncate text-xs text-emerald-400 group-hover:text-emerald-300 transition-colors font-bold mb-1">${safeTitle}</div>
+                        <div class="flex items-center gap-2">
+                            <div class="text-xs text-slate-500 font-medium">${safeWriter}</div>
+                            <div class="text-[9px] text-slate-700">#${p.no}</div>
+                        </div>
+                    </div>
+                    ${dateHtml}
+                `;
+                div.onclick = () => window.electronAPI.tradeOpenPost(p.url);
+                list.appendChild(div);
+            });
+            refreshIcons();
+        }
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -176,36 +237,8 @@
         }
 
         window.electronAPI.onTradePosts((posts) => {
-            const list = document.getElementById('post-list');
-            list.innerHTML = '';
-            if (!posts || posts.length === 0) {
-                list.innerHTML = '<div class="text-xs text-slate-700 text-center py-10 font-bold uppercase tracking-widest opacity-50">게시글이 없습니다.</div>';
-                return;
-            }
-
-            posts.forEach(p => {
-                const div = document.createElement('div');
-                div.className = 'post-item group border border-white/5 bg-black/20';
-
-                const safeTitle = escapeHtml(p.title);
-                const safeWriter = escapeHtml(p.writer);
-                const safeDate = escapeHtml(p.date);
-                let dateHtml = `<div class="text-xs text-slate-500 w-12 text-right">${safeDate}</div>`;
-
-                div.innerHTML = `
-            <div class="flex-1 overflow-hidden">
-                <div class="truncate text-xs text-emerald-400 group-hover:text-emerald-300 transition-colors font-bold mb-1">${safeTitle}</div>
-                <div class="flex items-center gap-2">
-                    <div class="text-xs text-slate-500 font-medium">${safeWriter}</div>
-                    <div class="text-[9px] text-slate-700">#${p.no}</div>
-                </div>
-            </div>
-            ${dateHtml}
-        `;
-                div.onclick = () => window.electronAPI.tradeOpenPost(p.url);
-                list.appendChild(div);
-            });
-            refreshIcons();
+            cachedTradePosts = Array.isArray(posts) ? posts : [];
+            renderFilteredTradePosts();
 
             if (isForcingCheck) {
                 document.getElementById('trade-loading').classList.remove('active');

@@ -116,6 +116,10 @@
     );
     renderLoot(summary);
     renderHomework(summary);
+    const detected = summary.detectedHomework;
+    byId('today-summary-detected-homework')?.classList.toggle('hidden', !detected);
+    setText('today-summary-detected-name', detected?.name || '');
+    setText('today-summary-detected-count', detected ? `${detected.currentCount}/${detected.maxCount}` : '');
     positionSummary();
   }
 

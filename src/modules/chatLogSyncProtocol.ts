@@ -84,6 +84,7 @@ export interface ParsedLootEvent {
 }
 
 export interface ParsedShoutEvent {
+  shoutKind?: import('../shared/types').ShoutKind;
   eventId?: string;
   fullTimestamp: number;
   sender: string;

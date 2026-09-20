@@ -223,8 +223,13 @@ class AbandonedTracker {
   }
 
   public setEnabled(enabled: boolean): void {
-    this._abandonedState.isEnabled = enabled;
     config.save({ abandonedEnabled: enabled });
+    this.applyEnabled(enabled);
+  }
+
+  /** 저장이 확정된 설정을 재저장·통계 초기화 없이 런타임에 반영한다. */
+  public applyEnabled(enabled: boolean): void {
+    this._abandonedState.isEnabled = enabled;
     if (!enabled) {
       this._manualVisibilitySuppressed = false;
       this._abandonedState.isActive = false;

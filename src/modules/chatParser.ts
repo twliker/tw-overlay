@@ -5,9 +5,11 @@ import * as path from 'path';
 import type { ChatTrigger, ChatPatternType, ChatParserEventMap } from '../shared/types';
 import { formatLocalDateKey } from '../shared/localDate';
 import { parseItemAcquisition, parseItemAcquisitions } from './itemAcquisition';
+import { parseSupplyInstruction } from '../shared/supplyRecapture';
+import { parseOriginOfDoomActivity } from '../shared/bossEntry';
 
 const { isNpcSender } = require('../shared/chatConstants') as ChatConstants;
-const { COLORS: CHAT_COLORS, stripShoutSuffix } = require('../shared/chatChannels') as ChatChannelConstants;
+const { COLORS: CHAT_COLORS, parseShoutContent } = require('../shared/chatChannels') as ChatChannelConstants;
 
 const RE_HTML_TAGS = /<[^>]*>/g;
 const RE_HTML_NBSP = /&(?:nbsp|#160|#xa0);?/gi;
@@ -219,6 +221,13 @@ export class ChatParser extends EventEmitter {
     const timestamp = timeMatch[1];
     const cleanMsg = this.stripHtml(rawLine.replace(/\[.*?\]/, '')); // 시간 부분 제외하고 HTML 제거
     if (cleanMsg.trim().length === 0) return;
+    // 참여 감지 계약은 shared/bossEntry.ts에 있다. 기존 채팅 표시·집계도 계속 처리한다.
+    if (cleanMsg.startsWith('마티아') || cleanMsg.startsWith('파멸의 기원')) {
+      const phase = parseOriginOfDoomActivity(cleanMsg, getMessageFontColor(rawLine));
+      if (phase) this.emit('ORIGIN_OF_DOOM_ACTIVITY', { date: this._currentDate, timestamp, message: cleanMsg, phase });
+    }
+    const supplyInstruction = parseSupplyInstruction(cleanMsg);
+    if (supplyInstruction) this.emit('SUPPLY_RECAPTURE', { ...supplyInstruction, date: this._currentDate, timestamp, message: cleanMsg });
 
     // 표현 방식과 관계없이 모든 아이템 획득을 하나의 공통 이벤트로 먼저 전달합니다.
     // 콘텐츠 완료·마정석 등 기존 특화 이벤트는 아래에서 별도로 계속 발생합니다.
@@ -661,14 +670,22 @@ export class ChatParser extends EventEmitter {
       });
     }
 
-    // 27. 설계자의 채굴장 입장 (하급 조합 조각 N개를 획득했습니다.)
-    if (/(?:^|보상으로\s+)(?:\[?하급\s*조합\s*조각\]?)\s*(?:을\(를\)|을|를)?\s*(?:\[?[\d,]+\]?개(?:를|을)?\s*)?획득\s*(?:하였|했)습니다/i.test(cleanMsg) && !/\(.*하급\s*조합\s*조각.*\)/.test(cleanMsg)) {
-      const pieceMatch = cleanMsg.match(/하급\s*조합\s*조각\s*(?:을\(를\)|을|를)?\s*\[?([\d,]+)\]?개/);
-      const pieceCount = pieceMatch ? parseInt(pieceMatch[1].replace(/,/g, ''), 10) : 1;
-      this.emit('ARCHITECT_MINE_ENTRY', {
+    /**
+     * 기능 계약 — 설계자의 채굴장 일일 숙제 완료
+     * - 숨겨진 구역 포탈 생성 시스템 문구를 완료 기준으로 삼는다. 2026-09-19/20 실제 로그와
+     *   사용자 확인에 따른 기준이며, 입장 자체나 숨겨진 구역의 마지막 보상을 기다리지 않는다.
+     * - 조각 획득은 한 수행 중 반복되고 발굴지에서도 발생하므로 수량·표현에 관계없이 제외한다.
+     *   조각의 ITEM_LOOTED 처리와 플레이어 채팅 표시는 유지하고, 대화로 인용한 문구는 제외한다.
+     * - 실시간 processor와 과거 로그 worker는 같은 완료 이벤트를 daily-architect-mine에 반영한다.
+     *   캐릭터 선택·일일 상한·리셋은 contentsChecker의 기존 정책을 따른다.
+     * - 변경 시 scripts/fixtures/architect-mine-logs.json 및 check-refactor-regressions.ts의
+     *   파서·동기화 worker 검증, docs/contents-checker.md를 함께 갱신한다.
+     */
+    if (!isPlayerChatLine(rawLine)
+      && cleanMsg === '숨겨진 구역으로 이동할 수 있는 포탈이 맵 중앙에 생성되었습니다.') {
+      this.emit('ARCHITECT_MINE_CLEAR', {
         date: this._currentDate,
         timestamp,
-        count: pieceCount,
         message: cleanMsg
       });
     }
@@ -823,15 +840,8 @@ export class ChatParser extends EventEmitter {
 
     // D. 외치기
     if (rawLine.includes(`color="${CHAT_COLORS.shout}"`) && cleanMsg.includes('외치기 :')) {
-        const shoutContent = cleanMsg.replace('외치기 :', '').trim();
-        const userShoutSuffixRegex = /\[([^\]]+)\]$/;
-        const userMatch = shoutContent.match(userShoutSuffixRegex);
-
-        if (userMatch) {
-            const sender = userMatch[1];
-            const pureMessage = stripShoutSuffix(shoutContent.replace(userShoutSuffixRegex, '').trim());
-            this.emit('TRADE_SHOUT', { date: this._currentDate, timestamp, sender, message: pureMessage });
-        }
+        const shout = parseShoutContent(cleanMsg.replace('외치기 :', '').trim());
+        this.emit('TRADE_SHOUT', { date: this._currentDate, timestamp, ...shout });
         return;
     }
 

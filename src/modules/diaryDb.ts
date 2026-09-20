@@ -13,6 +13,7 @@
  *   금액을 보존해야 합니다. DB 마이그레이션은 기존 행을 삭제하거나 재작성하지 않는 방향으로 수행합니다.
  *   수동 수익은 `content`가 표시 문구이고 `amount`가 통계 원본입니다. 과거 UI 누락으로 `amount=0`인
  *   수동 수익만 표시 문구의 마지막 괄호 금액에서 1회 복구하며 다른 활동 행은 추정하지 않습니다.
+ *   마정석 계산기의 0원 기록은 정확한 원문 형식과 주머니 수×50만 SEED가 표시 금액과 일치할 때만 복구합니다.
  * - 완료된 채팅 로그를 다시 분석할 때는 파일 전체 분석과 최종 snapshot 검증이 성공한 날짜만 채팅 로그
  *   기반 자동 활동·외치기를 같은 트랜잭션에서 교체합니다. 과거 숙제도 `chat-log-sync` 출처만 별도
  *   트랜잭션으로 교체하며, `source='manual'`인 일지와 체크리스트 숙제·메모·알람 원본은 삭제하지 않습니다.
@@ -31,6 +32,7 @@ import { broadcastToAllWindows } from './windowMessaging';
 import { formatLootDiaryContent, parseItemAcquisition } from './itemAcquisition';
 import { formatLocalDateKey } from '../shared/localDate';
 import { countsTowardLootTotal, isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
+import type { DiaryExportSnapshot, DiaryExportRow } from '../shared/companionFiles';
 
 let db: Database.Database | null = null;
 
@@ -686,6 +688,37 @@ export function initDb(): void {
     if (!replayGoldPouchRecoveryJournal()) {
       throw new Error('금화 주머니 환산 SEED 복구 기록을 재생하지 못했습니다.');
     }
+    // 기존 외치기 기록은 종류를 추측하지 않고 NULL로 유지한다.
+    if (userVersion < 7) {
+      db.transaction(() => {
+        const columns = db!.prepare('PRAGMA table_info(shout_history)').all() as Array<{ name: string }>;
+        if (!columns.some(column => column.name === 'shout_kind')) db!.exec('ALTER TABLE shout_history ADD COLUMN shout_kind TEXT');
+        db!.pragma('user_version = 7');
+      })();
+    }
+    if (userVersion < 8) {
+      // 기능 계약: 구버전 마정석 계산기가 금액 없이 저장한 원본만 보정한다.
+      // 정확한 계산기 문구·양수 주머니 수·기록 금액이 50만 SEED 환산과 모두
+      // 일치해야 한다. 이미 저장된 0 이외 금액·메모·불일치 문구는 보존한다.
+      // 새 행이나 점수를 추가하지 않는다. check-magic-stone-revenue.ts 참고.
+      db.transaction(() => {
+        const rows = db!.prepare(`SELECT id,content FROM activity_logs
+          WHERE type='calc' AND amount=0 AND source IN ('manual','legacy-unknown')
+            AND content LIKE '💰 마정석 교환:%'`).all() as Array<{ id: number; content: string }>;
+        const update = db!.prepare('UPDATE activity_logs SET amount=? WHERE id=?');
+        for (const row of rows) {
+          const match = row.content.match(/^💰 마정석 교환: ((?:[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d*))개 \(([^()]+)\)$/u);
+          if (!match) continue;
+          const pouches = Number(match[1].replace(/,/g, ''));
+          const amount = pouches * 500_000;
+          if (!Number.isSafeInteger(pouches) || !Number.isSafeInteger(amount) || amount <= 0
+            || parseMigrationNumber(match[2]) !== amount) continue;
+          update.run(amount, row.id);
+        }
+        db!.pragma('user_version = 8');
+      })();
+    }
+
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
     log(`[DiaryDB] Failed to initialize database: ${error}`);
@@ -982,6 +1015,31 @@ export function getDiaryByDate(date: string, lootKeywords?: readonly string[]): 
   }
 
   return { diary, homeworkLogs, activityLogs: filterVisibleLootLogs(activityLogs, lootKeywords) };
+}
+
+/** 기간 내보내기는 일지의 숙제·표시 대상 득템·확정 SEED만 읽는다. 채팅/개인 메모는 제외한다.
+ * 금화 대기 합계도 먼저 확정하고 기존 amount를 사용하므로 주머니를 다시 환산하지 않는다.
+ * 미리보기와 파일 저장은 같은 스냅샷을 사용하며 원본 삭제/빈 날짜 생성은 하지 않는다.
+ */
+export function getDiaryExportSnapshot(start: string, end: string, lootKeywords: readonly string[]): DiaryExportSnapshot {
+  if (!db) initDb();
+  if (!db || !flushPendingGoldPouchSeed()) throw new Error('모험 일지 기록을 읽지 못했습니다.');
+  return db.transaction(() => {
+    const activities = db!.prepare("SELECT date, time, type, content, amount, source FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('homework', 'loot', 'calc') ORDER BY date, time, id LIMIT 100001").all(start, end) as ActivityLog[];
+    const homework = db!.prepare('SELECT date, content_name, completed_at FROM homework_logs WHERE date >= ? AND date <= ? ORDER BY date, completed_at, id LIMIT 100001').all(start, end) as HomeworkLog[];
+    if (activities.length + homework.length > 100000) throw new Error('기록이 많습니다. 기간을 나누어 저장해 주세요.');
+    const visible = filterVisibleLootLogs(activities, lootKeywords);
+    const rows: DiaryExportRow[] = visible.map(row => ({ date: row.date, time: row.time,
+      kind: row.type === 'calc' ? '수익' : row.type === 'loot' ? '득템' : '숙제', content: row.content,
+      amount: row.type === 'loot' ? (row.amount > 0 ? Math.floor(row.amount) : Number(row.content.match(/\[?([\d,]+)\]?개/u)?.[1]?.replace(/,/g, '')) || 1) : row.type === 'calc' ? row.amount || 0 : 1,
+    }));
+    rows.push(...homework.map(row => {
+      const time = new Date(row.completed_at);
+      return { date: row.date, time: [time.getHours(), time.getMinutes(), time.getSeconds()].map(value => String(value).padStart(2, '0')).join(':'), kind: '숙제' as const, content: row.content_name, amount: 1 };
+    }));
+    rows.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+    return { start, end, rows, totalSeed: visible.filter(row => row.type === 'calc').reduce((sum, row) => sum + (row.amount || 0), 0) };
+  })();
 }
 
 function getCalendarWeekKey(dateKey: string): string {
@@ -1353,7 +1411,7 @@ interface MonthlySummaryData {
   lootList: Array<{ date: string; content: string; amount: number }>;
   /** 활동 달력의 날짜별 배지: 경험의 정수 같은 별도 집계 활동도 유지합니다. */
   calendarLootList: Array<{ date: string; content: string; amount: number }>;
-  seedList: Array<{ date: string; content: string }>;
+  seedList: Array<{ date: string; content: string; amount: number }>;
 }
 
 export interface SyncedHomeworkLogInput {
@@ -1477,7 +1535,7 @@ export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly str
   let totalSeed = 0;
   const lootList: { date: string, content: string, amount: number }[] = [];
   const calendarLootList: { date: string, content: string, amount: number }[] = [];
-  const seedList: { date: string, content: string }[] = [];
+  const seedList: { date: string, content: string, amount: number }[] = [];
 
   logs.forEach(log => {
     if (log.type === 'loot') {
@@ -1488,7 +1546,7 @@ export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly str
         totalLoots += log.amount || 1;
       }
     } else if (log.type === 'calc') {
-      seedList.push({ date: log.date, content: log.content });
+      seedList.push({ date: log.date, content: log.content, amount: log.amount || 0 });
       totalSeed += log.amount || 0;
     }
   });
@@ -1685,7 +1743,7 @@ export function getMonthlyRevenueData(yearMonth: string): { date: string, amount
  * 외치기 기록을 추가합니다. 
  * 추가 시 24시간이 지난 기록은 자동으로 삭제하며, 5초 이내 동일 발신자/메시지는 중복 삽입을 방지합니다.
  */
-export function addShoutLog(sender: string, message: string, customTimestamp?: number): boolean {
+export function addShoutLog(sender: string, message: string, customTimestamp?: number, shoutKind?: import('../shared/types').ShoutKind): boolean {
   if (!db) initDb();
   if (!db) return false;
 
@@ -1700,7 +1758,7 @@ export function addShoutLog(sender: string, message: string, customTimestamp?: n
       // 2. 5초 이내 동일 발신자 및 메시지 중복 체크
       const existing = db!.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5').get(sender, message, now);
       if (!existing) {
-        db!.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)').run(now, sender, message);
+        db!.prepare('INSERT INTO shout_history (timestamp, sender, message, shout_kind) VALUES (?, ?, ?, ?)').run(now, sender, message, shoutKind ?? null);
       }
     })();
     return true;
@@ -1727,8 +1785,8 @@ export function addShoutLogWithTimestampIfAbsent(timestamp: number, sender: stri
     const existing = db.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5').get(sender, message, timestamp);
     if (existing) return false;
 
-    db.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)')
-      .run(timestamp, sender, message);
+    db.prepare('INSERT INTO shout_history (timestamp, sender, message, shout_kind) VALUES (?, ?, ?, ?)')
+      .run(timestamp, sender, message, null);
     return true;
   } catch (err) {
     log(`[DiaryDB] addShoutLogWithTimestampIfAbsent failed: ${err}`);
@@ -1743,7 +1801,7 @@ function deduplicateShoutHistoryOrThrow(): void {
     SELECT id, timestamp, sender, message
     FROM shout_history
     ORDER BY sender ASC, message ASC, timestamp ASC, id ASC
-  `).all() as Array<{ id: number; timestamp: number; sender: string; message: string }>;
+  `).all() as Array<{ id: number; timestamp: number; sender: string; message: string; shoutKind?: import('../shared/types').ShoutKind }>;
   const deleteRow = db.prepare('DELETE FROM shout_history WHERE id = ?');
 
   db.transaction(() => {
@@ -1783,7 +1841,7 @@ export interface BatchSyncData {
   seeds: Array<{ eventId?: string; date: string; timeOnly: string; content: string; amount: number }>;
   elsoPoints: Array<{ date: string; timeOnly: string; amount: number }>;
   goldPouchSeeds?: Array<{ date: string; timeOnly: string; amount: number }>;
-  shouts: Array<{ eventId?: string; fullTimestamp: number; sender: string; message: string }>;
+  shouts: Array<{ eventId?: string; fullTimestamp: number; sender: string; message: string; shoutKind?: import('../shared/types').ShoutKind }>;
   replaceAutomaticDate?: string;
 }
 
@@ -1990,7 +2048,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   const selectActivity = db.prepare('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?');
   const insertActivity = db.prepare('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
   const selectShout = db.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5');
-  const insertShout = db.prepare('INSERT INTO shout_history (timestamp, sender, message) VALUES (?, ?, ?)');
+  const insertShout = db.prepare('INSERT INTO shout_history (timestamp, sender, message, shout_kind) VALUES (?, ?, ?, ?)');
   const selectElso = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso' ORDER BY id ASC LIMIT 1");
   const updateElso = db.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
   const selectGoldPouchSeed = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'calc' AND content = ? ORDER BY id ASC LIMIT 1");
@@ -2181,7 +2239,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
       if (!claimEvent(item.eventId)) continue;
       const existing = selectShout.get(item.sender, item.message, item.fullTimestamp);
       if (!existing) {
-        insertShout.run(item.fullTimestamp, item.sender, item.message);
+        insertShout.run(item.fullTimestamp, item.sender, item.message, item.shoutKind ?? null);
         shoutsAdded++;
       }
     }
@@ -2407,6 +2465,7 @@ export function cleanOldDiaryData(keepDays: number): void {
   try {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - keepDays);
+    cutoff.setHours(0, 0, 0, 0);
     const cutoffStr = formatLocalDateKey(cutoff);
 
     const transaction = db.transaction(() => {
@@ -2570,9 +2629,9 @@ function notifyAlarmLogUpdate(): void {
 /**
  * 시간 측정 기록 추가
  */
-export function addTimerRecord(record: Omit<TimerRecord, 'id'>): void {
+export function addTimerRecord(record: Omit<TimerRecord, 'id'>): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
   try {
     db.prepare(`
       INSERT INTO timer_records (date, duration, title, series, core_master, coefficient, char_main, char_sub, base_main, enchant_main, base_sub, enchant_sub, accuracy, raw_profile_data)
@@ -2595,8 +2654,10 @@ export function addTimerRecord(record: Omit<TimerRecord, 'id'>): void {
     );
     log(`[DiaryDB] Timer record added: ${record.date} - ${record.duration}ms`);
     notifyTimerUpdate();
+    return true;
   } catch (e) {
     log(`[DiaryDB] addTimerRecord failed: ${e}`);
+    return false;
   }
 }
 
@@ -2695,8 +2756,6 @@ export function deleteTimerRecord(id: number): void {
 function notifyTimerUpdate(): void {
   broadcastToAllWindows('timer-updated');
 }
-
-
 
 
 

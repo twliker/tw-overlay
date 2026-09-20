@@ -2,7 +2,9 @@
  * 테일즈위버 장비 강화 / 인챈트 / 인크립트 공식 확률 기반 시뮬레이터 및 기댓값 계산 모듈
  * 인챈트의 초기 축복치는 첫 성공 구간에만, 비아누의 현재 횟수는 성공할 때마다 증가시켜 반영한다.
  * 다회 목표의 비용은 구간별 합이며 성공당 기대 시도·파괴 수는 그 합의 평균이다.
- * 회귀: scripts/check-audit-regressions.ts (축복치 100%, 2회 목표, 비아누 상한 구간).
+ * 인챈트 목표는 화면의 기존 1~100회 범위를 지키며 소수는 버린다. 모듈과 화면 합계가 같은 횟수를 사용한다.
+ * 회귀: scripts/check-audit-regressions.ts (축복치 100%, 2회 목표, 비아누 상한 구간),
+ * scripts/check-renderer-behavior.ts (0원 구간 수수료·미입력 상속·인챈트 횟수 경계).
  * 출처:
  * - 장비 강화: https://static.tales.nexon.com/Probability/Game/1
  * - 인챈트: https://static.tales.nexon.com/Probability/Game/2
@@ -730,6 +732,12 @@ function runEnchantSimulation(
   };
 }
 
+const MAX_ENCHANT_TARGET_SUCCESSES = 100;
+
+function normalizeEnchantTargetSuccesses(value: number): number {
+  return Number.isFinite(value) ? Math.max(1, Math.min(MAX_ENCHANT_TARGET_SUCCESSES, Math.trunc(value))) : 1;
+}
+
 /** 현재 축복치는 첫 성공에만 적용되고 이후 성공은 축복치 0에서 다시 시작한다. 반환값은 목표 성공당 평균이다. */
 function calculateEnchantExpectation(options: EnchantSimulationOptions, targetSuccesses = 1): EnchantExpectationResult {
   const isPrim = isPrimaryStat(options.statType);
@@ -756,7 +764,7 @@ function calculateEnchantExpectation(options: EnchantSimulationOptions, targetSu
     }
     return expectation;
   };
-  const target = Math.max(1, Math.trunc(targetSuccesses) || 1);
+  const target = normalizeEnchantTargetSuccesses(targetSuccesses);
   const initialBlessing = Math.max(0, Math.min(1, options.initialBlessing || 0));
   const firstAttempts = expectedAttempts(initialBlessing);
   const expectedAttemptsPerSuccess = target === 1 ? firstAttempts
@@ -1134,6 +1142,8 @@ const equipmentSimulator = Object.freeze({
   VIANU_RATES_BY_COUNT,
   MAX_INCRYPT_TARGET_SUCCESSES,
   normalizeIncryptTargetSuccesses,
+  MAX_ENCHANT_TARGET_SUCCESSES,
+  normalizeEnchantTargetSuccesses,
   simulateEnhanceSingleStep,
   runEnhanceSimulation,
   calculateEnhanceExpectation,

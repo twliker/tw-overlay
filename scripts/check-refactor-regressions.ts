@@ -6,6 +6,7 @@ import os = require('node:os');
 import path = require('node:path');
 import vm = require('node:vm');
 import { app } from 'electron';
+import { checkWindowMovePersistence } from './check-window-move-persistence';
 
 const projectRoot = path.resolve(__dirname, '..');
 const sourceRoot = path.join(projectRoot, 'src');
@@ -1626,7 +1627,6 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   const mainSource = read('src/main.ts');
   const placementSource = read('src/modules/windowPlacement.ts');
   const displayStabilizerSource = read('src/modules/displayTopologyStabilizer.ts');
-  const processBoostSource = read('src/modules/processBoostRetryPolicy.ts');
   const indexSource = read('src/index.html');
   const registrySource = read('src/modules/managedWindowRegistry.ts');
   const moveTrackerSource = read('src/modules/programmaticMoveTracker.ts');
@@ -1690,7 +1690,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   );
   assert.match(
     manager,
-    /let isInitialPositionApplied = false;[\s\S]*?!isInitialPositionApplied/,
+    /let isInitialPositionApplied = false;[\s\S]*?canSave: \(\) => !isClosing && isInitialPositionApplied/,
     '창 초기 위치가 적용되기 전 발생하는 move 이벤트의 저장 방어가 없습니다.',
   );
   assert.ok(
@@ -1716,10 +1716,6 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     '게임 좌표가 없는 임시 브라우저 오버레이 이동이 게임용 위치로 저장될 수 있습니다.');
   assert.match(displayStabilizerSource, /candidateSignature[\s\S]*?stableDurationMs[\s\S]*?maxWaitMs/,
     'RDP 전환 중 임시 화면 구성을 건너뛰는 안정화 판정이 없습니다.');
-  assert.match(processBoostSource, /inFlight[\s\S]*?nextAttemptAt[\s\S]*?maximumDelayMs/,
-    '프로세스 우선순위 상승 실패의 single-flight 지수 백오프가 없습니다.');
-  assert.match(read('src/modules/pollingLoop.ts'), /getGameProcessId\(\)[\s\S]*?processBoostRetry\.tryStart[\s\S]*?processBoostRetry\.finish/,
-    '게임 PID별 우선순위 상승 재시도 정책이 폴링 루프에 연결되지 않았습니다.');
   assert.match(indexSource, /const interactiveToasts = window\.createInteractiveToastRegistry[\s\S]*?updateIgnoreMouseEvents\(!hasInteractiveToast\)/,
     'interactive 토스트 참조 수와 사이드바 click-through 상태가 연결되지 않았습니다.');
   assert.match(indexSource, /scam-toast-[\s\S]*?onclick="removeToast\('\$\{toastId\}', event\)"/,
@@ -1815,8 +1811,14 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
   );
   assert.match(manager, /gameWindowModeTransitioning \|\| key === 'dock'[\s\S]*?recovered: false/,
     '게임 화면 모드 전환 중 화면 이탈 중앙 복구를 차단하지 않습니다.');
-  assert.match(manager, /gameWindowModeTransitioning\) return;[\s\S]*?saveUserWindowPosition/,
-    '게임 화면 모드 전환 중 move 이벤트가 사용자 위치를 저장할 수 있습니다.');
+  const moveBindings = [...manager.matchAll(/attachWindowMovePersistence\([\s\S]*?\n  \}\);/g)];
+  assert.equal(moveBindings.length, 4, '일반 창·브라우저·외부 웹 도구의 드래그 저장 연결이 누락됐습니다.');
+  for (const [binding] of moveBindings) {
+    assert.match(binding, /canSave:.*!gameWindowModeTransitioning/,
+      '게임 화면 모드 전환 중 사용자 위치를 저장할 수 있습니다.');
+    assert.match(binding, /savePosition:[\s\S]*?saveUserWindowPosition/,
+      '드래그 종료 좌표가 상대·절대 위치 저장 경로에 연결되지 않았습니다.');
+  }
   assert.match(manager, /windowedFullscreenPositions[\s\S]*?activateGameWindowMode/,
     '창모드 전체화면 전용 위치 프로필이 실제 모드 전환에 연결되지 않았습니다.');
   const modeActivationStart = manager.indexOf('function activateGameWindowMode(');
@@ -1986,38 +1988,6 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     bounds: { ...windowedBounds, x: 260, y: 140 }, displayBounds, windowStyle: 0x00c00000,
   }, 10).phase, 'stable', '일반 창 이동을 화면 모드 전환으로 오인합니다.');
 
-  const boostPolicyModule = require(path.join(projectRoot, 'dist', 'modules', 'processBoostRetryPolicy.js')) as {
-    ProcessBoostRetryPolicy: new (initialDelayMs: number, maximumDelayMs: number) => {
-      tryStart: (processId: number, now: number) => boolean;
-      finish: (processId: number, success: boolean, now: number) => number | null;
-      reset: () => void;
-    };
-  };
-  const boostPolicy = new boostPolicyModule.ProcessBoostRetryPolicy(1_000, 60_000);
-  assert.equal(boostPolicy.tryStart(10, 0), true);
-  assert.equal(boostPolicy.tryStart(10, 0), false, '우선순위 상승 요청이 완료 전 중복 실행됩니다.');
-  assert.equal(boostPolicy.finish(10, false, 100), 1_000);
-  assert.equal(boostPolicy.tryStart(10, 1_099), false);
-  assert.equal(boostPolicy.tryStart(10, 1_100), true);
-  assert.equal(boostPolicy.finish(10, false, 1_200), 2_000);
-  assert.equal(boostPolicy.tryStart(10, 3_199), false);
-  assert.equal(boostPolicy.tryStart(10, 3_200), true);
-  assert.equal(boostPolicy.finish(10, false, 3_300), 4_000);
-  assert.equal(boostPolicy.tryStart(20, 3_301), true, '게임 PID 변경 시 이전 PID의 백오프가 유지됩니다.');
-  assert.equal(boostPolicy.finish(10, true, 3_302), null, '이전 PID의 늦은 응답이 새 PID 상태를 변경합니다.');
-  assert.equal(boostPolicy.finish(20, true, 3_303), null);
-  assert.equal(boostPolicy.tryStart(20, 100_000), false, '우선순위 상승 성공 후 같은 PID를 다시 시도합니다.');
-  boostPolicy.reset();
-  assert.equal(boostPolicy.tryStart(20, 100_001), true, '게임 종료 후 재시도 상태가 초기화되지 않습니다.');
-  const cappedBoostPolicy = new boostPolicyModule.ProcessBoostRetryPolicy(40_000, 60_000);
-  assert.equal(cappedBoostPolicy.tryStart(30, 0), true);
-  assert.equal(cappedBoostPolicy.finish(30, false, 0), 40_000);
-  assert.equal(cappedBoostPolicy.tryStart(30, 40_000), true);
-  assert.equal(cappedBoostPolicy.finish(30, false, 40_000), 60_000);
-  assert.equal(cappedBoostPolicy.tryStart(30, 100_000), true);
-  assert.equal(cappedBoostPolicy.finish(30, false, 100_000), 60_000,
-    '프로세스 우선순위 재시도 간격이 60초 상한을 초과합니다.');
-
   const registryModule = require(path.join(projectRoot, 'dist', 'modules', 'managedWindowRegistry.js')) as {
     createManagedWindowRegistry: () => Record<string, { key: string; html: string; width: number; height: number; ref: unknown }>;
     MANAGED_WINDOW_COUNT: number;
@@ -2075,7 +2045,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       uniformColor: ['uniform-color.html', 360, 800, false], swordEnhance: ['sword-enhance.html', 1300, 850, false],
       qteChallenge: ['qte-challenge.html', 980, 780, false],
       shoutHistory: ['shout-history.html', 450, 600, false], gameOverlay: ['game-overlay.html', 0, 0, false],
-      buffTimer: ['buff-timer.html', 900, 850, false], xpHud: ['xp-hud.html', 420, 1050, false],
+      buffTimer: ['buff-timer.html', 900, 850, false], xpHud: ['xp-hud.html', 420, 940, false],
       scamDetector: ['scam-detector.html', 480, 780, false], sienaAura: ['siena-aura.html', 1230, 930, false],
       wordAlarm: ['word-alarm.html', 450, 950, false], discordAlarm: ['discord-alarm.html', 450, 950, false],
       huntingPathSimulator: ['hunting-path-simulator.html', 860, 800, false],
@@ -2578,6 +2548,7 @@ function checkWindowFocusControllerContracts(): void {
     WindowFocusController: new (options: Record<string, unknown>) => {
       attach: (win: any) => void;
       getOrderedWindowHandles: (main: any, dock: any, overlay: any) => string[];
+      setLauncherInteractive: (win: any, active: boolean) => boolean;
       setRestoreSuppressed: (suppressed: boolean) => void;
       cancelPendingRestore: () => void;
       scheduleRestore: () => void;
@@ -2625,6 +2596,16 @@ function checkWindowFocusControllerContracts(): void {
   const overlay = createFakeWindow(23);
   controller.attach(olderSub);
   controller.attach(newerSub);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23']);
+
+  assert.equal(controller.setLauncherInteractive(main, true), true);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23']);
+  assert.equal(controller.setLauncherInteractive(main, true), false);
+  controller.setLauncherInteractive(dock, true);
+  controller.setLauncherInteractive(main, false);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['22', '12', '11', '21', '23'],
+    '이전 런처의 늦은 leave가 현재 독 메뉴를 뒤로 보내면 안 됩니다.');
+  controller.setLauncherInteractive(dock, false);
   assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23']);
 
   olderSub.emitWeb('devtools-opened');
@@ -2795,7 +2776,7 @@ function checkWindowedFullscreenFocusContracts(): void {
     '설정창이 전경인 동안 독 재배치를 끝내지 않고 게임 복귀 뒤 독을 다시 표시합니다.');
   assert.match(manager, /if \(isDockPositionChange\)[\s\S]*?pendingDockLayoutChange = true/,
     '일반 창모드와 전체화면에서 동일한 독 재배치 경계를 사용하지 않습니다.');
-  assert.match(manager, /dockCfg\.ref\.hide\(\);[\s\S]*?dockCfg\.ref\.setPosition\(x, y\);[\s\S]*?dockCfg\.ref\.showInactive\(\);/,
+  assert.match(manager, /dockCfg\.ref\.hide\(\);[\s\S]*?dockCfg\.ref\.setPosition\(x, y\);[\s\S]*?showWindowUnlessHidden\(dockCfg\.ref\);/,
     '표시 중인 투명 독을 숨기지 않은 채 화면 반대편으로 이동합니다.');
   assert.match(manager, /win\.once\('ready-to-show'/,
     '관리 창 ready-to-show 재발생 시 show/showInactive가 반복될 수 있습니다.');
@@ -2805,11 +2786,11 @@ function checkWindowedFullscreenFocusContracts(): void {
     '명시적 --devtools 옵션 없이 분리형 DevTools 창을 자동으로 엽니다.');
   assert.match(zOrderController, /for \(let i = overlayHwnds\.length - 1; i > 0; i--\)/,
     '게임 바로 위 한 창만 확인하고 TW-Overlay 내부 Z-order가 갈라진 상태를 정상으로 오판합니다.');
-  assert.match(manager, /overlayWindow\?\.showInactive\(\)/,
+  assert.match(manager, /showWindowUnlessHidden\(overlayWindow\)/,
     '브라우저 오버레이 자동 생성이 포커스를 획득할 수 있습니다.');
   assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply' \| 'preload'/,
     '사용자가 연 창과 자동 재생성을 구분하는 표시 정책이 없습니다.');
-  assert.match(manager, /showReason === 'user-open' && !isPassiveOverlay[\s\S]*?win\.show\(\);[\s\S]*?win\.showInactive\(\);/,
+  assert.match(manager, /showReason === 'user-open' && !isPassiveOverlay[\s\S]*?showWindowUnlessHidden\(win, true\);[\s\S]*?showWindowUnlessHidden\(win\);/,
     '자동 재생성된 관리 창이 비활성 상태로 표시되지 않습니다.');
   assert.doesNotMatch(manager, /key === 'dock'[^\n]*focusable: false/,
     '독 창이 no-activate로 생성되어 hover만 되고 클릭이 전달되지 않을 수 있습니다.');
@@ -2817,7 +2798,7 @@ function checkWindowedFullscreenFocusContracts(): void {
     '독 renderer가 준비되기 전 투명 여백이 게임 입력을 가로챌 수 있습니다.');
   assert.ok((manager.match(/'game-resync'/g) ?? []).length >= 6,
     '게임 동기화 중 생성되는 창의 비활성 표시 사유가 누락되었습니다.');
-  const clickThroughStart = manager.indexOf('export function toggleClickThrough(): boolean');
+  const clickThroughStart = manager.indexOf('function applyClickThrough(enabled: boolean): void');
   const clickThroughEnd = manager.indexOf('export function toggleSidebar(): boolean', clickThroughStart);
   assert.ok(clickThroughStart >= 0 && clickThroughEnd > clickThroughStart,
     '클릭 투과 전환 함수를 찾지 못했습니다.');
@@ -2832,7 +2813,7 @@ function checkWindowedFullscreenFocusContracts(): void {
     '독을 숨길 때 창을 유지하지 않아 다음 표시에 renderer 재생성 지연이 발생합니다.');
   assert.doesNotMatch(dockToggleSource, /winCfg\.ref\.close\(\)/,
     '단축키 독 숨김이 창을 파괴해 다음 표시를 지연시킵니다.');
-  assert.match(dockToggleSource, /winCfg\.ref\.setPosition\(x, y\);[\s\S]*?winCfg\.ref\.showInactive\(\)/,
+  assert.match(dockToggleSource, /winCfg\.ref\.setPosition\(x, y\);[\s\S]*?showWindowUnlessHidden\(winCfg\.ref\)/,
     '숨긴 독의 위치를 먼저 확정하지 않아 표시 직후 화면 점프가 발생할 수 있습니다.');
   assert.match(manager, /if \(!isDockVisible\)[\s\S]*?dockCfg\.ref\.hide\(\)/,
     '안정 폴링이 숨긴 독 창을 닫아 재사용 최적화를 무효화합니다.');
@@ -3006,8 +2987,8 @@ function checkEmbeddedWebWindowContracts(): void {
   const manager = read('src/modules/windowManager.ts');
   const embeddedSource = read('src/modules/embeddedWebTool.ts');
   const toolbarSource = read('src/modules/overlayToolbarController.ts');
-  assert.match(manager, /uniformColorTool = new EmbeddedWebTool[\s\S]*?followWindowResize: false/,
-    '제복 색상 도구의 기존 고정 view 배치 정책이 변경되었습니다.');
+  assert.match(manager, /uniformColorTool = new EmbeddedWebTool[\s\S]*?followWindowResize: true/,
+    '제복 색상 도구의 창 크기 연동이 없습니다.');
   assert.match(manager, /swordEnhanceTool = new EmbeddedWebTool[\s\S]*?followWindowResize: true/,
     '검 강화 도구의 창 리사이즈 연동이 없습니다.');
   assert.match(manager, /https:\/\/twsnowflower\.github\.io\/uniform_color\/spin\.html/);
@@ -3067,8 +3048,10 @@ function checkFocusedChatContracts(): void {
     '일반 창 리사이즈가 변경된 크기 필드만 저장하지 않습니다.');
   assert.match(renderer, /setFocusedChatTargets\(\[\.\.\.targets\]\)/,
     '집중 대화방의 상대 닉네임이 임시 세션 상태로 전달되지 않습니다.');
-  assert.doesNotMatch(renderer, /applySettings|onConfigData/,
-    '집중 대화방의 임시 상대 또는 자동완성 데이터가 앱 설정과 연결될 수 있습니다.');
+  assert.doesNotMatch(renderer, /applySettings/,
+    '집중 대화방의 임시 상대 또는 자동완성 데이터를 앱 설정으로 저장하면 안 됩니다.');
+  assert.match(renderer, /appearanceConfig = config/,
+    '집중 대화방의 에타 색상과 서버별 메모가 표시 설정을 받지 못합니다.');
 
   const appConfig = read('src/shared/types.ts');
   const defaults = `${read('src/modules/constants.ts')}\n${read('src/preload.ts')}`;
@@ -3353,7 +3336,7 @@ function checkSharedConstants() {
     /\bconst\s*\{\s*NPC_SENDER_BLACKLIST\s*\}/,
     '채팅 오버레이가 공통 NPC 상수를 같은 이름으로 다시 선언합니다.',
   );
-  assert.match(chatOverlayRenderer, /window\.chatConstants\.isNpcSender\(/);
+  assert.match(chatOverlayRenderer, /window\.chatConstants\.isNpcChat\(/);
 
   const buffConstants = loadBrowserConstantModule(
     'dist/shared/buffConstants.js',
@@ -3622,6 +3605,8 @@ function checkPreloadDefaultConfigCompatibility() {
     match => match[1],
   );
   assert.deepEqual(listenerChannels, [
+    'notification-positions-preview', 'supply-run-update', 'boss-entry-update', 'xp-efficiency-alert',
+    'contents-collapse-state',
     'trigger-jellyppy-rain', 'trigger-firework', 'sidebar-status', 'overlay-status',
     'chat-overlay-status', 'click-through-status', 'active-windows', 'managed-window-resize-enabled', 'config-data',
     'chat-log-sync-progress', 'today-summary-config',
@@ -3639,7 +3624,7 @@ function checkPreloadDefaultConfigCompatibility() {
     'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'chat-updated',
     'chat-history-cleared', 'chat-overlay-mode', 'chat-log-status-changed',
     'alarm-logs-updated', 'timer-toggle', 'timer-updated',
-    'game-overlay-edit-mode', 'game-overlay-reset-positions',
+    'game-overlay-edit-mode', 'game-overlay-edit-state', 'game-overlay-reset-positions',
     'google-sync-status-changed',
   ]);
 }
@@ -4420,12 +4405,38 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
   chatParser.parseLine('<font size="2" color="white"> [18시 22분 45초] </font> <font size="2" color="#ff64ff">색을 잃은 땅 미션에 성공하여 10000 ELSO를 획득했습니다.</font></br>');
   assert.ok(colorlessClearCalled, '색을 잃은 땅 완료 이벤트(COLORLESS_LAND_CLEAR)가 발생하지 않았습니다.');
 
-  // 3. 설계자의 채굴장 하급 조합 조각 획득 및 입장 감지 검증
-  let architectEntryCount = 0;
-  const onArchitectEntry = (data: { count?: number }) => { architectEntryCount = data.count || 0; };
-  chatParser.once('ARCHITECT_MINE_ENTRY', onArchitectEntry);
-  chatParser.parseLine('<font size="2" color="white"> [18시 29분 58초] </font> <font size="2" color="#ff64ff">하급 조합 조각 5개를 획득했습니다.</font></br>');
-  assert.equal(architectEntryCount, 5, '설계자의 채굴장 입장 이벤트(ARCHITECT_MINE_ENTRY) 수량이 일치하지 않습니다.');
+  // 3. 실제 두 날짜의 조각·발굴지 로그는 제외하고 숨겨진 구역 포탈만 숙제 완료로 감지한다.
+  const architectFixtures = JSON.parse(read('scripts/fixtures/architect-mine-logs.json')) as Array<{
+    date: string; portalTimestamp: string; lines: string[];
+  }>;
+  const portalMessage = '숨겨진 구역으로 이동할 수 있는 포탈이 맵 중앙에 생성되었습니다.';
+  for (const fixture of architectFixtures) {
+    const parser = new (chatParser.constructor as any)();
+    parser.setCurrentDate(fixture.date);
+    const clears: Array<{ date: string; timestamp: string; message: string }> = [];
+    let pieceLoots = 0;
+    parser.on('ARCHITECT_MINE_CLEAR', (data: typeof clears[number]) => clears.push(data));
+    parser.on('ITEM_LOOTED', (data: { itemName: string }) => {
+      if (data.itemName === '하급 조합 조각') pieceLoots++;
+    });
+    normalizeChatLogLines(fixture.lines).forEach(line => parser.parseLine(line));
+    assert.deepEqual(clears, [{ date: fixture.date, timestamp: fixture.portalTimestamp, message: portalMessage }],
+      `${fixture.date} 조각 반복 획득 및 발굴지 보상을 채굴장 완료로 잘못 감지했습니다.`);
+    assert.equal(pieceLoots, 5, '숙제 감지 변경이 일반 조각 획득 이벤트를 누락시켰습니다.');
+
+    // 일반·자기·클럽·팀·귓속말·외치기에서 문구를 인용해도 완료되지 않는다.
+    for (const color of ['#ffffff', '#c8ffc8', '#94ddfa', '#f7b73c', '#64ff64', '#c896c8']) {
+      parser.parseLine(`<font color="white"> [22시 10분 00초] </font><font color="${color}">${portalMessage}</font></br>`);
+    }
+    for (const message of [
+      `테스터 : ${portalMessage}`,
+      '숨겨진 구역으로 이동할 수 있는 포탈이 맵 중앙에 생성되지 않았습니다.',
+      `알림 예시: ${portalMessage}`,
+    ]) {
+      parser.parseLine(`<font color="white"> [22시 10분 01초] </font><font color="#ff64ff">${message}</font></br>`);
+    }
+    assert.equal(clears.length, 1, '포탈 문구의 플레이어 인용 또는 유사 안내가 숙제로 감지되었습니다.');
+  }
 
   // 4. 실제 유저 로그 파일(.agents/plan/혼대_색땅_채굴장/TWChatLog_2026_08_17.html) 종합 파싱 검증
   const actualLogPath = path.join(projectRoot, '.agents/plan/혼대_색땅_채굴장/TWChatLog_2026_08_17.html');
@@ -4436,7 +4447,7 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
 
     let fileConfusedClears = 0;
     let fileColorlessClears = 0;
-    let fileArchitectEntries = 0;
+    let fileArchitectClears = 0;
     let fileColorlessEssenceCount = 0;
     let fileConfusedElso = 0;
     let fileColorlessElso = 0;
@@ -4444,7 +4455,7 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
     const actualParser = new (chatParser.constructor as any)();
     actualParser.on('CONFUSED_LAND_CLEAR', () => { fileConfusedClears++; });
     actualParser.on('COLORLESS_LAND_CLEAR', () => { fileColorlessClears++; });
-    actualParser.on('ARCHITECT_MINE_ENTRY', () => { fileArchitectEntries++; });
+    actualParser.on('ARCHITECT_MINE_CLEAR', () => { fileArchitectClears++; });
     actualParser.on('ITEM_LOOTED', (data: { itemName: string; count: number; timestamp: string; message: string }) => {
       if (data.itemName === '경험의 정수' && data.timestamp.includes('18시 22분 45초')) {
         fileColorlessEssenceCount += data.count;
@@ -4468,7 +4479,7 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
     assert.equal(fileColorlessClears, 1, '실제 로그 파일에서 색을 잃은 땅 완료가 1회 감지되어야 합니다.');
     assert.equal(fileColorlessElso, 20000, '실제 로그 파일에서 색을 잃은 땅 ELSO 획득 총합(10000+10000)이 20000이어야 합니다.');
     assert.equal(fileColorlessEssenceCount, 2, '실제 로그 파일에서 색을 잃은 땅 경험의 정수 획득이 2개여야 합니다.');
-    assert.ok(fileArchitectEntries > 0, '실제 로그 파일에서 설계자의 채굴장(하급 조합 조각)이 감지되어야 합니다.');
+    assert.equal(fileArchitectClears, 1, '실제 로그 파일에서 설계자의 채굴장 포탈 생성이 정확히 1회 감지되어야 합니다.');
   }
 
   // ── 과거 채팅 히스토리 분류 및 색상 보정 회귀 검증 ──
@@ -4541,12 +4552,15 @@ function checkTodaySummary(): void {
   const { parseAutoLogAmount, resolveLootCount } = require(
     path.join(projectRoot, 'dist/renderer/diary/log-utils.js'),
   ) as {
-    parseAutoLogAmount(content: string): number;
+    parseAutoLogAmount(content: string, storedAmount?: number): number;
     resolveLootCount(content: string, storedAmount: unknown): number;
   };
   assert.equal(parseAutoLogAmount('[자동] 보상 (1조)'), 1_000_000_000_000);
   assert.equal(parseAutoLogAmount('[자동] 보상 (1조 2억 3만)'), 1_000_200_030_000);
   assert.equal(parseAutoLogAmount('[자동] 보상 (1,234)'), 1_234);
+  assert.equal(parseAutoLogAmount('[자동] 금화 주머니 환산', 2_667_000_000), 2_667_000_000);
+  assert.equal(parseAutoLogAmount('[자동] 보상 (1조)', 0), 0, '저장된 0원을 문구의 금액으로 덮으면 안 된다.');
+  assert.equal(parseAutoLogAmount('[자동] 비용 (1,000)', -1_000), -1_000);
   assert.equal(resolveLootCount('[득템] 경험의 정수', 2), 2);
   assert.equal(resolveLootCount('[득템] 경험의 정수 3개', 0), 3);
   assert.equal(resolveLootCount('[득템] 경험의 정수', 0), 1);
@@ -9787,6 +9801,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const essenceAutoExchange = '<font size="2" color="white"> [22시 42분 15초] </font><font>경험치 100억이 차감되고, 경험의 정수 1개를 획득 하였습니다.</font></br>';
     const eternalFloor = '<font size="2" color="white"> [17시 11분  8초] </font><font>[이터널 플로어 보상 상자] 아이템을 획득하였습니다.</font></br>';
     const etaDaily = '<font size="2" color="white"> [18시 11분  8초] </font><font>[루이나 및 제네로 일반 상자] 아이템을 습득했습니다.</font></br>';
+    const architectFixture = (JSON.parse(read('scripts/fixtures/architect-mine-logs.json')) as Array<{ lines: string[] }>)[encoding === 'utf8' ? 0 : 1];
     const longSeed = `<font size="2" color="white"> [ 0시 25분 25초] </font> <font size="2" color="#ff64ff">${'A'.repeat(270_000)} 콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>`;
     const content = [
       magicOne,
@@ -9797,6 +9812,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       essenceAutoExchange,
       eternalFloor,
       etaDaily,
+      ...architectFixture.lines,
       longSeed,
     ].join('\n') + '\n';
     const encoded = encoding === 'utf8' ? Buffer.from(content, 'utf8') : iconv.encode(content, 'euc-kr');
@@ -9818,6 +9834,10 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
           'daily-eta-quest': {
             rule: { type: 'daily', hour: 0 },
             cycleKey: getHomeworkResetCycleKey({ type: 'daily', hour: 0 }, new Date(2026, 7, 25, 12).getTime()),
+          },
+          'daily-architect-mine': {
+            rule: { type: 'daily', hour: 0 },
+            cycleKey: getHomeworkResetCycleKey({ type: 'daily', hour: 0 }, new Date(2026, 7, encoding === 'utf8' ? 24 : 25, 12).getTime()),
           },
         },
         targetFiles: [{
@@ -9896,6 +9916,8 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     assert.equal(finalBatch.aggregate.essencesDetected, 3,
       '경험의 정수 과거 로그 집계가 실제 복원 건수와 다릅니다.');
     assert.deepEqual(finalBatch.aggregate.homework['weekly-eternal-floor'], { count: 1, isIncrement: true });
+    assert.deepEqual(finalBatch.aggregate.homework['daily-architect-mine'], { count: 1, isIncrement: true },
+      '과거 로그 worker가 포탈 생성 1회를 누락하거나 반복 조각·발굴지 보상을 채굴장으로 집계했습니다.');
     if (encoding === 'utf8') {
       assert.equal(finalBatch.aggregate.homework['daily-eta-quest'], undefined,
         '이전 일일 리셋 주기의 숙제가 현재 체크리스트 집계에 포함되었습니다.');
@@ -9921,6 +9943,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       seedEvents: 0,
       seedAmount: 0,
       eternalFloor: 0,
+      architectMine: 0,
     };
     fullParser.on('MAGIC_STONE_GAIN', (event: any) => {
       golden.magicEvents++;
@@ -9937,6 +9960,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       golden.seedAmount += event.amount;
     });
     fullParser.on('ETERNAL_FLOOR_CLEAR', () => { golden.eternalFloor++; });
+    fullParser.on('ARCHITECT_MINE_CLEAR', () => { golden.architectMine++; });
     const fullyDecoded = normalizer.decodeChatLogBuffer(encoded);
     normalizer.normalizeChatLogLines(fullyDecoded.content.split('\n')).forEach((line: string) => fullParser.parseLine(line));
     assert.deepEqual(
@@ -9947,6 +9971,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
         seedEvents: finalBatch.aggregate.seedsDetected,
         seedAmount: finalBatch.seeds.reduce((sum: number, item: any) => sum + item.amount, 0),
         eternalFloor: finalBatch.aggregate.homework['weekly-eternal-floor']?.count || 0,
+        architectMine: finalBatch.aggregate.homework['daily-architect-mine']?.count || 0,
       },
       golden,
       `${encoding} 스트리밍 워커 결과가 기존 전파일 파싱 golden 결과와 다릅니다.`,
@@ -10340,6 +10365,7 @@ function checkSponsorFeatureRemoval(): void {
 }
 
 async function runRegressionChecks(): Promise<void> {
+  await checkWindowMovePersistence();
   checkSponsorFeatureRemoval();
   checkDiscordNotifierContracts();
   checkBossNotifierContracts();

@@ -79,6 +79,16 @@ TW-Overlay는 테일즈위버 게임 창을 추적하여 사이드바, 게임 �
 
 반복 호출될 수 있는 `start()`와 등록 함수는 중복 타이머, 중복 이벤트 리스너와 중복 콘솔 출력이 생기지 않도록 멱등성을 유지해야 합니다.
 
+### 사용자 전체 창 숨김·복원
+
+사용자 전체 숨김은 `userWindowVisibility.ts`의 메모리 세션과 `windowManager.ts`의 공통 표시 가드로 처리합니다. 트레이와 선택 단축키가 같은 API를 호출하며, 영구 표시 설정을 끄거나 renderer를 닫지 않습니다. 게임 최소화/종료 중에도 이 세션의 창과 초안은 보존하고, 게임에 붙는 창은 현재 게임 가시성에 맞춰 복원합니다. 자동 대화 열기와 늦은 로딩 완료는 사용자 숨김을 해제하지 않습니다.
+
+숙제 자동 접기는 renderer `contents-checker/auto-collapse.ts`의 조작·모달 보호와 `contentsWindowCollapse.ts`의 임시 네이티브 크기를 연결합니다. 접힌 56px 높이는 설정에 기록하지 않으며 프리셋 캡처에서도 펼친 높이를 사용합니다. 옵션 저장은 기존 확정 저장 IPC를 사용합니다.
+
+### 시간 측정
+
+시간 측정은 `stopwatchSession.ts`의 메인 세션이 단축키와 버튼을 함께 처리합니다. 시작 때 `rendererStorageBackup.ts`의 지정 키 조회로 file-origin 계수 프로필과 도핑을 캡처하고, 종료 때 SQLite에 한 번 저장합니다. 관리 창과 게임 HUD는 revision이 있는 상태를 구독하고 재생성 시 조회하므로 창 수명과 측정 수명이 분리됩니다. `stopwatchCalculation.ts`는 시작 스냅샷과 과거 기록 재계산의 공통 계산식입니다.
+
 ### Windows 자동 실행
 
 `autoStart.ts`는 배포 종류별로 등록을 분리한다. NSIS는 관리자 권한 VBS/Run 등록을 유지하고, Store는 manifest의 `TWOverlayStartup`을 `storeAutoStart.ts`와 Store 도우미의 WinRT API로 제어한다. StartupTask는 일반 권한 WinExe 도우미를 호출하며, 도우미가 버전 없는 패키지 AppsFolder ID를 활성화해 앱의 UAC 실행을 요청한다. 개발 실행은 등록을 변경하지 않는다.
@@ -161,10 +171,12 @@ DB 스키마나 저장 형식을 바꿀 때는 기존 사용자 데이터를 직
 - 멀티 모니터 교차 판정과 작업 영역 중앙 좌표 계산은 부수 효과가 없는 `windowPlacement.ts`에서 관리하며, 복구 위치 저장은 `windowManager.ts`가 담당합니다.
 - 활성 창 순서, 네이티브 Z-Order용 핸들 배열, 개발자 도구 방어와 게임 포커스 복구 타이머는 `windowFocusController.ts`가 관리합니다.
 - 프로그램이 요청한 창 이동과 빠른 사용자 드래그를 구분하는 상태는 `programmaticMoveTracker.ts`가 관리합니다.
+- `windowMovePersistence.ts`는 드래그 중 설정 처리를 생략하고 이동 완료·숨김·닫힘 때 최종 위치를 저장합니다. 네이티브 드래그가 끝나기 전에는 커서가 멈춰도 자동 위치·Z-order 보정을 막습니다.
 - 제복 색상·검 강화처럼 외부 페이지를 포함하는 도구의 `WebContentsView` 생성, 콘텐츠 영역 배치와 정리는 `embeddedWebTool.ts`가 담당합니다.
 - 브라우저 오버레이 툴바의 마우스 진입·이탈 상태와 자동 숨김 타이머는 `overlayToolbarController.ts`가 관리합니다.
 - 게임 해상도 캐시, 전체화면 판정, 오버레이·보조 창·사이드바의 목표 좌표와 크기 계산은 `windowLayout.ts`가 담당하며, Electron 창 조작은 `windowManager.ts`에 남깁니다.
 - 게임 창 좌표는 멀티 모니터와 DPI 배율을 고려해 Electron DIP 좌표로 변환합니다.
+- 게임 프로세스는 실행 파일 경로 조회에만 접근하며, 폴링이나 창 추적 과정에서 프로세스 우선순위를 변경하지 않습니다.
 - 게임이 최소화되거나 종료된 경우 관련 창의 표시 상태를 함께 조정합니다.
 - 자동 Z-order 관리는 게임 HWND를 anchor로만 읽고 외부 프로그램의 전경·순서를 바꾸지 않습니다. 단, 외부 프로그램에서 사용자가 작업표시줄의 TW-Overlay 창을 직접 선택한 경우에는 최소화되지 않은 게임을 한 번 전경으로 올린 뒤 선택 창에 포커스를 돌려 두 프로그램이 같은 작업 묶음처럼 보이게 합니다.
 - 창·HUD 기본 위치는 `src/shared/windowPositions.ts`에서 관리하며, 사용자가 실제 저장한 위치와 기본값을 구분합니다.
@@ -176,6 +188,23 @@ DB 스키마나 저장 형식을 바꿀 때는 기존 사용자 데이터를 직
 - 설정 화면의 왼쪽 메뉴는 9개의 1depth 분류만 표시하고, 2depth는 콘텐츠 상단 가로 탭으로 렌더링합니다. 2depth 항목은 앵커 이동이 아니라 선택한 설정 콘텐츠만 표시하는 독립 화면 방식으로 동작합니다.
 
 ## 빌드와 검증
+
+### 읽기·알림·창 정렬
+
+- `customChatFonts.ts`는 사용자가 선택한 글꼴을 `userData/custom_fonts`에 해시 ID로 복사합니다. 설정/프리셋/클라우드에는 ID만 저장하고 실제 파일은 로컬 ZIP 백업에 포함합니다. renderer의 `custom-chat-fonts.ts`가 실제 FontFace 로드와 기본 글꼴 대체를 담당합니다.
+- 고정 메모의 글자 크기·색·배경은 기존 설정 초안/저장 경로와 `companion-hud.ts`에서 함께 사용합니다. 내용은 개인 기록으로 유지하고 외관만 활동 프리셋에 포함합니다.
+- `notification-priority.ts`는 겹치는 게임 안내의 시각 우선순위만 다룹니다. 기존 감지·기록·시간 경과는 바꾸지 않습니다. `desktopNotification.ts`의 득템 묶음은 Windows 토스트에만 적용하며 `ui-utils.ts`의 반복 토스트 묶음은 사이드바/게임 오버레이에서 공유합니다.
+- `shared/windowSnap.ts`는 같은 좌표 공간에서 정렬할 위치를 계산합니다. HUD는 기존 위치 편집의 저장/취소를 사용하고, 독립 창은 기본 꺼짐인 `windowSnapEnabled`를 켠 경우에만 드래그 종료 때 `windowMovePersistence.ts`가 최종 위치를 맞춰 저장합니다.
+- `check-companion-reading.ts`와 `check-window-visibility.ts`에서 글꼴 파일·저장 경합·실제 renderer와 BrowserWindow 좌표를 검증합니다. 실게임·실제 마우스 드래그·DPI 하드웨어·설치 검증과 구분합니다.
+
+### 기록 내보내기·설정 공유·채팅 간단 표시
+
+- `modules/companionFiles.ts`는 설정 파일 공유와 일지 HTML 내보내기의 typed IPC·네이티브 파일 선택을 담당합니다. renderer는 파일 경로/설정 payload 대신 main이 보관한 토큰을 사용하며, 선택 그룹별 비교 이후 관련 설정이 달라지면 적용을 거절합니다. 저장 성공 이후 기존 runtime 적용과 `windowManager.applySharedWindowLayout`을 호출합니다.
+- `modules/settingsShare.ts`의 명시적 그룹/필드 목록은 공유 범위의 단일 원본입니다. 활동 프리셋·전체 백업과 달리 열림 상태·개인 데이터·연동·사용자 파일은 포함하지 않습니다. 가져온 창 배치는 현재 작업 영역으로 제한하며 숙제창 접힘 상태는 `ContentsWindowCollapse.updateExpandedSize`로 보존합니다.
+- `diaryDb.getDiaryExportSnapshot`은 기존 득템 표시 기준·수익 amount를 사용해 기간 데이터를 읽고, `diaryExport.ts`는 외부 요청/스크립트 없는 HTML로 출력합니다. 확인한 스냅샷을 저장하며 채팅 원문과 개인 메모는 제외합니다.
+- `chatChannels.applyReadingDisplay`는 채팅 간단 표시를 메인·보조·집중·설정 예시에 공통 적용합니다. 설정 변경은 기존 외관 갱신/가상 목록 앵커 보존 경로를 사용합니다. `check-companion-files`, `check-companion-reading`, `check-renderer-behavior`, `check-window-visibility`가 관련 실제 파일·DB·Electron 경로를 검사합니다.
+
+### 개발 명령
 
 일상 개발에서 사용하는 명령은 다음과 같습니다.
 

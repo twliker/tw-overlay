@@ -52,97 +52,15 @@ function beginChatViewRequest(key: string): ChatViewRequestToken {
   return request;
 }
 
-// NPC/몬스터 대사 여부 판별 함수
+// 숨김과 이름/대사 표시가 같은 NPC 판별을 사용한다.
 function isNpcOrMonsterChat(chat: BrowserChatItem): boolean {
-  if (!chat) return false;
-  const sender = chat.sender || '';
-  const message = chat.message || '';
-  
-  // 1. 보낸 사람이 NPC인 경우
-  if (window.chatConstants.isNpcSender(sender)) return true;
-  
-  // 2. 시스템 메시지 내에서 "NPC이름 : 대사" 형태인 경우
-  if (chat.type === 'system') {
-    const match = message.match(/^(.+?)\s*:\s*(.*)$/);
-    if (match) {
-      const parsedSender = match[1].trim();
-      if (window.chatConstants.isNpcSender(parsedSender)) return true;
-      // 공백이 있는 이름은 보통 NPC/몬스터 (예: "심연의 제2사도", "수색대장, 에토스")
-      if (parsedSender.includes(' ') && !parsedSender.includes(']') && !parsedSender.includes('[')) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return window.chatConstants.isNpcChat(chat);
 }
 
-function isElsoGainMessage(msg: string): boolean {
-  if (!msg) return false;
-  return /\[엘소\s*[\d,]+포인트\]/i.test(msg) ||
-         /\[엘소\s*스크롤\s*\([\d,]+\s*포인트\)\]/i.test(msg) ||
-         /루미나의\s*회랑\s*ELSO\s*획득량\s*증가\s*효과로/i.test(msg) ||
-         /\[[\d,]+\]\s*ELSO를\s*습득했습니다/i.test(msg) ||
-         /ELSO\s*포인트를\s*추가로\s*획득/i.test(msg);
-}
-
-function isXpGainMessage(msg: string): boolean {
-  if (!msg) return false;
-  return /경험치가\s+([\[\]\d,억만\s]+)\s*(올랐|상승)/.test(msg);
-}
-
-// 오버레이 노출 조건 판별 함수
 function shouldShowChat(chat: BrowserChatItem): boolean {
-  if (!chat) return false;
-
-  // 1. NPC/몬스터 대사 필터 적용
-  const showNpcChat = chatOverlayAppConfig?.chatOverlayShowNpcChat !== false;
-  if (!showNpcChat && isNpcOrMonsterChat(chat)) {
-    return false;
-  }
-
-  // 2. 블랙리스트 필터 적용 (설정된 제외 문구/정규식이 메시지에 일치하면 숨김)
-  const blacklist = chatOverlayAppConfig?.chatOverlayBlacklistFilters;
-  if (blacklist && blacklist.length > 0 && chat.message) {
-    const isFiltered = window.chatChannels && typeof window.chatChannels.isMessageBlacklisted === 'function'
-      ? window.chatChannels.isMessageBlacklisted(chat.message, blacklist)
-      : blacklist.some(f => f && f.trim().length > 0 && chat.message.includes(f.trim()));
-    if (isFiltered) {
-      return false;
-    }
-  }
-
-  // 3. 엘소/경험치 표시 옵션 검사 (통합, 시스템, 커스텀 탭 전체 공통 적용)
-  if (chatOverlayAppConfig?.chatOverlayShowElsoGain === false && isElsoGainMessage(chat.message)) {
-    return false;
-  }
-  if (chatOverlayAppConfig?.chatOverlayShowXpGain === false && isXpGainMessage(chat.message)) {
-    return false;
-  }
-
-  // 4. 채널별 / 커스텀 탭별 필터 적용
-  if (chatOverlayCurrentTab === 'Basic') {
-    const channels = chatOverlayAppConfig?.chatOverlaySelectedChannels || window.chatChannels.OVERLAY_CHANNELS;
-    return channels.includes(chat.type);
-  } else if (tabTypeMap[chatOverlayCurrentTab]) {
-    const expectedType = tabTypeMap[chatOverlayCurrentTab];
-    return chat.type === expectedType;
-  } else {
-    // 커스텀 탭 (ID: custom_xxx 또는 탭 이름)
-    const customTabs = chatOverlayAppConfig?.chatOverlayCustomTabs || [];
-    const customTab = customTabs.find(t => t.id === chatOverlayCurrentTab || t.name === chatOverlayCurrentTab || t.name.toLowerCase() === chatOverlayCurrentTab.toLowerCase());
-    if (customTab && Array.isArray(customTab.channels)) {
-      if (!customTab.channels.includes(chat.type)) return false;
-      // 커스텀 탭에 지정된 시스템 색상 필터 검사
-      if (chat.type === 'system' && Array.isArray(customTab.systemColorFilters) && customTab.systemColorFilters.length > 0 && window.chatChannels && typeof window.chatChannels.getSystemColorGroup === 'function') {
-        const group = window.chatChannels.getSystemColorGroup(chat.color);
-        if (!customTab.systemColorFilters.includes(group)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    return true;
-  }
+  return !!chat && window.chatChannels.isOverlayChatVisible(
+    chat, chatOverlayAppConfig || {}, chatOverlayCurrentTab, isNpcOrMonsterChat(chat),
+  );
 }
 
 let chatOverlayCurrentTab = 'Basic';
@@ -193,16 +111,6 @@ const searchStatusBar = document.getElementById('searchStatusBar') as HTMLDivEle
 const searchResultText = document.getElementById('searchResultText') as HTMLSpanElement;
 const btnExitSearchMode = document.getElementById('btnExitSearchMode') as HTMLButtonElement;
 
-// Tab mapping (UI tab -> chat.type)
-const tabTypeMap: Record<string, string> = {
-  'General': 'general',
-  'Team': 'team',
-  'Club': 'club',
-  'Shout': 'shout',
-  'Whisper': 'whisper',
-  'System': 'system'
-};
-
 const builtInTabIds = [...window.chatChannels.OVERLAY_BUILT_IN_TABS];
 
 function getVisibleBuiltInTabs(config: BrowserAppConfig | null = chatOverlayAppConfig): string[] {
@@ -217,7 +125,7 @@ function resolveAvailableTab(tabName: string): string {
   if (visibleBuiltInTabs.includes(tabName)) return tabName;
 
   const customTabs = chatOverlayAppConfig?.chatOverlayCustomTabs || [];
-  const customTab = customTabs.find(tab => tab.id === tabName || tab.name === tabName);
+  const customTab = window.chatChannels.resolveOverlayCustomTab(tabName, customTabs);
   if (customTab) return customTab.id;
 
   return visibleBuiltInTabs[0] || 'Basic';
@@ -239,7 +147,7 @@ function renderCustomTabs() {
   customTabs.forEach(tab => {
     const tabEl = document.createElement('div');
     tabEl.className = 'tab-item custom-tab-item';
-    if (chatOverlayCurrentTab === tab.id || chatOverlayCurrentTab === tab.name) {
+    if (chatOverlayCurrentTab === tab.id) {
       tabEl.classList.add('active');
     }
     tabEl.setAttribute('data-tab', tab.id);
@@ -330,8 +238,16 @@ function appendHighlightedText(container: HTMLElement, text: string, query?: str
   }
 }
 
-// Build chat row element
+/**
+ * NPC 표시 계약: 숨김과 같은 판별 기준을 사용하고 이름·대사 앞에 채널 배지나
+ * 합성 발신자 `시스템 :`을 덧붙이지 않는다. 별도 NPC 배지도 만들지 않는다.
+ * 시스템으로 분류된 대사의 원문에는 이름이 이미 들어 있으므로 본문을 그대로 표시한다.
+ * 원본 ChatItem은 유지하여 탭·색상 필터·검색·중복 제거에 영향을 주지 않는다.
+ * 메인·보조 창의 이력·검색·추가 페이지·실시간 수신을 check-npc-chat.ts로 검증한다.
+ */
 function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivElement {
+  const isNpcDialogue = isNpcOrMonsterChat(chat);
+  const displaySender = isNpcDialogue && chat.sender === '시스템' ? '' : chat.sender;
   const row = document.createElement('div');
   row.className = 'chat-message-row';
   row.dataset.chatId = getChatItemKey(chat);
@@ -343,16 +259,20 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
   row.appendChild(timeSpan);
 
   // 2. Channel Badge
-  const channelBadge = document.createElement('span');
-  channelBadge.className = `channel-badge badge-${chat.type}`;
-  channelBadge.textContent = getChannelBadgeText(chat.type);
-  row.appendChild(channelBadge);
+  if (!isNpcDialogue) {
+    const channelBadge = document.createElement('span');
+    channelBadge.className = `channel-badge badge-${chat.type}`;
+    channelBadge.textContent = getChannelBadgeText(chat.type);
+    row.appendChild(channelBadge);
+  }
 
   // 3. Eta Level Badge (If exists)
   if (chat.level !== undefined && chat.level !== null) {
     const badge = document.createElement('span');
     badge.className = 'eta-badge';
     badge.textContent = `에타 ${chat.level}`;
+    const etaColor = window.chatChannels.getEtaColor(chat.level, chatOverlayAppConfig || {});
+    if (etaColor) { badge.style.color = etaColor; badge.style.background = `${etaColor}18`; badge.style.border = `1px solid ${etaColor}80`; }
     row.appendChild(badge);
   }
 
@@ -360,13 +280,13 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
   const senderSpan = document.createElement('span');
   senderSpan.className = 'chat-sender';
 
-  const hasSuspiciousColon = chat.sender && chat.sender.includes('：');
+  const hasSuspiciousColon = displaySender && displaySender.includes('：');
   const shouldHighlight = hasSuspiciousColon && (chatOverlayAppConfig?.chatOverlayHighlightScamNicknames !== false);
 
-  if (highlightQuery && chat.sender) {
-    appendHighlightedText(senderSpan, chat.sender, highlightQuery);
+  if (highlightQuery && displaySender) {
+    appendHighlightedText(senderSpan, displaySender, highlightQuery);
   } else {
-    senderSpan.textContent = chat.sender ? chat.sender : '';
+    senderSpan.textContent = displaySender || '';
   }
 
   if (shouldHighlight) {
@@ -378,8 +298,8 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
     row.appendChild(warningBadge);
   }
 
-  if (chat.sender && chat.sender !== '시스템') {
-    senderSpan.dataset.senderCopy = chat.sender;
+  if (displaySender && displaySender !== '시스템') {
+    senderSpan.dataset.senderCopy = displaySender;
   } else {
     senderSpan.style.cursor = 'default';
     senderSpan.style.textDecoration = 'none';
@@ -421,10 +341,15 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
     senderSpan.style.color = chat.color;
   }
 
-  row.appendChild(senderSpan);
+  if (displaySender) row.appendChild(senderSpan);
+  if (chat.type !== 'system' && !isNpcDialogue && chat.sender) {
+    senderSpan.dataset.noteNickname = chat.sender;
+    senderSpan.title = '클릭: 닉네임 복사 · 우클릭: 정보·메모';
+    window.nicknameNotes?.appendBadge(row, chat.sender);
+  }
 
   // Append separator outside of senderSpan
-  if (chat.sender) {
+  if (displaySender) {
     const separatorSpan = document.createElement('span');
     separatorSpan.className = 'chat-sender-separator';
     separatorSpan.textContent = ':';
@@ -471,6 +396,7 @@ function createChatRow(chat: BrowserChatItem, highlightQuery?: string): HTMLDivE
   }
   row.appendChild(textSpan);
 
+  window.chatChannels.applyReadingDisplay(row, chatOverlayAppConfig || {});
   return row;
 }
 
@@ -530,6 +456,19 @@ function setChatViewItems(
   });
 }
 
+/** 기능 계약: 메모·서버별 배지·색상 변경은 조회 조건이 아니다.
+ * 현재 항목, 검색어/강조, 과거 페이지 커서와 진행 중인 조회·실시간 수신을 유지하고 행만 다시 그린다.
+ * 행 높이가 달라져도 읽던 행의 화면 위치를 보존하며, 맨 아래를 보던 창은 끝을 따라간다.
+ * 회귀: check-renderer-behavior.ts의 검색 갱신 및 과거 탐색 중 표시 설정 검사.
+ */
+function refreshChatAppearance(): void {
+  chatVirtualList.setItems(chatViewItems, {
+    scrollToEnd: chatVirtualList.isAtEnd(2),
+    preserveAnchor: true,
+    resetMeasurements: true,
+  });
+}
+
 function applyChatResponse(
   responseItems: readonly BrowserChatItem[],
   options: { highlightQuery?: string; emptyMessage: string },
@@ -556,7 +495,7 @@ function appendChatViewItems(items: readonly BrowserChatItem[], followEnd: boole
   chatVirtualList.appendItems(uniqueNewItems, { followEnd });
 }
 
-function prependChatViewItems(items: readonly BrowserChatItem[]): void {
+function prependChatViewItems(items: readonly BrowserChatItem[]): number {
   const uniqueOlderItems: BrowserChatItem[] = [];
   const batchKeys = new Set<string>();
   for (const item of items) {
@@ -565,11 +504,12 @@ function prependChatViewItems(items: readonly BrowserChatItem[]): void {
     batchKeys.add(key);
     uniqueOlderItems.push(item);
   }
-  if (uniqueOlderItems.length === 0) return;
+  if (uniqueOlderItems.length === 0) return 0;
   for (const key of batchKeys) chatViewItemKeys.add(key);
   chatViewItems = [...uniqueOlderItems, ...chatViewItems];
   chatEmptyState.classList.add('hidden');
   chatVirtualList.prependItems(uniqueOlderItems);
+  return uniqueOlderItems.length;
 }
 
 // Search State
@@ -696,6 +636,7 @@ async function loadHistory() {
     } else {
       applyChatResponse([], { emptyMessage: '채팅 내역이 없습니다.' });
     }
+    await loadMoreHistory(true);
   } catch (e) {
     if (!chatViewRequests.isCurrent(request)) return;
     console.error('Failed to load chat history:', e);
@@ -783,14 +724,23 @@ function updateHeaderVisibility(config: BrowserAppConfig) {
 }
 
 // Update Styles based on Config
+let chatFontRevision = 0;
 function applyConfigStyles(config: BrowserAppConfig) {
   if (!config) return;
-  const fontSizeChanged = chatOverlayAppConfig?.chatOverlayFontSize !== config.chatOverlayFontSize;
+  const font = window.chatChannels.resolveChatFont(config, chatOverlayMode);
+  const fontSizeChanged = document.documentElement.style.getPropertyValue('--font-size-base') !== `${font.size}px`
+    || document.body.style.fontFamily !== font.family;
   chatOverlayAppConfig = config;
+  window.nicknameNotes?.updateConfig(config);
 
   // Font Size
-  if (config.chatOverlayFontSize) {
-    document.documentElement.style.setProperty('--font-size-base', `${config.chatOverlayFontSize}px`);
+  document.documentElement.style.setProperty('--font-size-base', `${font.size}px`);
+  document.body.style.fontFamily = font.family;
+  const fontRevision = ++chatFontRevision;
+  if (font.key.startsWith('custom:')) {
+    void window.customChatFonts?.load(font.key).then(() => {
+      if (fontRevision === chatFontRevision) chatVirtualList.resetMeasurements(true);
+    });
   }
   if (fontSizeChanged) {
     requestAnimationFrame(() => chatVirtualList.resetMeasurements(true));
@@ -1011,9 +961,16 @@ window.electronAPI.onChatUpdated((chatItem) => {
 });
 
 window.electronAPI.onChatHistoryCleared(() => {
+  // 날짜 변경·로그 재연결도 현재 조회 조건을 유지한다. 일반 이력으로 덮으면
+  // 검색 상태 표시와 본문이 달라지고, 초기화 전 대기 중인 행/응답이 섞인다.
+  clearPendingIncomingChat();
   isLoadingMore = false;
   hasReachedEnd = false;
-  loadHistory();
+  if (isSearchMode && currentSearchQuery) {
+    void executeSearch(currentSearchQuery);
+  } else {
+    void loadHistory();
+  }
 });
 
 window.electronAPI.onConfigData((config) => {
@@ -1093,12 +1050,24 @@ window.electronAPI.onConfigData((config) => {
     colorChanged = true;
   }
 
-  // 엘소/경험치 필터 변경 감지
+  // 표시 대상이 바뀌는 필터와 행의 표현만 바뀌는 설정을 분리한다.
   let gainSettingsChanged = false;
+  let appearanceChanged = colorChanged;
   if (lastKnownConfig) {
     if (lastKnownConfig.chatOverlayShowElsoGain !== config.chatOverlayShowElsoGain ||
-        lastKnownConfig.chatOverlayShowXpGain !== config.chatOverlayShowXpGain) {
+        lastKnownConfig.chatOverlayShowXpGain !== config.chatOverlayShowXpGain ||
+        lastKnownConfig.chatOverlayShowFreeShout !== config.chatOverlayShowFreeShout ||
+        lastKnownConfig.chatOverlayShowPaidShout !== config.chatOverlayShowPaidShout ||
+        lastKnownConfig.chatOverlayShowNoticeShout !== config.chatOverlayShowNoticeShout) {
       gainSettingsChanged = true;
+    }
+    if (lastKnownConfig.chatCompactDisplay !== config.chatCompactDisplay ||
+        lastKnownConfig.chatNicknameNotesCompact !== config.chatNicknameNotesCompact ||
+        lastKnownConfig.chatEtaColorsEnabled !== config.chatEtaColorsEnabled ||
+        JSON.stringify(lastKnownConfig.nicknameNotes) !== JSON.stringify(config.nicknameNotes) ||
+        lastKnownConfig.userServer !== config.userServer ||
+        JSON.stringify(lastKnownConfig.chatEtaColors) !== JSON.stringify(config.chatEtaColors)) {
+      appearanceChanged = true;
     }
   }
 
@@ -1124,10 +1093,12 @@ window.electronAPI.onConfigData((config) => {
   const tabChangedExternally = (currentConfigTab !== chatOverlayCurrentTab);
   if (tabChangedExternally) {
     selectTab(currentConfigTab, currentConfigTab !== configuredTab);
-  } else if ((channelsChanged || npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged || visibleTabsChanged) && chatOverlayCurrentTab === 'Basic') {
-    loadHistory();
-  } else if (npcChatSettingChanged || colorChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged || visibleTabsChanged) {
-    loadHistory();
+  } else if ((channelsChanged && chatOverlayCurrentTab === 'Basic') || npcChatSettingChanged || blacklistFiltersChanged || customTabsChanged || gainSettingsChanged || visibleTabsChanged) {
+    // 조회 조건이 바뀌면 현재 검색어를 유지하며 이전 응답은 요청 세대로 무효화한다.
+    if (isSearchMode && currentSearchQuery) void executeSearch(currentSearchQuery);
+    else void loadHistory();
+  } else if (appearanceChanged) {
+    refreshChatAppearance();
   }
 });
 
@@ -1135,6 +1106,7 @@ window.electronAPI.onConfigData((config) => {
 window.electronAPI.onChatOverlayMode((mode) => {
   chatOverlayMode = mode;
   isModeReceived = true;
+  if (chatOverlayAppConfig) applyConfigStyles(chatOverlayAppConfig);
   
   // 헤더 타이틀 표시 치환
   const titleTextEl = document.getElementById('dragHeaderTitleText');
@@ -1259,38 +1231,43 @@ window.addEventListener('mouseup', (e) => {
   }
 });
 
-// Scroll Event for Infinite Scroll
-chatArea.addEventListener('scroll', async () => {
-  if (isSearchMode || isChatViewLoading) return;
-  if (chatArea.scrollTop <= 5 && !isLoadingMore && !hasReachedEnd) {
-    isLoadingMore = true;
-    const requestedTab = chatOverlayCurrentTab;
-    const requestedView = activeChatViewRequest;
-    const requestGeneration = ++paginationGeneration;
-    try {
+// 필터로 빈 페이지가 이어져도 다음 스크롤 이벤트를 기다리지 않고 표시할 기록을 찾는다.
+// 최초 화면은 스크롤 가능한 높이까지 채우고, 위쪽 탐색은 기존 앵커를 유지한다.
+async function loadMoreHistory(fillViewport = false): Promise<void> {
+  if (isSearchMode || isLoadingMore || hasReachedEnd || !activeChatViewRequest) return;
+  isLoadingMore = true;
+  const requestedTab = chatOverlayCurrentTab;
+  const requestedView = activeChatViewRequest;
+  const requestGeneration = ++paginationGeneration;
+  const isCurrent = () => requestGeneration === paginationGeneration
+    && chatViewRequests.isCurrent(requestedView)
+    && requestedTab === chatOverlayCurrentTab && !isSearchMode;
+  const needsMoreHeight = () => chatArea.scrollHeight <= chatArea.clientHeight + 1;
+  try {
+    // 가상 목록의 행 높이 측정과 탭/검색 전환이 페이지 사이에 실행될 수 있게 양보한다.
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    if (!isCurrent() || (fillViewport && !needsMoreHeight())) return;
+    while (isCurrent() && !hasReachedEnd) {
       const newItems = await window.electronAPI.getMoreChatHistory(requestedTab);
-      
-      // 비동기 로딩 도중 사용자가 탭을 바꿨으면 렌더링 스킵
-      if (requestGeneration !== paginationGeneration || !requestedView
-        || !chatViewRequests.isCurrent(requestedView)
-        || requestedTab !== chatOverlayCurrentTab || isSearchMode) return;
-
-      if (newItems && newItems.length > 0) {
-        const filtered = newItems.filter((chat: BrowserChatItem) => shouldShowChat(chat));
-        prependChatViewItems(filtered);
-
-        if (newItems.length < 150) {
-          hasReachedEnd = true;
-        }
-      } else {
-        hasReachedEnd = true;
-      }
-    } catch (err) {
-      if (requestGeneration !== paginationGeneration) return;
-      console.error('Failed to load more chat history:', err);
-    } finally {
-      if (requestGeneration === paginationGeneration) isLoadingMore = false;
+      if (!isCurrent()) return;
+      const followEnd = fillViewport && chatVirtualList.isAtEnd(2);
+      const added = prependChatViewItems((newItems || []).filter(shouldShowChat));
+      if (followEnd) chatVirtualList.scrollToEnd();
+      hasReachedEnd = !newItems || newItems.length < 150;
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      if (added > 0 && !needsMoreHeight()) break;
     }
+  } catch (err) {
+    if (isCurrent()) console.error('Failed to load more chat history:', err);
+  } finally {
+    if (requestGeneration === paginationGeneration) isLoadingMore = false;
+  }
+}
+
+// Scroll Event for Infinite Scroll
+chatArea.addEventListener('scroll', () => {
+  if (!isSearchMode && !isChatViewLoading && chatArea.scrollTop <= 5) {
+    void loadMoreHistory();
   }
 });
 

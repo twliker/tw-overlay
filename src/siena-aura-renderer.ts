@@ -285,6 +285,38 @@ function drawExtraOption(excludeGroups: string[]): any {
   return flatPool[0];
 }
 
+/** 환류의 서는 drawExtraOption처럼 이미 나온 종류를 다음 슬롯에서 제외한다.
+ * 목표 종류가 낮은 등급으로 나와도 같은 시도에서 다시 뽑을 수 없다.
+ * 현재 열린 최대 3칸의 순차 추첨을 합산하며, 정환의 서 단일 칸 계산은 별도다.
+ * 회귀: check-renderer-behavior --siena-aura (제품 화면·독립 순열 계산·실제 추첨).
+ */
+function extraAllSuccessProbability(openCount: number, targetGroup: string, targetGrade: StatGrade): number {
+  const minimumGrade = ['하', '중', '상'].indexOf(targetGrade);
+  const pool = EXTRA_OPTION_POOL.map(option => ({
+    group: option.group,
+    weight: option.grades.reduce((sum, grade) => sum + grade.chance, 0),
+    validWeight: option.group === targetGroup
+      ? option.grades.reduce((sum, grade, index) => sum + (index >= minimumGrade ? grade.chance : 0), 0)
+      : 0,
+  }));
+  const chance = (available: typeof pool, remaining: number): number => {
+    if (remaining <= 0) return 0;
+    const total = available.reduce((sum, option) => sum + option.weight, 0);
+    if (total <= 0) return 0;
+    let probability = 0;
+    for (const option of available) {
+      if (option.group === targetGroup) {
+        probability += option.validWeight / total;
+      } else if (remaining > 1) {
+        probability += option.weight / total
+          * chance(available.filter(other => other !== option), remaining - 1);
+      }
+    }
+    return probability;
+  };
+  return chance(pool, openCount);
+}
+
 // --- UI Actions ---
 
 const AUTO_BUTTON_RUNNING_CLASSES = [
@@ -1116,14 +1148,22 @@ function updateExpectation() {
     const validWeight = flatPool.filter(item => item.name === targetName && gradeValues[item.grade as StatGrade] >= targetVal).reduce((sum, item) => sum + item.chance, 0);
     targetProb = validWeight / totalWeight;
 
+    // 기능 계약: 능력치 재설정은 현재 증폭으로 열린 능력치 중 잠기지 않은
+    // 슬롯만 다시 뽑는다. 잠근 목표 능력치는 새 획득 성공으로 세지 않는
+    // autoResetStats와 같은 기준이며, 미개방 슬롯을 10칸 확률에 포함하지 않는다.
+    // 무기/방어구·0~10단계·잠금 수 회귀: check-renderer-behavior --siena-aura.
     const lockCount = stats.filter(s => s.locked).length;
-    if (lockCount === 10) {
+    const slotsToRoll = stats.length - lockCount;
+    if (stats.length === 0) {
+      container.innerHTML = `<div class="text-xs text-slate-400 text-center py-4">증폭으로 능력치를 개방하면 재설정 기댓값을 확인할 수 있습니다.</div>`;
+      return;
+    }
+    if (slotsToRoll === 0) {
       container.innerHTML = `<div class="text-xs text-slate-400 text-center py-4">모든 능력치가 잠겨있습니다.</div>`;
       return;
     }
     
-    // Remaining unlocked slots is 10 - lockCount. Probability of at least one hit in the remaining slots:
-    const slotsToRoll = 10 - lockCount;
+    // Probability of at least one target in the currently rerolled slots.
     const probNone = Math.pow(1 - targetProb, slotsToRoll);
     const probAtLeastOne = 1 - probNone;
 
@@ -1240,22 +1280,7 @@ function updateExpectation() {
       `;
 
     } else {
-      // 환류의 서 (all)
-      let validWeight = 0;
-      let totalWeight = 0;
-      EXTRA_OPTION_POOL.forEach(opt => {
-        opt.grades.forEach((g, idx) => {
-          const grade: StatGrade = idx === 0 ? '하' : idx === 1 ? '중' : '상';
-          totalWeight += g.chance;
-          if (opt.group === targetGroup && gradeValues[grade] >= targetVal) {
-            validWeight += g.chance;
-          }
-        });
-      });
-      const singleSlotProb = validWeight / totalWeight;
-      
-      // Probability of at least one hit in openCount slots (assuming roughly independent without replacement approximation for small prob)
-      const probAtLeastOne = 1 - Math.pow(1 - singleSlotProb, openCount);
+      const probAtLeastOne = extraAllSuccessProbability(openCount, targetGroup, targetGrade);
 
       const expectedAttempts = 1 / probAtLeastOne;
       const expectedSeed = EXTRA_RESET_ALL_SEED * expectedAttempts;

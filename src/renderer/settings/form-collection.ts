@@ -3,6 +3,18 @@
   interface RendererDefaults {
     userServer: number;
     chatOverlayFontSize: number;
+    chatNicknameNotesCompact: boolean;
+    chatEtaColorsEnabled: boolean;
+    chatEtaColors: string[];
+    chatOverlayShowFreeShout: boolean;
+    chatOverlayShowPaidShout: boolean;
+    chatOverlayShowNoticeShout: boolean;
+
+    chatOverlayFontFamily: string;
+    chatOverlaySubFontSize: number;
+    chatOverlaySubFontFamily: string;
+    chatOverlaySub2FontSize: number;
+    chatOverlaySub2FontFamily: string;
     chatOverlayOpacity: number;
     chatOverlaySubOpacity: number;
     chatOverlaySub2Opacity: number;
@@ -101,7 +113,19 @@
     const visibleTabs = window.chatChannels.OVERLAY_BUILT_IN_TABS
       .filter(tab => checkedValue(`chat-overlay-visible-tab-${tab}`, false));
     return {
+      chatOverlayShowFreeShout: checkedValue('chat-overlay-show-free-shout', true),
+      chatOverlayShowPaidShout: checkedValue('chat-overlay-show-paid-shout', true),
+      chatOverlayShowNoticeShout: checkedValue('chat-overlay-show-notice-shout', true),
+      chatNicknameNotesCompact: checkedValue('chat-nickname-notes-compact', false),
+      chatCompactDisplay: checkedValue('chat-compact-display', false),
+      chatEtaColorsEnabled: checkedValue('chat-eta-colors-enabled', false),
+      chatEtaColors: [0, 1, 2, 3, 4].map(index => stringValue(`chat-eta-color-${index}`, defaultConfig.chatEtaColors[index])),
       chatOverlayFontSize: integerValue('chat-overlay-fontsize-input', defaultConfig.chatOverlayFontSize),
+      chatOverlayFontFamily: stringValue('chat-overlay-fontfamily-input', 'system'),
+      chatOverlaySubFontSize: integerValue('chat-overlay-sub-fontsize-input', 0),
+      chatOverlaySubFontFamily: stringValue('chat-overlay-sub-fontfamily-input', ''),
+      chatOverlaySub2FontSize: integerValue('chat-overlay-sub2-fontsize-input', 0),
+      chatOverlaySub2FontFamily: stringValue('chat-overlay-sub2-fontfamily-input', ''),
       chatOverlayOpacity: floatValue('chat-overlay-opacity-input', defaultConfig.chatOverlayOpacity),
       chatOverlaySubOpacity: floatValue('chat-overlay-sub-opacity-input', defaultConfig.chatOverlaySubOpacity),
       chatOverlaySub2Opacity: floatValue('chat-overlay-sub2-opacity-input', defaultConfig.chatOverlaySub2Opacity),

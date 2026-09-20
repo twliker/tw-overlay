@@ -53,3 +53,9 @@ export async function restoreRendererStorageOnStartup(): Promise<void> {
   session.defaultSession.flushStorageData();
   fs.unlinkSync(pendingFile);
 }
+
+/** 계수 계산기 등 file-origin 도구의 지정 키만 읽는다. 인증·외부 origin은 읽지 않는다. */
+export async function readRendererStorage(keys: readonly string[]): Promise<Record<string, string | null>> {
+  if (keys.some(key => !RENDERER_STORAGE_KEYS.some(owned => owned === key))) throw new Error('Unknown tool storage key');
+  return withStorage(`Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, localStorage.getItem(key)]))`);
+}

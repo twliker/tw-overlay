@@ -51,7 +51,7 @@
 
   function resetShortcut(key: string): void {
     const defaultValue = DEFAULT_SHORTCUTS[key];
-    if (!defaultValue) return;
+    if (defaultValue === undefined) return;
     shortcuts[key] = defaultValue;
     const input = shortcutInput(key);
     if (input) input.value = defaultValue;

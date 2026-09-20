@@ -19,6 +19,9 @@ import { log } from './logger';
 import type { WindowPositionKey } from '../shared/types';
 import { repairLegacyHiddenHudPositions } from '../shared/windowPositions';
 import { isTradeSearchState } from '../shared/tradeSearchState';
+import { isNicknameNotes } from '../shared/nicknameNotes';
+import { isActivityPresets } from '../shared/activityPresets';
+import { isNotificationPositions } from '../shared/notificationLayout';
 
 const CONFIG_QUARANTINE_FILENAME = 'config.quarantine.json';
 const WRITE_RETRY_DELAYS_MS = [0, 25, 75, 150];
@@ -147,10 +150,15 @@ const EXTERNAL_NUMBER_RANGES: Partial<Record<keyof AppConfig, [number, number]>>
   chatOverlaySubOpacity: [0.2, 1],
   chatOverlaySub2Opacity: [0.2, 1],
   chatOverlayFontSize: [8, 72],
+  chatOverlaySubFontSize: [0, 72],
+  chatOverlaySub2FontSize: [0, 72],
   wordAlarmVolume: [0, 100],
   fieldBossNotifyVolume: [0, 100],
   buffTimerVolume: [0, 100],
   essenceAlertVolume: [0, 100],
+  xpAutoPauseSeconds: [30, 300],
+  xpEfficiencyDropPercent: [10, 50],
+  xpEfficiencyAlertVolume: [0, 100],
   questCompleteAlertVolume: [0, 100],
   abyssTreasureAlertVolume: [0, 100],
   ethosAlertVolume: [0, 100],
@@ -322,6 +330,16 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
     }
     if (key === 'scamGpuVariant' && !['cpu', 'vulkan', 'cuda-12.4', 'cuda-13.1'].includes(String(fieldValue))) return null;
     if (key === 'tradeSearchState' && !isTradeSearchState(fieldValue)) return null;
+    if (key === 'nicknameNotes' && !isNicknameNotes(fieldValue)) return null;
+    if (key === 'notificationPositions' && !isNotificationPositions(fieldValue)) return null;
+    if (key === 'activityPresets' && (!isActivityPresets(fieldValue)
+      || fieldValue.some(preset => !sanitizeExternalConfigPatch(preset.settings)))) return null;
+    if (key === 'pinnedNoteText' && (typeof fieldValue !== 'string' || fieldValue.length > 1000)) return null;
+    if (key === 'pinnedNoteFontSize' && (!Number.isInteger(fieldValue) || (fieldValue as number) < 12 || (fieldValue as number) > 28)) return null;
+    if (key === 'pinnedNoteColor' && (typeof fieldValue !== 'string' || !/^#[0-9a-f]{6}$/i.test(fieldValue))) return null;
+    if (['pinnedNotePos', 'supplyHudPos'].includes(key) && (!isPlainObject(fieldValue)
+      || !['left', 'top'].every(axis => typeof fieldValue[axis] === 'number' && Number.isFinite(fieldValue[axis])
+        && Math.abs(fieldValue[axis] as number) <= 100_000))) return null;
     if (key === 'windowedFullscreenPositions' && !isValidRelativePositionMap(fieldValue)) return null;
     if (key === 'fixedWindowPositions' && !isValidScreenPositionMap(fieldValue)) return null;
     if (key === 'managedWindowSizes' && !isValidWindowSizeMap(fieldValue)) return null;
@@ -352,6 +370,16 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
       && (!Array.isArray(fieldValue) || fieldValue.length > 2_000
         || fieldValue.some(value => typeof value !== 'string' || value.length > 500))) return null;
     if (key === 'chatOverlayCustomTabs' && !isValidChatOverlayCustomTabs(fieldValue)) return null;
+    if (key === 'chatEtaColors' && (!Array.isArray(fieldValue) || fieldValue.length !== 5
+      || fieldValue.some(color => typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)))) return null;
+    if (['chatOverlayFontFamily', 'chatOverlaySubFontFamily', 'chatOverlaySub2FontFamily'].includes(key)
+      && !['', 'system', 'malgun', 'gulim', 'dotum', 'batang'].includes(String(fieldValue))
+      && !/^custom:[a-f0-9]{64}$/.test(String(fieldValue))) return null;
+    if (['chatOverlaySubFontSize', 'chatOverlaySub2FontSize'].includes(key)
+      && (!Number.isInteger(fieldValue) || ((fieldValue as number) !== 0 && (fieldValue as number) < 12))) return null;
+    if (key === 'bossEntryCountdownBosses' && (!Array.isArray(fieldValue)
+      || fieldValue.length > 2 || new Set(fieldValue).size !== fieldValue.length
+      || fieldValue.some(name => !['혼란한 대지', '파멸의 기원'].includes(name)))) return null;
     const range = EXTERNAL_NUMBER_RANGES[key as keyof AppConfig];
     if (range) {
       if (typeof fieldValue !== 'number' || !Number.isFinite(fieldValue) || fieldValue < range[0] || fieldValue > range[1]) {
@@ -463,10 +491,9 @@ function waitSync(ms: number): void {
 }
 
 /** 같은 폴더의 완전한 임시 파일을 flush한 뒤 원본 경로로 원자 교체한다. */
-function writeJsonAtomicSync(filePath: string, value: unknown): void {
+function writeJsonAtomicSync(filePath: string, value: unknown, tempPath = `${filePath}.tmp`): void {
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true });
-  const tempPath = `${filePath}.tmp`;
   const serialized = JSON.stringify(value, null, 2);
   const fd = fs.openSync(tempPath, 'w', 0o600);
   try {
@@ -837,6 +864,41 @@ export function saveImmediate(newConfig: Partial<AppConfig> = {}): boolean {
   } catch (error) {
     _lastSaveError = error instanceof Error ? error.message : String(error);
     log(`[CONFIG] 즉시 저장 실패, pending 유지: ${_lastSaveError}`);
+    return false;
+  }
+}
+
+/** 기능 계약 — 사용자 설정 적용은 디스크 저장 성공 뒤에만 확정한다.
+ * 실패한 요청은 캐시·리스너·자동 재시도에 넣지 않는다. 요청 전에 대기 중이던 창 위치 등의
+ * 자동 저장은 그대로 유지하며, 성공하면 그 대기 내용까지 함께 저장한다.
+ * 거절된 요청이 재시작 시 복구되지 않도록 일반 복구 후보(.tmp)와 다른 임시 파일을 쓴다.
+ * 창 반영과 프리셋 전환은 호출자인 windowManager가 성공 반환 뒤 수행한다.
+ * 회귀: check-audit-regressions.ts의 실제 파일 잠금·재시도·재시작 검사.
+ */
+export function saveConfirmed(newConfig: Partial<AppConfig>): boolean {
+  if (_externalRestoreActive) {
+    _lastSaveError = '백업 복원 중에는 설정을 변경할 수 없습니다.';
+    return false;
+  }
+  const configPath = get_CONFIG_PATH();
+  const tempPath = `${configPath}.confirmed.tmp`;
+  try {
+    const changed = deepClone(newConfig);
+    const next = mergeConfigPatch(_pendingConfig || load(), changed) as AppConfig;
+    next.storedPositionKeys = [..._storedPositionKeys];
+    writeJsonAtomicSync(configPath, next, tempPath);
+    if (_saveTimer) clearTimeout(_saveTimer);
+    _saveTimer = null;
+    _pendingConfig = null;
+    _cachedConfig = deepClone(next);
+    _lastSaveError = null;
+    _saveRetryIndex = 0;
+    notifyConfigChange(changed);
+    return true;
+  } catch (error) {
+    _lastSaveError = error instanceof Error ? error.message : String(error);
+    log(`[CONFIG] 설정 적용 취소, 기존 설정 유지: ${_lastSaveError}`);
+    try { fs.rmSync(tempPath, { force: true }); } catch { /* 복구 후보가 아니므로 남아도 적용되지 않는다. */ }
     return false;
   }
 }

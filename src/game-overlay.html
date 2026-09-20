@@ -362,6 +362,19 @@
       font-weight: 700;
     }
 
+    .today-summary-detected {
+      margin-top: 6px;
+      max-width: 256px;
+    }
+
+    .today-summary-detected.hidden {
+      display: none;
+    }
+
+    .today-summary-detected .today-summary-list-value {
+      color: #a78bfa;
+    }
+
     /* ── 어벤던로드 위젯 ── */
     .abandoned-widget {
       position: fixed;
@@ -1615,6 +1628,34 @@
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
     }
 
+    #supply-pad-alert { position:fixed; left:50%; top:35%; transform:translate(-50%, -50%); width:max-content; max-width:calc(100vw - 24px); pointer-events:none; z-index:105; color:var(--ui-text); text-align:center; text-shadow:0 2px 4px #000, 0 0 12px #000; }
+    .supply-pad-instruction { margin:0 0 12px; font-size:18px; font-weight:700; }
+    #supply-pad-order { display:flex; align-items:center; justify-content:center; gap:12px; font-size:24px; }
+    .supply-pad { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:20px; font-weight:700; }
+    .supply-pad-image { width:68px; height:44px; object-fit:contain; flex-shrink:0; filter:drop-shadow(0 2px 4px #000); }
+    #pinned-note-hud { position:fixed; left:24px; top:390px; width:260px; max-width:calc(100vw - 24px); max-height:45vh; display:flex; flex-direction:column; pointer-events:none; }
+    [data-notification-muted="true"] { visibility:hidden !important; }
+    #pinned-note-hud.hidden { display:none; }
+    body:not(.hud-edit-mode) #pinned-note-hud.note-text-only .ui-hud-heading { display:none; }
+    #pinned-note-hud .ui-hud-heading, #pinned-note-overflow { flex-shrink:0; }
+    #pinned-note-content { min-height:0; white-space:pre-wrap; overflow-wrap:anywhere; overflow:hidden; }
+    #pinned-note-overflow { margin-top:8px; white-space:pre-line; }
+    body.hud-edit-mode #pinned-note-content { overflow-y:auto; pointer-events:auto; cursor:auto; overscroll-behavior:contain; }
+    .hunting-assist-panel { position:fixed; top:90px; right:24px; width:310px; max-width:calc(100vw - 32px); z-index:9000; pointer-events:none; }
+    #boss-entry-list { display:flex; flex-direction:column; gap:8px; }
+    .hunting-assist-label { font-size:12px; font-weight:700; color:var(--ui-feature); margin-bottom:4px; }
+    .boss-entry-time { font-size:16px; font-weight:700; color:var(--ui-text); font-variant-numeric:tabular-nums; }
+    .boss-entry-track { height:3px; border-radius:4px; background:var(--ui-border); overflow:hidden; margin-top:8px; }
+    .boss-entry-track span { display:block; height:100%; background:var(--ui-boss); }
+    .hunting-assist-card.urgent { border-color:rgba(248,113,113,.5); }
+    .hunting-assist-card.urgent .boss-entry-time { color:var(--ui-boss); }
+    #xp-efficiency-alert { margin-top:8px; }
+    #xp-efficiency-alert[hidden] { display:none; }
+    #xp-efficiency-alert-comparison { margin-top:8px; }
+    .hunting-assist-hint { margin-top:4px; color:var(--ui-muted); font-size:12px; line-height:1.6; }
+    #xp-activity-label { font-size:12px; color:var(--ui-muted); font-weight:600; }
+    #xp-activity-label[data-paused="idle"] { color:var(--ui-warning); }
+
     /* Dock 모드 전용 알림 토스트 컨테이너 */
     .dock-toast-container {
       position: fixed;
@@ -1742,6 +1783,13 @@
       display: none !important;
     }
 
+    #hud-edit-toolbar:not([hidden]) { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px 12px; position:fixed; top:12px; left:50%; transform:translateX(-50%); max-width:calc(100vw - 24px); width:max-content; padding:12px 16px; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-control); background:var(--ui-panel); color:var(--ui-text); font-size:12px; pointer-events:auto; z-index:10002; box-shadow:0 4px 16px #0008; }
+    #hud-edit-toolbar label { display:flex; align-items:center; gap:6px; }
+    #hud-edit-error:not(:empty) { flex-basis:100%; color:#fbbf24; text-align:center; }
+    .hud-snap-guide:not([hidden]) { position:fixed; background:#38bdf8; pointer-events:none; z-index:10001; }
+    .hud-snap-guide.vertical { top:0; height:100vh; width:1px; }
+    .hud-snap-guide.horizontal { left:0; width:100vw; height:1px; }
+
     /* ── HUD 위치 편집 모드 (Edit Mode) ── */
     body.hud-edit-mode {
       background: rgba(15, 23, 42, 0.45) !important;
@@ -1799,7 +1847,17 @@
 <body class="select-none">
   <!-- Dock 모드 전용 알림 토스트 컨테이너 -->
   <div id="dock-toast-container" class="dock-toast-container"></div>
+  <aside class="hunting-assist-panel" aria-label="입장 및 사냥 안내">
+    <div id="boss-entry-list"></div>
+    <section id="xp-efficiency-alert" class="hunting-assist-card ui-hud-card" data-ui-accent="xp" hidden role="status">
+      <div class="hunting-assist-label">획득 경험치 감소</div>
+      <div class="font-bold text-white">버프·도핑을 확인하세요</div>
+      <div id="xp-efficiency-alert-comparison" class="ui-hud-caption"></div>
+      <div class="hunting-assist-hint">사냥터를 바꿨다면 경험치 HUD에서 기준을 다시 측정하세요.</div>
+    </section>
+  </aside>
 
+  <aside id="pinned-note-hud" class="ui-hud-card hidden" aria-label="고정 메모"><div class="ui-hud-heading"><span class="ui-hud-title"><i data-lucide="sticky-note"></i>고정 메모</span></div><div id="pinned-note-content" class="custom-scroll" aria-label="메모 내용"></div><div id="pinned-note-overflow" class="ui-hud-caption hidden"></div></aside>
   <!-- 타이머 HUD (클리어 타임 측정용) -->
   <div id="timer-hud" class="timer-hud">
     <div class="timer-hud-header">
@@ -1825,6 +1883,10 @@
       <span id="today-summary-compact" class="today-summary-compact">SEED 0
         ELSO 0 P
         경험의 정수 0개 · 남은 숙제 0개</span>
+    </div>
+    <div id="today-summary-detected-homework" class="today-summary-list-row today-summary-detected hidden" aria-label="최근 감지된 숙제">
+      <span id="today-summary-detected-name" class="today-summary-list-name"></span>
+      <span id="today-summary-detected-count" class="today-summary-list-value"></span>
     </div>
     <div class="today-summary-stats">
       <div class="today-summary-stat">
@@ -1861,6 +1923,7 @@
   </section>
 
   <div id="xp-hud" class="xp-hud">
+    <div id="xp-activity-label">수동 정지</div>
     <div class="flex items-center justify-end w-full gap-1 mb-0.5">
       <span class="hud-shortcut-badge" title="Ctrl + Shift + Z" data-shortcut-key="toggleXpSession">C+S+Z</span>
       <span class="hud-shortcut-badge" title="Ctrl + Shift + X" data-shortcut-key="resetXpSession">C+S+X</span>
@@ -1999,6 +2062,12 @@
   <!-- 버프 타이머 대형 만료 경고 알람 컨테이너 -->
   <div id="buff-alert-container" class="buff-alert-container"></div>
 
+  <!-- 보급품 발판 기믹 알림 -->
+  <div id="supply-pad-alert" class="hidden" role="status" aria-label="보급품 발판 안내">
+    <p class="supply-pad-instruction">순서대로 밟으세요</p>
+    <div id="supply-pad-order"></div>
+  </div>
+
   <!-- 에토스 기믹 알림 -->
   <div id="ethos-arrow-container" class="ethos-arrow-container">
     <div id="ethos-alert-text" class="ethos-warning-text"></div>
@@ -2047,7 +2116,12 @@
 
   <script src="assets/ui-utils.js"></script>
   <script src="renderer/game-overlay/alerts.js"></script>
+  <script src="renderer/game-overlay/hunting-assist.js"></script>
   <script src="renderer/game-overlay/today-summary.js"></script>
+  <script src="renderer/game-overlay/companion-hud.js"></script>
+  <script src="renderer/game-overlay/notification-layout.js"></script>
+  <script src="renderer/game-overlay/notification-priority.js"></script>
+  <script src="shared/windowSnap.js"></script>
   <script src="renderer/game-overlay/edit-mode.js"></script>
   <script>
     const gameOverlayAlerts = window.gameOverlayAlerts;
@@ -2067,13 +2141,13 @@
       return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
     }
 
-    function startTimer() {
+    function startTimer(startedAt) {
       if (timerIsRunning) return;
 
       if (timerFadeTimeout) { clearTimeout(timerFadeTimeout); timerFadeTimeout = null; }
       if (timerStatusInterval) { clearInterval(timerStatusInterval); timerStatusInterval = null; }
 
-      timerStartTime = Date.now();
+      timerStartTime = startedAt;
       timerIsRunning = true;
 
       const hud = document.getElementById('timer-hud');
@@ -2089,7 +2163,8 @@
         status.classList.add('hidden');
       }
       if (display) {
-        display.innerText = '00:00.00';
+        lastTimerDisplay = formatTimerTime(Math.max(0, Date.now() - timerStartTime));
+        display.innerText = lastTimerDisplay;
       }
 
       const updateTimerDisplay = () => {
@@ -2107,21 +2182,24 @@
       timerInterval = requestAnimationFrame(updateTimerDisplay);
     }
 
-    function stopTimer() {
+    function stopTimer(snapshot) {
       if (!timerIsRunning) return;
       timerIsRunning = false;
       if (timerInterval) { cancelAnimationFrame(timerInterval); timerInterval = null; }
 
+      const display = document.getElementById('timer-hud-display');
+      if (display) display.innerText = formatTimerTime(snapshot.duration);
       const status = document.getElementById('timer-hud-status');
       const hud = document.getElementById('timer-hud');
 
       if (status) {
         status.classList.remove('hidden');
-        let remain = 10;
+        const remaining = () => Math.max(0, Math.ceil((snapshot.stoppedAt + 10000 - Date.now()) / 1000));
+        let remain = remaining();
         status.innerText = `HOLDING (${remain}s)`;
 
         timerStatusInterval = setInterval(() => {
-          remain--;
+          remain = remaining();
           if (remain <= 0) {
             clearInterval(timerStatusInterval);
             timerStatusInterval = null;
@@ -2284,6 +2362,7 @@
     let sessionIsActive = false;
     let currentConfig = null;
     let currentDigsiteState = null;
+    let abandonedHudVisible = false;
 
     /**
      * 게임 오버레이 내부 HUD 위치 계약
@@ -2342,6 +2421,9 @@
 
     // 설정 데이터 수신
     window.electronAPI.onConfigData((config) => {
+      window.huntingAssist?.updateConfig(config);
+      window.companionHud?.updateConfig(config);
+      window.notificationLayout?.updateConfig(config);
       currentConfig = config;
       const oldShowXpWidget = showXpWidget;
       showXpWidget = config.showXpWidget === true;
@@ -2365,12 +2447,11 @@
         if (config.showBuffHud === false) buffHud.classList.add('hidden');
         else buffHud.classList.remove('hidden');
       }
-      const digsiteWidget = document.getElementById('digsite-widget');
-      if (config.digsiteHudEnabled === false) {
-        digsiteWidget?.classList.add('hidden');
-      } else if (currentDigsiteState) {
-        updateDigsiteUI(currentDigsiteState);
-      }
+      // 편집 종료 후 재수신한 설정에도 현재 콘텐츠 상태를 사용한다. 편집 시작 때의 숨김
+      // 스냅샷 때문에 새로 감지한 HUD가 사라지거나 수동으로 숨긴 HUD가 되살아나면 안 된다.
+      const hudEditing = window.gameOverlayEditMode?.isEditMode?.() === true;
+      if (!hudEditing) document.getElementById('abandoned-widget')?.classList.toggle('hidden', !abandonedHudVisible);
+      if (!hudEditing || config.digsiteHudEnabled === false || currentDigsiteState) updateDigsiteUI(currentDigsiteState);
       applyConfiguredHudPositions(config);
       updateHudShortcutsDisplay(config);
     });
@@ -2432,6 +2513,7 @@
 
     // 경험치 데이터 수신
     window.electronAPI.onXpUpdate((data) => {
+      window.huntingAssist?.updateXp(data);
       if (data.startTime !== undefined) {
         sessionStartTime = data.startTime;
       }
@@ -2498,6 +2580,7 @@
 
     // ── 어벤던로드 실시간 업데이트 ──
     function updateAbandonedUI(state) {
+      abandonedHudVisible = state?.isActive === true;
       const widget = document.getElementById('abandoned-widget');
       if (!widget) return;
 
@@ -2631,6 +2714,7 @@
     // 메인 추적기도 수동 숨김 억제를 보존하며, 이 이벤트는 renderer를 즉시 숨긴다.
     if (window.electronAPI.onAbandonedHideNow) {
       window.electronAPI.onAbandonedHideNow(() => {
+        abandonedHudVisible = false;
         document.getElementById('abandoned-widget')?.classList.add('hidden');
       });
     }
@@ -3284,10 +3368,13 @@
         iconName,
         iconColor,
       } = window.getBossToastPresentation(bossName, isCustomFromApi, spawnTime, offset);
+      const repeatKey = JSON.stringify([bossName, !!isCustomFromApi, spawnTime || '', offset ?? null]);
+      if (window.mergeRepeatedToast(toastContainer, repeatKey)) return;
       const toastId = 'toast-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
 
       const toast = document.createElement('div');
       toast.id = toastId;
+      toast.dataset.repeatKey = repeatKey;
       toast.className = 'boss-toast show';
 
       toast.innerHTML = `
@@ -3407,21 +3494,18 @@
         createHudStatusToast({ enabled, activeCount });
       });
 
-      window.electronAPI.onTimerToggle((state) => {
-        if (state === 'start') {
-          startTimer();
-        } else if (state === 'stop') {
-          stopTimer();
-        } else if (state === 'toggle') {
-          if (timerIsRunning) {
-            window.electronAPI.timerToggleSession('stop');
-            stopTimer();
-          } else {
-            window.electronAPI.timerToggleSession('start');
-            startTimer();
-          }
+      let timerRevision = -1;
+      const applyTimerState = (state) => {
+        if (state.revision <= timerRevision) return;
+        timerRevision = state.revision;
+        if (state.running) startTimer(state.startedAt);
+        else if (state.stoppedAt !== null && (timerIsRunning || Date.now() - state.stoppedAt < 10000)) {
+          if (!timerIsRunning) startTimer(state.startedAt);
+          stopTimer(state);
         }
-      });
+      };
+      window.electronAPI.onTimerToggle(applyTimerState);
+      window.electronAPI.timerGetState().then(applyTimerState).catch(console.error);
     }
 
     function refreshXpStats() {
@@ -3437,6 +3521,7 @@
             if (stats.isActive !== undefined) {
               sessionIsActive = stats.isActive;
             }
+            window.huntingAssist?.updateXp(stats);
             const totalEl = document.getElementById('xp-total');
             const epmEl = document.getElementById('xp-epm');
             const killsEl = document.getElementById('xp-kills');

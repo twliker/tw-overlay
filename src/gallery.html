@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
+  <title>갤러리 모니터</title>
   <link rel="stylesheet" href="style.css">
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
@@ -249,7 +250,7 @@
       const btn = document.getElementById('add-watch-button');
       const val = input.value.trim();
       const match = val.match(/\d+/);
-      if (!match) return;
+      if (!match) { alert('올바른 게시글 번호 또는 URL을 입력해주세요.'); return; }
       const postNo = parseInt(match[0]);
       input.disabled = true;
       const originalBtnHTML = btn.innerHTML;

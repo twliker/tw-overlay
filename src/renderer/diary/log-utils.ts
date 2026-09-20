@@ -2,7 +2,13 @@
 (() => {
   const systemTags = new Set(['숙제 완료', '자동', '득템', '수익']);
 
-  function parseAutoLogAmount(content: string): number {
+  /**
+   * 기능 계약: 일·주·월의 수익 묶음과 펼친 원본은 DB의 확정 amount를 사용한다.
+   * 금화 주머니처럼 문구에 금액이 없어도 표시하며 0·음수도 유효한 저장값이다.
+   * amount가 없는 구버전 응답에만 표시 문구 파싱을 보조로 사용한다.
+   */
+  function parseAutoLogAmount(content: string, storedAmount?: number): number {
+    if (typeof storedAmount === 'number' && Number.isFinite(storedAmount)) return storedAmount;
     const amountText = content.match(/\(([^)]+)\)/)?.[1];
     if (!amountText) return 0;
 
@@ -23,6 +29,22 @@
 
     const rawNumber = amountText.match(/([\d,]+)/)?.[1];
     return rawNumber ? parseInt(rawNumber.replace(/,/g, ''), 10) : 0;
+  }
+
+  /**
+   * 기능 계약: 실제 로그의 `0:2:20`과 숙제 completed_at(ms)을 같은 로컬 시각으로 정렬한다.
+   * 날짜는 호출 화면의 기록 날짜를 유지하며, 초까지 정렬한 뒤 화면에는 시·분만 표시한다.
+   * DB 원본을 바꾸지 않는다. check-companion-files의 실제 DB/IPC/일·주 타임라인을 함께 검사한다.
+   */
+  function normalizeLogTime(value: string | number): string {
+    const date = typeof value === 'number' ? new Date(value) : null;
+    const parts = date
+      ? [date.getHours(), date.getMinutes(), date.getSeconds()]
+      : String(value || '').split(':').map(Number);
+    return [24, 60, 60].map((limit, index) => {
+      const part = parts[index];
+      return String(Number.isFinite(part) && part >= 0 && part < limit ? Math.trunc(part) : 0).padStart(2, '0');
+    }).join(':');
   }
 
   function escapeHtml(str: string): string {
@@ -52,7 +74,7 @@
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1;
   }
 
-  const diaryLogUtils = Object.freeze({ parseAutoLogAmount, formatLogContent, resolveLootCount });
+  const diaryLogUtils = Object.freeze({ parseAutoLogAmount, normalizeLogTime, formatLogContent, resolveLootCount });
   if (typeof module !== 'undefined' && module.exports) module.exports = diaryLogUtils;
   if (typeof window !== 'undefined') window.diaryLogUtils = diaryLogUtils;
 })();

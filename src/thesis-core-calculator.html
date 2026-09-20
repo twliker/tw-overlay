@@ -459,11 +459,13 @@
     let selectedCurrency = 'seed';
     let selectedPieceQty = 1;
     let discountRate = 0;
+    let restoringSettings = false;
 
     // ----------------------------------------------------
     // 초기화 및 드롭다운 생성
     // ----------------------------------------------------
     function init() {
+      lucide.createIcons();
       const fromSel = document.getElementById('step-from');
       const toSel = document.getElementById('step-to');
 
@@ -475,11 +477,21 @@
         `<option value="${idx + 1}" ${idx + 1 === STATES.length - 1 ? 'selected' : ''}>${s.label}</option>`
       ).join('');
 
-      loadSettings();
+      // 기능 계약: tc_*는 이 PC의 마지막 계산 조건이다. 창을 다시 열 때 선택
+      // 핸들러의 기본값 저장이 아직 읽지 않은 조건을 덮어쓰지 않아야 한다.
+      // 복원 중 저장·중간 계산을 막고 모든 입력을 읽은 뒤 한 번 계산한다.
+      // 회귀: check-renderer-behavior.ts의 checkThesisCoreCalculator.
+      restoringSettings = true;
+      try {
+        loadSettings();
+      } finally {
+        restoringSettings = false;
+      }
       calculate();
     }
 
     function saveSettings() {
+      if (restoringSettings) return;
       localStorage.setItem('tc_region', selectedRegion);
       localStorage.setItem('tc_stat_type', selectedStatType);
       localStorage.setItem('tc_currency', selectedCurrency);
@@ -620,6 +632,7 @@
     }
 
     function calculate() {
+      if (restoringSettings) return;
       const fromIdx = parseInt(document.getElementById('step-from').value);
       const toIdx = parseInt(document.getElementById('step-to').value);
 
@@ -638,6 +651,9 @@
         `;
         document.getElementById('effect-stat-change').textContent = '-';
         document.getElementById('effect-set-change').textContent = '-';
+        // 범위 오류는 강화·최종 비용을 계산할 수 없는 상태다. 이전 결과를
+        // 남기지 않되, 범위와 독립적인 상자 구매 비용은 현재 입력으로 갱신한다.
+        updateBoxCosts(null);
         return;
       }
       warningBox.classList.add('hidden');
@@ -726,7 +742,6 @@
         </div>
       `).join('');
 
-      lucide.createIcons();
     }
 
     function applyEventDiscount() {
@@ -748,16 +763,8 @@
 
 
     function onBoxCostInputChange() {
-      const fromIdx = parseInt(document.getElementById('step-from').value);
-      const toIdx = parseInt(document.getElementById('step-to').value);
-      if (fromIdx >= toIdx) return;
-
-      const reinforceCostStr = document.getElementById('res-currency').textContent.replace(/,/g, '');
-      const reinforceCost = parseInt(reinforceCostStr) || 0;
-      updateBoxCosts(reinforceCost);
-      
-      localStorage.setItem('tc_box_price', document.getElementById('box-price').value);
-      localStorage.setItem('tc_box_qty', document.getElementById('box-qty').value);
+      saveSettings();
+      calculate();
     }
 
     function updateBoxCosts(reinforceCost) {
@@ -766,11 +773,19 @@
       const totalBoxCost = boxQty * boxPrice;
 
       document.getElementById('total-box-cost').textContent = window.formatLocaleNumber(totalBoxCost) + ' 만 시드';
-      document.getElementById('total-reinforce-cost').textContent = window.formatLocaleNumber(reinforceCost) + (selectedCurrency === 'seed' ? ' 만 시드' : ' 엘소');
 
       const finalTotalEl = document.getElementById('final-total-cost');
       const finalUnitEl = document.getElementById('final-total-unit');
       const finalKoreanEl = document.getElementById('final-total-korean');
+
+      if (reinforceCost === null) {
+        document.getElementById('total-reinforce-cost').textContent = '계산 불가';
+        finalTotalEl.textContent = '계산 불가';
+        finalUnitEl.textContent = '';
+        finalKoreanEl.textContent = '';
+        return;
+      }
+      document.getElementById('total-reinforce-cost').textContent = window.formatLocaleNumber(reinforceCost) + (selectedCurrency === 'seed' ? ' 만 시드' : ' 엘소');
 
       if (selectedCurrency === 'seed') {
         const finalCost = totalBoxCost + reinforceCost;

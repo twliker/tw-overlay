@@ -28,6 +28,7 @@ export function isEtaCollectDateFresh(
 class EtaCacheManager {
   // Key: "ServerCode_Nickname" (e.g. "16_본캐닉네임") -> Value: { level, characterCode }
   private _cacheMap = new Map<string, { level: number; characterCode: number }>();
+  private _collectDate: string | undefined;
   private _cacheFilePath = '';
   private _refreshTimer: NodeJS.Timeout | null = null;
   private _isFetching = false;
@@ -128,6 +129,11 @@ class EtaCacheManager {
     return this._cacheMap.get(key) || null;
   }
 
+  /** 표시하는 정보와 같은 인덱스의 기준일을 반환한다. 닉네임 입력마다 전체 파일을 읽지 않는다. */
+  public getRankSnapshot(serverCode: number, nickname: string): { rank: { level: number; characterCode: number } | null; collectDate?: string } {
+    return { rank: this.getRankInfo(serverCode, nickname), collectDate: this._collectDate };
+  }
+
   /**
    * 로컬 파일 캐시에서 데이터 로드
    */
@@ -143,7 +149,7 @@ class EtaCacheManager {
       const payload: EtaPayload = JSON.parse(raw);
       
       if (payload && Array.isArray(payload.Rankings)) {
-        this.buildIndexMap(payload.Rankings);
+        this.buildIndexMap(payload.Rankings, payload.CollectDate);
         log(`[ETA_CACHE] 로컬 캐시 로드 완료: ${this._cacheMap.size}명 인덱싱됨 (수집일: ${payload.CollectDate || '알 수 없음'})`);
       }
     } catch (e) {
@@ -180,7 +186,7 @@ class EtaCacheManager {
 
       if (payload && Array.isArray(payload.Rankings)) {
         // 인덱스 재생성
-        this.buildIndexMap(payload.Rankings);
+        this.buildIndexMap(payload.Rankings, payload.CollectDate);
         log(`[ETA_CACHE] 원격 다운로드 및 맵핑 완료: ${this._cacheMap.size}명 (수집일: ${payload.CollectDate || '알 수 없음'})`);
 
         // 로컬에 파일 캐싱 (비동기 및 공백 제거로 I/O 지연 방지)
@@ -208,7 +214,7 @@ class EtaCacheManager {
   /**
    * Rankings 리스트를 맵 객체로 고속 인덱싱
    */
-  private buildIndexMap(rankings: EtaRankingItem[]): void {
+  private buildIndexMap(rankings: EtaRankingItem[], collectDate?: string): void {
     const newMap = new Map<string, { level: number; characterCode: number }>();
     
     for (const item of rankings) {
@@ -226,6 +232,7 @@ class EtaCacheManager {
     }
     
     this._cacheMap = newMap;
+    this._collectDate = typeof collectDate === 'string' ? collectDate : undefined;
   }
   
   /**
@@ -249,6 +256,7 @@ class EtaCacheManager {
    */
   public clear(): void {
     this._cacheMap.clear();
+    this._collectDate = undefined;
     if (this._cacheFilePath && fs.existsSync(this._cacheFilePath)) {
       try {
         fs.unlinkSync(this._cacheFilePath);

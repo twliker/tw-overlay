@@ -18,6 +18,9 @@ let targets: string[] = [];
 let selfNickname = '';
 let knownNicknames: string[] = [];
 let history: BrowserChatItem[] = [];
+let appearanceConfig: Partial<BrowserAppConfig> = {};
+// 원본 최근 150개와 화면의 대상 대화 150개는 수명이 다르다. 표시 행의 데이터는 행과 함께 보관한다.
+const displayedMessages = new WeakMap<HTMLElement, BrowserChatItem>();
 
 interface AutocompleteController {
   refresh: () => void;
@@ -88,6 +91,8 @@ function createMessage(item: BrowserChatItem): HTMLElement {
   const sender = document.createElement('div');
   sender.className = 'sender';
   sender.textContent = item.sender;
+  sender.dataset.noteNickname = item.sender;
+  sender.title = '우클릭: 정보·메모';
   const channel = document.createElement('span');
   channel.className = `channel channel-${item.type}`;
   channel.textContent = getChannelLabel(item.type);
@@ -109,7 +114,53 @@ function createMessage(item: BrowserChatItem): HTMLElement {
   bubbleLine.append(bubble, time);
   block.append(meta, bubbleLine);
   row.appendChild(block);
+  displayedMessages.set(row, item);
+  updateMessageAppearance(row, item);
   return row;
+}
+
+function updateMessageAppearance(row: HTMLElement, item: BrowserChatItem): void {
+  window.chatChannels.applyReadingDisplay(row, appearanceConfig);
+  const meta = row.querySelector<HTMLElement>('.message-meta')!;
+  meta.querySelector('.nickname-note-badge')?.remove();
+  window.nicknameNotes?.appendBadge(meta, item.sender);
+  const eta = meta.querySelector<HTMLElement>('.eta-badge');
+  if (eta && item.level !== undefined && item.level !== null) {
+    const color = window.chatChannels.getEtaColor(item.level, appearanceConfig);
+    eta.style.color = color || '';
+    eta.style.background = color ? `${color}18` : '';
+    eta.style.borderColor = color || '';
+    meta.appendChild(eta);
+  }
+}
+
+/** 기능 계약: 메모·서버·에타 색상 변경은 표시 행의 외형만 갱신한다.
+ * 시스템/비대상 채팅으로 raw history가 밀려도 읽던 대화와 행의 화면 내 위치를 유지한다.
+ * 무관한 설정은 행에 손대지 않고, 대상 변경·이력 초기화만 기존 필터 재구성 경로를 사용한다.
+ * 회귀: check-renderer-behavior.ts의 집중 채팅 설정 수신·메모 저장·지연 응답 검사.
+ */
+function applyAppearanceConfig(config: Partial<BrowserAppConfig>): void {
+  const changed = appearanceConfig.userServer !== config.userServer
+    || JSON.stringify(appearanceConfig.nicknameNotes) !== JSON.stringify(config.nicknameNotes)
+    || appearanceConfig.chatNicknameNotesCompact !== config.chatNicknameNotesCompact
+    || appearanceConfig.chatCompactDisplay !== config.chatCompactDisplay
+    || appearanceConfig.chatEtaColorsEnabled !== config.chatEtaColorsEnabled
+    || JSON.stringify(appearanceConfig.chatEtaColors) !== JSON.stringify(config.chatEtaColors);
+  appearanceConfig = config;
+  window.nicknameNotes?.updateConfig(config);
+  if (!changed) return;
+
+  const rows = Array.from(messageList.querySelectorAll<HTMLElement>('.message-row'));
+  const atBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight <= 2;
+  const top = messageList.getBoundingClientRect().top;
+  const anchor = rows.find(row => row.getBoundingClientRect().bottom > top);
+  const anchorTop = anchor?.getBoundingClientRect().top;
+  for (const row of rows) {
+    const item = displayedMessages.get(row);
+    if (item) updateMessageAppearance(row, item);
+  }
+  if (atBottom) messageList.scrollTop = messageList.scrollHeight;
+  else if (anchor && anchorTop !== undefined) messageList.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
 }
 
 function refreshIcons(): void {
@@ -425,4 +476,15 @@ async function initialize(): Promise<void> {
 }
 
 void initialize();
+let appearanceGeneration = 0;
+window.electronAPI.onConfigData?.(config => {
+  appearanceGeneration++;
+  applyAppearanceConfig(config);
+});
+const requestedAppearance = appearanceGeneration;
+void window.electronAPI.getConfig?.().then(config => {
+  if (requestedAppearance !== appearanceGeneration) return;
+  applyAppearanceConfig(config);
+}).catch(error => console.error('집중 채팅 표시 설정을 불러오지 못했습니다.', error));
+
 }

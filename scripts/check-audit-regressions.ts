@@ -449,27 +449,99 @@ async function checkHttpAndServer(): Promise<void> {
   console.log('[AUDIT] conditional transport, TLS validation, server startup/cancellation passed');
 }
 
+async function checkConfirmedSettingsSave(): Promise<void> {
+  const constants = require(moduleFile('constants'));
+  const file = path.join(data, 'confirmed-settings.json');
+  let locked = false, cleanupLocked = false;
+  const mocks = {
+    './constants': { ...constants, get_CONFIG_PATH: () => file, SAVE_DEBOUNCE_MS: 20 },
+    fs: { ...fs,
+      renameSync(from: fs.PathLike, to: fs.PathLike) {
+        if (locked && String(to) === file) throw Object.assign(new Error('fixture config lock'), { code: 'EBUSY' });
+        return fs.renameSync(from, to);
+      },
+      rmSync(target: fs.PathLike, options: fs.RmOptions) {
+        if (cleanupLocked && String(target) === `${file}.confirmed.tmp`) throw new Error('fixture cleanup lock');
+        return fs.rmSync(target, options);
+      },
+    },
+  };
+  const store = isolatedModule('config', mocks);
+  assert.equal(store.saveImmediate({ xpEfficiencyAlertEnabled: true }), true);
+  const changes: any[] = [], broadcasts: any[] = [];
+  store.addConfigChangeListener((patch: any) => changes.push({ patch, saved: JSON.parse(fs.readFileSync(file, 'utf8')) }));
+  const source = fs.readFileSync(path.join(root, 'src/modules/windowManager.ts'), 'utf8');
+  const start = source.indexOf('export function applySettings(');
+  const fixture: any = { exports: {}, config: store, mainWindow: null, overlayWindow: null, gameOverlayWindow: null,
+    windowRegistry: { contentsChecker: { ref: null }, settings: { ref: { isDestroyed: () => false, webContents: { send: (...args: any[]) => broadcasts.push(args) } } } },
+    buffTimerManager: { refreshConfig() {} }, physicalGameRect: null, require: () => ({ updateTrayMenu() {} }), log() {} };
+  vm.runInNewContext(ts.transpileModule(source.slice(start, source.indexOf('export function toggleClickThrough()', start)),
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, fixture);
+
+  // 기존 자동 저장 pending과 임시 파일을 남긴 채 별도의 명시적 저장을 실패시킨다.
+  store.save({ opacity: 0.7 });
+  locked = cleanupLocked = true;
+  assert.equal(store.flushPending(), false);
+  changes.length = 0;
+  assert.equal(fixture.exports.applySettings({ xpEfficiencyAlertEnabled: false }), false);
+  assert.equal(store.load().xpEfficiencyAlertEnabled, true);
+  assert.equal(store.load().opacity, 0.7);
+  assert.equal(store.hasPending(), true);
+  assert.equal(broadcasts.at(-1)[1].xpEfficiencyAlertEnabled, true);
+  assert.equal(changes.length, 0, '거절된 설정을 런타임/동기화 리스너에 알리면 안 됩니다.');
+  assert.equal(fs.existsSync(`${file}.confirmed.tmp`), true);
+  locked = cleanupLocked = false;
+  const restarted = isolatedModule('config', mocks);
+  assert.equal(restarted.load().xpEfficiencyAlertEnabled, true, '지우지 못한 거절 요청을 재시작 때 복구하면 안 됩니다.');
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(store.hasPending(), false);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).opacity, 0.7, '기존 자동 저장의 재시도는 유지해야 합니다.');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).xpEfficiencyAlertEnabled, true);
+  assert.equal(broadcasts.length, 1);
+
+  // 선행 pending이 없는 실패도 뒤늦게 적용되지 않고, 명시적인 재시도 성공만 확정된다.
+  locked = true;
+  assert.equal(fixture.exports.applySettings({ xpEfficiencyAlertEnabled: false }), false);
+  assert.equal(store.hasPending(), false);
+  locked = false;
+  store.save({ opacity: 0.6 });
+  changes.length = 0;
+  assert.equal(fixture.exports.applySettings({ xpEfficiencyAlertEnabled: false }), true);
+  assert.equal(store.hasPending(), false);
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].saved.xpEfficiencyAlertEnabled, false, '리스너는 디스크 확정 뒤에만 실행해야 합니다.');
+  assert.equal(changes[0].saved.opacity, 0.6);
+  assert.equal(broadcasts.at(-1)[1].xpEfficiencyAlertEnabled, false);
+  assert.equal(isolatedModule('config', mocks).load().xpEfficiencyAlertEnabled, false);
+
+  const resume = store.beginExternalRestore();
+  assert.equal(store.saveConfirmed({ xpEfficiencyAlertEnabled: true }), false);
+  resume();
+  assert.equal(store.load().xpEfficiencyAlertEnabled, false);
+  console.log('[AUDIT] confirmed settings failure preserves runtime and prior pending; rejected recovery files stay ignored');
+}
+
 async function checkSettingsDraft(): Promise<void> {
   const window = new BrowserWindow({ show: false, width: 1400, height: 900, webPreferences: { contextIsolation: false, nodeIntegration: true } });
   let hudConfig = structuredClone(defaults), hudSaveSucceeded = true, hudSender = true;
   const hudConfigStore = { load: () => structuredClone(hudConfig),
-    saveImmediate: (patch: any) => { if (hudSaveSucceeded) Object.assign(hudConfig, patch); return hudSaveSucceeded; },
+    saveConfirmed: (patch: any) => { if (hudSaveSucceeded) Object.assign(hudConfig, patch); return hudSaveSucceeded; },
     sanitizeExternalConfigPatch: (patch: any) => config.sanitizeExternalConfigPatch(structuredClone(patch)), getLastSaveError: () => 'fixture save failure' };
   // 실제 설정 저장과 config-data 방송 함수까지 실행하고 플랫폼 창 조작만 격리한다.
   const wmSource = fs.readFileSync(path.join(root, 'src/modules/windowManager.ts'), 'utf8');
   const wmStart = wmSource.indexOf('export function applySettings(');
   const wmFixture: any = { exports: {}, config: hudConfigStore, mainWindow: null, overlayWindow: null, gameOverlayWindow: null,
-    windowRegistry: { settings: { ref: window } }, buffTimerManager: { refreshConfig() {} }, physicalGameRect: null,
+    windowRegistry: { contentsChecker: { ref: null }, settings: { ref: window } }, buffTimerManager: { refreshConfig() {} }, physicalGameRect: null,
     require: () => ({ updateTrayMenu() {} }), log() {} };
   vm.runInNewContext(ts.transpileModule(wmSource.slice(wmStart, wmSource.indexOf('export function toggleClickThrough()', wmStart)),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, wmFixture);
   const ipcSource = fs.readFileSync(path.join(root, 'src/modules/ipcHandlers.ts'), 'utf8');
   const ipcStart = ipcSource.indexOf('  type ApplySettingsResult =');
-  vm.runInNewContext(ts.transpileModule(ipcSource.slice(ipcStart, ipcSource.indexOf('  function broadcastChatLogStatus()', ipcStart)),
+  vm.runInNewContext(ts.transpileModule(ipcSource.slice(ipcStart, ipcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", ipcStart)),
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
     ipcMain, config: hudConfigStore, isBoolean: (value: unknown) => typeof value === 'boolean',
     log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
-    wm: { getSettingsWindow: () => null, getGameOverlayWindow: () => hudSender ? window : null,
+    wm: { areAllWindowsHidden: () => false, getSettingsWindow: () => null, getGameOverlayWindow: () => hudSender ? window : null,
       applySettings: wmFixture.exports.applySettings },
   });
   ipcMain.handle('audit-hud-seed', (_event, next: any, success = true, sender = true) => {
@@ -569,9 +641,10 @@ async function checkSettingsDraft(): Promise<void> {
         configReceived=()=>{clearTimeout(timeout);resolve();};configFailed=error=>{clearTimeout(timeout);reject(error);};
       });
       window.electronAPI.applySettings=patch=>ipc.send('apply-settings',patch);
+      window.electronAPI.applySettingsConfirmed=patch=>ipc.invoke('apply-settings-confirmed',patch);
       let receiveEdit;
       window.electronAPI.onGameOverlayEditMode=callback=>{receiveEdit=callback;};
-      window.electronAPI.setGameOverlayEditMode=async(enabled,saveOnExit)=>{receiveEdit(enabled,saveOnExit);return true;};
+      window.electronAPI.setGameOverlayEditMode=async(enabled,saveOnExit)=>{await receiveEdit(enabled,saveOnExit);return enabled || !gameOverlayEditMode.isEditMode();};
       const hud=document.createElement('div');hud.id='today-summary-hud';
       hud.style.cssText='position:fixed;left:0px;top:200px;width:100px;height:20px';document.body.append(hud);
       ${hudEditMode}\n${hudEditFunctions}
@@ -585,20 +658,20 @@ async function checkSettingsDraft(): Promise<void> {
       document.getElementById('forge-hud-pos-left').value='333';
       await ipc.invoke('audit-hud-seed',cfg);
       await startHudEditMode();dragTo(0,900);
-      const savedConfig=waitForConfig('save');stopHudEditMode(true);await savedConfig;
+      const savedConfig=waitForConfig('save');await stopHudEditMode(true);await savedConfig;
       const hudSaved={stored:cfg.todaySummaryHudPos.left,displayed:x.value,home:document.getElementById('home-url-input').value,
         forge:document.getElementById('forge-hud-pos-left').value};
       await applyTodaySummaryHudSettingsOnly();const hudApplied=cfg.todaySummaryHudPos.left;
       cfg={...cfg,todaySummaryHudPos:{left:800,top:200}};window.__receive(cfg);
       const hudFresh=x.value; // 저장한 좌표는 이후 일반 수신도 다시 허용한다.
 
-      x.value='400';await startHudEditMode();dragTo(900,700);stopHudEditMode(false);
+      x.value='400';await startHudEditMode();dragTo(900,700);await stopHudEditMode(false);
       const hudCancelled={displayed:x.value,position:hud.style.left};
       cfg={...cfg,todaySummaryHudPos:{left:600,top:200}};window.__receive(cfg);
       const hudDraftAfterCancel=x.value;
       await ipc.invoke('audit-hud-seed',cfg,false);
       await startHudEditMode();dragTo(900,700);
-      const failedConfig=waitForConfig('failed');stopHudEditMode(true);await failedConfig;
+      const failedConfig=waitForConfig('failed');await stopHudEditMode(true);await failedConfig;
       const hudFailed=x.value;
       await ipc.invoke('audit-hud-seed',cfg,true,false); // 다른 창의 위치 변경은 초안을 버리지 않는다.
       const foreignConfig=waitForConfig('foreign');window.electronAPI.applySettings({todaySummaryHudPos:{left:500,top:200}});await foreignConfig;
@@ -646,12 +719,12 @@ async function checkSettingsInitializationAndSaveRaces(): Promise<void> {
     // 실제 동기식 저장 핸들러와 Electron IPC 순서를 사용하고 파일/창 부수 효과만 격리한다.
     const ipcSource = read('src/modules/ipcHandlers.ts');
     const start = ipcSource.indexOf('  type ApplySettingsResult =');
-    const handler = ipcSource.slice(start, ipcSource.indexOf('  function broadcastChatLogStatus()', start));
+    const handler = ipcSource.slice(start, ipcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", start));
     vm.runInNewContext(ts.transpileModule(handler, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
       ipcMain, isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
       config: { load: () => structuredClone(mainConfig),
         sanitizeExternalConfigPatch: (patch: any) => config.sanitizeExternalConfigPatch(structuredClone(patch)), getLastSaveError: () => null },
-      wm: { getSettingsWindow: () => win, getGameOverlayWindow: () => null, applySettings: (patch: any, excluded: any) => {
+      wm: { areAllWindowsHidden: () => false, getSettingsWindow: () => win, getGameOverlayWindow: () => null, applySettings: (patch: any, excluded: any) => {
         Object.assign(mainConfig, patch);
         if (excluded !== win.webContents) win.webContents.send('audit-draft-config', structuredClone(mainConfig));
         return true;
@@ -852,7 +925,7 @@ async function main(): Promise<void> {
   await app.whenReady();
   checkHomework(); checkOrderingAndCalculators();
   await checkMonitorsAndRuntime(); await checkCloudConcurrency(); await checkCloudRollback(); await checkHttpAndServer();
-  await checkSettingsDraft(); await checkSettingsInitializationAndSaveRaces(); await checkCalculatorDom(); await checkStorageAndRestore();
+  await checkConfirmedSettingsSave(); await checkSettingsDraft(); await checkSettingsInitializationAndSaveRaces(); await checkCalculatorDom(); await checkStorageAndRestore();
   console.log('Audit regression checks passed.');
   app.exit(0);
 }

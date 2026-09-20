@@ -12,6 +12,7 @@
  * - 운영체제에서 이미 사용 중인 키 등록 실패는 기록하되 다른 단축키 등록을 중단하지 않습니다.
  */
 import { globalShortcut } from 'electron';
+import { controlStopwatch } from './stopwatchSession';
 import * as config from './config';
 import * as wm from './windowManager';
 import * as tracker from './tracker';
@@ -19,7 +20,7 @@ import { FOCUS_DELAY_MS } from './constants';
 import { log } from './logger';
 import { chatLogProcessor } from './chatLogProcessor';
 import { buffTimerManager } from './buffTimerManager';
-import { broadcastToAllWindows, sendToFirstWindowByPage } from './windowMessaging';
+import { sendToFirstWindowByPage } from './windowMessaging';
 import { abandonedTracker } from './abandonedTracker';
 import { analytics } from './analytics';
 
@@ -37,6 +38,14 @@ export function registerAll(): void {
   const cfg = config.load();
   const shortcuts = cfg.shortcuts;
   if (!shortcuts) return;
+
+  if (shortcuts.toggleAllWindows) {
+    const registered = globalShortcut.register(shortcuts.toggleAllWindows, () => {
+      if (!tracker.isGameOrAppForeground()) return;
+      wm.toggleAllWindowsHidden();
+    });
+    if (!registered) log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.toggleAllWindows}`);
+  }
 
   // 1. 창 투과 토글
   if (shortcuts.toggleClickThrough) {
@@ -196,7 +205,7 @@ export function registerAll(): void {
       if (!tracker.isGameOrAppForeground()) return;
       log('[SHORTCUT] Toggle Timer');
       analytics.trackEvent('toggle_stopwatch');
-      broadcastToAllWindows('timer-toggle', 'toggle');
+      void controlStopwatch('toggle').catch(error => log(`[SHORTCUT] Timer failed: ${error}`));
     });
     if (!registered) {
       log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.toggleTimer}`);

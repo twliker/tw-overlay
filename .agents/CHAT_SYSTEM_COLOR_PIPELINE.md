@@ -93,5 +93,6 @@ function getSystemColorGroup(colorHex: string): SystemColorGroup {
   - `customTab.systemColorFilters`에 등록된 색상군(예: 커스텀 탭에서 `노랑` 선택 시 아이템 획득 메시지만 출력)에 일치하는 시스템 메시지만 독립적으로 실시간 렌더링
 
 ### 2) 과거 대화 히스토리 조회 (`src/modules/chatLogProcessor.ts`의 `getChatHistory`)
+- 탭 해석은 `shared/chatChannels.resolveOverlayCustomTab`을 공유합니다. 기본 ID → 사용자 고유 ID → 예전 표시 이름 순으로 판별하며, 동명의 사용자 탭이 기본 채널 검색·페이징 조건을 바꾸지 않습니다. 검색의 표시 필터는 renderer와 동일한 `isOverlayChatVisible`만 사용합니다.
 - 커스텀 탭 카테고리(`custom_xxx`) 요청 시 메모리 히스토리 저장소에서 해당 커스텀 탭의 `channels` 및 `systemColorFilters` 조건에 부합하는 항목들만 즉시 필터링 및 시간순 정렬하여 반환합니다.
 - 오버레이 렌더러는 메인 프로세스가 필터링한 결과를 바탕으로 렌더링합니다.

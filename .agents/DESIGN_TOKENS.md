@@ -103,3 +103,21 @@ TW-Overlay의 각 기능은 고유의 시그니처 색상을 가집니다. **기
 - `transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1)`
 - 클릭 시: `active:scale-95`
 - 카드 호버: `hover:translate-y-[-2px]`, `hover:bg-white/[0.08]`
+
+## 8. 보조 기능의 공통 구현
+
+프리셋·메모·알림 배치·보급품·보스 입장 안내는 `src/style.css`의 `--ui-*` 토큰과 공통 클래스를 사용합니다. 별도의 글꼴이나 임의 색상을 렌더러의 `style.cssText`에 지정하지 않습니다. 채팅 사용자가 고른 글꼴·배지 색상과 실제 발판 색상은 기능 데이터이므로 그대로 유지합니다.
+
+| 용도 | 공통 클래스 |
+|---|---|
+| 설정 카드 / 내부 그룹 | `ui-card` / `ui-inset` |
+| 섹션 제목 / 카드 제목 | `ui-section-heading` / `ui-heading` |
+| 입력 / 버튼 / 주 동작 | `ui-input` / `ui-button` / `ui-button-primary` |
+| 토글 / 설명 / 상태 | `ui-switch` / `ui-description` / `ui-status` |
+| 게임 화면의 작은 안내 | `ui-hud-card` / `ui-hud-title` |
+
+내용 카드는 24px, 입력·버튼·HUD 창은 12px 모서리를 사용합니다. HUD는 `Panel Glass` 배경과 공통 그림자를 사용하되 면적이 커지지 않게 12px × 16px 안쪽 여백을 사용합니다. 보스 `boss`, 경험치 `xp`, 숙제 `homework`, 수익 `income`, 에타 `eta`는 `data-ui-accent`로 기능 색상을 지정합니다.
+
+보급품 발판 순서는 에토스처럼 일시적인 게임 기믹 표시입니다. 별도 HUD 카드나 지도를 만들지 않고, 사용자가 제공한 게임 발판의 투명 PNG·색상 이름·화살표와 짧은 행동 안내를 사용합니다. 136×88 원본은 화면에서 68×44로 표시하며 위치는 다른 게임 진행 알림과 공유합니다.
+
+UI 수정 후에는 실제 창 크기에서 긴 텍스트·작은 창·설정 저장·탭 전환을 확인합니다. 경험치 그래프와 통계, 프리셋의 네 가지 동작, 메모 편집, 기존 일지의 일·월 수익을 디자인 정리 과정에서 누락하지 않습니다. `scripts/check-renderer-behavior.ts`에서 해당 기능과 HUD 토큰을 함께 검증합니다.

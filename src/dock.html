@@ -671,6 +671,7 @@
 
       // 6. 하드코딩된 시스템 제어 메뉴 추가 고정 노출 (환경 설정, 종료)
       const systemItems = [
+        ...(appConfig.activityPresets?.length ? [{ id: 'activity-presets', label: '활동 프리셋', icon: 'layers', color: 'purple-400', api: 'showActivityPresetMenu', isSystem: true }] : []),
         {
           id: 'cloud-sync-status',
           label: '',

@@ -49,13 +49,15 @@ export const DEFAULT_WINDOW_POSITIONS: Record<WindowPositionKey, WindowPosition>
 };
 
 /** 게임 오버레이 내부 HUD 위치의 단일 기본값 원본입니다. */
-export const DEFAULT_HUD_POSITIONS: Record<'xp' | 'buffTimer' | 'abandoned' | 'digsite' | 'quest' | 'todaySummary', HudPosition> = {
+export const DEFAULT_HUD_POSITIONS: Record<'xp' | 'buffTimer' | 'abandoned' | 'digsite' | 'quest' | 'todaySummary' | 'pinnedNote' | 'supply', HudPosition> = {
   xp: { left: 200, bottom: 0 },
   buffTimer: { left: 350, bottom: 0 },
   abandoned: { left: 200, bottom: 63 },
   digsite: { left: 0, bottom: 326 },
   quest: { left: 50, bottom: 215 },
   todaySummary: { left: 0, top: 200 },
+  pinnedNote: { left: 24, top: 390 },
+  supply: { left: 360, top: 90 },
 };
 
 const BOTTOM_HUD_DEFAULTS: Record<HudPositionConfigKey, HudPosition> = {

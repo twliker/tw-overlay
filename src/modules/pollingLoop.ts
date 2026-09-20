@@ -19,13 +19,10 @@ import { log } from './logger';
 import * as tracker from './tracker';
 import * as wm from './windowManager';
 import * as config from './config';
-import { ProcessBoostRetryPolicy } from './processBoostRetryPolicy';
 
 let pollingTimer: NodeJS.Timeout | null = null;
 let gameWasEverFound = false;
 const TRANSIENT_STATE_CONFIRM_SAMPLES = 2;
-const PROCESS_BOOST_INITIAL_RETRY_MS = 1_000;
-const PROCESS_BOOST_MAX_RETRY_MS = 60_000;
 
 export type GameStatus = 'running' | 'minimized' | 'not-running' | null;
 let _currentStatus: GameStatus = null;
@@ -37,10 +34,6 @@ export function getGameStatus(): GameStatus {
 export function start(): void {
     let lastRect: GameQueryResult = null;
     let stableCount = 0;
-    const processBoostRetry = new ProcessBoostRetryPolicy(
-        PROCESS_BOOST_INITIAL_RETRY_MS,
-        PROCESS_BOOST_MAX_RETRY_MS,
-    );
     let consecutiveNotRunning = 0;
     let consecutiveMinimized = 0;
     // lastStatus 대신 _currentStatus 사용
@@ -105,7 +98,6 @@ export function start(): void {
                 lastRect = null;
             }
             stableCount = 0;
-            processBoostRetry.reset();
             pollingTimer = setTimeout(poll, POLLING_IDLE_MS);
             return;
         }
@@ -137,21 +129,6 @@ export function start(): void {
         consecutiveMinimized = 0;
         const isNewGameSession = !gameWasEverFound;
         gameWasEverFound = true;
-        const gameProcessId = tracker.getGameProcessId();
-        if (gameProcessId && processBoostRetry.tryStart(gameProcessId, Date.now())) {
-            tracker.boostGameProcess().then(res => {
-                const success = res === 'BOOSTED' || res === 'ALREADY_HIGH';
-                const retryDelayMs = processBoostRetry.finish(gameProcessId, success, Date.now());
-                if (success) {
-                    log(`[POLL] Game process priority elevated: ${res}`);
-                } else if (retryDelayMs !== null) {
-                    log(`[POLL] Game process priority elevation failed; retrying in ${retryDelayMs}ms (PID: ${gameProcessId})`);
-                }
-            }).catch(e => {
-                const retryDelayMs = processBoostRetry.finish(gameProcessId, false, Date.now());
-                log(`[POLL] boostGameProcess failed: ${e}${retryDelayMs === null ? '' : `; retrying in ${retryDelayMs}ms`}`);
-            });
-        }
 
         // 창모드 전환 안정화 시간 동안에는 rect가 더 이상 바뀌지 않아도 한 번 더 동기화해야
         // 새 모드를 확정하고 그 모드 전용 위치를 복원할 수 있습니다.

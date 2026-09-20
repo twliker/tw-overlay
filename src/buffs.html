@@ -1488,17 +1488,20 @@
         lucide.createIcons();
         return;
       }
+      // 기능 계약: 구조화된 effects를 우선하고, 설명의 고정 수치와 비율 수치를 구분한다.
+      // 30%를 고정 +3으로 역추적하지 않도록 숫자 나머지와 공백 뒤의 %까지 제외한다.
+      // 실제 기본 도핑과 계산기 연결은 scripts/check-buffs-behavior.ts에서 함께 검증한다.
       const stats = { damage: 0, stat: 0, statRate: 0, exp: 0, expTeam: 0, rare: 0, critical: 0, speed: 0, attribute: 0 };
       selectedBuffs.forEach(buff => {
         stats.damage += getEffectValue(buff, 'damage', [/대미지\s*\+?(\d+)%/, /공격력\s*\+?(\d+)%/]);
         stats.statRate += getEffectValue(buff, 'statRate', [/능력치\s*\+?(\d+)%/]);
-        stats.stat += getEffectValue(buff, 'stat', [/능력치\s*\+?(\d+)(?!%)/]);
+        stats.stat += getEffectValue(buff, 'stat', [/능력치\s*\+?(\d+)(?![\d\s]*%)/]);
         stats.exp += getEffectValue(buff, 'exp', [/경험치\s*\+?(\d+)%/]);
         stats.expTeam += getEffectValue(buff, 'expTeam');
         stats.rare += getEffectValue(buff, 'rare', [/레어\s*\+?(\d+)%/]);
         stats.critical += getEffectValue(buff, 'critical', [/크리티컬\s*\+?(\d+)%/]);
-        stats.speed += getEffectValue(buff, 'speed', [/이속\s*\+?(\d+)(?!%)/, /이동\s*속도\s*\+?(\d+)(?!%)/]);
-        stats.attribute += getEffectValue(buff, 'attribute', [/속성\s*\+?(\d+)(?!%)/]);
+        stats.speed += getEffectValue(buff, 'speed', [/이속\s*\+?(\d+)(?![\d\s]*%)/, /이동\s*속도\s*\+?(\d+)(?![\d\s]*%)/]);
+        stats.attribute += getEffectValue(buff, 'attribute', [/속성\s*\+?(\d+)(?![\d\s]*%)/]);
       });
       const entries = [];
       if (stats.damage) entries.push(['대미지', `+${stats.damage}%`, 'text-orange-300']);

@@ -35,7 +35,8 @@ const CORE_ENTRIES = [
   'diary.db',
   'diary.db-wal',
   'diary.db-shm',
-  'custom_sounds'
+  'custom_sounds',
+  'custom_fonts'
 ];
 
 const CREDENTIAL_ENTRIES = ['google_auth.enc', 'google_user.json'];
@@ -54,7 +55,8 @@ function ensureRelativePath(relativePath: string): string {
 export function isRestorableSnapshotPath(relativePath: string): boolean {
   const normalized = ensureRelativePath(relativePath).split(path.sep).join('/');
   return RESTORABLE_FILES.has(normalized)
-    || (normalized.startsWith('custom_sounds/') && normalized.length > 'custom_sounds/'.length);
+    || (normalized.startsWith('custom_sounds/') && normalized.length > 'custom_sounds/'.length)
+    || /^custom_fonts\/[a-f0-9]{64}\.(font|json)$/.test(normalized);
 }
 
 function hashFile(filePath: string): string {

@@ -300,7 +300,7 @@ async function runWorker() {
     recordHomework('daily-colorless-land', 1, true);
   });
 
-  syncParser.on('ARCHITECT_MINE_ENTRY', () => {
+  syncParser.on('ARCHITECT_MINE_CLEAR', () => {
     recordHomework('daily-architect-mine', 1, true);
   });
 
@@ -445,6 +445,7 @@ async function runWorker() {
       if (fullTimestamp >= oneDayAgo) {
         shouts.push({
           eventId: nextEventId('shout'),
+          shoutKind: evt.shoutKind,
           fullTimestamp,
           sender: evt.sender,
           message: evt.message

@@ -16,6 +16,7 @@ export class WindowFocusController {
   private focusDebounceTimer: NodeJS.Timeout | null = null;
   private focusRestoreTimer: NodeJS.Timeout | null = null;
   private restoreSuppressed = false;
+  private interactiveLauncher: BrowserWindow | null = null;
 
   constructor(private readonly options: WindowFocusControllerOptions) {}
 
@@ -63,6 +64,15 @@ export class WindowFocusController {
     }, this.options.focusRestoreDelayMs);
   }
 
+  /** 메뉴/버튼 위에 포인터가 있는 런처만 보조 창 앞으로 둔다. 포커스는 이동하지 않는다. */
+  setLauncherInteractive(win: BrowserWindow, active: boolean): boolean {
+    if (win.isDestroyed()) return false;
+    const next = active ? win : (this.interactiveLauncher === win ? null : this.interactiveLauncher);
+    if (next === this.interactiveLauncher) return false;
+    this.interactiveLauncher = next;
+    return true;
+  }
+
   getOrderedWindowHandles(
     mainWindow: BrowserWindow | null,
     dockWindow: BrowserWindow | null,
@@ -74,10 +84,13 @@ export class WindowFocusController {
         && win !== dockWindow
         && win !== gameOverlayWindow)
       .reverse();
-    const orderedWindows = [...subWindows];
+    const launcher = this.interactiveLauncher;
+    const foregroundLauncher = launcher && (launcher === mainWindow || launcher === dockWindow)
+      && this.isVisible(launcher) ? launcher : null;
+    const orderedWindows = foregroundLauncher ? [foregroundLauncher, ...subWindows] : [...subWindows];
 
     for (const win of [mainWindow, dockWindow, gameOverlayWindow]) {
-      if (win && this.isVisible(win)) orderedWindows.push(win);
+      if (win && win !== foregroundLauncher && this.isVisible(win)) orderedWindows.push(win);
     }
 
     return orderedWindows.flatMap(win => {
@@ -127,6 +140,7 @@ export class WindowFocusController {
   }
 
   private remove(win: BrowserWindow): void {
+    if (this.interactiveLauncher === win) this.interactiveLauncher = null;
     this.activeWindows = this.activeWindows.filter(item => item !== win);
   }
 }

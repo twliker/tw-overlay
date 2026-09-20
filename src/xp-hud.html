@@ -10,16 +10,16 @@
   <script src="assets/ui-utils.js"></script>
   <style>
     :root {
-      --bg: #0f0e1a;
-      --surface: #17152b;
-      --surface2: #1f1c38;
-      --border: rgba(96, 165, 250, 0.12);
+      --bg: var(--ui-panel);
+      --surface: var(--ui-card);
+      --surface2: var(--ui-card-raised);
+      --border: var(--ui-border);
       --accent: #60a5fa;
       --accent-hover: #93c5fd;
       --accent-dim: rgba(96, 165, 250, 0.12);
       --accent-glow: rgba(96, 165, 250, 0.2);
-      --text: #eff6ff;
-      --text-muted: #93c5fd;
+      --text: var(--ui-text);
+      --text-muted: var(--ui-secondary);
       --danger: #f87171;
     }
 
@@ -33,8 +33,8 @@
     .stat-card {
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px 14px;
+      border-radius: 24px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -47,7 +47,7 @@
     }
 
     .stat-label {
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
@@ -65,15 +65,15 @@
     }
 
     .unit-sm {
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
-      opacity: 0.5;
+      color: var(--ui-secondary);
       margin: 0 2px 0 1px;
     }
 
     .remainder-sm {
       font-size: 14px;
-      opacity: 0.6;
+      color: var(--ui-secondary);
       font-weight: 700;
     }
 
@@ -81,7 +81,7 @@
     .chart-container {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 24px;
       padding: 12px;
       height: 160px;
       position: relative;
@@ -122,7 +122,7 @@
 
     /* ── 섹션 라벨 ── */
     .section-label {
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 700;
       color: #60a5fa;
       text-transform: uppercase;
@@ -184,18 +184,18 @@
       justify-content: space-between;
       padding: 10px 12px;
       background: var(--surface2);
-      border-radius: 8px;
+      border-radius: 12px;
       border: 1px solid var(--border);
     }
 
     .setting-row-label {
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 600;
       color: var(--text);
     }
 
     .setting-row-sub {
-      font-size: 10px;
+      font-size: 12px;
       color: var(--text-muted);
       margin-top: 2px;
       opacity: 0.7;
@@ -207,7 +207,7 @@
       padding: 6px 28px 6px 10px;
       background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 12px;
       color: var(--text);
       font-size: 13px;
       font-weight: 700;
@@ -223,8 +223,8 @@
     /* ── 버튼 ── */
     .btn-sm {
       padding: 5px 12px;
-      border-radius: 8px;
-      font-size: 11px;
+      border-radius: 12px;
+      font-size: 12px;
       font-weight: 700;
       cursor: pointer;
       transition: background 0.15s, transform 0.1s;
@@ -249,7 +249,7 @@
     .scroll-area {
       flex: 1;
       overflow-y: auto;
-      padding: 14px 14px 20px;
+      padding: 16px 16px 24px;
       display: flex;
       flex-direction: column;
       gap: 14px;
@@ -260,9 +260,54 @@
     }
 
     .scroll-area::-webkit-scrollbar-thumb {
-      background: rgba(52, 211, 153, 0.2);
+      background: rgba(255, 255, 255, 0.1);
       border-radius: 4px;
     }
+
+    [hidden] { display:none !important; }
+    .scroll-area { min-height:0; gap:12px; }
+    .xp-view { display:flex; flex-direction:column; gap:16px; }
+    .view-tabs { display:flex; flex-shrink:0; padding:12px 16px 0; gap:8px; }
+    .view-tab { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; padding:9px 12px; border:1px solid var(--border); border-radius:12px; color:var(--text-muted); background:var(--surface); font-size:12px; font-weight:700; }
+    .view-tab[aria-selected="true"] { background:var(--accent-dim); border-color:rgba(96,165,250,.4); color:var(--accent); box-shadow:0 0 12px rgba(96,165,250,.08); }
+    .view-tab:hover { border-color:var(--accent); }
+    .stat-value { overflow-wrap:anywhere; }
+    .stat-grid-sub { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+    .section-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .section-heading .section-label { margin:0; }
+    .session-button { height:36px; padding:0 10px; border:1px solid rgba(96,165,250,.3); border-radius:12px; background:var(--accent-dim); color:var(--accent); display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; white-space:nowrap; }
+    .chart-container { height:160px; flex-shrink:0; }
+    .efficiency-card { background:var(--ui-card); border:1px solid var(--border); border-radius:24px; padding:16px; }
+    .efficiency-card.is-warning { border-color:#f59e0b; }
+    .efficiency-card.is-warning #xp-efficiency-status { color:#fbbf24; }
+    .efficiency-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px; }
+    #xp-efficiency-status { font-size:12px; font-weight:700; }
+    #xp-efficiency-comparison, #xp-baseline-detail { font-size:12px; line-height:1.6; color:var(--text-muted); }
+    .settings-section { display:flex; flex-direction:column; gap:12px; padding:16px; border:1px solid var(--ui-border); border-radius:24px; background:var(--ui-card); }
+    .settings-section + .settings-section { margin-top:4px; }
+    .settings-section .section-label { margin-bottom:0; }
+    .setting-row { gap:12px; min-width:0; }
+    .setting-row > div { min-width:0; }
+    .settings-section .setting-row { padding:0 0 12px; border:0; border-bottom:1px solid var(--ui-border); border-radius:0; background:transparent; }
+    .setting-row-sub { line-height:1.6; }
+    .toggle-wrap { flex-shrink:0; }
+    .toggle-wrap input { position:absolute; inset:0; width:100%; height:100%; }
+    .toggle-slider { pointer-events:none; }
+    .toggle-wrap input:focus-visible + .toggle-slider { outline:2px solid var(--accent); outline-offset:3px; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+    input:disabled, select:disabled { opacity:.45; }
+    .compact-select { width:108px; flex-shrink:0; }
+    .audio-row { display:flex; gap:8px; }
+    .audio-row select { flex:1; min-width:0; }
+    .preview-button { display:flex; align-items:center; gap:5px; white-space:nowrap; border:1px solid rgba(96,165,250,.3); background:var(--accent-dim); color:var(--accent); }
+    .volume-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-muted); }
+    .volume-row input { flex:1; min-width:0; accent-color:var(--accent); }
+    .volume-row span { min-width:28px; text-align:right; }
+    .position-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
+    .position-grid label { font-size:12px; color:var(--text-muted); }
+    .position-grid input { margin-top:4px; }
+    .settings-link { width:100%; padding:8px; border:1px solid var(--border); background:var(--accent-dim); color:var(--accent); }
+    @media (max-width:380px) { .scroll-area { padding:10px; } .stat-card { padding:10px; } .session-button { padding:0 8px; } }
   </style>
   <!-- Chart.js (Local) -->
   <script src="assets/chart.umd.min.js"></script>
@@ -293,15 +338,18 @@
     </div>
   </div>
 
-  <!-- 본문 스크롤 영역 -->
-  <div class="scroll-area">
 
-    <!-- ① 세션 통계 -->
+  <nav class="view-tabs" role="tablist" aria-label="경험치 화면">
+    <button id="tab-measure" class="view-tab" role="tab" aria-controls="view-measure" aria-selected="true" data-xp-view="measure"><i data-lucide="chart-no-axes-combined" class="w-3.5 h-3.5"></i>측정 현황</button>
+    <button id="tab-settings" class="view-tab" role="tab" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-xp-view="settings"><i data-lucide="settings-2" class="w-3.5 h-3.5"></i>측정·알림 설정</button>
+  </nav>
+  <main class="scroll-area custom-scroll">
+    <section id="view-measure" class="xp-view" role="tabpanel" aria-labelledby="tab-measure">
     <div class="stat-grid-top">
-      <div class="section-label">
+      <div class="section-heading"><div class="section-label">
         <i data-lucide="bar-chart-2" style="width:11px;height:11px"></i>
         현재 세션 통계
-      </div>
+      </div><button class="btn-sm btn-danger" id="btn-reset" title="누적 경험치·처치 수·세션 정수 횟수 초기화">초기화</button></div>
 
       <!-- 총 경험치 (가장 크게) -->
       <div class="stat-card">
@@ -359,14 +407,10 @@
       <div class="stat-card">
         <div style="display:flex;align-items:center;justify-content:space-between;">
           <div style="display:flex;align-items:center;gap:12px;">
-            <button id="btn-session-control" 
-              style="width:36px;height:36px;border-radius:50%;border:none;background:var(--accent-dim);border:1px solid rgba(52,211,153,0.3);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;"
-              title="세션 측정 시작/중지">
-              <i data-lucide="play" class="w-4 h-4" id="icon-session-control"></i>
-            </button>
+            <button id="btn-session-control" class="session-button" title="세션 측정 시작/중지"><i data-lucide="play" class="w-3.5 h-3.5" id="icon-session-control"></i><span id="session-control-label">측정 시작</span></button>
             <div>
               <div style="display:flex;align-items:center;gap:6px;">
-                <span class="stat-label">세션 경과 시간</span>
+                <span class="stat-label" id="xp-activity-status" role="status">세션 경과 시간</span>
                 <span id="session-status-badge" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f87171;"></span>
               </div>
               <div style="font-size:16px;font-weight:900;color:var(--text);margin-top:2px;" id="elapsed-timer">00:00:00
@@ -382,6 +426,7 @@
       </div>
     </div>
 
+
     <!-- ② 실시간 추이 차트 -->
     <div class="mt-2">
       <div class="section-label">
@@ -392,141 +437,44 @@
         <canvas id="xpChart"></canvas>
       </div>
     </div>
-
-    <hr class="divider">
-
-    <!-- ③ 초기화 -->
-    <div>
-      <div class="section-label">
-        <i data-lucide="rotate-ccw" style="width:11px;height:11px"></i>
-        세션 초기화
-      </div>
-      <div class="stat-card" style="flex-direction:row;align-items:center;justify-content:space-between;gap:10px;">
-        <div>
-          <div class="setting-row-label">경험치 세션 초기화</div>
-          <div class="setting-row-sub">데이터를 모두 리셋합니다.</div>
-        </div>
-        <button class="btn-sm btn-danger" id="btn-reset" style="white-space:nowrap;flex-shrink:0;">
-          초기화
-        </button>
-      </div>
-    </div>
-
-    <hr class="divider">
-
-    <!-- ④ 정수 알림 설정 -->
-    <div id="essence-alert-settings-section">
-      <div class="section-label">
-        <i data-lucide="bell-ring" style="width:11px;height:11px"></i>
-        경험의 정수 버프 알림
-      </div>
-      <!-- 활성화 토글 -->
-      <div class="setting-row">
-        <div>
-          <div class="setting-row-label">경험의 정수 버프 미감지 알림 활성화</div>
-          <div class="setting-row-sub">100억 달성 후 교환 미감지 시 경고</div>
-        </div>
-        <label class="toggle-wrap">
-          <input type="checkbox" id="toggle-essence-alert" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <!-- 사운드 + 미리듣기 -->
-      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
-        <select id="essence-alert-sound"
-          style="flex:1;height:40px;padding:0 12px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;color:var(--text);font-size:12px;font-weight:700;outline:none;cursor:pointer;">
-        </select>
-        <button id="btn-essence-preview"
-          class="w-10 h-[40px] flex items-center justify-center bg-blue-600/20 border border-blue-500/40 rounded-xl text-blue-400 hover:bg-blue-600 hover:text-white transition-all shadow-lg active:scale-90 shrink-0" 
-          title="소리 테스트">
-          <i data-lucide="play" class="w-4 h-4 fill-current"></i>
-        </button>
-      </div>
-      <!-- 볼륨 -->
-      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
-        <span style="font-size:10px;color:var(--text-muted);font-weight:700;white-space:nowrap;">볼륨</span>
-        <input type="range" id="essence-alert-volume" min="0" max="100" value="70"
-          style="flex:1;accent-color:var(--accent);">
-        <span id="essence-alert-volume-label"
-          style="font-size:11px;font-weight:700;color:var(--text);min-width:28px;text-align:right;">70</span>
-      </div>
-    </div>
-
-    <hr class="divider">
-
-    <!-- ⑤ 표시 설정 -->
-    <div>
-      <div class="section-label">
-        <i data-lucide="monitor" style="width:11px;height:11px"></i>
-        표시 설정
-      </div>
-      <div class="setting-row">
-        <div>
-          <div class="setting-row-label">경험치 HUD 표시</div>
-          <div class="setting-row-sub">게임 화면 오버레이 여부</div>
-        </div>
-        <label class="toggle-wrap">
-          <input type="checkbox" id="toggle-show" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="setting-row mt-2">
-        <div>
-          <div class="setting-row-label">경험치 세션 자동 시작</div>
-          <div class="setting-row-sub">앱 실행 시 경험치 측정을 자동으로 시작합니다.</div>
-        </div>
-        <label class="toggle-wrap">
-          <input type="checkbox" id="toggle-xp-auto-start">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="setting-row mt-2">
-        <div>
-          <div class="setting-row-label">경험치 감소 무시</div>
-          <div class="setting-row-sub">경험치 판매 시 합계에서 제외</div>
-        </div>
-        <label class="toggle-wrap">
-          <input type="checkbox" id="toggle-ignore-negative" checked>
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-    </div>
-
-    <hr class="divider">
-
-    <!-- ⑤ 위치 설정 -->
-    <div>
-      <div class="section-label">
-        <i data-lucide="move" style="width:11px;height:11px"></i>
-        HUD 위치
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <div>
-          <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">좌측 여백 (Left)</div>
-          <div style="position:relative;">
-            <input type="number" id="pos-left" class="num-input" min="-3000" max="3000" value="200">
-            <span
-              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--text-muted);font-weight:700;">px</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-bottom:4px;">하단 여백 (Bottom)</div>
-          <div style="position:relative;">
-            <input type="number" id="pos-bottom" class="num-input" min="-3000" max="3000" value="0">
-            <span
-              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--text-muted);font-weight:700;">px</span>
-          </div>
-        </div>
-      </div>
-      <button id="btn-apply-pos"
-        style="margin-top:8px;width:100%;padding:6px 0;background:var(--accent-dim);border:1px solid rgba(52,211,153,0.3);border-radius:8px;font-size:11px;font-weight:700;color:var(--accent);cursor:pointer;transition:background 0.15s;"
-        onmouseover="this.style.background='rgba(52,211,153,0.2)'"
-        onmouseout="this.style.background='var(--accent-dim)'">
-        위치 즉시 적용
-      </button>
-    </div>
-
-  </div>
+      <section id="xp-efficiency-card" class="efficiency-card" aria-label="사냥 기준과 경험치 감소 상태">
+        <div class="efficiency-heading"><div class="section-label"><i data-lucide="activity" style="width:12px;height:12px"></i>사냥 측정 도우미</div><button id="xp-reset-baseline" class="btn-sm preview-button" title="누적 기록을 유지하고 현재 사냥 기준을 다시 측정">기준 다시 측정</button></div>
+        <div id="xp-efficiency-status" role="status">기준 준비 중</div>
+        <div id="xp-efficiency-comparison">측정 시작 후 최소 1분·30회 표본을 모읍니다.</div>
+        <div id="xp-baseline-detail" hidden></div>
+        <p class="setting-row-sub" style="margin-top:5px;">사냥터를 바꿨다면 기준을 다시 측정하세요. 누적 기록은 유지됩니다.</p>
+      </section>
+    </section>
+    <section id="view-settings" class="xp-view" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <section id="hunting-activity-settings" class="settings-section">
+        <div class="section-label"><i data-lucide="timer" style="width:12px;height:12px"></i>자동 측정</div>
+        <div class="setting-row"><div><div class="setting-row-label">경험치 세션 자동 시작</div><div class="setting-row-sub">앱 실행 시 경험치 측정을 자동으로 시작합니다.</div></div><label class="toggle-wrap"><input type="checkbox" id="toggle-xp-auto-start" aria-label="경험치 세션 자동 시작"><span class="toggle-slider"></span></label></div>
+        <div class="setting-row"><div><div class="setting-row-label">휴식 자동 감지</div><div class="setting-row-sub">쉬는 시간을 제외하고, 획득이 이어지면 자동 재개</div></div><label class="toggle-wrap"><input type="checkbox" id="xp-auto-pause" aria-label="휴식 자동 감지"><span class="toggle-slider"></span></label></div>
+        <label class="setting-row"><span class="setting-row-label">경험치 미획득 시간</span><select id="xp-idle-seconds" class="num-input compact-select"><option value="30">30초</option><option value="60">60초</option><option value="90">90초</option><option value="120">2분</option><option value="180">3분</option><option value="300">5분</option></select></label>
+        <div class="setting-row"><div><div class="setting-row-label">경험치 감소 무시</div><div class="setting-row-sub">경험치 판매 시 합계에서 제외</div></div><label class="toggle-wrap"><input type="checkbox" id="toggle-ignore-negative" aria-label="경험치 감소 무시"><span class="toggle-slider"></span></label></div>
+      </section>
+      <section id="xp-alert-settings" class="settings-section">
+        <div class="section-label"><i data-lucide="bell-ring" style="width:12px;height:12px"></i>경험치 감소 알림</div>
+        <div class="setting-row"><div><div class="setting-row-label">경험치 감소 감지</div><div class="setting-row-sub">최근 5분의 1회당 평균과 비교</div></div><label class="toggle-wrap"><input type="checkbox" id="xp-efficiency-enabled" aria-label="경험치 감소 감지"><span class="toggle-slider"></span></label></div>
+        <label class="setting-row"><span class="setting-row-label">평균보다 낮아지면</span><select id="xp-efficiency-percent" class="num-input compact-select"><option value="10">10% 감소</option><option value="20">20% 감소</option><option value="30">30% 감소</option><option value="40">40% 감소</option><option value="50">50% 감소</option></select></label>
+        <div class="audio-row"><select id="xp-efficiency-sound" class="num-input" aria-label="경험치 감소 알림음"></select><button id="xp-efficiency-preview" class="btn-sm preview-button"><i data-lucide="play" class="w-3 h-3"></i>미리듣기</button></div><label class="volume-row">알림 음량<input type="range" id="xp-efficiency-volume" min="0" max="100" value="40" aria-label="경험치 감소 알림 음량"><span id="xp-efficiency-volume-value">40%</span></label>
+        <p class="setting-row-sub">3회 연속 감소 시 알리고, 60초간 반복 알림을 쉽니다. 큰 일회성 획득은 기준에서 제외합니다.</p>
+      </section>
+      <section id="essence-alert-settings-section" class="settings-section">
+        <div class="section-label"><i data-lucide="bell-ring" style="width:12px;height:12px"></i>경험의 정수 버프 알림</div>
+        <div class="setting-row"><div><div class="setting-row-label">경험의 정수 버프 미감지 알림 활성화</div><div class="setting-row-sub">자동 교환이 감지되지 않으면 버프를 확인하도록 알립니다.</div></div><label class="toggle-wrap"><input type="checkbox" id="toggle-essence-alert" aria-label="경험의 정수 버프 미감지 알림 활성화"><span class="toggle-slider"></span></label></div>
+        <div class="audio-row"><select id="essence-alert-sound" class="num-input" aria-label="경험의 정수 알림음"></select><button id="btn-essence-preview" class="btn-sm preview-button"><i data-lucide="play" class="w-3 h-3"></i>미리듣기</button></div><label class="volume-row">알림 음량<input type="range" id="essence-alert-volume" min="0" max="100" value="40" aria-label="경험의 정수 알림 음량"><span id="essence-alert-volume-label">40%</span></label>
+      </section>
+      <section class="settings-section">
+        <div class="section-label"><i data-lucide="monitor" style="width:12px;height:12px"></i>표시 설정</div>
+        <div class="setting-row"><div><div class="setting-row-label">경험치 HUD 표시</div><div class="setting-row-sub">게임 화면 오버레이 여부</div></div><label class="toggle-wrap"><input type="checkbox" id="toggle-show" aria-label="경험치 HUD 표시"><span class="toggle-slider"></span></label></div>
+        <div class="section-label"><i data-lucide="move" style="width:12px;height:12px"></i>HUD 위치</div>
+        <div class="position-grid"><label>좌측 여백 (Left)<input type="number" id="pos-left" class="num-input" min="-3000" max="3000" value="200"></label><label>하단 여백 (Bottom)<input type="number" id="pos-bottom" class="num-input" min="-3000" max="3000" value="0"></label></div>
+        <button id="btn-apply-pos" class="btn-sm settings-link">위치 즉시 적용</button>
+        <button class="btn-sm settings-link" onclick="window.electronAPI.toggleSettings('display:game-overlay')">게임 오버레이 위치 및 표시 설정으로 이동</button>
+      </section>
+    </section>
+  </main>
 
   <script>
     // ── 숫자 포맷 (단위 스타일링 적용) ──
@@ -558,6 +506,29 @@
       return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
     }
 
+    // 측정 화면은 매번 먼저 보여주고, 설정을 열어도 측정 상태는 유지한다.
+    function showXpView(view, moveFocus = false) {
+      document.querySelectorAll('[data-xp-view]').forEach(tab => {
+        const selected = tab.dataset.xpView === view;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        if (selected && moveFocus) tab.focus();
+      });
+      document.getElementById('view-measure').hidden = view !== 'measure';
+      document.getElementById('view-settings').hidden = view !== 'settings';
+      document.querySelector('.scroll-area').scrollTop = 0;
+      if (view === 'measure' && xpChart) requestAnimationFrame(() => xpChart.resize());
+    }
+    document.querySelectorAll('[data-xp-view]').forEach(tab => {
+      tab.addEventListener('click', () => showXpView(tab.dataset.xpView));
+      tab.addEventListener('keydown', event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        const next = event.key === 'Home' ? 'measure' : event.key === 'End' ? 'settings' : tab.dataset.xpView === 'measure' ? 'settings' : 'measure';
+        showXpView(next, true);
+      });
+    });
+
     // ── 차트 설정 ──
     let xpChart = null;
     function initChart() {
@@ -584,6 +555,8 @@
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          // 초기 0 그래프 애니메이션이 뒤늦게 도착한 실시간 좌표를 덮지 않게 한다.
+          animation: false,
           plugins: { legend: { display: false } },
           scales: {
             x: { display: false },
@@ -605,6 +578,7 @@
     let _startTime = Date.now();
     let _accumulatedTime = 0;
     let _isActive = false;
+    let _pauseReason = 'manual';
     let _elapsedTimer = null;
 
     function startElapsedTimer() {
@@ -620,27 +594,32 @@
 
     function updateStats(data, isInitial = false) {
       if (!data) return;
+      if (data.pauseReason !== undefined) _pauseReason = data.pauseReason;
+      const autoRest = _pauseReason === 'idle';
+      const active = data.isActive ?? _isActive;
+      document.getElementById('xp-activity-status').textContent = active ? '측정 중' : autoRest ? '자동 휴식 · 획득 시 재개' : '측정 대기';
+      updateEfficiency(data.efficiency);
 
       if (data.isActive !== undefined) {
         _isActive = data.isActive;
         const btn = document.getElementById('btn-session-control');
         const icon = document.getElementById('icon-session-control');
         const badge = document.getElementById('session-status-badge');
+        document.getElementById('session-control-label').textContent = _isActive ? '일시정지' : autoRest ? '자동 재개 끄기' : '측정 시작';
 
-        if (_isActive) {
+        if (_isActive || autoRest) {
           if (icon) {
             icon.setAttribute('data-lucide', 'pause');
             if (typeof lucide !== 'undefined') lucide.createIcons();
           }
           if (badge) {
-            badge.style.backgroundColor = 'var(--accent)';
-            badge.classList.add('animate-pulse');
+            badge.style.backgroundColor = autoRest ? '#fbbf24' : 'var(--accent)';
           }
           if (btn) {
             btn.style.background = 'rgba(248, 113, 113, 0.12)';
             btn.style.borderColor = 'rgba(248, 113, 113, 0.3)';
             btn.style.color = 'var(--danger)';
-            btn.title = '세션 측정 중지';
+            btn.title = autoRest ? '자동 재개를 끄고 수동 정지' : '세션 측정 중지';
           }
         } else {
           if (icon) {
@@ -648,12 +627,11 @@
             if (typeof lucide !== 'undefined') lucide.createIcons();
           }
           if (badge) {
-            badge.style.backgroundColor = 'var(--danger)';
-            badge.classList.remove('animate-pulse');
+            badge.style.backgroundColor = 'var(--text-muted)';
           }
           if (btn) {
             btn.style.background = 'var(--accent-dim)';
-            btn.style.borderColor = 'rgba(52, 211, 153, 0.3)';
+            btn.style.borderColor = 'rgba(96, 165, 250, 0.3)';
             btn.style.color = 'var(--accent)';
             btn.title = '세션 측정 시작';
           }
@@ -726,14 +704,15 @@
       updateStats({
         total: 0, epm: 0, movingEpm: 0, history: [], kills: 0, essenceCount: 0,
         xpSinceLastExchange: data.xpSinceLastExchange || 0,
-        isActive: _isActive, startTime: _startTime, accumulatedTime: _accumulatedTime
+        isActive: _isActive, startTime: _startTime, accumulatedTime: _accumulatedTime,
+        pauseReason: data.pauseReason, efficiency: data.efficiency
       }, true);
       const startTimeEl = document.getElementById('stat-start-time');
       if (startTimeEl) startTimeEl.textContent = formatStartTime(_startTime);
     });
 
     document.getElementById('btn-session-control').addEventListener('click', () => {
-      if (_isActive) {
+      if (_isActive || _pauseReason === 'idle') {
         window.electronAPI.stopXpSession();
       } else {
         window.electronAPI.startXpSession();
@@ -776,8 +755,10 @@
 
     document.getElementById('btn-essence-preview').addEventListener('click', () => {
       const sound = document.getElementById('essence-alert-sound').value || 'orb.mp3';
-      const vol = parseInt(document.getElementById('essence-alert-volume').value) || 70;
-      window.playPreview(sound, vol, '경험의 정수 버프 확인');
+      // 기능 계약: 미리듣기도 저장된 음량과 같은 0% 무음을 지킨다. 알림 카드는 기존처럼 표시한다.
+      // check-renderer-behavior.ts의 checkAlarmVolumeBoundaries에서 실제 preview IPC 값을 확인한다.
+      const volume = Number.parseInt(document.getElementById('essence-alert-volume').value, 10);
+      window.playPreview(sound, Number.isFinite(volume) ? volume : 70, '경험의 정수 버프 확인');
     });
 
     document.getElementById('btn-apply-pos').addEventListener('click', () => {
@@ -788,6 +769,7 @@
 
     if (window.electronAPI && window.electronAPI.onHighlightAlarmSettings) {
       window.electronAPI.onHighlightAlarmSettings(() => {
+        showXpView('settings');
         window.highlightElement(document.getElementById('essence-alert-settings-section'), {
           borderColor: 'rgba(59, 130, 246, 0.8)',
           boxShadow: '0 0 25px rgba(59, 130, 246, 0.5)',
@@ -797,10 +779,56 @@
 
     let currentShowXpWidget = false;
 
+    function updateEfficiency(state) {
+      if (!state) return;
+      const labels = { disabled: '감지 꺼짐', paused: '측정 재개 후 기준을 준비합니다', warming: '현재 사냥 기준 준비 중', ready: '획득량 확인 중', low: '버프·도핑을 확인하세요' };
+      document.getElementById('xp-efficiency-status').textContent = labels[state.status];
+      const comparison = document.getElementById('xp-efficiency-comparison');
+      const warning = state.warning;
+      comparison.hidden = false;
+      if (state.status === 'low' && warning) {
+        comparison.textContent = `최근 평균 ${warning.average.toLocaleString()} / 현재 ${warning.current.toLocaleString()} · ${warning.dropPercent}% 감소`;
+      } else if (state.status === 'warming') {
+        comparison.textContent = `최소 1분·30회 필요 · 현재 ${state.sampleCount}회 · 준비 시간 ${state.warmupSeconds}초 남음`;
+      } else comparison.textContent = `최근 평균 ${state.average.toLocaleString()} · ${state.sampleCount}회 표본`;
+      document.getElementById('xp-baseline-detail').textContent = state.status === 'warming'
+        ? `최소 1분·30회 필요 · 현재 ${state.sampleCount}회 · ${state.warmupSeconds}초 남음`
+        : `최근 1회 평균 ${state.average.toLocaleString()} · ${state.sampleCount}회 표본`;
+      document.getElementById('xp-efficiency-card').classList.toggle('is-warning', state.status === 'low');
+    }
+
+    [ ['xp-auto-pause', 'xpAutoPauseEnabled'], ['xp-efficiency-enabled', 'xpEfficiencyAlertEnabled'] ].forEach(([id, key]) => {
+      document.getElementById(id).addEventListener('change', event => {
+        document.getElementById(id === 'xp-auto-pause' ? 'xp-idle-seconds' : 'xp-efficiency-percent').disabled = !event.target.checked;
+        window.electronAPI.applySettings({ [key]: event.target.checked });
+      });
+    });
+    [ ['xp-idle-seconds', 'xpAutoPauseSeconds'], ['xp-efficiency-percent', 'xpEfficiencyDropPercent'], ['xp-efficiency-volume', 'xpEfficiencyAlertVolume'] ].forEach(([id, key]) => {
+      document.getElementById(id).addEventListener('change', event => window.electronAPI.applySettings({ [key]: Number(event.target.value) }));
+    });
+    document.getElementById('xp-efficiency-sound').addEventListener('change', event => window.electronAPI.applySettings({ xpEfficiencyAlertSound: event.target.value }));
+    document.getElementById('xp-reset-baseline').addEventListener('click', () => window.electronAPI.resetXpEfficiencyBaseline());
+    document.getElementById('xp-efficiency-volume').addEventListener('input', event => document.getElementById('xp-efficiency-volume-value').textContent = event.target.value + '%');
+    document.getElementById('xp-efficiency-preview').addEventListener('click', () => window.playPreview(document.getElementById('xp-efficiency-sound').value, Number(document.getElementById('xp-efficiency-volume').value), '경험치 감소 확인'));
+
+    let xpConfigGeneration = 0;
     window.electronAPI.onConfigData(async (config) => {
+      const generation = ++xpConfigGeneration;
+      document.getElementById('xp-auto-pause').checked = config.xpAutoPauseEnabled !== false;
+      document.getElementById('xp-idle-seconds').disabled = config.xpAutoPauseEnabled === false;
+      document.getElementById('xp-idle-seconds').value = config.xpAutoPauseSeconds ?? 60;
+      document.getElementById('xp-efficiency-enabled').checked = config.xpEfficiencyAlertEnabled !== false;
+      document.getElementById('xp-efficiency-percent').disabled = config.xpEfficiencyAlertEnabled === false;
+      document.getElementById('xp-efficiency-percent').value = config.xpEfficiencyDropPercent ?? 20;
+      document.getElementById('xp-efficiency-volume').value = config.xpEfficiencyAlertVolume ?? 40;
+      document.getElementById('xp-efficiency-volume-value').textContent = (config.xpEfficiencyAlertVolume ?? 40) + '%';
       if (config.showXpWidget !== undefined) {
         currentShowXpWidget = config.showXpWidget;
         document.getElementById('toggle-show').checked = config.showXpWidget;
+        const visibilityButton = document.getElementById('btn-toggle-hud-show');
+        visibilityButton.setAttribute('aria-pressed', String(config.showXpWidget));
+        visibilityButton.title = config.showXpWidget ? '게임 화면에서 HUD 숨기기' : '게임 화면에 HUD 표시';
+        visibilityButton.setAttribute('aria-label', visibilityButton.title);
         
         // 헤더 눈 아이콘 업데이트
         const icon = document.getElementById('hud-show-icon');
@@ -820,7 +848,14 @@
       // 사운드 목록 동적 갱신
       if (window.loadSoundList) {
         try {
+          const efficiencySound = document.getElementById('xp-efficiency-sound');
+          const selectionBeforeLoad = efficiencySound.value;
           const sounds = await window.loadSoundList();
+          // 이전 설정의 느린 응답이 최신 경고음과 나머지 설정을 되돌리지 않는다.
+          if (generation !== xpConfigGeneration) return;
+          const selection = efficiencySound.value !== selectionBeforeLoad ? efficiencySound.value : config.xpEfficiencyAlertSound || 'orb.mp3';
+          efficiencySound.replaceChildren(...sounds.map(sound => new Option(sound.name, sound.file)));
+          efficiencySound.value = selection;
           const sel = document.getElementById('essence-alert-sound');
           if (sel && sounds) {
             const prevVal = sel.value || config.essenceAlertSound;
@@ -832,6 +867,7 @@
         }
       }
 
+      if (generation !== xpConfigGeneration) return;
       if (config.essenceAlertEnabled !== undefined)
         document.getElementById('toggle-essence-alert').checked = config.essenceAlertEnabled;
       if (config.essenceAlertSound) {

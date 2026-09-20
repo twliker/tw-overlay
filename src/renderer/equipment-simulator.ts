@@ -46,6 +46,24 @@
     return type === 'elso' ? formatElso(amount) : formatSeed(amount);
   }
 
+  // HTML min/max는 직접 입력 이벤트의 계산을 차단하지 않는다. 입력값을 먼저 보정해
+  // 단가·확률 안내·실제 계산이 같은 값을 사용하며, 빈 초안은 다음 입력을 위해 유지한다.
+  function normalizeNumericInput(field: HTMLInputElement, integer = false): void {
+    if (field.value === '') return;
+    const value = Number(field.value);
+    const min = field.min === '' ? 0 : Number(field.min);
+    const max = field.max === '' ? Infinity : Number(field.max);
+    const finiteValue = Number.isFinite(value) ? value : min;
+    const normalized = Math.max(min, Math.min(max, integer ? Math.trunc(finiteValue) : finiteValue));
+    if (value !== normalized) field.value = String(normalized);
+  }
+
+  function setupNumericInputBounds(): void {
+    document.querySelectorAll<HTMLInputElement>('input[type="number"][min]').forEach(field => {
+      field.addEventListener('input', () => normalizeNumericInput(field));
+    });
+  }
+
   // ==========================================
   // 1. 메인 3개 탭 전환
   // ==========================================
@@ -68,7 +86,10 @@
   // ==========================================
   // 2. 장비 강화 로직 & UI
   // ==========================================
-  let stageFeeOverrides: number[] = Array(20).fill(0);
+  // 구간 수수료는 비워 두면 공통 단가를 따르고, 직접 입력한 0은 무료 구간이다.
+  // 시드/엘소 및 일반/노패널티 강화 모두 같은 입력 소유권을 사용한다.
+  // 회귀: check-renderer-behavior --equipment-simulator (전체 HTML 입력→계산→표시).
+  const stageFeeOverrides: Array<number | null> = Array(20).fill(null);
 
   function setupEnhancePanel(): void {
     const currentSel = $('enhance-current-stage') as HTMLSelectElement;
@@ -120,7 +141,7 @@
 
   function getEnhanceOptions(): any {
     const baseFee = Number(($('enhance-price-fee') as HTMLInputElement).value) || 0;
-    const costPerStage = stageFeeOverrides.map((f) => (f > 0 ? f : baseFee));
+    const costPerStage = stageFeeOverrides.map((f) => f ?? baseFee);
 
     return {
       startStage: Number(($('enhance-current-stage') as HTMLSelectElement).value) || 0,
@@ -178,7 +199,7 @@
     `;
 
     res.stageStats.forEach((st: any) => {
-      const curFee = stageFeeOverrides[st.stage] > 0 ? stageFeeOverrides[st.stage] : baseFee;
+      const curFee = stageFeeOverrides[st.stage];
       tableHtml += `
         <tr class="border-b border-white/5 hover:bg-white/[0.02]">
           <td class="p-2 font-bold text-slate-200">${st.stage}강 → ${st.stage + 1}강</td>
@@ -187,7 +208,7 @@
             ${st.effectivePenaltyRate > 0 ? `<span class="text-[11px] text-rose-400 block font-normal">(하락 ${(st.effectivePenaltyRate * 100).toFixed(1)}%)</span>` : ''}
           </td>
           <td class="p-2 text-right">
-            <input type="number" data-stage-fee="${st.stage}" class="w-24 px-1.5 py-1 text-right bg-slate-900 border border-white/15 rounded text-xs text-amber-200 focus:border-amber-400 focus:outline-none" value="${curFee || ''}" placeholder="${baseFee || '0'}" step="10000" min="0">
+            <input type="number" data-stage-fee="${st.stage}" class="w-24 px-1.5 py-1 text-right bg-slate-900 border border-white/15 rounded text-xs text-amber-200 focus:border-amber-400 focus:outline-none" value="${curFee ?? ''}" placeholder="${baseFee || '0'}" step="10000" min="0">
           </td>
           <td class="p-2 text-right text-indigo-300 font-bold">${fmt(st.stepExpectedAttempts || 0, 1)}회</td>
           <td class="p-2 text-right text-slate-300">
@@ -210,8 +231,8 @@
     tableContainer.querySelectorAll<HTMLInputElement>('input[data-stage-fee]').forEach((input) => {
       input.addEventListener('change', () => {
         const stage = Number(input.dataset.stageFee);
-        const val = Number(input.value) || 0;
-        stageFeeOverrides[stage] = val;
+        const val = Number(input.value);
+        stageFeeOverrides[stage] = input.value !== '' && Number.isFinite(val) ? Math.max(0, val) : null;
         renderEnhanceExpectation();
       });
     });
@@ -282,6 +303,7 @@
     statSelect.addEventListener('change', refreshEnchantUI);
     scrollSelect.addEventListener('change', refreshEnchantUI);
     $('enchant-initial-blessing').addEventListener('input', renderEnchantExpectation);
+    ($('enchant-target-success') as HTMLInputElement).max = String(api.MAX_ENCHANT_TARGET_SUCCESSES);
     $('enchant-target-success').addEventListener('input', renderEnchantExpectation);
     $('enchant-currency-type').addEventListener('change', () => {
       const type = ($('enchant-currency-type') as HTMLSelectElement).value;
@@ -318,7 +340,10 @@
 
   function renderEnchantExpectation(): void {
     const opts = getEnchantOptions();
-    const targetSucc = Number(($('enchant-target-success') as HTMLInputElement).value) || 1;
+    const targetInput = $('enchant-target-success') as HTMLInputElement;
+    const targetSucc = api.normalizeEnchantTargetSuccesses(Number(targetInput.value));
+    // 계산 모듈과 화면의 총비용 곱셈에 같은 횟수를 사용한다. 빈 초안은 입력을 계속할 수 있게 둔다.
+    if (targetInput.value !== '') targetInput.value = String(targetSucc);
     const res = api.calculateEnchantExpectation(opts, targetSucc);
     const container = $('enchant-exp-metrics');
 
@@ -351,9 +376,7 @@
       const maxProtect = info.maxProtectionScrolls;
 
       protectInput.max = String(maxProtect);
-      if (Number(protectInput.value) > maxProtect) {
-        protectInput.value = String(maxProtect);
-      }
+      normalizeNumericInput(protectInput, true);
       $('incrypt-protect-max-label').textContent = `/ ${maxProtect}장`;
       $('incrypt-protect-box').classList.toggle('opacity-50', maxProtect === 0);
 
@@ -423,6 +446,7 @@
   // 초기화
   // ==========================================
   window.addEventListener('DOMContentLoaded', () => {
+    setupNumericInputBounds();
     setupTabNavigation();
     setupEnhancePanel();
     setupEnchantPanel();

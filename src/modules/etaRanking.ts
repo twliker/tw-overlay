@@ -1,6 +1,15 @@
 import { net } from 'electron';
+import { decodeHTML } from 'entities';
 import type { EtaRankingResult, EtaRankingParams } from '../shared/types';
 
+/**
+ * 공홈 랭킹의 HTML 텍스트를 일반 문자열로 반환한다. 목록·검색·서버 전환은
+ * 모두 이 경로를 사용하며, 닉네임의 숫자/이름 문자 참조는 여기서 한 번만
+ * 복원한다(예: 리사&#208; → 리사Ð, &amp;#208; → &#208;).
+ * 렌더러는 반환 문자열을 계속 이스케이프해야 한다. 이미 일반 문자열인
+ * 별도 채팅용 JSON 랭킹 캐시에는 이 복원을 적용하지 않는다.
+ * 함께 검증: check-eta-ranking-behavior.ts의 실제 fetch→preload→화면 경로.
+ */
 export async function fetchEtaRanking({
     sc = 16,     // 16: 네냐플, 7: 하이아칸
     cc = 99,     // 99: 전체
@@ -52,7 +61,7 @@ export async function fetchEtaRanking({
     // Last Update 추출
     const dateMatch = html.match(/<dt>Last Update\s*:<\/dt>\s*<dd>([^<]+)<\/dd>/i);
     if (dateMatch) {
-        result.lastUpdate = dateMatch[1].trim();
+        result.lastUpdate = decodeHTML(dateMatch[1]).trim();
     }
 
     // 랭킹 추출
@@ -62,8 +71,8 @@ export async function fetchEtaRanking({
     while ((match = rowRegex.exec(html)) !== null) {
         result.entries.push({
             rank: parseInt(match[1], 10),
-            character: match[2].trim(),
-            nickname: match[3].trim(),
+            character: decodeHTML(match[2]).trim(),
+            nickname: decodeHTML(match[3]).trim(),
             level: parseInt(match[4], 10),
             point: parseInt(match[5].replace(/,/g, ''), 10)
         });

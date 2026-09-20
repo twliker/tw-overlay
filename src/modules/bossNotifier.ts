@@ -21,6 +21,10 @@ import { getGameStatus } from './pollingLoop';
 import * as diaryDb from './diaryDb';
 import { MinuteAlignedScheduler } from './minuteAlignedScheduler';
 import { showDesktopNotification } from './desktopNotification';
+import { getActiveBossEntryWindows, getScheduledBossEntryWindows } from '../shared/bossEntry';
+import { broadcastToAllWindows } from './windowMessaging';
+import { chatParser } from './chatParser';
+import type { ChatParserEventMap } from '../shared/types';
 
 interface BossTime {
   time: string; // HH:mm
@@ -121,6 +125,47 @@ export function getBossTimes(bossName: string): string[] {
 }
 
 const minuteScheduler = new MinuteAlignedScheduler();
+let removeEntryConfigListener: (() => void) | null = null;
+const dismissedEntryWindows = new Map<string, number>();
+
+export function getBossEntryWindows(now = new Date(Date.now())) {
+  for (const [id, closesAt] of dismissedEntryWindows) {
+    if (closesAt <= now.getTime()) dismissedEntryWindows.delete(id);
+  }
+  return getActiveBossEntryWindows(BOSS_SCHEDULE, config.load(), now)
+    .filter(entry => !dismissedEntryWindows.has(entry.id));
+}
+
+function publishEntryWindows(): void {
+  broadcastToAllWindows('boss-entry-update', getBossEntryWindows());
+}
+
+/**
+ * 기능 계약 — 파멸의 기원 입장 안내 자동 숨김
+ * live chatParser의 검증된 시작/종료 이벤트만 구독한다. 과거 복원 worker의 별도 파서는
+ * 구독하지 않으며, 오늘 날짜·현재 입장 가능 회차 안의 로그 시각만 허용한다.
+ * 해당 출현 ID를 종료 시각까지 메모리에 보관하므로 분 갱신, 설정 변경, HUD 재생성 및
+ * 알림 서비스 stop/start로 되살아나지 않는다. 다음 회차에는 새 ID로 정상 표시한다.
+ * 앱 전체 재시작 때는 이 임시 상태를 복원하지 않는다. 설정·Drive·숙제 데이터는 변경하지 않는다.
+ * 혼란한 대지는 기존 4분 표시를 유지한다. 설정 소유자는 필드보스 설정의 기존 토글이며,
+ * 끈 동안 받은 참여 로그도 기억해 같은 회차에 다시 켰을 때 이미 참여한 안내를 띄우지 않는다.
+ * 회귀: check-hunting-assist.ts(실제 로그→파서→서비스), check-renderer-behavior.ts(즉시 제거).
+ */
+function dismissOriginOfDoomEntry(event: ChatParserEventMap['ORIGIN_OF_DOOM_ACTIVITY']): void {
+  const now = new Date(Date.now());
+  if (event.date !== formatBossDateKey(now)) return;
+  const time = event.timestamp.match(/^(\d{1,2})\s*시\s*(\d{1,2})\s*분\s*(\d{1,2})\s*초$/);
+  if (!time) return;
+  const [hour, minute, second] = time.slice(1).map(Number);
+  if (hour > 23 || minute > 59 || second > 59) return;
+  const loggedAt = new Date(now).setHours(hour, minute, second, 0);
+  if (loggedAt > now.getTime()) return;
+  const entry = getScheduledBossEntryWindows(BOSS_SCHEDULE, now).find(candidate =>
+    candidate.name === '파멸의 기원' && loggedAt >= candidate.opensAt && loggedAt < candidate.closesAt);
+  if (!entry || dismissedEntryWindows.has(entry.id)) return;
+  dismissedEntryWindows.set(entry.id, entry.closesAt);
+  publishEntryWindows();
+}
 const _notifiedBossKeys = new Set<string>();
 const _trackedBossAnalyticsKeys = new Set<string>();
 let _lastCleanupDate = formatBossDateKey(new Date());
@@ -128,15 +173,24 @@ let _lastCleanupDate = formatBossDateKey(new Date());
 /** 알림 루프 시작 */
 export function start(): void {
   if (!minuteScheduler.start(checkBossTime, recordMissedBossAlerts)) return;
+  chatParser.on('ORIGIN_OF_DOOM_ACTIVITY', dismissOriginOfDoomEntry);
+  publishEntryWindows();
+  removeEntryConfigListener = config.addConfigChangeListener(patch => {
+    if (patch.fieldBossNotifyEnabled !== undefined || patch.fieldBossSettings !== undefined || patch.bossEntryCountdownBosses !== undefined) publishEntryWindows();
+  });
   log('[BOSS] 보스 알림 감시 시작 (정밀 동기화 모드)');
 }
 
 /** 알림 루프 중지 */
 export function stop(): void {
   minuteScheduler.stop();
+  chatParser.removeListener('ORIGIN_OF_DOOM_ACTIVITY', dismissOriginOfDoomEntry);
+  removeEntryConfigListener?.();
+  removeEntryConfigListener = null;
 }
 
 function checkBossTime(): void {
+  publishEntryWindows();
   // 날짜 변경 시 알림 디듀플 셋 정리
   const now = new Date();
   const currentDate = formatBossDateKey(now);

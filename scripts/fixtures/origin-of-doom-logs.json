@@ -1,0 +1,62 @@
+{
+  "started": {
+    "source": "TWChatLog_2026_09_05.html",
+    "lineNumbers": [
+      4235,
+      4236
+    ],
+    "lines": [
+      "<font size=\"2\" color=\"white\"> [20시  0분  7초] </font> <font size=\"2\" color=\"#ff64ff\">마티아 : 저열한 존재들이여 달여왕님의 하해와 같은 은총에 납작 엎드려 굴복하십시오</font></br>",
+      "<font size=\"2\" color=\"white\"> [20시  0분  7초] </font> <font size=\"2\" color=\"#ff64ff\">!</font></br>"
+    ]
+  },
+  "finished": {
+    "source": "TWChatLog_2026_09_05.html",
+    "lineNumbers": [
+      4243
+    ],
+    "lines": [
+      "<font size=\"2\" color=\"white\"> [20시  0분 15초] </font> <font size=\"2\" color=\"#ff64ff\">파멸의 기원에 입힌 총 대미지 : 570197726</font></br>"
+    ]
+  },
+  "insufficient": {
+    "source": "TWChatLog_2026_09_09.html",
+    "lineNumbers": [
+      763,
+      764
+    ],
+    "lines": [
+      "<font size=\"2\" color=\"white\"> [20시  0분  9초] </font> <font size=\"2\" color=\"#ff64ff\">파멸의 기원에 입힌 대미지가 부족하여 보상을 획득할 수 없습니다. ?총 대미지 : 193</font></br>",
+      "<font size=\"2\" color=\"white\"> [20시  0분  9초] </font> <font size=\"2\" color=\"#ff64ff\">952906?</font></br>"
+    ]
+  },
+  "portal": {
+    "source": "TWChatLog_2026_09_05.html",
+    "lineNumbers": [
+      4233
+    ],
+    "lines": [
+      "<font size=\"2\" color=\"white\"> [20시  0분  1초] </font> <font size=\"2\" color=\"#ff64ff\">중앙 군영에 마티아의 비밀 공간 입구가 출현했습니다!</font></br>"
+    ]
+  },
+  "exit": {
+    "source": "TWChatLog_2026_09_05.html",
+    "lineNumbers": [
+      4247
+    ],
+    "lines": [
+      "<font size=\"2\" color=\"white\"> [20시  0분 15초] </font> <font size=\"2\" color=\"#ff64ff\">30초 후에 맵 밖으로 강제 이동 됩니다.</font></br>"
+    ]
+  },
+  "endingDialogue": {
+    "lines": [
+      "<font size=\"2\" color=\"white\"> [20시  0분 15초] </font> <font size=\"2\" color=\"#ff64ff\">마티아 : 아아… 후안무치한 유사 인간들 따위에게 달여왕님의 성전이 수포로 돌아가다</font></br>",
+      "<font size=\"2\" color=\"white\"> [20시  0분 15초] </font> <font size=\"2\" color=\"#ff64ff\">니...</font></br>"
+    ],
+    "lineNumbers": [
+      4245,
+      4246
+    ],
+    "source": "TWChatLog_2026_09_05.html"
+  }
+}

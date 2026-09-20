@@ -1,3 +1,4 @@
+import { cancelGameOverlayEdit } from './gameOverlayEditSession';
 /**
  * 기능 계약 — Electron 창 생명주기·배치·오버레이 상태
  *
@@ -31,6 +32,7 @@ import { buffTimerManager } from './buffTimerManager';
 import * as diaryDb from './diaryDb';
 import type { ConfigDataContext, EquipmentDictionaryItem, EvolutionCalculatorSelection, ScreenPosition, WindowPositionKey } from '../shared/types';
 import { copyDefaultWindowPosition } from '../shared/windowPositions';
+import { ACTIVITY_WINDOWS, captureActivitySettings } from '../shared/activityPresets';
 import { collectIncompleteContents } from './contentsSummary';
 import { getStandardOptions, isValidCoordinate } from './windowOptions';
 import { createManagedWindowRegistry } from './managedWindowRegistry';
@@ -39,6 +41,10 @@ import { centerWindowInWorkArea, isWindowVisibleOnDisplays } from './windowPlace
 import { createManagedWindowSizePatch, resolveManagedWindowSizing } from './managedWindowSizing';
 import { WindowFocusController } from './windowFocusController';
 import { ProgrammaticMoveTracker } from './programmaticMoveTracker';
+import { attachWindowMovePersistence } from './windowMovePersistence';
+import { UserWindowVisibility } from './userWindowVisibility';
+import { ContentsWindowCollapse } from './contentsWindowCollapse';
+import { snapReleasedWindow } from './windowSnap';
 import { EmbeddedWebTool } from './embeddedWebTool';
 import { OverlayToolbarController } from './overlayToolbarController';
 import { createDisplayTopologySignature, DisplayTopologyStabilizer } from './displayTopologyStabilizer';
@@ -82,6 +88,83 @@ let swordEnhanceTool: EmbeddedWebTool | null = null;
 let gameOverlayWindow: BrowserWindow | null = null;
 let welcomeGuideWindow: BrowserWindow | null = null;
 let updateNoticeWindow: BrowserWindow | null = null;
+const userWindowVisibility = new UserWindowVisibility();
+const contentsWindowCollapse = new ContentsWindowCollapse((x, y) => setProgrammaticMove('contentsChecker', x, y));
+// 최초 위치 적용 전의 창만 등록한다. 로딩 중 프리셋/공유 배치는 마지막 요청으로 교체한다.
+const pendingManagedWindowLayouts = new WeakMap<BrowserWindow, (() => void) | null>();
+
+export function setContentsCheckerCollapsed(sender: WebContents, collapsed: boolean): boolean {
+  const win = windowRegistry.contentsChecker.ref;
+  if (!win || win.isDestroyed() || win.webContents !== sender) return false;
+  const cfg = config.load();
+  if (collapsed && (cfg.contentsAutoCollapse !== true || !win.isVisible() || (cfg.pendingHomeworks?.length ?? 0) > 0)) return false;
+  return contentsWindowCollapse.set(win, collapsed);
+}
+
+export const areAllWindowsHidden = (): boolean => userWindowVisibility.isHidden();
+
+function snapUserWindow(key: string, win: BrowserWindow): void {
+  if (areAllWindowsHidden() || config.load().windowSnapEnabled !== true) return;
+  const peers = Object.entries(windowRegistry).filter(([name]) => name !== 'dock').map(([, entry]) => entry.ref)
+    .filter((peer): peer is BrowserWindow => !!peer);
+  if (overlayWindow) peers.push(overlayWindow);
+  snapReleasedWindow(win, peers, (x, y) => setProgrammaticMove(key, x, y));
+}
+
+/** 표시 경로가 공유하는 일시 숨김 가드. 자동 로딩 완료도 숨김을 해제하지 않는다. */
+export function showWindowUnlessHidden(win: BrowserWindow | null | undefined, active = false): boolean {
+  if (!win || !userWindowVisibility.canShow(win)) return false;
+  if (active) win.show();
+  else win.showInactive();
+  return true;
+}
+
+function canRestoreUserWindow(win: BrowserWindow): boolean {
+  if (appState.isQuitting || mandatoryUpdateLock) return false;
+  const cfg = config.load();
+  if (win === mainWindow) return !!gameRect && cfg.sidebarPosition !== 'dock' && cfg.sidebarPosition !== 'dock-top';
+  if (win === gameOverlayWindow) return !!gameRect;
+  if (win === overlayWindow) return !!gameRect && isOverlayVisible;
+  if (win === windowRegistry.dock.ref) return !!gameRect && isDockVisible && (cfg.sidebarPosition === 'dock' || cfg.sidebarPosition === 'dock-top');
+  if (win === windowRegistry.chatOverlay.ref) return !!gameRect && isChatOverlayVisible;
+  if (win === windowRegistry.chatOverlaySub.ref) return !!gameRect && isChatOverlayVisible && isChatOverlaySubVisible;
+  if (win === windowRegistry.chatOverlaySub2.ref) return !!gameRect && isChatOverlayVisible && isChatOverlaySub2Visible;
+  return true;
+}
+
+export function restoreUserHiddenWindows(): void {
+  userWindowVisibility.restore(() => false);
+  focusController.setRestoreSuppressed(false);
+  // 숨긴 사이 화면이 이동했어도 현재 게임 좌표로 배치한 뒤 사용한다.
+  if (physicalGameRect) syncOverlay(physicalGameRect);
+  userWindowVisibility.resume(canRestoreUserWindow);
+  void import('./tray').then(mod => mod.updateTrayMenu());
+}
+
+export function toggleAllWindowsHidden(): boolean {
+  if (appState.isQuitting || mandatoryUpdateLock) return false;
+  if (areAllWindowsHidden()) restoreUserHiddenWindows();
+  else {
+    focusController.cancelPendingRestore();
+    focusController.setRestoreSuppressed(true);
+    userWindowVisibility.hide(BrowserWindow.getAllWindows().filter(win => win !== splashWindow));
+    void import('./tray').then(mod => mod.updateTrayMenu());
+  }
+  return areAllWindowsHidden();
+}
+
+/** 숨긴 창을 개별 메뉴로 열면 전체 숨김을 해제하고 기존 renderer를 그대로 표시한다. */
+function reopenUserHiddenWindow(win: BrowserWindow | null | undefined): boolean {
+  const wasHidden = areAllWindowsHidden();
+  if (!wasHidden && (!win || !userWindowVisibility.owns(win))) return false;
+  if (wasHidden) restoreUserHiddenWindows();
+  if (!win || win.isDestroyed()) return false;
+  userWindowVisibility.allowExplicitOpen(win);
+  if (!wasHidden && win.isVisible()) return false;
+  if (!canRestoreUserWindow(win)) return false;
+  showWindowUnlessHidden(win, true);
+  return true;
+}
 
 export function createGameOverlayWindow(): void {
   if (gameOverlayWindow) return;
@@ -102,7 +185,7 @@ export function createGameOverlayWindow(): void {
 
   gameOverlayWindow.once('ready-to-show', () => {
     if (gameOverlayWindow && !gameOverlayWindow.isDestroyed()) {
-      gameOverlayWindow.showInactive();
+      showWindowUnlessHidden(gameOverlayWindow);
       // 생성 직후 최신 설정 전송 (경험치 HUD 위치 등 반영용)
       const currentConfig = config.load();
       gameOverlayWindow.webContents.send('config-data', currentConfig);
@@ -194,12 +277,7 @@ Object.assign(windowRegistry.chatOverlaySub2, {
 
 Object.assign(windowRegistry.settings, {
   onClose: () => {
-    if (gameOverlayWindow && !gameOverlayWindow.isDestroyed()) {
-      gameOverlayWindow.setIgnoreMouseEvents(true);
-      gameOverlayWindow.setFocusable(false);
-      gameOverlayWindow.setAlwaysOnTop(false);
-      gameOverlayWindow.webContents.send('game-overlay-edit-mode', false, true);
-    }
+    cancelGameOverlayEdit();
     if (pendingFullscreenDockLayoutRestore) {
       setTimeout(() => {
         if (appState.isQuitting || !pendingFullscreenDockLayoutRestore) return;
@@ -559,7 +637,7 @@ export const getWelcomeGuideWindow = () => welcomeGuideWindow;
 
 export function createWelcomeGuideWindow(): void {
   if (welcomeGuideWindow && !welcomeGuideWindow.isDestroyed()) {
-    welcomeGuideWindow.focus();
+    if (userWindowVisibility.canShow(welcomeGuideWindow)) welcomeGuideWindow.focus();
     return;
   }
   const width = 870;
@@ -576,7 +654,7 @@ export function createWelcomeGuideWindow(): void {
   welcomeGuideWindow.loadFile(path.join(__dirname, '..', 'welcome-guide.html'));
   focusController.attach(welcomeGuideWindow);
   welcomeGuideWindow.once('ready-to-show', () => {
-    welcomeGuideWindow?.show();
+    showWindowUnlessHidden(welcomeGuideWindow, true);
   });
   welcomeGuideWindow.on('closed', () => {
     welcomeGuideWindow = null;
@@ -585,6 +663,7 @@ export function createWelcomeGuideWindow(): void {
 }
 
 export function toggleWelcomeGuideWindow(): boolean {
+  if (reopenUserHiddenWindow(welcomeGuideWindow)) return true;
   if (welcomeGuideWindow && !welcomeGuideWindow.isDestroyed()) {
     welcomeGuideWindow.close();
     welcomeGuideWindow = null;
@@ -598,7 +677,7 @@ export const getUpdateNoticeWindow = () => updateNoticeWindow;
 
 export function createUpdateNoticeWindow(): void {
   if (updateNoticeWindow && !updateNoticeWindow.isDestroyed()) {
-    updateNoticeWindow.focus();
+    if (userWindowVisibility.canShow(updateNoticeWindow)) updateNoticeWindow.focus();
     return;
   }
   const width = 640;
@@ -617,7 +696,7 @@ export function createUpdateNoticeWindow(): void {
   updateNoticeWindow.loadFile(path.join(__dirname, '..', 'update-notice.html'));
   focusController.attach(updateNoticeWindow);
   updateNoticeWindow.once('ready-to-show', () => {
-    updateNoticeWindow?.show();
+    showWindowUnlessHidden(updateNoticeWindow, true);
   });
   updateNoticeWindow.on('closed', () => {
     updateNoticeWindow = null;
@@ -632,6 +711,7 @@ export function closeUpdateNoticeWindow(): void {
 }
 
 export function toggleUpdateNoticeWindow(): boolean {
+  if (reopenUserHiddenWindow(updateNoticeWindow)) return true;
   if (updateNoticeWindow && !updateNoticeWindow.isDestroyed()) {
     updateNoticeWindow.close();
     updateNoticeWindow = null;
@@ -720,7 +800,7 @@ export function createMainWindow(): BrowserWindow {
     const sidebarPosition = config.load().sidebarPosition || 'right';
     if (gameRect && sidebarPosition !== 'dock' && sidebarPosition !== 'dock-top'
       && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      mainWindow.showInactive();
+      showWindowUnlessHidden(mainWindow);
     }
   });
   mainWindow.webContents.on('did-finish-load', () => {
@@ -761,15 +841,16 @@ function createOverlayWindow(targetUrl?: string): void {
   overlayWindow.on('close', () => {
     isClosing = true;
   });
-  overlayWindow.on('move', () => {
-    // 화면 모드 전환 중간 좌표만 저장하지 않습니다. 안정된 전체화면에서는 별도 프로필에 저장합니다.
-    if (isClosing || consumeProgrammaticMove('overlay', overlayWindow) || isApplyingSize
-      || !overlayWindow || gameWindowModeTransitioning) return;
-    programmaticMoves.markUserDrag('overlay');
-    const b = overlayWindow.getBounds();
-    if (isTracking && gameRect) {
-      saveUserWindowPosition('overlay', { x: b.x, y: b.y }, gameRect);
-    }
+  attachWindowMovePersistence(overlayWindow, {
+    key: 'overlay',
+    beforeSaveDrag: () => { if (overlayWindow) snapUserWindow('overlay', overlayWindow); },
+    tracker: programmaticMoves,
+    canSave: () => !isClosing && !isApplyingSize && !gameWindowModeTransitioning && isTracking && !!gameRect,
+    savePosition: b => {
+      if (isTracking && gameRect) {
+        saveUserWindowPosition('overlay', { x: b.x, y: b.y }, gameRect);
+      }
+    },
   });
 
   // 헤더 자동 숨김: 이벤트 기반 (mouseenter/mouseleave IPC)
@@ -809,7 +890,7 @@ function createOverlayWindow(targetUrl?: string): void {
   overlayWindow.once('ready-to-show', () => {
     updateViewBounds();
     if (isOverlayVisible) {
-      overlayWindow?.showInactive();
+      showWindowUnlessHidden(overlayWindow);
       sendActiveWindowsStatus();
       if (physicalGameRect) { isTracking = false; syncOverlay(physicalGameRect); }
     }
@@ -975,6 +1056,19 @@ const WINDOWS_WITH_OWN_RESIZE_HANDLE = new Set<WindowPositionKey>([
   'focusedChat',
 ]);
 
+function updateManagedWindowResizeHandle(
+  win: BrowserWindow,
+  key: WindowPositionKey,
+  minWidth: number | undefined,
+  minHeight: number | undefined,
+): void {
+  if (WINDOWS_WITH_OWN_RESIZE_HANDLE.has(key) || win.isDestroyed() || win.webContents.isDestroyed()) return;
+  win.webContents.send('managed-window-resize-enabled', {
+    minWidth: minWidth ?? 100,
+    minHeight: minHeight ?? 100,
+  });
+}
+
 function enableManagedWindowResizeHandle(
   win: BrowserWindow,
   key: WindowPositionKey,
@@ -984,10 +1078,9 @@ function enableManagedWindowResizeHandle(
   if (WINDOWS_WITH_OWN_RESIZE_HANDLE.has(key)) return;
   win.webContents.on('did-finish-load', () => {
     if (win.isDestroyed() || win.webContents.isDestroyed()) return;
-    win.webContents.send('managed-window-resize-enabled', {
-      minWidth: minWidth ?? 100,
-      minHeight: minHeight ?? 100,
-    });
+    // 로딩 중 프리셋 적용이나 새로고침 뒤에도 생성 당시 값 대신 현재 최소 크기를 사용한다.
+    const [currentMinWidth, currentMinHeight] = win.getMinimumSize();
+    updateManagedWindowResizeHandle(win, key, currentMinWidth || minWidth, currentMinHeight || minHeight);
   });
 }
 
@@ -1003,6 +1096,7 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   calcPosition?: (gr: GameRect, pos: WindowPosition) => { x: number, y: number }
 }, showReason: ManagedWindowShowReason = 'user-open'): boolean {
   const winCfg = windowRegistry[key];
+  if (showReason === 'user-open' && reopenUserHiddenWindow(winCfg?.ref)) return true;
   if (!winCfg || (winCfg.ref && !winCfg.ref.isDestroyed())) {
     if (winCfg?.ref && !winCfg.ref.isDestroyed()) {
       winCfg.ref.close();
@@ -1054,6 +1148,7 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   // ready-to-show에서 올바른 위치를 설정하기 전까지 위치 저장을 차단합니다.
   // 로딩 시간이 200ms를 넘을 수 있으므로 시간 기반 가드로 처리하면 안 됩니다.
   let isInitialPositionApplied = false;
+  pendingManagedWindowLayouts.set(win, null);
   focusController.attach(win);
   win.loadFile(path.join(__dirname, '..', winCfg.html));
   win.on('close', () => {
@@ -1061,7 +1156,7 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
   });
 
   win.on('resize', () => {
-    if (isClosing) return;
+    if (isClosing || contentsWindowCollapse.isTemporarySize(win)) return;
     const b = win.getBounds();
     const sizePatch = createManagedWindowSizePatch(key, b.width, b.height, config.load().managedWindowSizes);
     if (sizePatch) config.save(sizePatch);
@@ -1104,16 +1199,19 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
       setProgrammaticMove(key, x, y);
       win.setPosition(x, y);
     }
+    const restorePendingLayout = pendingManagedWindowLayouts.get(win);
+    pendingManagedWindowLayouts.delete(win);
+    restorePendingLayout?.();
     isInitialPositionApplied = true;
     win.webContents.send('config-data', config.load());
     if (callbacks?.onReady || winCfg.onOpen) (callbacks?.onReady || winCfg.onOpen)!(win);
     const shouldShowPreloadedDock = showReason === 'preload' && key === 'dock' && isDockVisible;
     let showMethod = 'preload-hidden';
     if (showReason === 'user-open' && !isPassiveOverlay) {
-      win.show();
+      showWindowUnlessHidden(win, true);
       showMethod = 'show';
     } else if (showReason !== 'preload' || shouldShowPreloadedDock) {
-      win.showInactive();
+      showWindowUnlessHidden(win);
       showMethod = 'showInactive';
     }
     log(`[WINDOW_SHOW] ${key} reason=${showReason} method=${showMethod}`);
@@ -1137,13 +1235,14 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
       });
     }
   });
-  win.on('move', () => {
-    // 화면 모드 전환 중간 좌표만 저장하지 않습니다. 안정된 전체화면에서는 별도 프로필에 저장합니다.
-    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove(key, winCfg.ref)
-      || !winCfg.ref || !gameRect || gameWindowModeTransitioning) return;
-    programmaticMoves.markUserDrag(key);
-    const b = winCfg.ref.getBounds();
-    saveUserWindowPosition(key, { x: b.x, y: b.y }, gameRect);
+  attachWindowMovePersistence(win, {
+    key,
+    beforeSaveDrag: () => snapUserWindow(key, win),
+    tracker: programmaticMoves,
+    canSave: () => !isClosing && isInitialPositionApplied && !!gameRect && !gameWindowModeTransitioning,
+    savePosition: b => {
+      if (gameRect) saveUserWindowPosition(key, { x: b.x, y: b.y }, gameRect);
+    },
   });
   win.on('closed', () => {
     if (config.hasPending()) {
@@ -1166,10 +1265,12 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
 }
 
 export function toggleSettingsWindow(tabId?: string): void {
+  if (areAllWindowsHidden()) restoreUserHiddenWindows();
   const winCfg = windowRegistry['settings'];
+  if (winCfg.ref) userWindowVisibility.allowExplicitOpen(winCfg.ref);
   if (winCfg && winCfg.ref && !winCfg.ref.isDestroyed()) {
-    winCfg.ref.show();
-    winCfg.ref.focus();
+    showWindowUnlessHidden(winCfg.ref, true);
+    if (userWindowVisibility.canShow(winCfg.ref)) winCfg.ref.focus();
     import('./updater').then(mod => {
       const info = mod.getCurrentStatus();
       if (info && winCfg.ref && !winCfg.ref.isDestroyed()) {
@@ -1228,8 +1329,9 @@ export function toggleTradeWindow(): boolean {
 function showExistingManagedWindow(key: string): boolean {
   const win = windowRegistry[key]?.ref;
   if (!win || win.isDestroyed()) return false;
-  win.show();
-  win.focus();
+  reopenUserHiddenWindow(win);
+  showWindowUnlessHidden(win, true);
+  if (userWindowVisibility.canShow(win)) win.focus();
   return true;
 }
 
@@ -1237,9 +1339,10 @@ function showExistingManagedWindow(key: string): boolean {
 function sendToExistingManagedWindow(key: string, channel: string, payload: unknown): boolean {
   const win = windowRegistry[key]?.ref;
   if (!win || win.isDestroyed()) return false;
+  reopenUserHiddenWindow(win);
   win.webContents.send(channel, payload);
-  win.show();
-  win.focus();
+  showWindowUnlessHidden(win, true);
+  if (userWindowVisibility.canShow(win)) win.focus();
   return true;
 }
 
@@ -1298,6 +1401,7 @@ export function toggleEquipmentSimulatorWindow(): boolean { return createTogglea
 export function toggleCustomAlertWindow(): boolean { return createToggleableWindow('customAlert'); }
 export function toggleQteChallengeWindow(): boolean { return createToggleableWindow('qteChallenge'); }
 export function toggleUniformColorWindow(): void {
+  if (reopenUserHiddenWindow(windowRegistry.uniformColor.ref)) return;
   const winCfg = windowRegistry['uniformColor'];
   if (winCfg && winCfg.ref && !winCfg.ref.isDestroyed()) {
     winCfg.ref.close();
@@ -1318,13 +1422,17 @@ export function toggleUniformColorWindow(): void {
   focusController.attach(win);
   win.loadFile(path.join(__dirname, '..', winCfg.html));
 
+  // 제복 도구 계약: 손잡이·프리셋·작은 작업 영역으로 창 크기가 바뀌어도 외부 view는
+  // 헤더와 푸터(크기 손잡이)를 덮지 않는다. 원본 페이지의 고정 높이보다 작을 때는
+  // 본문을 스크롤해 마지막 색상 선택란까지 접근한다. 외부 페이지 내용/선택은 유지한다.
+  // 회귀: check-embedded-tools.ts의 실제 생성/preload/크기 IPC/native view/CSS 검사.
   uniformColorTool = new EmbeddedWebTool(win, {
     url: 'https://twsnowflower.github.io/uniform_color/spin.html',
     preloadPath: path.join(__dirname, '..', 'overlay-view-preload.js'),
     headerHeight: 56,
     footerHeight: 28,
-    followWindowResize: false,
-    css: 'body { overflow: hidden !important; margin-top: -79px !important; margin-left: 0px !important; background: #0f121e !important; }',
+    followWindowResize: true,
+    css: 'html { overflow-y: auto !important; } body { overflow: visible !important; margin-top: -79px !important; margin-left: 0px !important; background: #0f121e !important; }',
   });
 
   let isInitialPositionApplied = false;
@@ -1359,15 +1467,17 @@ export function toggleUniformColorWindow(): void {
       win.webContents.openDevTools({ mode: 'detach' });
       uniformColorTool?.openDevTools();
     }
-    win.show();
+    showWindowUnlessHidden(win, true);
   });
 
-  win.on('move', () => {
-    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('uniformColor', winCfg.ref)
-      || !winCfg.ref || !gameRect || gameWindowModeTransitioning) return;
-    programmaticMoves.markUserDrag('uniformColor');
-    const b = winCfg.ref.getBounds();
-    saveUserWindowPosition('uniformColor', { x: b.x, y: b.y }, gameRect);
+  attachWindowMovePersistence(win, {
+    key: 'uniformColor',
+    beforeSaveDrag: () => snapUserWindow('uniformColor', win),
+    tracker: programmaticMoves,
+    canSave: () => !isClosing && isInitialPositionApplied && !!gameRect && !gameWindowModeTransitioning,
+    savePosition: b => {
+      if (gameRect) saveUserWindowPosition('uniformColor', { x: b.x, y: b.y }, gameRect);
+    },
   });
 
   win.on('closed', () => {
@@ -1380,6 +1490,7 @@ export function toggleUniformColorWindow(): void {
 }
 
 export function toggleSwordEnhanceWindow(): void {
+  if (reopenUserHiddenWindow(windowRegistry.swordEnhance.ref)) return;
   const winCfg = windowRegistry.swordEnhance;
   if (winCfg.ref && !winCfg.ref.isDestroyed()) {
     winCfg.ref.close();
@@ -1441,15 +1552,17 @@ export function toggleSwordEnhanceWindow(): void {
       win.webContents.openDevTools({ mode: 'detach' });
       swordEnhanceTool?.openDevTools();
     }
-    win.show();
+    showWindowUnlessHidden(win, true);
   });
 
-  win.on('move', () => {
-    if (isClosing || !isInitialPositionApplied || consumeProgrammaticMove('swordEnhance', winCfg.ref)
-      || !winCfg.ref || !gameRect || gameWindowModeTransitioning) return;
-    programmaticMoves.markUserDrag('swordEnhance');
-    const bounds = winCfg.ref.getBounds();
-    saveUserWindowPosition('swordEnhance', { x: bounds.x, y: bounds.y }, gameRect);
+  attachWindowMovePersistence(win, {
+    key: 'swordEnhance',
+    beforeSaveDrag: () => snapUserWindow('swordEnhance', win),
+    tracker: programmaticMoves,
+    canSave: () => !isClosing && isInitialPositionApplied && !!gameRect && !gameWindowModeTransitioning,
+    savePosition: bounds => {
+      if (gameRect) saveUserWindowPosition('swordEnhance', { x: bounds.x, y: bounds.y }, gameRect);
+    },
   });
 
   win.on('closed', () => {
@@ -1464,10 +1577,12 @@ export function toggleSwordEnhanceWindow(): void {
 export function toggleShoutHistoryWindow(): boolean { return createToggleableWindow('shoutHistory'); }
 export function toggleDiaryWindow(): boolean { return createToggleableWindow('diary'); }
 export function openScamDetectorWindow(): boolean {
+  // 새 대화의 자동 열기는 전체 숨김을 해제하지 않는다. 세션 기록은 계속된다.
+  if (areAllWindowsHidden()) return false;
   const winCfg = windowRegistry['scamDetector'];
   if (winCfg && winCfg.ref && !winCfg.ref.isDestroyed()) {
-    winCfg.ref.show();
-    winCfg.ref.focus();
+    showWindowUnlessHidden(winCfg.ref, true);
+    if (userWindowVisibility.canShow(winCfg.ref)) winCfg.ref.focus();
     return true;
   }
   return createToggleableWindow('scamDetector');
@@ -1480,6 +1595,7 @@ export function toggleSienaAuraWindow(): boolean { return createToggleableWindow
 export function toggleWordAlarmWindow(): boolean { return createToggleableWindow('wordAlarm'); }
 export function toggleDiscordAlarmWindow(): boolean { return createToggleableWindow('discordAlarm'); }
 export function toggleChatOverlayWindow(): boolean {
+  if (reopenUserHiddenWindow(windowRegistry.chatOverlay.ref)) return true;
   isChatOverlayVisible = !isChatOverlayVisible;
   config.save({ chatOverlayEnabled: isChatOverlayVisible });
 
@@ -1544,6 +1660,7 @@ export function broadcastConfig(): void {
 }
 
 export function toggleSubWindow(subNum: 1 | 2): void {
+  if (reopenUserHiddenWindow(windowRegistry[subNum === 1 ? 'chatOverlaySub' : 'chatOverlaySub2'].ref)) return;
   if (subNum === 1) {
     const winCfg = windowRegistry['chatOverlaySub'];
     if (!isChatOverlaySubVisible) {
@@ -1584,6 +1701,9 @@ export function toggleDockWindow(): void {
   const cfg = config.load();
   if (cfg.sidebarPosition !== 'dock' && cfg.sidebarPosition !== 'dock-top') return;
 
+  if (areAllWindowsHidden()) { restoreUserHiddenWindows(); return; }
+  if (windowRegistry.dock.ref) userWindowVisibility.allowExplicitOpen(windowRegistry.dock.ref);
+
   const winCfg = windowRegistry['dock'];
   if (winCfg.ref && !winCfg.ref.isDestroyed()) {
     const isPreloading = winCfg.ref.webContents.isLoadingMainFrame();
@@ -1602,7 +1722,7 @@ export function toggleDockWindow(): void {
       }
       // 위치를 먼저 확정한 뒤 기존 renderer를 표시해 재생성 지연과 화면 점프를 없앱니다.
       if (!isPreloading) {
-        winCfg.ref.showInactive();
+        showWindowUnlessHidden(winCfg.ref);
         bringGameAndOverlaysToTop();
         sendActiveWindowsStatus();
         log('[DOCK_TOGGLE] 기존 독 창 즉시 표시');
@@ -1616,6 +1736,7 @@ export function toggleDockWindow(): void {
   }
 }
 export function toggleContentsCheckerWindow(): boolean {
+  if (reopenUserHiddenWindow(windowRegistry.contentsChecker.ref)) return true;
   isContentsCheckerVisible = !isContentsCheckerVisible;
   config.save({ contentsCheckerEnabled: isContentsCheckerVisible });
 
@@ -1650,6 +1771,14 @@ export function getAllWindowHwnds(): string[] {
   return focusController.getOrderedWindowHandles(mainWindow, dockWin, gameOverlayWindow);
 }
 
+/** 런처의 실제 입력 영역만 앞에 둔다. 투명 여백으로 나가면 원래 창 순서를 복원한다.
+ * 외부 앱/게임을 활성화하거나 별도 topmost 규칙을 만들지 않고 기존 z-order 정책을 따른다.
+ */
+export function setLauncherInteractive(win: BrowserWindow, active: boolean): void {
+  if (win !== mainWindow && win !== windowRegistry.dock.ref) return;
+  if (focusController.setLauncherInteractive(win, active)) bringGameAndOverlaysToTop();
+}
+
 /**
  * 외부 앱에서 TW-Overlay 작업표시줄 창을 사용자가 직접 활성화한 경우에만
  * 최소화되지 않은 게임을 먼저 올리고, 선택한 우리 창을 다시 foreground로 복구한다.
@@ -1673,6 +1802,7 @@ export function updateViewBounds(): void {
   }
 }
 export function setOverlayVisible(visible: boolean, targetUrl?: string): boolean {
+  if (visible) reopenUserHiddenWindow(overlayWindow);
   if (mandatoryUpdateLock) return isOverlayVisible; // 필수 업데이트 중에는 오버레이 조작 차단
   if (isOverlayVisible === visible && (visible ? !!overlayWindow : !overlayWindow)) { if (visible && targetUrl && view) view.webContents.loadURL(targetUrl); return isOverlayVisible; }
   isOverlayVisible = visible;
@@ -1686,13 +1816,25 @@ export function setOverlayVisible(visible: boolean, targetUrl?: string): boolean
   config.save({ overlayVisible: isOverlayVisible });
   return isOverlayVisible;
 }
-export function toggleOverlay(): boolean { return setOverlayVisible(!isOverlayVisible); }
+export function toggleOverlay(): boolean {
+  if (reopenUserHiddenWindow(overlayWindow)) return true;
+  return setOverlayVisible(!isOverlayVisible);
+}
 
 export function syncOverlay(currentRect: GameRect): void {
   if (!mainWindow || isApplyingSize) return;
   if (mandatoryUpdateLock) return; // 필수 업데이트 중에는 창 동기화 중지
   if (currentRect && currentRect.x > -10000) {
     let cfg = config.load();
+    if (!gameRect && !areAllWindowsHidden()) {
+      // 게임 최소화 중 전체 숨김을 시작하면 게임 부착 창은 애초에 보이지 않아 캡처되지 않는다.
+      // 다음 게임 복귀는 새 자동 표시 시점이므로, 저장된 활성 설정이 영구히 막히지 않게 한다.
+      [mainWindow, overlayWindow, gameOverlayWindow,
+        windowRegistry.dock.ref, windowRegistry.chatOverlay.ref,
+        windowRegistry.chatOverlaySub.ref, windowRegistry.chatOverlaySub2.ref,
+        ...(cfg.autoOpenContentsChecker ? [windowRegistry.contentsChecker.ref] : []),
+      ].forEach(win => { if (win && !win.isDestroyed()) userWindowVisibility.allowExplicitOpen(win); });
+    }
     const sidebarPos = cfg.sidebarPosition || 'right';
 
     if (sidebarPos === 'dock' || sidebarPos === 'dock-top') {
@@ -1712,7 +1854,7 @@ export function syncOverlay(currentRect: GameRect): void {
       }
     } else {
       if (isMainWindowRendererReady && !mainWindow.isVisible()) {
-        mainWindow.showInactive();
+        showWindowUnlessHidden(mainWindow);
         log(`[WINDOW_SHOW] sidebar reason=game-resync method=showInactive mode=${sidebarPos}`);
       }
       const dockCfg = windowRegistry['dock'];
@@ -1721,7 +1863,7 @@ export function syncOverlay(currentRect: GameRect): void {
       }
     }
 
-    if (overlayWindow && isOverlayVisible && !overlayWindow.isVisible()) overlayWindow.showInactive();
+    if (overlayWindow && isOverlayVisible && !overlayWindow.isVisible()) showWindowUnlessHidden(overlayWindow);
 
     // 포커스 상태에 따른 게임 해상도 크기 보정 (비활성화 시 해상도 축소 방어)
     const resolvedPhysicalRect = resolvePhysicalGameRect(currentRect, lastForegroundSize);
@@ -1772,11 +1914,13 @@ export function syncOverlay(currentRect: GameRect): void {
       cfg = synchronizeWindowPositionMode(scaledGameRect, modeResult.mode);
     }
 
+    if (areAllWindowsHidden()) return;
+
     // 창모드/창모드 전체화면 자체는 모두 정상 배치 모드입니다. 테두리와 해상도가 연속해서
     // 바뀌는 짧은 전환 구간에만 보조 창 이동·중앙 복구·위치 저장을 멈춥니다.
     const skipPositionSync = gameWindowModeTransitioning;
 
-    if (overlayWindow && isOverlayVisible) {
+    if (overlayWindow && isOverlayVisible && !programmaticMoves.isUserDragging('overlay')) {
       const b = overlayWindow.getBounds();
       const newW = b.width, newH = b.height;
       if (!isTracking) isTracking = true;
@@ -1823,7 +1967,7 @@ export function syncOverlay(currentRect: GameRect): void {
         }
       }
       // 게임 복귀 시 숨겨진 상태면 다시 표시 (isDestroyed 재확인 후 처리)
-      if (!gameOverlayWindow.isDestroyed() && !gameOverlayWindow.isVisible()) gameOverlayWindow.showInactive();
+      if (!gameOverlayWindow.isDestroyed() && !gameOverlayWindow.isVisible()) showWindowUnlessHidden(gameOverlayWindow);
     }
 
     // --- 채팅 오버레이 자동 동기화 및 띄우기 ---
@@ -1833,7 +1977,7 @@ export function syncOverlay(currentRect: GameRect): void {
         createToggleableWindow('chatOverlay', undefined, 'game-resync');
       } else {
         if (!chatWinCfg.ref.isVisible()) {
-          chatWinCfg.ref.showInactive();
+          showWindowUnlessHidden(chatWinCfg.ref);
         }
       }
     } else {
@@ -1850,7 +1994,7 @@ export function syncOverlay(currentRect: GameRect): void {
         createToggleableWindow('chatOverlaySub', undefined, 'game-resync');
       } else {
         if (!subWinCfg.ref.isVisible()) {
-          subWinCfg.ref.showInactive();
+          showWindowUnlessHidden(subWinCfg.ref);
         }
       }
     } else {
@@ -1867,7 +2011,7 @@ export function syncOverlay(currentRect: GameRect): void {
         createToggleableWindow('chatOverlaySub2', undefined, 'game-resync');
       } else {
         if (!sub2WinCfg.ref.isVisible()) {
-          sub2WinCfg.ref.showInactive();
+          showWindowUnlessHidden(sub2WinCfg.ref);
         }
       }
     } else {
@@ -1891,7 +2035,7 @@ export function syncOverlay(currentRect: GameRect): void {
         }, 'game-resync');
       } else {
         if (!contentsWinCfg.ref.isVisible()) {
-          contentsWinCfg.ref.showInactive();
+          showWindowUnlessHidden(contentsWinCfg.ref);
         }
       }
     }
@@ -1910,7 +2054,7 @@ export function syncOverlay(currentRect: GameRect): void {
           if (!dockCfg.ref || dockCfg.ref.isDestroyed()) {
             createToggleableWindow('dock', undefined, 'game-resync');
           } else {
-            if (!dockCfg.ref.isVisible()) dockCfg.ref.showInactive();
+            if (!dockCfg.ref.isVisible()) showWindowUnlessHidden(dockCfg.ref);
             const b = dockCfg.ref.getBounds();
             // 독바는 전체화면 모드일 때도 게임 창 가장자리에 항상 도킹되어 보여야 함
             if (hasPositionChanged(b, { x, y }, POSITION_THRESHOLD)) {
@@ -1927,7 +2071,7 @@ export function syncOverlay(currentRect: GameRect): void {
                 setProgrammaticMove('dock', x, y);
                 dockCfg.ref.setPosition(x, y);
                 if (shouldRestoreVisibleDock && !dockCfg.ref.isDestroyed()) {
-                  dockCfg.ref.showInactive();
+                  showWindowUnlessHidden(dockCfg.ref);
                 }
               }
             }
@@ -1967,6 +2111,8 @@ export function syncOverlay(currentRect: GameRect): void {
 
     Object.keys(windowRegistry).forEach(key => {
       if (key === 'dock') return;
+      // 놓기 전에는 저장된 이전 위치를 이용한 화면 이탈 복구도 실행하지 않습니다.
+      if (programmaticMoves.isUserDragging(key)) return;
       const winCfg = windowRegistry[key];
       if (winCfg.ref && !winCfg.ref.isDestroyed() && winCfg.ref.isVisible()) {
         // 스케일링된 좌표(gX, y 등)를 기반으로 위치 계산
@@ -1996,6 +2142,7 @@ export function syncOverlay(currentRect: GameRect): void {
         }
       }
     });
+    userWindowVisibility.resume(canRestoreUserWindow);
     sendActiveWindowsStatus();
   } else {
     // 게임 창을 찾을 수 없는 경우: 사이드바/오버레이 숨김 및 추적 해제
@@ -2049,13 +2196,25 @@ export function applySettings(
     && sanitizedSettings.sidebarPosition !== current.sidebarPosition
     && (sanitizedSettings.sidebarPosition === 'dock' || sanitizedSettings.sidebarPosition === 'dock-top')
     && (current.sidebarPosition === 'dock' || current.sidebarPosition === 'dock-top');
+  const { isSidebarResize, ...saveSettings } = sanitizedSettings;
+  const saveSucceeded = config.saveConfirmed(saveSettings);
+  if (!saveSucceeded) {
+    // 실패한 변경은 창에 적용하지 않되, 기존 저장 UI가 기다리는 갱신은 승인 표식 없이 보낸다.
+    [mainWindow, overlayWindow, gameOverlayWindow, ...Object.values(windowRegistry).map(entry => entry.ref)].forEach(win => {
+      if (win && !win.isDestroyed() && win.webContents !== excludedWebContents) win.webContents.send('config-data', current);
+    });
+    return false;
+  }
   if (isDockPositionChange) {
     pendingDockLayoutChange = true;
     pendingFullscreenDockLayoutRestore = isGameFullscreen;
     log(`[WINDOW_FOCUS] 독 배치 변경 대기: ${current.sidebarPosition} -> ${sanitizedSettings.sidebarPosition}, fullscreen=${isGameFullscreen}`);
   }
-  const { isSidebarResize, ...saveSettings } = sanitizedSettings;
-  const saveSucceeded = config.saveImmediate(saveSettings);
+  if (saveSucceeded && (newSettings.positions || newSettings.windowedFullscreenPositions)) {
+    applyRuntimeModePositions(getModePositions(config.load(), getActiveMode()));
+  }
+  if (saveSucceeded && newSettings.chatOverlaySubEnabled !== undefined) isChatOverlaySubVisible = newSettings.chatOverlaySubEnabled;
+  if (saveSucceeded && newSettings.chatOverlaySub2Enabled !== undefined) isChatOverlaySub2Visible = newSettings.chatOverlaySub2Enabled;
   if (overlayWindow) {
     isApplyingSize = true;
     const b = overlayWindow.getBounds();
@@ -2079,19 +2238,12 @@ export function applySettings(
     gameOverlayWindow.webContents.send('today-summary-config', updated);
   }
 
+  if (updated.contentsAutoCollapse !== true && windowRegistry.contentsChecker.ref) {
+    contentsWindowCollapse.set(windowRegistry.contentsChecker.ref, false);
+  }
+
   if (newSettings.chatOverlayClickThrough !== undefined) {
-    const chatWin = windowRegistry.chatOverlay.ref;
-    if (chatWin && !chatWin.isDestroyed()) {
-      chatWin.setIgnoreMouseEvents(newSettings.chatOverlayClickThrough, { forward: true });
-    }
-    const subWin = windowRegistry.chatOverlaySub.ref;
-    if (subWin && !subWin.isDestroyed()) {
-      subWin.setIgnoreMouseEvents(newSettings.chatOverlayClickThrough, { forward: true });
-    }
-    const sub2Win = windowRegistry.chatOverlaySub2.ref;
-    if (sub2Win && !sub2Win.isDestroyed()) {
-      sub2Win.setIgnoreMouseEvents(newSettings.chatOverlayClickThrough, { forward: true });
-    }
+    applyClickThrough(newSettings.chatOverlayClickThrough);
   }
 
   if (newSettings.chatOverlayEnabled !== undefined) {
@@ -2149,16 +2301,12 @@ export function applySettings(
   return saveSucceeded;
 }
 
-export function toggleClickThrough(): boolean {
+/** 프리셋과 단축키는 브라우저·채팅 3창·아이콘·다음 토글에 같은 투과 상태를 적용한다. */
+function applyClickThrough(enabled: boolean): void {
   const chatWin = windowRegistry.chatOverlay.ref;
   const subWin = windowRegistry.chatOverlaySub.ref;
   const sub2Win = windowRegistry.chatOverlaySub2.ref;
-  // 오버레이 창들이 모두 닫혀 있다면 작동 무시
-  if (!overlayWindow && (!chatWin || chatWin.isDestroyed()) && (!subWin || subWin.isDestroyed()) && (!sub2Win || sub2Win.isDestroyed())) {
-    return false;
-  }
-
-  isClickThrough = !isClickThrough;
+  isClickThrough = enabled;
 
   // 1. 웹 브라우저 오버레이 투과 제어
   if (overlayWindow && !overlayWindow.isDestroyed()) {
@@ -2167,7 +2315,7 @@ export function toggleClickThrough(): boolean {
     overlayWindow.webContents.send('click-through-status', isClickThrough);
   }
 
-  // 2. 채팅 오버레이 투과 제어 및 설정 실시간 동기화/저장
+  // 2. 채팅 오버레이 투과 제어 (설정 저장과 config-data 전송은 호출자가 담당)
   if (chatWin && !chatWin.isDestroyed()) {
     chatWin.setIgnoreMouseEvents(isClickThrough, { forward: true });
   }
@@ -2190,6 +2338,21 @@ export function toggleClickThrough(): boolean {
     }
   }, 150);
 
+  [mainWindow, windowRegistry.dock.ref].forEach(win => {
+    if (win && !win.isDestroyed()) win.webContents.send('click-through-status', isClickThrough);
+  });
+}
+
+export function toggleClickThrough(): boolean {
+  const chatWin = windowRegistry.chatOverlay.ref;
+  const subWin = windowRegistry.chatOverlaySub.ref;
+  const sub2Win = windowRegistry.chatOverlaySub2.ref;
+  // 오버레이 창들이 모두 닫혀 있다면 작동 무시
+  if (!overlayWindow && (!chatWin || chatWin.isDestroyed()) && (!subWin || subWin.isDestroyed()) && (!sub2Win || sub2Win.isDestroyed())) {
+    return false;
+  }
+
+  applyClickThrough(!isClickThrough);
   config.save({ chatOverlayClickThrough: isClickThrough });
   const updatedCfg = config.load();
   if (chatWin && !chatWin.isDestroyed()) chatWin.webContents.send('config-data', updatedCfg);
@@ -2199,7 +2362,6 @@ export function toggleClickThrough(): boolean {
   const dockWin = windowRegistry.dock.ref;
   [mainWindow, dockWin].forEach(win => {
     if (!win || win.isDestroyed()) return;
-    win.webContents.send('click-through-status', isClickThrough);
     win.webContents.send('config-data', config.load());
   });
 
@@ -2229,7 +2391,7 @@ export function hideAll(options: { preserveForResume?: boolean } = {}): void {
   // 최소화 복원에서는 브라우저 renderer와 WebContentsView를 유지하고, 게임 종료 때만 정리합니다.
   if (overlayWindow) {
     savePosition('overlay', overlayPos, true);
-    if (preserveForResume && !overlayWindow.isDestroyed()) {
+    if ((preserveForResume || userWindowVisibility.preserves(overlayWindow)) && !overlayWindow.isDestroyed()) {
       if (overlayWindow.isVisible()) overlayWindow.hide();
     } else {
       if (view) { try { overlayWindow.contentView.removeChildView(view); view.webContents.close(); } catch (e) { } view = null; }
@@ -2251,7 +2413,7 @@ export function hideAll(options: { preserveForResume?: boolean } = {}): void {
   // 최소화 때 자동 복원 대상은 숨겨 재사용하고, 나머지는 기존 계약대로 닫습니다.
   Object.entries(windowRegistry).forEach(([key, winCfg]) => {
     if (winCfg.ref && !winCfg.ref.isDestroyed()) {
-      const shouldPreserve = preserveForResume && (
+      const shouldPreserve = userWindowVisibility.preserves(winCfg.ref) || preserveForResume && (
         (key === 'chatOverlay' && isChatOverlayVisible)
         || (key === 'chatOverlaySub' && isChatOverlayVisible && isChatOverlaySubVisible)
         || (key === 'chatOverlaySub2' && isChatOverlayVisible && isChatOverlaySub2Visible)
@@ -2266,7 +2428,7 @@ export function hideAll(options: { preserveForResume?: boolean } = {}): void {
     }
   });
 
-  focusController.setRestoreSuppressed(false);
+  focusController.setRestoreSuppressed(areAllWindowsHidden());
 
   // closed 이벤트가 비동기 발생하는 경우를 대비하여 gameRect를 먼저 null 처리
   // → 타이머 콜백의 gameRect 체크가 최종 방어선 역할
@@ -2296,6 +2458,7 @@ export function getMainWindow(): BrowserWindow | null {
 }
 
 export function hideOverlayWindows(): void {
+  if (areAllWindowsHidden()) { hideAll({ preserveForResume: true }); return; }
   // 오버레이 창 종료 (Close)
   if (overlayWindow) {
     savePosition('overlay', overlayPos, true);
@@ -2378,9 +2541,122 @@ export function showGameExitReminder(): void {
   reminderWin.once('ready-to-show', () => {
     reminderWin.webContents.send('reminder-message', cfg.gameExitReminderMessage);
     reminderWin.webContents.send('incomplete-contents', incompleteItems);
-    reminderWin.show();
-    reminderWin.focus();
+    showWindowUnlessHidden(reminderWin, true);
+    if (userWindowVisibility.canShow(reminderWin)) reminderWin.focus();
   });
+}
+
+/** 활동 프리셋은 관리 창을 재사용하며 편집기·브라우저·계산기 창과 측정 세션에는 손대지 않는다.
+ * 열린 창의 실제 크기는 복원이 읽는 전용 필드와 공통 맵에 함께 기록한다.
+ * 작업 영역 제한으로 설정과 bounds가 달라도 캡처 당시 크기를 복원한다.
+ * 닫힌 창의 저장 크기는 유지한다. 회귀: check-companion-features의 실제 창 캡처·저장·복원 검사.
+ */
+export function captureActivityLayout(): Pick<import('../shared/types').ActivityPreset, 'settings' | 'openWindows'> {
+  const cfg = config.load();
+  const settings = captureActivitySettings(cfg);
+  settings.managedWindowSizes ||= {};
+  for (const key of ACTIVITY_WINDOWS) {
+    const win = windowRegistry[key].ref;
+    if (win && !win.isDestroyed()) {
+      const { width, height } = contentsWindowCollapse.captureBounds(win);
+      settings.managedWindowSizes[key] = { width, height };
+      Object.assign(settings, createManagedWindowSizePatch(key, width, height, settings.managedWindowSizes));
+    }
+  }
+  settings.positions = Object.fromEntries(ACTIVITY_WINDOWS.map(key => [key, cfg.positions?.[key] || copyDefaultWindowPosition(key)]));
+  settings.windowedFullscreenPositions = Object.fromEntries(ACTIVITY_WINDOWS.map(key => [key, cfg.windowedFullscreenPositions?.[key] || settings.positions![key]]));
+  const flags: Partial<Record<WindowPositionKey, boolean | undefined>> = {
+    chatOverlay: cfg.chatOverlayEnabled, chatOverlaySub: cfg.chatOverlayEnabled && cfg.chatOverlaySubEnabled,
+    chatOverlaySub2: cfg.chatOverlayEnabled && cfg.chatOverlaySub2Enabled, contentsChecker: cfg.contentsCheckerEnabled,
+  };
+  const openWindows = ACTIVITY_WINDOWS.filter(key => key in flags ? flags[key] : windowRegistry[key].ref && !windowRegistry[key].ref!.isDestroyed());
+  return { settings, openWindows: [...openWindows] };
+}
+
+/** 열린 창도 새 창과 동일하게 현재 작업 영역의 최소 크기·크기 제한을 따른다.
+ * bounds보다 먼저 네이티브 minimum을 갱신하고, 기존 손잡이에도 전달해 다음 드래그에서
+ * 이전 화면의 minimum으로 되돌아가지 않게 한다. 모든 모니터에서 완전히 벗어난 위치는
+ * 현재 작업 영역 중앙으로 복구하되 부분 이탈·유효한 다른 모니터 배치와 프리셋 원본은 보존한다.
+ * 게임 부재 때도 적용한다. 새 창/아직 로딩 중인 창은 기본 초기 배치 뒤, 표시 전에 복원한다.
+ * 회귀: checkActivityWindowSizes, check-preset-position.
+ */
+export function restoreActivityLayout(openWindows: WindowPositionKey[]): void {
+  const cfg = config.load();
+  applyRuntimeModePositions(getModePositions(cfg, getActiveMode()));
+  for (const key of ACTIVITY_WINDOWS) {
+    const entry = windowRegistry[key];
+    const isOpen = !!entry.ref && !entry.ref.isDestroyed();
+    const wanted = openWindows.includes(key);
+    if (isOpen && !wanted) entry.ref!.close();
+    else if (!isOpen && wanted) {
+      if (key === 'trade') toggleTradeWindow();
+      else if (key === 'contentsChecker') createToggleableWindow(key, { onReady: win => {
+        import('./contentsChecker').then(mod => { mod.init(); if (!win.isDestroyed()) win.webContents.send('config-data', config.load()); });
+      } }, 'settings-apply');
+      else createToggleableWindow(key, undefined, 'settings-apply');
+    }
+    if (!wanted || !entry.ref || entry.ref.isDestroyed()) continue;
+    const win = entry.ref;
+    const restoreBounds = () => {
+      if (win.isDestroyed() || entry.ref !== win) return;
+      // 로딩 중 다른 창에서 저장한 배치도 반영한다. 오래된 프리셋 시점의 설정을 재적용하지 않는다.
+      const latestConfig = config.load();
+      if (key === 'contentsChecker') contentsWindowCollapse.set(win, false);
+      const bounds = win.getBounds();
+      const anchor = getStablePlacementAnchorRect();
+      const display = anchor ? screen.getDisplayNearestPoint({ x: anchor.x, y: anchor.y }) : screen.getDisplayMatching(bounds);
+      const size = resolveManagedWindowSizing(key, entry.width, entry.height, latestConfig, display.workAreaSize);
+      let position = anchor ? resolveManagedWindowPosition(key, anchor, entry) : latestConfig.fixedWindowPositions?.[key] || bounds;
+      if (!isWindowVisibleOnDisplays({ x: position.x, y: position.y, width: size.width, height: size.height }, screen.getAllDisplays())) {
+        position = centerWindowInWorkArea(size.width, size.height, display.workArea);
+      }
+      setProgrammaticMove(key, position.x, position.y);
+      if (size.isResizable) {
+        win.setMinimumSize(size.minWidth ?? 0, size.minHeight ?? 0);
+        updateManagedWindowResizeHandle(win, key, size.minWidth, size.minHeight);
+      }
+      win.setBounds({ x: position.x, y: position.y, width: size.width, height: size.height });
+    };
+    if (pendingManagedWindowLayouts.has(win)) pendingManagedWindowLayouts.set(win, restoreBounds);
+    else restoreBounds();
+  }
+  sendActiveWindowsStatus();
+}
+
+/** 공유 배치는 이미 열린 대상만 바꾼다. 숨김/접힘/대화 renderer는 보존하고 현재 화면에 맞춘다.
+ * 로딩 중인 창은 기본 초기 배치 뒤, 첫 표시 전에 최신 저장값을 적용한다. 대기 중 공유·프리셋을
+ * 다시 적용하면 마지막 요청을 사용하며, 닫힌 창은 다시 만들지 않는다.
+ * 회귀: check-shared-layout의 실제 파일/UI/IPC/설정 저장/10개 native 창 검사.
+ */
+export function applySharedWindowLayout(patch: Partial<AppConfig>): void {
+  for (const key of ACTIVITY_WINDOWS) {
+    const entry = windowRegistry[key], win = entry.ref;
+    if (!win || win.isDestroyed()) continue;
+    const sizeKeys = Object.keys(createManagedWindowSizePatch(key, 400, 300, {}) || {}).filter(field => field !== 'managedWindowSizes');
+    if (!patch.positions?.[key] && !patch.windowedFullscreenPositions?.[key] && !patch.fixedWindowPositions?.[key]
+      && !patch.managedWindowSizes?.[key] && !sizeKeys.some(field => field in patch)) continue;
+    const restoreBounds = () => {
+      if (win.isDestroyed() || entry.ref !== win) return;
+      // 로딩을 기다리는 동안 다른 창에서 저장한 배치·크기도 이전 값으로 덮지 않는다.
+      const cfg = config.load();
+      const bounds = win.getBounds(), anchor = getStablePlacementAnchorRect();
+      const display = anchor ? screen.getDisplayNearestPoint({ x: anchor.x, y: anchor.y }) : screen.getDisplayMatching(bounds);
+      const size = resolveManagedWindowSizing(key, entry.width, entry.height, cfg, display.workAreaSize);
+      const desired = anchor ? resolveManagedWindowPosition(key, anchor, entry) : cfg.fixedWindowPositions?.[key] || bounds;
+      const height = contentsWindowCollapse.isCollapsed(win) ? 56 : size.height;
+      const area = display.workArea;
+      const x = Math.max(area.x, Math.min(desired.x, area.x + area.width - size.width));
+      const y = Math.max(area.y, Math.min(desired.y, area.y + area.height - height));
+      setProgrammaticMove(key, x, y);
+      if (!contentsWindowCollapse.updateExpandedSize(win, size.width, size.height, size.minWidth ?? 0, size.minHeight ?? 0) && size.isResizable) {
+        win.setMinimumSize(size.minWidth ?? 0, size.minHeight ?? 0);
+        updateManagedWindowResizeHandle(win, key, size.minWidth, size.minHeight);
+      }
+      win.setBounds({ x, y, width: size.width, height });
+    };
+    if (pendingManagedWindowLayouts.has(win)) pendingManagedWindowLayouts.set(win, restoreBounds);
+    else restoreBounds();
+  }
 }
 
 export function sendActiveWindowsStatus(): void {
@@ -2481,8 +2757,8 @@ export function sendPlaySound(data: {
   }
 
   // 2. 토스트 노출 규칙 설정 (미리보기와 실제 알람 동일 적용)
-  const shouldShowToastOnIndex = !isDock && !showOnOverlay;
-  const shouldShowToastOnOverlay = isDock || showOnOverlay;
+  const shouldShowToastOnIndex = !areAllWindowsHidden() && !isDock && !showOnOverlay;
+  const shouldShowToastOnOverlay = !areAllWindowsHidden() && (isDock || showOnOverlay);
 
   // 3. index.html (메인 창) 처리: 사운드는 여기서만 무조건 재생, 토스트는 조건 만족 시 노출
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2504,6 +2780,7 @@ export function sendPlaySound(data: {
 }
 
 export function openAndHighlightWindow(key: string): void {
+  if (areAllWindowsHidden()) restoreUserHiddenWindows();
   const winCfg = windowRegistry[key];
   if (!winCfg) return;
 
@@ -2516,8 +2793,8 @@ export function openAndHighlightWindow(key: string): void {
   };
 
   if (winCfg.ref && !winCfg.ref.isDestroyed()) {
-    winCfg.ref.show();
-    winCfg.ref.focus();
+    showWindowUnlessHidden(winCfg.ref, true);
+    if (userWindowVisibility.canShow(winCfg.ref)) winCfg.ref.focus();
     sendHighlight(winCfg.ref);
   } else {
     let success = false;

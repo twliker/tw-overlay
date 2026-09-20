@@ -46,7 +46,6 @@ export const DwmGetWindowAttribute = dwmapi.func('__stdcall', 'DwmGetWindowAttri
 
 // --- Kernel32 API ---
 export const OpenProcess = kernel32.func('__stdcall', 'OpenProcess', 'intptr', ['uint32', 'bool', 'uint32']);
-export const SetPriorityClass = kernel32.func('__stdcall', 'SetPriorityClass', 'bool', ['intptr', 'uint32']);
 export const CloseHandle = kernel32.func('__stdcall', 'CloseHandle', 'bool', ['intptr']);
 export const GetProcessId = kernel32.func('__stdcall', 'GetProcessId', 'uint32', ['intptr']);
 export const QueryFullProcessImageNameW = kernel32.func('__stdcall', 'QueryFullProcessImageNameW', 'bool', ['intptr', 'uint32', koffi.out(koffi.pointer('char16')), koffi.out(koffi.pointer('uint32'))]);
@@ -110,6 +109,4 @@ export const SW_RESTORE = 9;
 
 export const VK_LBUTTON = 0x01;
 
-export const PROCESS_SET_INFORMATION = 0x0200;
 export const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
-export const HIGH_PRIORITY_CLASS = 0x00000080;

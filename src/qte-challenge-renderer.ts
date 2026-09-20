@@ -65,6 +65,7 @@ let challengeScore = 0;
 let challengeCombo = 0;
 let challengeLives = 3;
 let challengeRoundIndex = 0;
+let challengeActiveRoundIndex = 0;
 let challengeFeverMeter = 0;
 let challengeFeverRounds = 0;
 
@@ -158,8 +159,15 @@ function clearScheduledWork(): void {
   pressedTimer = null;
 }
 
+/**
+ * QTE 진행 계약: 완료 횟수는 다음 라운드를 준비할 때만 사용한다.
+ * HUD·최종 결과·최고 스테이지·도전과제는 실제 시작한 라운드를 기준으로 한다.
+ * 10번째/40번째 라운드에서 마지막 목숨을 잃어도 다음 스테이지에 도달한 것이 아니다.
+ * 개인 기록은 tw-overlay:qte-challenge:v1에 보존하며 과거 최고 기록을 소급해서 낮추지 않는다.
+ * 회귀: check-renderer-behavior.ts --qte (실제 렌더러 입력·시간초과·저장·경계 진입).
+ */
 function currentStage(): number {
-  return Math.floor(challengeRoundIndex / 10) + 1;
+  return Math.floor(challengeActiveRoundIndex / 10) + 1;
 }
 
 function renderHud(): void {
@@ -179,7 +187,7 @@ function renderHud(): void {
   comboValue.textContent = String(challengeCombo);
   lifeValue.textContent = String(challengeLives);
   stageValue.textContent = String(currentStage());
-  roundValue.textContent = `${challengeRoundIndex % 10 + 1}/10`;
+  roundValue.textContent = `${challengeActiveRoundIndex % 10 + 1}/10`;
   if (challengeFeverRounds > 0) {
     feverFill.style.width = '100%';
     feverRoundsText.textContent = `${challengeFeverRounds}R ×2`;
@@ -278,7 +286,7 @@ function prepareNextRound(delayMs: number): void {
   qteStage.classList.remove('active', 'pressed', 'failed');
   setRoundOverlay('READY', 'ready');
   setRoundCaption(
-    mode === 'practice' ? '판정 영역을 확인하세요' : `STAGE ${currentStage()} · ROUND ${challengeRoundIndex % 10 + 1}`,
+    mode === 'practice' ? '판정 영역을 확인하세요' : `STAGE ${Math.floor(challengeRoundIndex / 10) + 1} · ROUND ${challengeRoundIndex % 10 + 1}`,
     '바늘이 색상 영역에 들어왔을 때 좌클릭하세요.',
   );
   nextRoundTimer = window.setTimeout(beginRound, delayMs);
@@ -287,6 +295,7 @@ function prepareNextRound(delayMs: number): void {
 function beginRound(): void {
   if (!sessionActive) return;
   nextRoundTimer = null;
+  if (mode === 'challenge') challengeActiveRoundIndex = challengeRoundIndex;
   const difficulty = mode === 'practice'
     ? qteApi.getPracticeDifficulty(Number(practiceSpeed.value) || qteApi.QTE_ACTUAL_DURATION_MS)
     : qteApi.getQteChallengeDifficulty(currentStage());
@@ -454,6 +463,7 @@ function startSession(): void {
     challengeCombo = 0;
     challengeLives = 3;
     challengeRoundIndex = 0;
+    challengeActiveRoundIndex = 0;
     challengeFeverMeter = 0;
     challengeFeverRounds = 0;
   }

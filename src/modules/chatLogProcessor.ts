@@ -20,6 +20,7 @@ import { log } from './logger';
 import { getEssenceExchangeCount, xpTracker } from './xpTracker';
 import { abandonedTracker } from './abandonedTracker';
 import { digsiteTracker } from './digsiteTracker';
+import { startSupplyTracker } from './supplyTracker';
 import * as contentsChecker from './contentsChecker';
 import { discordNotifier } from './discordNotifier';
 import { etaCacheManager } from './etaCacheManager';
@@ -35,7 +36,7 @@ import { formatLootDiaryContent, getGoldPouchSeedAmount, parseElsoMessage } from
 import { normalizeNotificationKeyword, normalizeNotificationKeywords } from '../shared/keywordSanitizer';
 import { isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
 export { parseElsoMessage };
-const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted } = require('../shared/chatChannels') as ChatChannelConstants;
+const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted, resolveOverlayCustomTab } = require('../shared/chatChannels') as ChatChannelConstants;
 
 type HomeworkSourceEvent = { date: string; timestamp: string; message: string };
 
@@ -250,6 +251,7 @@ class ChatLogProcessor {
   /** 동일한 구조로 렌더링되는 채팅 항목을 생성합니다. */
   private createChatItem(options: {
     type: ChatChannel;
+    shoutKind?: import('../shared/types').ShoutKind;
     timestamp: string;
     sender: string;
     message: string;
@@ -280,7 +282,7 @@ class ChatLogProcessor {
     try {
       const cfg = config.load();
       const customTabs = cfg.chatOverlayCustomTabs || [];
-      const customTab = customTabs.find((t: import('../shared/types').CustomChatTab) => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
+      const customTab = resolveOverlayCustomTab(category, customTabs);
       if (customTab && Array.isArray(customTab.channels) && customTab.channels.length > 0) {
         // 커스텀 탭에 지정된 채널들의 전용 히스토리 스토어 풀을 수집
         const channelToStoreKey: Record<string, string> = {
@@ -383,6 +385,7 @@ class ChatLogProcessor {
     targetTab: string,
     data: {
       type: 'normal' | 'shout' | 'system';
+      shoutKind?: import('../shared/types').ShoutKind;
       timestamp: string;
       sender: string;
       message: string;
@@ -404,6 +407,7 @@ class ChatLogProcessor {
     }
 
     const chatItem = {
+      shoutKind: data.shoutKind,
       id: `replay-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       type,
       timestamp: data.timestamp,
@@ -540,7 +544,7 @@ class ChatLogProcessor {
             data.count,
           );
           if (!isAlwaysTrackedItem) {
-            showSupportedDesktopNotification('아이템 획득 알림', data.message);
+            showSupportedDesktopNotification('아이템 획득 알림', data.message, { itemName: data.itemName, count: data.count });
           }
         }
       }
@@ -604,13 +608,13 @@ class ChatLogProcessor {
           fullTimestamp = midnightSec + sec;
         }
       }
-      diaryDb.addShoutLog(data.sender, data.message, fullTimestamp);
+      diaryDb.addShoutLog(data.sender, data.message, fullTimestamp, data.shoutKind);
       sendToFirstWindowByPage('shout-history.html', 'shout-history-updated');
       const cfg = config.loadFields(TRADE_SHOUT_CONFIG_KEYS);
       const keywords = normalizeNotificationKeywords(cfg.shoutKeywords);
       // String.prototype.includes는 기본적으로 대소문자를 구분(Case-sensitive)합니다.
       const matchedKeyword = keywords.find(k => data.message.includes(k));
-      if (keywords.length > 0 && matchedKeyword) {
+      if (data.shoutKind !== 'notice' && keywords.length > 0 && matchedKeyword) {
         showSupportedDesktopNotification(`외치기 알림: [${data.sender}]`, data.message);
       }
 
@@ -622,6 +626,7 @@ class ChatLogProcessor {
 
       const chatItem = this.createChatItem({
         type: 'shout',
+        shoutKind: data.shoutKind,
         timestamp: data.timestamp,
         sender: data.sender,
         message: data.message,
@@ -630,6 +635,8 @@ class ChatLogProcessor {
         characterCode
       });
       this.publishChatItem(chatItem, ['Basic', 'Shout']);
+
+      if (data.shoutKind === 'notice') return;
 
       // 디스코드 전용 알림 처리 (외치기 전용)
       if (cfg.discordAlertEnabled && cfg.discordWebhookUrl) {
@@ -988,7 +995,7 @@ class ChatLogProcessor {
       ['CLUB_POINT_500_GAIN', 'daily-club-boss'],
       ['CONFUSED_LAND_CLEAR', 'daily-confused-land'],
       ['COLORLESS_LAND_CLEAR', 'daily-colorless-land'],
-      ['ARCHITECT_MINE_ENTRY', 'daily-architect-mine']
+      ['ARCHITECT_MINE_CLEAR', 'daily-architect-mine']
     ].forEach(([event, homeworkId]) => queueFixedHomework(event as keyof ChatParserEventMap, homeworkId));
 
     // 어벤던로드 지역별 도전 횟수 감지 및 숙제 리스트 연동
@@ -1050,6 +1057,7 @@ class ChatLogProcessor {
 
     // 발굴지 한 판 현황 추적 (digsiteTracker에 위임)
     digsiteTracker.start();
+    startSupplyTracker();
   }
 
   // ── 외부 API (기존 호출자 호환성 유지) ──

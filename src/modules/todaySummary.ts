@@ -10,12 +10,14 @@
  *   형식을 바꿀 때는 모험일지 조회와 이 호환 파서를 함께 검증해야 합니다.
  * - 숙제는 현재 선택 캐릭터의 표시/제외/완료 상태를 사용하고, 남은 항목은 HUD 공간 때문에 최대
  *   `MAX_REMAINING_HOMEWORK_ITEMS`개만 반환합니다. 원본 숙제 상태나 순서는 변경하지 않습니다.
+ * - 최근 자동 감지 한 줄은 contentsChecker가 제공하는 제목·횟수/총횟수를 그대로 전달합니다.
  */
 import type {
   AppConfig,
   DiaryData,
   TodaySummary,
   TodaySummaryHomeworkItem,
+  TodaySummaryDetectedHomework,
 } from '../shared/types';
 import { DEFAULT_CHAR_NAME, MAIN_CHAR_ID } from '../shared/types';
 import { parseItemAcquisition } from './itemAcquisition';
@@ -63,6 +65,7 @@ export function buildTodaySummary(
   cfg: AppConfig,
   diaryData: DiaryData,
   date = getLocalDateKey(),
+  detectedHomework: TodaySummaryDetectedHomework | null = null,
 ): TodaySummary {
   let totalSeed = 0;
   let totalElso = 0;
@@ -114,6 +117,7 @@ export function buildTodaySummary(
 
   return {
     date,
+    detectedHomework,
     totalSeed,
     totalElso,
     totalEssence,

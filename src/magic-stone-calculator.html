@@ -314,6 +314,8 @@
     const SEED_PER_POUCH = 500000;
     let config = null;
     let currentOverlayEnabled = true;
+    let diarySavePending = false;
+    const diarySaveButtonHtml = document.getElementById('save-diary-btn').innerHTML;
 
     const GRADE_IMGS = {
       '하급': 'assets/items/magic_stone/하급마정석.png',
@@ -523,18 +525,17 @@
       }
     }
 
-    function saveToDiary() {
-      const pouches = document.getElementById('total-pouches').innerText.replace(/,/g, '');
+    // 기능 계약: 사용자가 확정한 계산 결과는 문구와 실제 SEED 금액을 함께
+    // 저장한다. 일·주·월 통계와 내보내기는 amount를 사용한다. 저장 성공을
+    // 확인한 뒤 완료·소리를 표시하고, 대기 중 중복 클릭은 한 건으로 처리한다.
+    // 실패 시 입력을 보존해 재시도한다. check-magic-stone-revenue.ts에서
+    // 제품 HTML→preload→IPC→SQLite→일지/내보내기를 함께 검사한다.
+    async function saveToDiary() {
+      if (diarySavePending) return;
+      const pouches = Number(document.getElementById('total-pouches').innerText.replace(/,/g, ''));
       const seedFormatted = document.getElementById('total-seed-formatted').innerText;
-      
-      if (parseInt(pouches) === 0) return;
-
-      const vol = (config && config.volumeCalculators !== undefined ? config.volumeCalculators : 50) / 100;
-      if (vol > 0) {
-          const audio = new Audio('assets/sound/item_get.wav');
-          audio.volume = vol;
-          audio.play().catch(e => {});
-      }
+      const amount = pouches * SEED_PER_POUCH;
+      if (!Number.isSafeInteger(pouches) || !Number.isSafeInteger(amount) || amount <= 0) return;
 
       const now = new Date();
       // YYYY-MM-DD 포맷 (로컬 타임 기준)
@@ -546,14 +547,27 @@
       // HH:mm:ss 포맷
       const time = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
       
-      const content = `💰 마정석 교환: ${parseInt(pouches).toLocaleString()}개 (${seedFormatted})`;
-      
-      // IPC 호출
-      window.electronAPI.diaryAddActivity(date, time, 'calc', content);
-      
-      // 시각적 피드백 제공
+      const content = `💰 마정석 교환: ${pouches.toLocaleString()}개 (${seedFormatted})`;
       const btn = document.getElementById('save-diary-btn');
-      const originalHtml = btn.innerHTML;
+      diarySavePending = true;
+      btn.disabled = true;
+      btn.textContent = '기록 중...';
+      try {
+        const rowId = await window.electronAPI.diaryAddActivity(date, time, 'calc', content, amount);
+        if (!Number.isSafeInteger(rowId) || rowId <= 0) throw new Error('Diary save failed');
+      } catch {
+        btn.textContent = '기록 실패 · 다시 시도';
+        btn.disabled = false;
+        diarySavePending = false;
+        return;
+      }
+
+      const vol = (config && config.volumeCalculators !== undefined ? config.volumeCalculators : 50) / 100;
+      if (vol > 0) {
+        const audio = new Audio('assets/sound/item_get.wav');
+        audio.volume = vol;
+        audio.play().catch(() => {});
+      }
       btn.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i> 기록 완료!`;
       btn.classList.replace('text-orange-400', 'text-emerald-400');
       btn.classList.replace('bg-orange-500/20', 'bg-emerald-500/20');
@@ -561,11 +575,13 @@
       lucide.createIcons();
       
       setTimeout(() => {
-        btn.innerHTML = originalHtml;
+        btn.innerHTML = diarySaveButtonHtml;
         btn.classList.replace('text-emerald-400', 'text-orange-400');
         btn.classList.replace('bg-emerald-500/20', 'bg-orange-500/20');
         btn.classList.replace('hover:bg-emerald-500', 'hover:bg-orange-500');
         lucide.createIcons();
+        btn.disabled = false;
+        diarySavePending = false;
       }, 2000);
     }
 

@@ -23,6 +23,8 @@ import * as config from './config';
 import { chatLogProcessor } from './chatLogProcessor';
 import { findChatLogPath } from './chatLogPathFinder';
 import { DEFAULT_CONFIG } from './constants';
+import * as diaryDb from './diaryDb';
+import { sendToFirstWindowByPage } from './windowMessaging';
 import { etaCacheManager } from './etaCacheManager';
 import { ChatLogLineNormalizer } from './chatLogNormalizer';
 import type { ChatLogEncoding } from './chatLogNormalizer';
@@ -34,8 +36,8 @@ import {
 } from './chatLogFileReader';
 import { formatLocalDateKey } from '../shared/localDate';
 
-const { isLegacyNpcSender } = require('../shared/chatConstants') as ChatConstants;
-const { COLORS: CHAT_COLORS, stripShoutSuffix, getSystemColorGroup } = require('../shared/chatChannels') as ChatChannelConstants;
+const { isLegacyNpcSender, isNpcChat } = require('../shared/chatConstants') as ChatConstants;
+const { COLORS: CHAT_COLORS, parseShoutContent, isOverlayChatVisible, getSystemColorGroup, resolveOverlayCustomTab } = require('../shared/chatChannels') as ChatChannelConstants;
 
 type HistoryCategory = 'General' | 'Team' | 'Club' | 'Whisper' | 'System';
 type HistoryMessageType = 'general' | 'team' | 'club' | 'whisper' | 'system';
@@ -603,6 +605,7 @@ export class ChatLogManager {
 
     type ChatItemData = {
       type: 'normal' | 'shout' | 'system';
+      shoutKind?: import('../shared/types').ShoutKind;
       timestamp: string;
       sender: string;
       message: string;
@@ -690,16 +693,14 @@ export class ChatLogManager {
       // 4. 외치기
       if (rawLine.includes(`color="${CHAT_COLORS.shout}"`) && cleanMsg.includes('외치기 :')) {
         const shoutContent = cleanMsg.replace('외치기 :', '').trim();
-        const userMatch = shoutContent.match(/\[([^\]]+)\]$/);
-        if (userMatch) {
-          const sender = userMatch[1];
-          const message = stripShoutSuffix(shoutContent.replace(/\[([^\]]+)\]$/, '').trim());
+        {
+          const { sender, message, shoutKind } = parseShoutContent(shoutContent);
 
           const needForShout = categoryCounts.Shout < limit;
           const needForBasic = categoryCounts.Basic < limit;
 
           const shoutItem: ChatItemData = {
-            type: 'shout', timestamp, sender, message,
+            type: 'shout', timestamp, sender, message, shoutKind,
             color: CHAT_COLORS.shout, serverCode
           };
 
@@ -751,6 +752,24 @@ export class ChatLogManager {
       }
     }
 
+    // 외치기 히스토리 DB 적재 (앱 시작 시 오늘 로그의 외치기도 누락 없이 DB에 보존)
+    if (collectedReplays.Shout && collectedReplays.Shout.length > 0) {
+      const [y, m, d] = currentDate.split('-').map(Number);
+      const midnightSec = Math.floor(new Date(y, m - 1, d, 0, 0, 0).getTime() / 1000);
+      for (const item of collectedReplays.Shout) {
+        let fullTimestamp: number | undefined;
+        if (item.timestamp) {
+          const timeMatch = item.timestamp.match(/(\d+)시\s*(\d+)분\s*(\d+)초/);
+          if (timeMatch) {
+            const sec = parseInt(timeMatch[1], 10) * 3600 + parseInt(timeMatch[2], 10) * 60 + parseInt(timeMatch[3], 10);
+            fullTimestamp = midnightSec + sec;
+          }
+        }
+        diaryDb.addShoutLog(item.sender, item.message, fullTimestamp, item.shoutKind);
+      }
+      sendToFirstWindowByPage('shout-history.html', 'shout-history-updated');
+    }
+
     this._initialReadIndex = { ...categoryFinalIndexes };
     this._lastReadIndex = { ...categoryFinalIndexes };
     this._lastReadIndex['initial'] = categoryFinalIndexes.Basic;
@@ -761,16 +780,28 @@ export class ChatLogManager {
     chatLogProcessor.broadcastHistoryCleared();
   }
 
-  public resetLastReadIndex(category: string): void {
+  private historyReaderKey(category: string, readerId?: number): string {
+    return readerId === undefined ? category : `renderer:${readerId}:${category}`;
+  }
+
+  public releaseHistoryReader(readerId: number): void {
+    const prefix = `renderer:${readerId}:`;
+    for (const key of Object.keys(this._lastReadIndex)) {
+      if (key.startsWith(prefix)) delete this._lastReadIndex[key];
+    }
+  }
+
+  public resetLastReadIndex(category: string, readerId?: number): void {
+    const cursorKey = this.historyReaderKey(category, readerId);
     if (this._initialReadIndex[category] !== undefined) {
-      this._lastReadIndex[category] = this._initialReadIndex[category];
+      this._lastReadIndex[cursorKey] = this._initialReadIndex[category];
       return;
     }
 
     // 커스텀 탭인 경우 포함된 채널들의 initialReadIndex 중 최소값으로 안전하게 설정
     const cfg = config.load();
     const customTabs = cfg.chatOverlayCustomTabs || [];
-    const customTab = customTabs.find(t => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
+    const customTab = resolveOverlayCustomTab(category, customTabs);
     if (customTab && Array.isArray(customTab.channels) && customTab.channels.length > 0) {
       const channelToKey: Record<string, string> = {
         general: 'General',
@@ -787,34 +818,36 @@ export class ChatLogManager {
           minIndex = Math.min(minIndex, this._initialReadIndex[key]);
         }
       });
-      this._lastReadIndex[category] = minIndex;
+      this._lastReadIndex[cursorKey] = minIndex;
       return;
     }
 
-    this._lastReadIndex[category] = this._lastReadIndex['initial'] ?? 0;
+    this._lastReadIndex[cursorKey] = this._lastReadIndex['initial'] ?? 0;
   }
 
-  public async getMoreHistory(category: string): Promise<any[]> {
+  public async getMoreHistory(category: string, readerId?: number): Promise<any[]> {
     const cfg = config.load();
     const serverCode = cfg.userServer || (DEFAULT_CONFIG.userServer as number);
     const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
 
-    if (typeof this._lastReadIndex[category] !== 'number') {
-      this.resetLastReadIndex(category);
+    const cursorKey = this.historyReaderKey(category, readerId);
+    if (typeof this._lastReadIndex[cursorKey] !== 'number') {
+      this.resetLastReadIndex(category, readerId);
     }
-    const startIndex = this._lastReadIndex[category] ?? 0;
+    const startIndex = this._lastReadIndex[cursorKey] ?? 0;
 
     const collected: any[] = [];
     let finalIndex = 0;
 
     // 커스텀 탭 정보 조회
     const customTabs = cfg.chatOverlayCustomTabs || [];
-    const customTab = customTabs.find(t => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
+    const customTab = resolveOverlayCustomTab(category, customTabs);
     const targetType = (!customTab && category !== 'Basic') ? category.toLowerCase() : null;
 
     for (let i = startIndex - 1; i >= 0; i--) {
       if (collected.length >= 150) {
-        finalIndex = i;
+        // 다음 요청은 startIndex - 1부터 읽으므로 아직 처리하지 않은 i를 남긴다.
+        finalIndex = i + 1;
         break;
       }
 
@@ -835,10 +868,8 @@ export class ChatLogManager {
         if (targetType && targetType !== 'shout') continue;
 
         const shoutContent = cleanMsg.replace('외치기 :', '').trim();
-        const userMatch = shoutContent.match(/\[([^\]]+)\]$/);
-        if (userMatch) {
-          const sender = userMatch[1];
-          const message = stripShoutSuffix(shoutContent.replace(/\[([^\]]+)\]$/, '').trim());
+        {
+          const { sender, message, shoutKind } = parseShoutContent(shoutContent);
           const rankInfo = etaCacheManager.getRankInfo(serverCode, sender);
           const level = rankInfo ? rankInfo.level : null;
           const characterCode = rankInfo ? rankInfo.characterCode : null;
@@ -846,6 +877,7 @@ export class ChatLogManager {
           collected.push({
             id: `more-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
             type: 'shout',
+            shoutKind,
             timestamp,
             sender,
             message,
@@ -892,12 +924,15 @@ export class ChatLogManager {
       });
     }
 
-    this._lastReadIndex[category] = finalIndex;
+    this._lastReadIndex[cursorKey] = finalIndex;
     return collected.reverse();
   }
 
   /**
    * 오늘 하루 전체 로그 중 검색어가 포함된 채팅 검색
+   * renderer와 같은 공통 표시 필터를 결과 제한 전에 적용한다. 숨긴 NPC/XP/ELSO/외치기,
+   * 제외 문구 및 미선택 채널이 표시할 결과의 자리를 차지하지 않는다.
+   * 변경 시 check-chat-visibility 및 check-companion-features의 실제 검색 경계 검사를 실행한다.
    */
   public async searchChatLogs(
     query: string,
@@ -912,11 +947,6 @@ export class ChatLogManager {
     const cfg = config.load();
     const serverCode = cfg.userServer || (DEFAULT_CONFIG.userServer as number);
     const stripHtml = (html: string) => html.replace(/<[^>]*>/g, '').trim();
-
-    // 커스텀 탭 정보 조회
-    const customTabs = cfg.chatOverlayCustomTabs || [];
-    const customTab = customTabs.find(t => t.id === category || t.name === category || (t.name && t.name.toLowerCase() === category.toLowerCase()));
-    const targetType = (!customTab && category !== 'Basic') ? category.toLowerCase() : null;
 
     const collected: any[] = [];
 
@@ -937,15 +967,12 @@ export class ChatLogManager {
 
       // 1. 외치기
       if (rawLine.includes(`color="${CHAT_COLORS.shout}"`) && cleanMsg.includes('외치기 :')) {
-        if (customTab && !customTab.channels.includes('shout')) continue;
-        if (targetType && targetType !== 'shout') continue;
-
         const shoutContent = cleanMsg.replace('외치기 :', '').trim();
-        const userMatch = shoutContent.match(/\[([^\]]+)\]$/);
-        if (userMatch) {
-          const sender = userMatch[1];
-          const message = stripShoutSuffix(shoutContent.replace(/\[([^\]]+)\]$/, '').trim());
+        {
+          const { sender, message, shoutKind } = parseShoutContent(shoutContent);
 
+          if (!isOverlayChatVisible({ type: 'shout', message, shoutKind, color: CHAT_COLORS.shout }, cfg, category,
+            isNpcChat({ type: 'shout', sender, message }))) continue;
           const senderMatch = sender.toLowerCase().includes(queryClean);
           const messageMatch = message.toLowerCase().includes(queryClean);
           const timeQueryMatch = timestamp.includes(queryClean);
@@ -958,6 +985,7 @@ export class ChatLogManager {
             collected.push({
               id: `search-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
               type: 'shout',
+              shoutKind,
               timestamp,
               sender,
               message,
@@ -979,15 +1007,7 @@ export class ChatLogManager {
 
       const { type, sender, message, color: finalColor } = classifyHistoryMessage(color, cleanMsg);
 
-      if (customTab) {
-        if (!customTab.channels.includes(type)) continue;
-        if (type === 'system' && Array.isArray(customTab.systemColorFilters) && customTab.systemColorFilters.length > 0) {
-          const group = getSystemColorGroup(finalColor);
-          if (!customTab.systemColorFilters.includes(group)) continue;
-        }
-      } else if (targetType && targetType !== type) {
-        continue;
-      }
+      if (!isOverlayChatVisible({ type, message, color: finalColor }, cfg, category, isNpcChat({ type, sender, message }))) continue;
 
       const senderMatch = sender.toLowerCase().includes(queryClean);
       const messageMatch = message.toLowerCase().includes(queryClean);

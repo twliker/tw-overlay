@@ -55,6 +55,8 @@ npm audit --omit=dev --audit-level=critical
   2. `check-refactor-regressions.ts` 정적·기능 회귀 검사
   3. `check-renderer-behavior.ts` Electron DOM 통합 검사
   - `check-audit-regressions.ts`도 실행하여 백업·동시 동기화·설정 초안·알림 복구·계산기 경계 조건을 격리 userData에서 검사합니다.
+  - `check-shared-layout.ts`는 실제 설정 공유 UI·파일·IPC와 native 창을 연결하여 로딩 중 배치, 프리셋/다른 창 저장 순서, 숨김·접힘·입력 보존을 검사합니다.
+  - `check-hud-edit-settings.ts`는 전체 설정/HUD UI와 프리셋·공유 파일·IPC·디스크를 연결해 편집 종료 후 최신 배치·표시 상태, 실패·지연 응답·창 닫기를 검사합니다.
 - `npm run test:stress`
   - 초당 100건 이상 burst와 10초간 1,200건 지속 유입에서 채팅·숙제·XP·렌더 DOM 정합성 및 이벤트 루프 지연 검사
 - `npm audit --omit=dev`

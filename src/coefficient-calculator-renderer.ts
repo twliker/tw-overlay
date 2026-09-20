@@ -69,6 +69,10 @@ const statNames: Record<string, string[]> = {
   stab: ['찌르기', '베기'], hack: ['베기', '찌르기'], phycomp: ['찌르기', '베기'],
   magatk: ['마공', '마방'], maghack: ['베기', '마공'], magdef: ['마방', '마공']
 };
+const statKeys: Record<string, [string, string]> = {
+  stab: ['stab', 'hack'], hack: ['hack', 'stab'], phycomp: ['stab', 'hack'],
+  magatk: ['int', 'mr'], maghack: ['hack', 'int'], magdef: ['mr', 'int'],
+};
 
 const PROFILES_KEY = 'tw-coefficient-calculator-profiles-v1';
 const SAVE_KEY = 'tw-coefficient-calculator-settings-v7final';
@@ -179,8 +183,8 @@ async function init() {
     gearData = { armors, weapons, defense, wrists, artifacts };
     activeBuffs = buffs;
     renderEquipmentOptions();
-    initProfiles();
     initBuffPresets();
+    initProfiles();
     updateLabels();
     calculate();
     if ((window as any).lucide) (window as any).lucide.createIcons();
@@ -200,6 +204,12 @@ async function init() {
   document.addEventListener('change', (e) => { if ((e.target as HTMLElement).tagName === 'SELECT') handleInput(); });
   document.getElementById('profile-select')?.addEventListener('change', (e) => switchProfile((e.target as HTMLSelectElement).value));
   document.getElementById('buff-preset-select')?.addEventListener('change', () => { calculate(); saveCurrentProfile(); });
+  window.addEventListener('storage', event => {
+    if (event.storageArea !== localStorage || (event.key !== 'buff_presets' && event.key !== null)) return;
+    const selectionChanged = initBuffPresets();
+    calculate();
+    if (selectionChanged) saveCurrentProfile();
+  });
   document.getElementById('btn-toggle-buff-info')?.addEventListener('click', () => {
     showBuffTooltip = !showBuffTooltip;
     updateBuffTooltipIcon();
@@ -219,20 +229,40 @@ async function init() {
   }
 }
 
-function initBuffPresets() {
+/**
+ * 기능 계약 — 버프 백과와 계산기 프로필의 도핑 연결
+ * - 사용자 프리셋 선택지를 먼저 만든 뒤 프로필을 복원한다. 재개방도 같은 저장 ID를 적용한다.
+ * - 다른 창의 buff_presets 저장은 이름·목록·현재 조합의 계산을 함께 갱신한다.
+ *   새 항목 추가/이름 변경은 현재 선택을 유지하고, 선택 항목이 삭제되면 없음으로 저장한다.
+ * - 스탯·장비 입력과 과거 시간 측정 스냅샷은 이 갱신으로 바꾸지 않는다.
+ * - scripts/check-buffs-behavior.ts의 실제 두 제품 창·file-origin 저장소 검사를 함께 실행한다.
+ */
+function initBuffPresets(): boolean {
   const select = document.getElementById('buff-preset-select') as HTMLSelectElement;
-  if (!select) return;
+  if (!select) return false;
+  const selectedId = select.value || 'none';
+  const options = [new Option('없음', 'none'), new Option('기본 도핑 세트', 'standard')];
+  const seen = new Set(['none', 'standard']);
   const savedPresets = localStorage.getItem('buff_presets');
   if (savedPresets) {
     try {
       const presets = JSON.parse(savedPresets);
       if (Array.isArray(presets)) {
-        presets.forEach((p: any) => { const opt = document.createElement('option'); opt.value = p.id.toString(); opt.innerText = p.name; select.appendChild(opt); });
+        presets.forEach((p: any) => {
+          if (!p || !['string', 'number'].includes(typeof p.id)) return;
+          const id = String(p.id);
+          if (!id || seen.has(id)) return;
+          seen.add(id);
+          options.push(new Option(String(p.name || '프리셋'), id));
+        });
       }
     } catch (e) {
       console.error('Failed to parse buff presets', e);
     }
   }
+  select.replaceChildren(...options);
+  select.value = seen.has(selectedId) ? selectedId : 'none';
+  return select.value !== selectedId;
 }
 
 /**
@@ -243,6 +273,7 @@ function initBuffPresets() {
  * - 장비 값은 현재 공격 계열의 기본·강화·어빌리티 주스탯과 선택한 지역 코어 주스탯의 합이다.
  *   아바타 기본 세트 +15처럼 계산기가 자동 가산하는 장비 수치도 동일하게 포함한다.
  * - 공격 계열, 도핑, 장비 입력 또는 코어 선택이 바뀌면 계수·주스탯·명중을 한 번에 다시 계산한다.
+ * - 도핑 상세의 비율 증가량도 같은 실제 입력 스탯을 기준으로 계산한다. 번역된 표시명을 DOM ID로 쓰지 않는다.
  * - 이 기준을 바꿀 때는 시간 측정기의 스탯 스냅샷 계산과
  *   `scripts/check-renderer-behavior.ts`의 계수 계산기 검사를 함께 확인한다.
  */
@@ -289,8 +320,9 @@ function calculate() {
       return { fixed: bFix, ratio: bPct, bonusFromPct };
     };
 
-    const mainBonus = calcBonus(`stat-${mainLabel.toLowerCase()}`);
-    const subBonus = calcBonus(`stat-${subLabel.toLowerCase()}`);
+    const [mainKey, subKey] = statKeys[currentType] || statKeys.stab;
+    const mainBonus = calcBonus(`stat-${mainKey}`);
+    const subBonus = calcBonus(`stat-${subKey}`);
     const dexBonus = calcBonus('stat-dex');
 
     const bInfo = document.getElementById('active-buff-info');
@@ -742,10 +774,9 @@ function loadProfileData(id: string) {
       if (dd.basesDex?.[cat.id]) setInp(`preview-${cat.id}-dex`, dd.basesDex[cat.id]);
     });
     
-    if (d.buffPreset) {
-      const el = document.getElementById('buff-preset-select') as HTMLSelectElement;
-      if (el) el.value = d.buffPreset;
-    }
+    const buffSelect = document.getElementById('buff-preset-select') as HTMLSelectElement;
+    if (buffSelect) buffSelect.value = Array.from(buffSelect.options).some(option => option.value === String(d.buffPreset))
+      ? String(d.buffPreset) : 'none';
     
     const coreEl = document.getElementById('main-core-select') as HTMLSelectElement;
     if (coreEl) coreEl.value = d.mainCore || 'eclipse';

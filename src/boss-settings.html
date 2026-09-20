@@ -356,6 +356,13 @@
               </label>
             </div>
           </div>
+          ${['혼란한 대지', '파멸의 기원'].includes(name) ? `
+          <label class="ui-toggle-row ui-inset" data-ui-accent="boss">
+            <span><span class="block text-sm font-bold text-slate-200">입장 마감까지 HUD 표시</span>
+            <span class="ui-description">등장 후 ${name === '혼란한 대지' ? 4 : 6}분 · 마지막 1분 강조</span></span>
+            <span class="ui-switch"><input type="checkbox" ${config.bossEntryCountdownBosses?.includes(name) ? 'checked' : ''}
+              onchange="toggleBossEntry('${name}', this.checked)" aria-label="${name} 입장 마감 안내"><span class="ui-switch-track"></span></span>
+          </label>` : ''}
           <div class="flex gap-2.5 items-center pt-2 border-t border-white/5">
             <div class="flex-1 bg-black/40 rounded-xl px-3 border border-white/5 hover:border-red-500/30 transition-colors">
               <select class="w-full bg-transparent py-2.5 text-[11px] font-black text-slate-300 focus:outline-none" 
@@ -378,6 +385,13 @@
       const settings = { ...config.fieldBossSettings };
       settings[name] = { ...settings[name], name, enabled };
       window.electronAPI.applySettings({ fieldBossSettings: settings });
+    }
+
+    function toggleBossEntry(name, enabled) {
+      const selected = new Set(config.bossEntryCountdownBosses || []);
+      if (enabled) selected.add(name); else selected.delete(name);
+      config.bossEntryCountdownBosses = [...selected];
+      window.electronAPI.applySettings({ bossEntryCountdownBosses: [...selected] });
     }
 
     async function recordBossKillByTime(name, timeStr) {
@@ -424,10 +438,13 @@
 
     function saveBossGlobal() {
       const offsets = [...document.querySelectorAll('.boss-offset-check:checked')].map(cb => parseInt(cb.value));
+      // 기능 계약: 0%는 무음 선택이다. 저장·다른 전역 옵션 변경·재개방에서 기본 음량으로 바꾸지 않는다.
+      // 전체 페이지와 실제 preload 경계는 check-renderer-behavior.ts의 checkAlarmVolumeBoundaries로 확인한다.
+      const volume = Number.parseInt(document.getElementById('boss-volume-input').value, 10);
       window.electronAPI.applySettings({
         fieldBossNotifyEnabled: document.getElementById('boss-enabled-check').checked,
         fieldBossNotifyOffsets: offsets,
-        fieldBossNotifyVolume: parseInt(document.getElementById('boss-volume-input').value) || 50
+        fieldBossNotifyVolume: Number.isFinite(volume) ? volume : 50
       });
     }
 

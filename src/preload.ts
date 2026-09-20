@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, DigsiteBoardState, ChatItem, TimerRecord, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
+import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, DigsiteBoardState, ChatItem, StopwatchState, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
 import type { ConfigDataContext } from './shared/types';
+import type { ShareGroup, ShareReview, DiaryExportReview, FileActionResult } from './shared/companionFiles';
 
 // sandbox preload은 로컬 모듈 require가 제한되므로 메인 프로세스의 단일 기본값 원본을 동기 조회합니다.
 const MAIN_DEFAULT_CONFIG = ipcRenderer.sendSync('get-default-config-sync') as AppConfig;
@@ -25,12 +26,22 @@ function bindIpcListener<TArgs extends unknown[]>(
 
 contextBridge.exposeInMainWorld('electronAPI', {
   DEFAULT_CONFIG,
+  exportSettingsShare: (groups: ShareGroup[]): Promise<FileActionResult> => ipcRenderer.invoke('settings-share-export', groups),
+  openSettingsShare: (): Promise<ShareReview> => ipcRenderer.invoke('settings-share-open'),
+  previewSettingsShare: (token: string, groups: ShareGroup[]): Promise<ShareReview> => ipcRenderer.invoke('settings-share-preview', token, groups),
+  applySettingsShare: (token: string): Promise<FileActionResult> => ipcRenderer.invoke('settings-share-apply', token),
+  previewDiaryExport: (start: string, end: string): Promise<DiaryExportReview> => ipcRenderer.invoke('diary-export-preview', start, end),
+  saveDiaryExport: (token: string): Promise<FileActionResult> => ipcRenderer.invoke('diary-export-save', token),
   // 창 제어
   toggleSidebar: () => ipcRenderer.send('toggle-sidebar'),
   toggleDock: () => ipcRenderer.send('toggle-dock'),
   toggleOverlay: () => ipcRenderer.send('toggle-overlay'),
   toggleClickThrough: () => ipcRenderer.send('toggle-click-through'),
   toggleSettings: (tabId?: string) => ipcRenderer.send('toggle-settings', tabId),
+  getNicknameInfo: (server: number, nickname: string): Promise<import('./shared/types').NicknameInfo> =>
+    ipcRenderer.invoke('nickname-info-get', server, nickname),
+  saveNicknameNote: (server: number, nickname: string, note: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('nickname-note-save', server, nickname, note),
   toggleGallery: () => ipcRenderer.send('toggle-gallery'),
   toggleAbbreviation: () => ipcRenderer.send('toggle-abbreviation'),
   toggleEquipmentDic: () => ipcRenderer.send('toggle-equipment-dic'),
@@ -68,6 +79,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startXpSession: () => ipcRenderer.send('xp-start-session'),
   stopXpSession: () => ipcRenderer.send('xp-stop-session'),
   getXpStats: (): Promise<XpStats> => ipcRenderer.invoke('xp-get-stats'),
+  getSupplyRun: (): Promise<import('./shared/types').SupplyRunState> => ipcRenderer.invoke('supply-run-get'),
+  previewNotificationPositions: (positions: import('./shared/types').NotificationPositions): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notification-positions-preview', positions),
+  onNotificationPreview: (callback: (positions: import('./shared/types').NotificationPositions) => void) => bindIpcListener('notification-positions-preview', callback),
+  onSupplyRunUpdate: (callback: (state: import('./shared/types').SupplyRunState) => void) => bindIpcListener('supply-run-update', callback),
+  resetXpEfficiencyBaseline: () => ipcRenderer.send('xp-reset-efficiency-baseline'),
+  getBossEntryWindows: (): Promise<import('./shared/types').BossEntryWindow[]> => ipcRenderer.invoke('boss-entry-get-windows'),
+  onBossEntryUpdate: (callback: (windows: import('./shared/types').BossEntryWindow[]) => void) =>
+    bindIpcListener('boss-entry-update', callback),
+  onXpEfficiencyAlert: (callback: (warning: import('./shared/types').XpEfficiencyWarning) => void) =>
+    bindIpcListener('xp-efficiency-alert', callback),
   abandonedReset: () => ipcRenderer.send('abandoned-reset'),
   startChatLogWatch: () => ipcRenderer.send('start-chat-log-watch'),
   checkChatLogStatus: () => ipcRenderer.invoke('check-chat-log-status'),
@@ -110,6 +131,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateNoticeClose: () => ipcRenderer.send('update-notice-close'),
   updateNoticeOpen: () => ipcRenderer.send('update-notice-open'),
   getUpdateNoticeData: (): Promise<UpdateNoticeData | null> => ipcRenderer.invoke('get-update-notice-data'),
+  saveGameOverlayPositions: (requestId: number, positions: Partial<AppConfig>): Promise<{ success: boolean }> => ipcRenderer.invoke('save-game-overlay-positions', requestId, positions),
+  finishGameOverlayEditMode: (requestId: number, success: boolean): Promise<boolean> => ipcRenderer.invoke('finish-game-overlay-edit-mode', requestId, success),
   setGameOverlayEditMode: (enabled: boolean, saveOnExit: boolean = true): Promise<boolean> =>
     ipcRenderer.invoke('set-game-overlay-edit-mode', enabled, saveOnExit),
   resetGameOverlayPositions: () => ipcRenderer.send('reset-game-overlay-positions'),
@@ -126,9 +149,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setOpacity: (opacity: number) => ipcRenderer.send('set-opacity', opacity),
   saveQuickSlots: (slots: QuickSlotItem[]) => ipcRenderer.send('save-quick-slots', slots),
   applySettings: (settings: Partial<AppConfig>) => ipcRenderer.send('apply-settings', settings),
+  saveActivityPreset: (name: string, id?: string, renameOnly?: boolean): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('activity-preset-save', name, id, renameOnly),
+  deleteActivityPreset: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('activity-preset-delete', id),
+  applyActivityPreset: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('activity-preset-apply', id),
+  showActivityPresetMenu: () => ipcRenderer.send('activity-preset-menu'),
   applySettingsConfirmed: (settings: Partial<AppConfig>) => ipcRenderer.invoke('apply-settings-confirmed', settings),
+  setContentsCollapsed: (collapsed: boolean): Promise<boolean> => ipcRenderer.invoke('contents-collapse', collapsed),
+  onContentsCollapseState: (callback: (collapsed: boolean) => void) => bindIpcListener('contents-collapse-state', callback),
   getConfig: () => ipcRenderer.invoke('get-config'),
   selectCustomSound: () => ipcRenderer.invoke('select-custom-sound'),
+  importChatFont: (): Promise<{ font?: { id: string; label: string }; error?: string }> => ipcRenderer.invoke('chat-font-import'),
+  listChatFonts: (): Promise<Array<{ id: string; label: string }>> => ipcRenderer.invoke('chat-font-list'),
+  readChatFont: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke('chat-font-read', id),
   deleteCustomSound: (filename: string) => ipcRenderer.invoke('delete-custom-sound', filename),
   setChatOverlaySize: (mode: 'main' | 'sub1' | 'sub2', width: number, height: number) => ipcRenderer.send('set-chat-overlay-size', mode, width, height),
   previewBossSound: (soundFile: string, volume: number | null = null, bossName: string = '미리보기') => ipcRenderer.send('preview-boss-sound', soundFile, volume, bossName),
@@ -326,7 +358,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('incomplete-contents', callback),
   onDiaryUpdated: (callback: () => void) =>
     bindIpcListener('diary-updated', callback),
-  onXpUpdate: (callback: (data: { total: number, epm: number, movingEpm: number, lastGain: number, history: number[], kills?: number, essenceCount?: number, xpSinceLastExchange?: number }) => void) =>
+  onXpUpdate: (callback: (data: XpStats) => void) =>
     bindIpcListener('xp-update', callback),
   onShoutHistoryUpdated: (callback: () => void) =>
     bindIpcListener('shout-history-updated', callback),
@@ -413,44 +445,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAlarmLogsUpdated: (callback: () => void) =>
     bindIpcListener('alarm-logs-updated', callback),
 
-  onTimerToggle: (callback: (state: 'start' | 'stop' | 'toggle') => void) =>
+  onTimerToggle: (callback: (state: StopwatchState) => void) =>
     bindIpcListener('timer-toggle', callback),
   onTimerUpdated: (callback: () => void) =>
     bindIpcListener('timer-updated', callback),
-  timerSaveRecord: (record: TimerRecord) => ipcRenderer.send('timer-save-record', record),
+  timerGetState: (): Promise<StopwatchState> => ipcRenderer.invoke('timer-get-state'),
   timerGetRecords: () => ipcRenderer.invoke('timer-get-records'),
   timerUpdateTitle: (id: number, title: string) => ipcRenderer.send('timer-update-title', id, title),
-  timerUpdateSeriesCore: (
-    id: number, 
-    series: string, 
-    core_master: string, 
-    coefficient: number,
-    char_main: number,
-    char_sub: number,
-    base_main: number,
-    enchant_main: number,
-    base_sub: number,
-    enchant_sub: number,
-    accuracy: number
-  ) => ipcRenderer.send(
-    'timer-update-series-core', 
-    id, 
-    series, 
-    core_master, 
-    coefficient,
-    char_main,
-    char_sub,
-    base_main,
-    enchant_main,
-    base_sub,
-    enchant_sub,
-    accuracy
-  ),
+  timerUpdateSeriesCore: (id: number, series: string | null, core: string | null) =>
+    ipcRenderer.send('timer-update-series-core', id, series, core),
   timerDeleteRecord: (id: number) => ipcRenderer.send('timer-delete-record', id),
-  timerToggleSession: (state: 'start' | 'stop') => ipcRenderer.send('timer-toggle-session', state),
+  timerToggleSession: (state: 'start' | 'stop'): Promise<StopwatchState> => ipcRenderer.invoke('timer-toggle-session', state),
 
-  onGameOverlayEditMode: (callback: (enabled: boolean, saveOnExit?: boolean) => void) =>
+  onGameOverlayEditMode: (callback: (enabled: boolean, saveOnExit?: boolean, requestId?: number) => void) =>
     bindIpcListener('game-overlay-edit-mode', callback),
+  onGameOverlayEditState: (callback: (editing: boolean) => void) => bindIpcListener('game-overlay-edit-state', callback),
   onGameOverlayResetPositions: (callback: () => void) =>
     bindIpcListener('game-overlay-reset-positions', callback),
   onGoogleSyncStatusChanged: (callback: (status: GoogleSyncStatus) => void) =>
@@ -461,16 +470,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'sidebar-status', 'overlay-status', 'chat-overlay-status', 'click-through-status', 'config-data', 'today-summary-config',
       'url-change', 'load-status', 'gallery-posts', 'gallery-new-activity',
       'gallery-watched-update', 'gallery-connection-status', 'update-status',
-      'boss-times-data', 'play-sound', 'trade-posts', 'trade-new-activity',
+      'boss-times-data', 'play-sound', 'trade-posts', 'trade-new-activity', 'contents-collapse-state',
       'trade-connection-status', 'open-settings-tab', 'toolbar-hover', 'reminder-message',
-      'incomplete-contents', 'diary-updated', 'xp-update', 'shout-history-updated',
+      'incomplete-contents', 'diary-updated', 'xp-update', 'xp-efficiency-alert', 'boss-entry-update', 'shout-history-updated', 'supply-run-update', 'notification-positions-preview',
       'buff-timer-update', 'buff-timer-warning', 'buff-hud-toggle-feedback', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
       'scam-alert', 'scam-progress', 'scam-session-update', 'scam-analysis-token', 'scam-analysis-result', 'wave-warning-alert', 'lokagos-alert', 'chat-updated', 'chat-overlay-mode', 'chat-history-cleared',
       'auto-select-equipment', 'auto-select-evolution',
       'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
       'trigger-jellyppy-rain', 'trigger-firework', 'chat-log-status-changed',
       'alarm-logs-updated', 'highlight-alarm-settings', 'timer-toggle', 'timer-updated',
-      'game-overlay-edit-mode', 'game-overlay-reset-positions', 'google-sync-status-changed',
+      'game-overlay-edit-mode', 'game-overlay-edit-state', 'game-overlay-reset-positions', 'google-sync-status-changed',
       'chat-log-sync-progress', 'active-windows', 'managed-window-resize-enabled'
     ];
     events.forEach(event => ipcRenderer.removeAllListeners(event));

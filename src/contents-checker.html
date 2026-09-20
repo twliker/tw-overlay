@@ -258,6 +258,9 @@
             border-top: 1px solid rgba(167, 139, 250, 0.3);
             padding: 20px;
             display: none;
+            min-height: 0;
+            max-height: calc(100vh - 56px);
+            overflow-y: auto;
             z-index: 100;
             box-shadow: 0 -10px 25px rgba(0, 0, 0, 0.5);
         }
@@ -392,6 +395,11 @@
             pointer-events: none;
         }
         #checklist-cloud-sync-status:hover .checklist-sync-tooltip { display: block; }
+        .contents-collapse-only { display: none; }
+        body.contents-collapsed > :not(.win-header):not(script) { display: none !important; }
+        body.contents-collapsed .win-controls > :not(.contents-collapse-only):not(.win-close-btn),
+        body.contents-collapsed #progress-percent-text { display: none; }
+        body.contents-collapsed .contents-collapse-only { display: inline-flex; }
     </style>
 </head>
 
@@ -411,6 +419,9 @@
             </div>
         </div>
         <div class="win-controls">
+            <button id="contents-expand" type="button" class="win-btn contents-collapse-only" title="숙제 목록 펼치기" aria-label="숙제 목록 펼치기">
+                <i data-lucide="chevron-down" class="w-4 h-4"></i>
+            </button>
             <button id="checklist-cloud-sync-status" type="button" class="win-btn hidden" aria-label="숙제 체크리스트 동기화 상태">
                 <span id="checklist-cloud-sync-visual" class="flex items-center justify-center w-4 h-4"></span>
                 <span id="checklist-cloud-sync-tooltip" class="checklist-sync-tooltip"></span>
@@ -459,6 +470,12 @@
 
     <!-- Add Form (Edit Mode Only) -->
     <div id="add-form" class="add-form-container no-drag">
+        <label class="flex items-center gap-3 mb-2 text-sm text-slate-200">
+            <input id="contents-auto-collapse" type="checkbox" class="w-4 h-4 accent-violet-500">
+            조작하지 않을 때 자동 접기
+        </label>
+        <p class="text-xs text-slate-300 mb-3">창 밖으로 마우스를 옮긴 뒤 15초가 지나면 제목줄로 접습니다. 제목에 마우스를 올리거나 펼치기 버튼을 누르면 다시 펼쳐집니다.</p>
+        <p id="contents-auto-collapse-status" class="text-xs text-rose-300" role="status"></p>
         <div class="flex items-center justify-between mb-4">
             <span id="add-form-title" class="text-[11px] font-black text-violet-400 uppercase tracking-widest">새로운 숙제 추가</span>
             <button onclick="toggleEditMode()" class="text-xs text-slate-500 hover:text-white font-bold">취소</button>
@@ -615,7 +632,7 @@
             <div class="flex justify-between items-center mb-5">
                 <div class="flex items-center gap-2">
                     <i data-lucide="bell" class="w-5 h-5 text-violet-400"></i>
-                    <span class="text-xs font-black text-white uppercase tracking-widest">미반영 완료 이력 감지</span>
+                    <span class="text-xs font-black text-white uppercase tracking-widest">완료한 캐릭터 선택</span>
                 </div>
                 <button onclick="document.getElementById('pending-modal').classList.add('hidden')" class="text-slate-500 hover:text-white transition-colors">
                     <i data-lucide="x" class="w-5 h-5"></i>
@@ -623,8 +640,8 @@
             </div>
             
             <p class="text-[11px] text-slate-400 mb-4 leading-relaxed">
-                채팅 로그로 감지된 완료 내역이 있습니다.<br>
-                이 이력을 반영할 캐릭터를 선택해주세요. (이미 완료한 숙제는 중복 반영되지 않습니다)
+                감지된 숙제를 반영할 캐릭터를 선택하세요.<br>
+                이미 완료한 숙제는 중복 반영되지 않습니다.
             </p>
 
             <!-- 보류 중인 숙제 목록 -->
@@ -656,6 +673,7 @@
 
   <script src="renderer/contents-checker/audio-feedback.js"></script>
   <script src="renderer/contents-checker/dom-rendering.js"></script>
+  <script src="renderer/contents-checker/auto-collapse.js"></script>
   <script>
         let isEditMode = false;
         let editingItemId = null; // 현재 편집 중인 아이템 ID
@@ -1620,6 +1638,7 @@
         if (window.electronAPI?.onConfigData) {
             window.electronAPI.onConfigData((data) => {
                 configData = data;
+                window.contentsAutoCollapse.applyConfig(data);
                 render();
                 if (!document.getElementById('char-modal').classList.contains('hidden')) renderCharList();
                 checkAndRenderPendingModal(data);

@@ -23,6 +23,10 @@
     "test:buffs": "electron dist-tools/check-buffs-behavior.js",
     "test:eta-ranking": "electron dist-tools/check-eta-ranking-behavior.js",
     "test:xp-policy": "electron dist-tools/check-xp-hud-policy.js",
+    "test:window-visibility": "electron dist-tools/check-window-visibility.js",
+    "test:companion-design": "electron dist-tools/check-companion-design.js",
+    "test:companion": "electron dist-tools/check-companion-features.js",
+    "test:hunting-assist": "electron dist-tools/check-hunting-assist.js",
     "test:abandoned-visibility": "electron dist-tools/check-abandoned-visibility-policy.js",
     "test:audit": "electron dist-tools/check-audit-regressions.js",
     "test:autostart": "electron dist-tools/check-auto-start.js",
@@ -30,7 +34,18 @@
     "capture:guide": "npm run build && electron dist-tools/capture-guide-screenshots.js",
     "build:zorder-fixture": "dotnet build scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj --configuration Release --nologo",
     "test:zorder:windows": "npm run build && npm run build:zorder-fixture && electron dist-tools/runtime-zorder-windows-probe.js",
-    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:abandoned-visibility && npm run test:audit && npm run test:autostart"
+    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:hunting-assist && npm run test:companion && npm run test:companion-design && npm run test:companion-reading && npm run test:companion-files && npm run test:shared-layout && npm run test:hud-edit-settings && npm run test:npc-chat && npm run test:chat-visibility && npm run test:preset-position && npm run test:window-visibility && npm run test:abandoned-visibility && npm run test:audit && npm run test:autostart && npm run test:stopwatch && npm run test:magic-stone && npm run test:hunting-path && npm run test:embedded-tools",
+    "test:companion-reading": "electron dist-tools/check-companion-reading.js",
+    "test:companion-files": "electron dist-tools/check-companion-files.js",
+    "test:shared-layout": "electron dist-tools/check-shared-layout.js",
+    "test:hud-edit-settings": "electron dist-tools/check-hud-edit-settings.js",
+    "test:npc-chat": "electron dist-tools/check-npc-chat.js",
+    "test:chat-visibility": "electron dist-tools/check-chat-visibility.js",
+    "test:preset-position": "electron dist-tools/check-preset-position.js",
+    "test:stopwatch": "electron dist-tools/check-stopwatch-session.js",
+    "test:magic-stone": "electron dist-tools/check-magic-stone-revenue.js",
+    "test:hunting-path": "electron dist-tools/check-hunting-path.js",
+    "test:embedded-tools": "electron dist-tools/check-embedded-tools.js"
   },
   "build": {
     "appId": "com.filbertlab.twoverlay",
@@ -98,6 +113,7 @@
     "better-sqlite3": "^13.0.3",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",
+    "entities": "^8.1.0",
     "iconv-lite": "^0.7.2",
     "koffi": "^3.1.4",
     "tail": "^2.2.6"

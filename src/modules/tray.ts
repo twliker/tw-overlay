@@ -88,6 +88,10 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
 
   // 4. 기본 관리 메뉴 추가 (설정, 종료)
   menuTemplate.push({
+    label: wm.areAllWindowsHidden() ? '숨긴 창 복원' : '전체 창 숨기기',
+    click: () => { wm.toggleAllWindowsHidden(); },
+  });
+  menuTemplate.push({
     label: '환경 설정',
     click: () => {
       analytics.trackEvent('toggle_settings');
@@ -122,6 +126,7 @@ export function createTray(): Tray {
   tray.setContextMenu(contextMenu);
 
   tray.on('double-click', () => {
+    if (wm.areAllWindowsHidden()) { wm.restoreUserHiddenWindows(); return; }
     // 게임이 실행 중이고 추적 중일 때만 사이드바 노출
     if (!wm.getGameRect()) return;
 

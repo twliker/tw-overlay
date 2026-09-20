@@ -52,6 +52,12 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'huntingExpHappyHour',
   'showXpWidget',
   'xpAutoStart',
+  'xpAutoPauseEnabled',
+  'xpAutoPauseSeconds',
+  'xpEfficiencyAlertEnabled',
+  'xpEfficiencyDropPercent',
+  'xpEfficiencyAlertSound',
+  'xpEfficiencyAlertVolume',
   'ignoreNegativeXp',
   'showTodaySummaryHud',
   'todaySummaryCollapsed',
@@ -66,6 +72,7 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'showBuffHud',
   'showHudShortcuts',
   'fieldBossSettings',
+  'bossEntryCountdownBosses',
   'fieldBossNotifyEnabled',
   'fieldBossNotifyOffsets',
   'fieldBossNotifyVolume',
@@ -114,6 +121,20 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'chatOverlaySubEnabled',
   'chatOverlaySub2Enabled',
   'chatOverlayFontSize',
+  'chatOverlayShowFreeShout',
+  'chatOverlayShowPaidShout',
+  'chatOverlayShowNoticeShout',
+  'chatNicknameNotesCompact', 'chatCompactDisplay', 'chatEtaColorsEnabled',
+  'chatEtaColors',
+  'supplyHelperEnabled',
+  'supplyMapEnabled',
+  'supplyMapLarge',
+  'chatOverlayFontFamily',
+  'pinnedNoteFontSize', 'pinnedNoteColor', 'pinnedNoteBackground', 'windowSnapEnabled',
+  'chatOverlaySubFontSize',
+  'chatOverlaySubFontFamily',
+  'chatOverlaySub2FontSize',
+  'chatOverlaySub2FontFamily',
   'chatOverlayOpacity',
   'chatOverlaySubOpacity',
   'chatOverlaySub2Opacity',
@@ -144,6 +165,7 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'focusedChatSelfNickname',
   'showSidebarToastOnOverlay',
   'contentsAutoAssignSingleCandidate',
+  'contentsAutoCollapse',
 ];
 
 /** 숙제 진행 파일에만 저장하는 필드. */
@@ -154,6 +176,7 @@ export const CHECKLIST_SYNCABLE_KEYS: Array<keyof AppConfig> = [
 ];
 
 const TOP_LEVEL_SOUND_KEYS = new Set<keyof AppConfig>([
+  'xpEfficiencyAlertSound',
   'wordAlarmSound',
   'buffTimerSound',
   'ethosAlertSound',

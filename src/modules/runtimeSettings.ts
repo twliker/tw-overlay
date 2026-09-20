@@ -12,10 +12,12 @@ import { analytics } from './analytics';
 import { setupAutoStart } from './autoStart';
 import * as diaryDb from './diaryDb';
 import { broadcastToAllWindows } from './windowMessaging';
+import { abandonedTracker } from './abandonedTracker';
 
 export function applyRuntimeSettings(previous: AppConfig, next: AppConfig, explicitPatch?: Partial<AppConfig>): void {
   const changed = (key: keyof AppConfig) => Object.prototype.hasOwnProperty.call(explicitPatch || {}, key)
     || !isDeepStrictEqual(previous[key], next[key]);
+  if (changed('abandonedEnabled')) abandonedTracker.applyEnabled(next.abandonedEnabled ?? true);
   if (changed('analyticsEnabled')) analytics.refreshEnabledState();
   if (changed('autoLaunch') && next.autoLaunch !== undefined) {
     setupAutoStart(next.autoLaunch, explicitPatch?.autoLaunch !== undefined);

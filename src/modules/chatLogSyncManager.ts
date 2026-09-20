@@ -347,6 +347,9 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
         Object.entries(homeworkCycleKeys).map(([id, value]) => [id, value.rule]),
       ),
       homeworkDiaryPolicy: 1,
+      // 조각 획득으로 집계한 이전 파일 누적치를 포탈 생성 기준으로 다시 분석한다.
+      architectMineDetectionPolicy: 1,
+      shoutKindPolicy: 1,
     }))
     .digest('hex');
   const workerScriptPath = path.join(__dirname, 'chatLogSyncWorker.js');

@@ -106,7 +106,7 @@ interface GameOverlayAlerts {
 
 interface GameOverlayEditMode {
   enterEditMode(): void;
-  exitEditMode(save?: boolean): void;
+  exitEditMode(save?: boolean): Promise<void>;
   isEditMode(): boolean;
 }
 
@@ -227,7 +227,8 @@ interface ContentsDomRendering {
 }
 
 interface DiaryLogUtils {
-  parseAutoLogAmount(content: string): number;
+  parseAutoLogAmount(content: string, storedAmount?: number): number;
+  normalizeLogTime(value: string | number): string;
   formatLogContent(content: string): string;
   resolveLootCount(content: string, storedAmount: unknown): number;
 }
@@ -256,6 +257,7 @@ interface Window {
   REAL_BOSSES: readonly string[];
   refreshIcons(): void;
   replayAnimation(element: HTMLElement | null, className?: string): void;
+  mergeRepeatedToast(container: HTMLElement, key: string): boolean;
   bindEscapeClose(): void;
   bindElectronListenerCleanup(): void;
   installManagedWindowResizeHandle(options?: { minWidth?: number; minHeight?: number }): void;
@@ -332,6 +334,7 @@ interface Window {
   nicknamePickers?: Record<string, SettingsColorPicker>;
   contentsAudioFeedback: ContentsAudioFeedback;
   contentsDomRendering: ContentsDomRendering;
+  contentsAutoCollapse: { applyConfig(config: BrowserAppConfig): void };
   diaryLogUtils: DiaryLogUtils;
   huntingExpCalculator: HuntingExpCalculatorGlobal;
   __twEscapeCloseBound?: boolean;

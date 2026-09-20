@@ -1,7 +1,13 @@
+import { registerStopwatchIpc } from './stopwatchSession';
+import { beginGameOverlayEdit, requestGameOverlayEditExit, finishGameOverlayEdit, cancelGameOverlayEdit, isGameOverlayEditRequest } from './gameOverlayEditSession';
+import { importChatFont, listChatFonts, readChatFont } from './customChatFonts';
+import { registerCompanionFiles } from './companionFiles';
 /**
  * IPC 이벤트 핸들러 모듈
  */
-import { ipcMain, shell, app, BrowserWindow, dialog, screen } from 'electron';
+import { ipcMain, shell, app, BrowserWindow, dialog, screen, Menu } from 'electron';
+import { randomUUID } from 'crypto';
+import { isActivityPresets, mergeActivitySettings } from '../shared/activityPresets';
 import type { WebContents } from 'electron';
 import * as path from 'path';
 import * as config from './config';
@@ -17,7 +23,7 @@ import * as trade from './tradeMonitor';
 import * as optimizer from './optimizer';
 import { fetchEtaRanking } from './etaRanking';
 import { MAIN_CHAR_ID } from '../shared/types';
-import type { EtaRankingParams, EvolutionCalculatorSelection, TimerRecord } from '../shared/types';
+import type { EtaRankingParams, EvolutionCalculatorSelection } from '../shared/types';
 import { applyRuntimeSettings } from './runtimeSettings';
 import * as sm from './shortcutManager';
 import { analytics } from './analytics';
@@ -37,7 +43,6 @@ import { CHAT_OVERLAY_MIN_HEIGHT, CHAT_OVERLAY_MIN_WIDTH } from './managedWindow
 import { buildTodaySummary, getLocalDateKey } from './todaySummary';
 import {
   broadcastToAllWindows,
-  broadcastToAllWindowsExcept,
 } from './windowMessaging';
 import {
   syncWeeklyChatLogs,
@@ -127,22 +132,6 @@ function isValidEtaRankingParams(value: unknown): value is EtaRankingParams {
     && (params.search === undefined || isLimitedString(params.search, 200));
 }
 
-function isValidTimerRecord(value: unknown): value is Omit<TimerRecord, 'id'> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  const numericKeys = [
-    'duration', 'coefficient', 'char_main', 'char_sub', 'base_main',
-    'enchant_main', 'base_sub', 'enchant_sub', 'accuracy',
-  ];
-  return isLimitedString(record.date, 32, false)
-    && isLimitedString(record.title, 300)
-    && isLimitedString(record.series, 300)
-    && isLimitedString(record.core_master, 300)
-    && isLimitedString(record.raw_profile_data, 2_000_000)
-    && numericKeys.every(key => isFiniteInRange(record[key], -1_000_000_000_000, 1_000_000_000_000))
-    && isFiniteInRange(record.duration, 0, 365 * 24 * 60 * 60 * 1_000);
-}
-
 function isValidEquipmentItem(value: unknown): value is Record<string, unknown> & { name: string } {
   if (!isPlainObjectForIpc(value) || !isLimitedString(value.name, 300, false) || !isSafeExternalJsonValueForIpc(value)) return false;
   try {
@@ -188,6 +177,7 @@ function triggerGameOverlayEffect(
   channel: 'trigger-jellyppy-rain' | 'trigger-firework',
   logLifecycle = false,
 ): boolean {
+  if (wm.areAllWindowsHidden()) return false;
   let overlayWin = wm.getGameOverlayWindow();
   let isNew = false;
 
@@ -210,7 +200,7 @@ function triggerGameOverlayEffect(
       width: safeBounds.width,
       height: safeBounds.height,
     });
-    overlayWin.showInactive();
+    wm.showWindowUnlessHidden(overlayWin);
   }
 
   overlayWin.setAlwaysOnTop(false);
@@ -232,6 +222,11 @@ export function register(): void {
   if (_registered) return;
   _registered = true;
 
+  ipcMain.handle('contents-collapse', (event, collapsed: boolean) => {
+    if (!isBoolean(collapsed)) return false;
+    return wm.setContentsCheckerCollapsed(event.sender, collapsed);
+  });
+
   ipcMain.on('get-default-config-sync', event => {
     event.returnValue = DEFAULT_CONFIG;
   });
@@ -239,7 +234,10 @@ export function register(): void {
   ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean, options: { forward?: boolean }) => {
     if (!isBoolean(ignore) || (options !== undefined && (typeof options !== 'object' || options === null || (options.forward !== undefined && !isBoolean(options.forward))))) return;
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) win.setIgnoreMouseEvents(ignore, options || {});
+    if (win) {
+      win.setIgnoreMouseEvents(ignore, options || {});
+      wm.setLauncherInteractive(win, !ignore);
+    }
   });
 
   ipcMain.on('set-always-on-top', (event, flag: boolean) => {
@@ -252,8 +250,7 @@ export function register(): void {
       reconcileGameAttachedWindows();
       // 오버레이 해제(flag === false) 시, 게임창 뒤로 창이 숨겨지지 않도록 포커스를 다시 줌
       if (!flag) {
-        win.show();
-        win.focus();
+        if (wm.showWindowUnlessHidden(win, true)) win.focus();
       }
     }
   });
@@ -380,43 +377,43 @@ export function register(): void {
     wm.createUpdateNoticeWindow();
   });
 
-  ipcMain.handle('set-game-overlay-edit-mode', (_e, enabled: boolean, saveOnExit: boolean = true) => {
+  ipcMain.handle('set-game-overlay-edit-mode', async (_e, enabled: boolean, saveOnExit: boolean = true) => {
     if (!isBoolean(enabled) || !isBoolean(saveOnExit)) return false;
-    if (enabled) {
-      // 편집 가능 여부는 실제 게임 창의 존재로만 판단한다. Windows는 정상적으로 실행 중인
-      // 게임이라도 foreground 강제 전환을 거부할 수 있으므로 포커스 성공 여부를 실행 감지와
-      // 혼용하면 설정창에서 "게임을 실행해 주세요"라는 잘못된 안내가 표시된다.
-      if (!tracker.isGameRunning()) return false;
-
-      // 최소화 복원과 게임 전환은 사용자가 버튼을 누른 시점에 한 번 시도하되, 실패해도
-      // 게임 창이 유효하다면 HUD 편집 모드는 계속 연다. 사용자가 게임/HUD를 직접 클릭할 수 있다.
-      tracker.focusGameWindow();
-    }
-
+    if (!enabled) return requestGameOverlayEditExit(saveOnExit);
+    if (wm.areAllWindowsHidden()) return false;
+    // 게임 실행 여부와 foreground 전환 성공 여부를 혼용하지 않는다.
+    if (!tracker.isGameRunning()) return false;
+    tracker.focusGameWindow();
     let overlayWin = wm.getGameOverlayWindow();
     if (!overlayWin || overlayWin.isDestroyed()) {
       wm.createGameOverlayWindow();
       overlayWin = wm.getGameOverlayWindow();
     }
-    if (overlayWin && !overlayWin.isDestroyed()) {
-      if (enabled) {
-        overlayWin.setFocusable(true);
-        overlayWin.setIgnoreMouseEvents(false);
-        overlayWin.setAlwaysOnTop(false);
-        overlayWin.show();
-        reconcileGameAttachedWindows();
-      } else {
-        overlayWin.setIgnoreMouseEvents(true);
-        overlayWin.setFocusable(false);
-        overlayWin.setAlwaysOnTop(false);
-        reconcileGameAttachedWindows();
-      }
-      overlayWin.webContents.send('game-overlay-edit-mode', enabled, saveOnExit);
+    if (!overlayWin || overlayWin.isDestroyed()) return false;
+    if (overlayWin.webContents.isLoadingMainFrame()) {
+      const loadingContents = overlayWin.webContents;
+      const ready = await new Promise<boolean>(resolve => {
+        const loaded = () => { cleanup(); resolve(true); };
+        const closed = () => { cleanup(); resolve(false); };
+        const cleanup = () => { loadingContents.removeListener('did-finish-load', loaded); overlayWin!.removeListener('closed', closed); };
+        loadingContents.once('did-finish-load', loaded);
+        overlayWin!.once('closed', closed);
+      });
+      if (!ready || overlayWin.isDestroyed() || _e.sender.isDestroyed()) return false;
     }
+    if (wm.areAllWindowsHidden()) return false;
+    beginGameOverlayEdit(overlayWin);
+    reconcileGameAttachedWindows();
     return true;
+  });
+  ipcMain.handle('finish-game-overlay-edit-mode', (event, requestId: unknown, success: unknown) => {
+    const accepted = finishGameOverlayEdit(event.sender, requestId, success);
+    if (accepted && success) reconcileGameAttachedWindows();
+    return accepted;
   });
 
   ipcMain.on('reset-game-overlay-positions', () => {
+    cancelGameOverlayEdit();
     const defaultHudPositions = {
       xpWidgetPos: { ...DEFAULT_HUD_POSITIONS.xp },
       buffTimerHudPos: { ...DEFAULT_HUD_POSITIONS.buffTimer },
@@ -424,6 +421,8 @@ export function register(): void {
       digsiteWidgetPos: { ...DEFAULT_HUD_POSITIONS.digsite },
       forgeQuestHudPos: { ...DEFAULT_HUD_POSITIONS.quest },
       todaySummaryHudPos: { ...DEFAULT_HUD_POSITIONS.todaySummary },
+      pinnedNotePos: { ...DEFAULT_HUD_POSITIONS.pinnedNote },
+      supplyHudPos: { ...DEFAULT_HUD_POSITIONS.supply },
     };
     config.save(defaultHudPositions);
     const overlayWin = wm.getGameOverlayWindow();
@@ -496,6 +495,17 @@ export function register(): void {
       return { success: false, error: 'invalid-settings' };
     }
     const { isSidebarResize: _ignoredResizeFlag, ...configPatch } = newSettings;
+    // 사이드바 50/400px 전환은 브라우저 크기 설정이 아닌 일시적인 입력 영역 변경이다.
+    // 일반 창의 최소 너비(100px) 검사를 적용하거나 설정 파일에 저장하지 않는다.
+    if (isSidebarResize === true) {
+      if (!sourceWebContents || sourceWebContents !== wm.getMainWindow()?.webContents
+        || Object.keys(configPatch).length !== 1
+        || (configPatch.width !== 50 && configPatch.width !== 400)) {
+        return { success: false, error: 'invalid-settings' };
+      }
+      return wm.applySettings({ isSidebarResize: true, width: configPatch.width })
+        ? { success: true } : { success: false, error: 'save-failed' };
+    }
     const sanitizedPatch = config.sanitizeExternalConfigPatch(configPatch);
     if (!sanitizedPatch) {
       log('[IPC] 유효하지 않은 apply-settings payload 차단');
@@ -533,6 +543,87 @@ export function register(): void {
   ipcMain.handle('apply-settings-confirmed', (event, newSettings: unknown) => (
     applyExternalSettings(newSettings, event.sender)
   ));
+  ipcMain.handle('save-game-overlay-positions', (event, requestId: unknown, positions: unknown) => {
+    if (!isGameOverlayEditRequest(event.sender, requestId)) return { success: false };
+    const keys = ['xpWidgetPos', 'buffTimerHudPos', 'abandonedWidgetPos', 'digsiteWidgetPos', 'forgeQuestHudPos', 'todaySummaryHudPos', 'pinnedNotePos'];
+    const valid = positions && typeof positions === 'object' && !Array.isArray(positions) && Object.keys(positions).every(key => keys.includes(key));
+    const result = valid ? applyExternalSettings(positions, event.sender) : { success: false };
+    // 요청의 유효성 확인과 저장을 한 IPC에서 처리한다.
+    // 설정 창 닫기 뒤 도착한 이전 저장 요청은 새 편집이나 저장 좌표를 덮지 않는다.
+    // 편집 DOM 정리가 끝난 renderer의 finish 응답까지 네이티브 입력과 설정 UI를 유지한다.
+    return result;
+  });
+
+  ipcMain.handle('nickname-info-get', async (_event, server: unknown, nickname: unknown) => {
+    const { describeNicknameInfo } = await import('../shared/nicknameInfo');
+    if ((server !== 7 && server !== 16) || typeof nickname !== 'string' || !nickname.trim() || nickname.length > 40) return describeNicknameInfo(undefined, undefined, false);
+    const { etaCacheManager, isEtaCollectDateFresh } = await import('./etaCacheManager');
+    const { rank, collectDate } = etaCacheManager.getRankSnapshot(server, nickname.normalize('NFC').trim());
+    return describeNicknameInfo(rank, collectDate, isEtaCollectDateFresh(collectDate));
+  });
+
+  ipcMain.handle('nickname-note-save', (_event, server: unknown, nickname: unknown, note: unknown) => {
+    const { updateNicknameNote } = require('../shared/nicknameNotes') as typeof import('../shared/nicknameNotes');
+    const notes = config.loadFields(['nicknameNotes'] as const).nicknameNotes || [];
+    const next = updateNicknameNote(notes, server, nickname, note);
+    if (!next) return { success: false, error: '서버·닉네임·메모를 확인하세요. 메모는 최대 1,000개까지 저장할 수 있습니다.' };
+    return wm.applySettings({ nicknameNotes: next }) ? { success: true } : { success: false, error: '메모를 저장하지 못했습니다.' };
+  });
+
+  // 기능 계약: 현재 저장 설정만 스냅샷하고 적용 시 최신 비활동 설정을 보존한다. 저장 실패 때 창/런타임을 전환하지 않는다.
+  // 성공 시 어벤던 수집 활성·마우스 투과도 즉시 일치시키며 측정 기록은 유지한다. check-companion-features로 검증한다.
+  const getActivityPresets = () => {
+    const presets = config.loadFields(['activityPresets']).activityPresets || [];
+    return isActivityPresets(presets) ? presets : [];
+  };
+  const applyActivityPreset = (id: unknown) => {
+    const preset = getActivityPresets().find(value => value.id === id);
+    if (!preset) return { success: false, error: '프리셋을 찾을 수 없습니다.' };
+    if (wm.isAnyUserDragging()) return { success: false, error: '창 이동을 마친 뒤 적용해 주세요.' };
+    const patch = mergeActivitySettings(config.load(), preset.settings);
+    // 실제 열림 목록이 표시 플래그의 기준이다. 숨겨진 게임 창을 닫힘으로 오인하지 않는다.
+    patch.chatOverlayEnabled = preset.openWindows.includes('chatOverlay');
+    patch.chatOverlaySubEnabled = preset.openWindows.includes('chatOverlaySub');
+    patch.chatOverlaySub2Enabled = preset.openWindows.includes('chatOverlaySub2');
+    patch.contentsCheckerEnabled = preset.openWindows.includes('contentsChecker');
+    const result = applyExternalSettings(patch);
+    if (result.success) wm.restoreActivityLayout(preset.openWindows);
+    return result;
+  };
+  ipcMain.handle('activity-preset-save', (_event, name: unknown, id: unknown, renameOnly: unknown) => {
+    if (typeof name !== 'string' || !name.trim() || name.trim().length > 32
+      || (id !== undefined && typeof id !== 'string') || (renameOnly !== undefined && typeof renameOnly !== 'boolean')) return { success: false, error: '이름은 1~32자로 입력해 주세요.' };
+    const presets = getActivityPresets();
+    const existing = presets.find(value => value.id === id);
+    if (id && !existing) return { success: false, error: '프리셋을 찾을 수 없습니다.' };
+    if (!existing && presets.length >= 12) return { success: false, error: '최대 12개까지 저장할 수 있습니다.' };
+    if (presets.some(value => value.id !== id && value.name === name.trim())) return { success: false, error: '같은 이름의 프리셋이 있습니다.' };
+    const preset = { ...(existing && renameOnly ? existing : wm.captureActivityLayout()), id: existing?.id || randomUUID(), name: name.trim(), updatedAt: Date.now() };
+    const next = existing ? presets.map(value => value.id === existing.id ? preset : value) : [...presets, preset];
+    return wm.applySettings({ activityPresets: next }) ? { success: true } : { success: false, error: '저장하지 못했습니다.' };
+  });
+  ipcMain.handle('activity-preset-delete', (_event, id: unknown) => {
+    const presets = getActivityPresets();
+    if (!presets.some(value => value.id === id)) return { success: false, error: '프리셋을 찾을 수 없습니다.' };
+    return wm.applySettings({ activityPresets: presets.filter(value => value.id !== id) }) ? { success: true } : { success: false, error: '삭제하지 못했습니다.' };
+  });
+  ipcMain.handle('activity-preset-apply', (_event, id: unknown) => applyActivityPreset(id));
+  ipcMain.handle('notification-positions-preview', (_event, positions: unknown) => {
+    const valid = config.sanitizeExternalConfigPatch({ notificationPositions: positions });
+    if (!valid) return { success: false, error: '알림 위치를 확인해 주세요.' };
+    const overlay = wm.getGameOverlayWindow();
+    if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return { success: false, error: '게임 화면이 보이는 상태에서 미리보기해 주세요.' };
+    overlay.webContents.send('notification-positions-preview', valid.notificationPositions);
+    return { success: true };
+  });
+  ipcMain.on('activity-preset-menu', event => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    if (!parent) return;
+    Menu.buildFromTemplate(getActivityPresets().map(preset => ({ label: preset.name, click: () => {
+      const result = applyActivityPreset(preset.id);
+      if (!result.success) void dialog.showMessageBox(parent, { type: 'error', message: '활동 프리셋을 적용하지 못했습니다.', detail: result.error });
+    } }))).popup({ window: parent });
+  });
 
   function broadcastChatLogStatus(): void {
     const cfg = config.load();
@@ -547,6 +638,14 @@ export function register(): void {
 
     broadcastToAllWindows('chat-log-status-changed', isValid);
   }
+
+  // 파일 교환도 기존 저장 성공 확인·런타임 적용 경로를 사용한다.
+  registerCompanionFiles({ settingsWindow: wm.getSettingsWindow, isDragging: wm.isAnyUserDragging,
+    apply: patch => {
+      const result = applyExternalSettings(patch);
+      if (result.success) wm.applySharedWindowLayout(patch);
+      return result;
+    } });
 
   // 창 토글 핸들러 일괄 등록
   const toggleHandlers: Record<string, () => void> = {
@@ -1116,6 +1215,14 @@ export function register(): void {
     buffTimerManager.deactivateBuff(buffId);
   });
   // XP 세션 제어
+  ipcMain.handle('boss-entry-get-windows', async () => {
+    const mod = await import('./bossNotifier');
+    return mod.getBossEntryWindows();
+  });
+  ipcMain.handle('supply-run-get', async () => (await import('./supplyTracker')).getSupplyRun());
+  ipcMain.on('xp-reset-efficiency-baseline', () => {
+    import('./xpTracker').then(mod => mod.xpTracker.resetEfficiencyBaseline());
+  });
   ipcMain.handle('xp-get-stats', async () => {
     const mod = await import('./chatLogProcessor');
     return mod.chatLogProcessor.getStats();
@@ -1266,17 +1373,27 @@ export function register(): void {
   });
 
   // --- Chat Overlay IPC ---
+  const chatHistoryReaders = new WeakSet<WebContents>();
+  function getChatHistoryReader(sender: WebContents): number {
+    if (!chatHistoryReaders.has(sender)) {
+      chatHistoryReaders.add(sender);
+      sender.once('destroyed', () => chatLogManager.releaseHistoryReader(sender.id));
+    }
+    return sender.id;
+  }
   ipcMain.handle('chat-get-history', async (_e, category: string) => {
     if (!isLimitedString(category, 100, false)) return [];
     const { chatLogProcessor } = await import('./chatLogProcessor');
     const { chatLogManager } = await import('./chatLogManager');
-    chatLogManager.resetLastReadIndex(category);
+    if (_e.sender.isDestroyed()) return [];
+    chatLogManager.resetLastReadIndex(category, getChatHistoryReader(_e.sender));
     return chatLogProcessor.getChatHistory(category);
   });
   ipcMain.handle('today-summary-get', () => {
     const date = getLocalDateKey();
     const cfg = config.load();
-    return buildTodaySummary(cfg, diaryDb.getDiaryByDate(date, cfg.lootKeywords || []), date);
+    return buildTodaySummary(cfg, diaryDb.getDiaryByDate(date, cfg.lootKeywords || []), date,
+      contentsChecker.getLatestDetectedHomework(cfg));
   });
 
   ipcMain.handle('focused-chat-get-history', async () => {
@@ -1305,7 +1422,8 @@ export function register(): void {
   ipcMain.handle('chat-get-more-history', async (_e, category: string) => {
     if (!isLimitedString(category, 100, false)) return [];
     const { chatLogManager } = await import('./chatLogManager');
-    return await chatLogManager.getMoreHistory(category);
+    if (_e.sender.isDestroyed()) return [];
+    return await chatLogManager.getMoreHistory(category, getChatHistoryReader(_e.sender));
   });
 
   ipcMain.handle(
@@ -1359,65 +1477,24 @@ export function register(): void {
     diaryDb.clearAlarmLogs();
   });
 
-  // --- Timer IPC ---
-  ipcMain.on('timer-save-record', (_e, record: unknown) => {
-    if (!isValidTimerRecord(record)) return;
-    diaryDb.addTimerRecord(record);
-  });
-  ipcMain.handle('timer-get-records', () => {
-    return diaryDb.getTimerRecords();
-  });
-  ipcMain.on('timer-update-title', (_e, id: number, title: string) => {
-    if (!isPositiveInteger(id) || !isLimitedString(title, 300)) return;
-    diaryDb.updateTimerRecordTitle(id, title);
-  });
-  ipcMain.on('timer-update-series-core', (
-    _e, 
-    id: number, 
-    series: string, 
-    core_master: string, 
-    coefficient: number,
-    char_main: number,
-    char_sub: number,
-    base_main: number,
-    enchant_main: number,
-    base_sub: number,
-    enchant_sub: number,
-    accuracy: number
-  ) => {
-    if (!isPositiveInteger(id)
-      || !isLimitedString(series, 300)
-      || !isLimitedString(core_master, 300)
-      || ![coefficient, char_main, char_sub, base_main, enchant_main, base_sub, enchant_sub, accuracy]
-        .every(value => isFiniteInRange(value, -1_000_000_000_000, 1_000_000_000_000))) return;
-    diaryDb.updateTimerRecordSeriesAndCore(
-      id, 
-      series, 
-      core_master, 
-      coefficient,
-      char_main,
-      char_sub,
-      base_main,
-      enchant_main,
-      base_sub,
-      enchant_sub,
-      accuracy
-    );
-  });
-  ipcMain.on('timer-delete-record', (_e, id: number) => {
-    if (!isPositiveInteger(id)) return;
-    diaryDb.deleteTimerRecord(id);
-  });
-  ipcMain.on('timer-toggle-session', (event, state: 'start' | 'stop') => {
-    if (state !== 'start' && state !== 'stop') return;
-    broadcastToAllWindowsExcept(event.sender, 'timer-toggle', state);
-  });
+  registerStopwatchIpc();
 
   // --- Custom Sound IPC ---
   ipcMain.handle('get-config', () => {
     return config.load();
   });
 
+  ipcMain.handle('chat-font-list', () => listChatFonts());
+  ipcMain.handle('chat-font-read', (_event, id: unknown) => readChatFont(id));
+  ipcMain.handle('chat-font-import', async event => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    if (!parent || parent !== wm.getSettingsWindow()) return { error: '설정 창에서 글꼴을 추가해 주세요.' };
+    try {
+      const result = await dialog.showOpenDialog(parent, { title: '채팅 글꼴 추가', properties: ['openFile'], filters: [{ name: '글꼴', extensions: ['ttf', 'otf', 'woff', 'woff2'] }] });
+      if (result.canceled || !result.filePaths[0]) return {};
+      return { font: await importChatFont(result.filePaths[0]) };
+    } catch (error) { return { error: error instanceof Error ? error.message : '글꼴을 추가하지 못했습니다.' }; }
+  });
   ipcMain.handle('select-custom-sound', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return null;

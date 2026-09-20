@@ -21,7 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import * as config from './config';
-import { AppConfig, ContentsCheckerItem, ResetRule, MAIN_CHAR_ID, DEFAULT_CHAR_NAME, PendingHomework } from '../shared/types';
+import { AppConfig, ContentsCheckerItem, ResetRule, MAIN_CHAR_ID, DEFAULT_CHAR_NAME, PendingHomework, TodaySummaryDetectedHomework } from '../shared/types';
 import { log } from './logger';
 import * as diaryDb from './diaryDb';
 import { formatLocalDateKey as getLocalDateKey } from '../shared/localDate';
@@ -180,6 +180,37 @@ const PENDING_HOMEWORK_CONFIG_KEYS = [
 const DIARY_WRITE_RETRY_DELAYS_MS = [250, 1000, 4000] as const;
 const RESET_TIMER_MIN_DELAY_MS = 250;
 let resetCheckTimer: NodeJS.Timeout | null = null;
+
+/**
+ * 기능 계약 — 오늘 요약의 최근 자동 감지 숙제 한 줄
+ * - 이 실행에서 받은 유효한 로그 감지만 보관한다. 수동 체크·과거 로그 동기화는 새 감지가 아니다.
+ * - 캐릭터 미지정 시 보류 횟수, 즉시/선택 반영 시 해당 캐릭터에 적용된 횟수를 표시한다.
+ *   제목과 횟수/총횟수만 제공하며 다른 캐릭터의 현재 횟수를 추정해 더하지 않는다.
+ * - 다음 감지로 교체하고, 날짜/숙제 리셋 경계가 지나거나 숨김·삭제되면 표시하지 않는다.
+ *   메모리 상태이므로 설정·클라우드에 저장하지 않으며 재시작하면 새 감지부터 표시한다.
+ * - check-companion-features.ts, check-renderer-behavior.ts와 docs/contents-checker.md를 함께 확인한다.
+ */
+let latestDetectedHomework: { id: string; count: number; timestamp: number } | null = null;
+
+function rememberDetectedHomework(id: string, count: number, timestamp: number): boolean {
+  if (latestDetectedHomework && (timestamp < latestDetectedHomework.timestamp
+    || (id === latestDetectedHomework.id && count === latestDetectedHomework.count
+      && timestamp === latestDetectedHomework.timestamp))) return false;
+  latestDetectedHomework = { id, count, timestamp };
+  return true;
+}
+
+export function getLatestDetectedHomework(
+  cfg: Pick<AppConfig, 'contentsCheckerItems'>,
+  now = Date.now(),
+): TodaySummaryDetectedHomework | null {
+  const detected = latestDetectedHomework;
+  if (!detected || getLocalDateKey(new Date(detected.timestamp)) !== getLocalDateKey(new Date(now))) return null;
+  const item = cfg.contentsCheckerItems?.find(item => item.id === detected.id);
+  if (!item || item.isVisible === false || shouldReset(item.resetRule, new Date(detected.timestamp), new Date(now))) return null;
+  const maxCount = item.maxCount || 1;
+  return { name: item.name, currentCount: Math.max(0, Math.min(maxCount, detected.count)), maxCount };
+}
 
 interface DiaryWriteRetryState {
   generation: number;
@@ -1583,10 +1614,12 @@ export function queuePendingHomework(
     }, maxCount);
     const stateBelongsToCurrentCycle = typeof currentState?.lastCompletedAt === 'number'
       && !shouldReset(targetItem.resetRule, new Date(currentState.lastCompletedAt), new Date());
+    const detectionChanged = rememberDetectedHomework(id, nextCount, eventTimestamp);
     if (nextCount === currentCount
       && currentState?.isCompleted === (nextCount === maxCount)
       && stateBelongsToCurrentCycle) {
       log(`[Contents Checker] 현재 주기에 이미 같은 횟수가 반영되어 중복 저장을 건너뜁니다. - ID: ${id}`);
+      if (detectionChanged) refreshUI();
       return;
     }
     log(`[Contents Checker] 단일 참여 캐릭터 감지 - '${activeCharacters[0].name}' (${targetCharId})에게 즉시 반영`);
@@ -1639,6 +1672,8 @@ export function queuePendingHomework(
   }
 
   const maxPendingItems = Math.max(MAX_PENDING_HOMEWORK_ITEMS, items.length);
+  const detectedPending = pendingList.find(pending => pending.id === id);
+  if (detectedPending) rememberDetectedHomework(id, detectedPending.count, detectedPending.timestamp);
   if (pendingList.length > maxPendingItems) {
     pendingList.sort((a, b) => b.timestamp - a.timestamp);
     pendingList.length = maxPendingItems;
@@ -1714,6 +1749,9 @@ export function applyPendingHomeworks(characterId: string): void {
 
     // 이미 반영된 횟수의 보류 이벤트는 소비하되 기존 완료 날짜를 유지한다.
     const nextCount = resolvePendingHomeworkCount(current, pending, max);
+    if (latestDetectedHomework?.id === pending.id && latestDetectedHomework.timestamp === pending.timestamp) {
+      latestDetectedHomework.count = nextCount;
+    }
     appliedPending.add(pending);
     if (nextCount === current && (nextCount === max) === prevCompleted) return;
     state.currentCount = nextCount;
@@ -1748,6 +1786,9 @@ export function applyPendingHomeworks(characterId: string): void {
 /** 보류 대기열 초기화 (적용 없이 취소) */
 export function clearPendingHomeworks(): void {
   log(`[Contents Checker] 보류 대기열 초기화 호출 (삭제)`);
+  if (config.loadFields(['pendingHomeworks']).pendingHomeworks?.some(pending => pending.id === latestDetectedHomework?.id)) {
+    latestDetectedHomework = null;
+  }
   config.saveImmediate({ pendingHomeworks: [] });
   refreshUI();
 }

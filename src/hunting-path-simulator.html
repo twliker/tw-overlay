@@ -808,8 +808,10 @@
       const baseMapH = 496;
       let targetW, targetH;
       if (isOverlayMode) {
-        targetW = baseMapW * currentScale;
-        targetH = baseMapH * currentScale;
+        // 20%의 높이(99.2)는 공통 IPC의 100px 하한보다 작다.
+        // 요청을 유효하게 보내고 실제 최소 창 크기는 메인 창 정책에 맡긴다.
+        targetW = Math.max(100, Math.round(baseMapW * currentScale));
+        targetH = Math.max(100, Math.round(baseMapH * currentScale));
       } else {
         // 일반 편집 모드일 때는 창 사이즈를 원래 규격(860x800)으로 언제나 완벽 고정!
         targetW = 860;
@@ -820,7 +822,10 @@
       }
     }
 
-    // 오버레이 모드 활성화
+    // 기능 계약: 오버레이의 배율·지도 투명도는 편집 모드 기본값과 별도로
+    // 보관한다. 투명도 0은 지도를 숨기고 경로만 보는 유효한 설정이다.
+    // 편집 복귀·창 재개방에도 0을 보존하며, 누락/유효하지 않은 값만 기본값을 쓴다.
+    // 회귀 검사: scripts/check-hunting-path.ts (제품 HTML/preload/IPC/실제 창 크기).
     function enableOverlayMode() {
       isOverlayMode = true;
       document.body.classList.add('overlay-mode');
@@ -829,8 +834,10 @@
       if (panel) panel.classList.remove('hidden');
       
       // 오버레이 전용 스케일과 투명도 로드 (오버레이 모드 기본 스케일 70%, 투명도 20% 권장)
-      const savedScale = parseFloat(localStorage.getItem('hps-overlay-scale')) || 0.7;
-      const savedOpacity = parseFloat(localStorage.getItem('hps-overlay-opacity')) || 0.2;
+      const storedScale = parseFloat(localStorage.getItem('hps-overlay-scale'));
+      const storedOpacity = parseFloat(localStorage.getItem('hps-overlay-opacity'));
+      const savedScale = Number.isFinite(storedScale) && storedScale >= 0.2 && storedScale <= 1 ? storedScale : 0.7;
+      const savedOpacity = Number.isFinite(storedOpacity) && storedOpacity >= 0 && storedOpacity <= 1 ? storedOpacity : 0.2;
       
       if (window.electronAPI) {
         if (window.electronAPI.setAlwaysOnTop) {

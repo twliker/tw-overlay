@@ -3,6 +3,7 @@
  *
  * - 창 제목만 믿지 않고 제목에 `Talesweaver`가 있으며 실제 프로세스 경로가
  *   `GAME_PROCESS_NAME`인 최상위 창만 게임으로 인정합니다. 찾은 HWND/PID는 재검증 가능한 캐시입니다.
+ * - 게임 프로세스는 경로 확인을 위한 조회 권한으로만 열며, CPU 스케줄링 우선순위를 변경하지 않습니다.
  * - WinEventHook으로 게임의 위치·크기와 전경 변경을 즉시 전달하고, 폴링은 hook 누락과 프로세스
  *   재시작을 복구하는 보조 경로입니다. hook과 폴링 콜백은 같은 창 상태 계약을 따라야 합니다.
  * - z-order의 목표는 게임이 활성일 때 TW-Overlay만 게임 위에 두고, 브라우저 등 다른 앱이 활성일
@@ -228,10 +229,6 @@ export function getGameHwnd(): string | undefined {
     return cachedHwnd ? cachedHwnd.toString() : undefined;
 }
 
-export function getGameProcessId(): number | null {
-    return lastProcessId;
-}
-
 export function isGameRunning(): boolean {
     if (!cachedHwnd || !isHwndValid(cachedHwnd)) {
         cachedHwnd = findGameWindow();
@@ -351,20 +348,6 @@ export function reconcileGameZOrder(gameHwndStr: string | undefined, electronHwn
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRACKER] Z-order event forwarding failed: ${msg}`);
         return { isGameOrAppFocused: false };
-    }
-}
-
-export async function boostGameProcess(): Promise<string | undefined> {
-    if (!lastProcessId) return 'BOOST_FAIL';
-    let hProcess = 0n;
-    try {
-        hProcess = win32.OpenProcess(win32.PROCESS_SET_INFORMATION, false, lastProcessId);
-        if (hProcess === 0n) return 'BOOST_FAIL';
-        return win32.SetPriorityClass(hProcess, win32.HIGH_PRIORITY_CLASS) ? 'BOOSTED' : 'BOOST_FAIL';
-    } catch (e) {
-        return 'BOOST_FAIL';
-    } finally {
-        if (hProcess !== 0n) win32.CloseHandle(hProcess);
     }
 }
 

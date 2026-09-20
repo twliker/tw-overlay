@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <title>외치기 히스토리</title>
     <link rel="stylesheet" href="style.css">
     <script src="assets/tailwind.min.js"></script>
     <script src="assets/lucide.min.js"></script>
@@ -111,6 +112,11 @@
         </div>
     </div>
 
+    <div id="shout-kind-filters" class="ui-filter-bar no-drag">
+      <label class="ui-filter-choice"><input type="checkbox" data-kind="free" checked>무료</label>
+      <label class="ui-filter-choice"><input type="checkbox" data-kind="paid" checked>유료</label>
+      <label class="ui-filter-choice"><input type="checkbox" data-kind="notice" checked>공지</label>
+    </div>
     <!-- Content: 스크롤 영역 -->
     <div id="history-list" class="flex-1 overflow-y-auto px-6 py-6 space-y-4 custom-scroll no-drag">
         <div class="flex flex-col items-center justify-center py-20 text-slate-600 gap-3">
@@ -127,6 +133,7 @@
 
     <script src="assets/ui-utils.js"></script>
     <script>
+        let historyGeneration = 0;
         let currentSearch = '';
         let searchTimer = null;
         let toastTimer = null;
@@ -155,7 +162,11 @@
         }
 
         async function loadHistory(query = '') {
-            const history = await window.electronAPI.getShoutHistory(24, query);
+            const generation = ++historyGeneration;
+            const rows = await window.electronAPI.getShoutHistory(24, query);
+            if (generation !== historyGeneration) return;
+            const enabled = new Set(Array.from(document.querySelectorAll('[data-kind]:checked'), input => input.dataset.kind));
+            const history = rows?.filter(item => !item.shout_kind || enabled.has(item.shout_kind));
             const list = document.getElementById('history-list');
             
             if (!history || history.length === 0) {
@@ -234,6 +245,7 @@
         }
 
         window.onload = () => {
+            document.getElementById('shout-kind-filters').addEventListener('change', () => loadHistory(currentSearch));
             loadHistory();
             window.bindEscapeClose();
             if (window.electronAPI && window.electronAPI.onShoutHistoryUpdated) {

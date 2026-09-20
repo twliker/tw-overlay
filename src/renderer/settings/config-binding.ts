@@ -39,6 +39,19 @@
     notifyWhenGameClosed?: boolean;
     userServer?: number;
     chatOverlayFontSize?: number;
+    chatNicknameNotesCompact?: boolean;
+    chatCompactDisplay?: boolean;
+    chatEtaColorsEnabled?: boolean;
+    chatEtaColors?: string[];
+    chatOverlayShowFreeShout?: boolean;
+    chatOverlayShowPaidShout?: boolean;
+    chatOverlayShowNoticeShout?: boolean;
+
+    chatOverlayFontFamily?: string;
+    chatOverlaySubFontSize?: number;
+    chatOverlaySubFontFamily?: string;
+    chatOverlaySub2FontSize?: number;
+    chatOverlaySub2FontFamily?: string;
     chatOverlayOpacity?: number;
     chatOverlaySubOpacity?: number;
     chatOverlaySub2Opacity?: number;
@@ -187,8 +200,24 @@
     );
     setChecked('notify-when-game-closed-input', config.notifyWhenGameClosed ?? defaults.notifyWhenGameClosed ?? false);
 
+    setChecked('chat-overlay-show-free-shout', config.chatOverlayShowFreeShout !== false);
+    setChecked('chat-overlay-show-paid-shout', config.chatOverlayShowPaidShout !== false);
+    setChecked('chat-overlay-show-notice-shout', config.chatOverlayShowNoticeShout !== false);
+    setChecked('chat-nickname-notes-compact', config.chatNicknameNotesCompact === true);
+    setChecked('chat-compact-display', config.chatCompactDisplay === true);
+    setChecked('chat-eta-colors-enabled', config.chatEtaColorsEnabled === true);
+    (config.chatEtaColors || defaults.chatEtaColors || []).forEach((color, index) => setValue(`chat-eta-color-${index}`, color));
     setValue('chat-overlay-user-server-input', config.userServer ?? defaults.userServer ?? 7);
     bindRange('chat-overlay-fontsize-input', 'chat-overlay-fontsize-val', config.chatOverlayFontSize ?? defaults.chatOverlayFontSize ?? 14, value => `${value}px`);
+    for (const [id, value] of [['chat-overlay-fontfamily-input', config.chatOverlayFontFamily], ['chat-overlay-sub-fontfamily-input', config.chatOverlaySubFontFamily], ['chat-overlay-sub2-fontfamily-input', config.chatOverlaySub2FontFamily]]) {
+      window.customChatFonts?.ensureOption(document.getElementById(id!) as HTMLSelectElement | null, value || '');
+    }
+    setValue('chat-overlay-fontfamily-input', config.chatOverlayFontFamily ?? 'system');
+    setValue('chat-overlay-sub-fontsize-input', config.chatOverlaySubFontSize ?? 0);
+    setValue('chat-overlay-sub-fontfamily-input', config.chatOverlaySubFontFamily ?? '');
+    setValue('chat-overlay-sub2-fontsize-input', config.chatOverlaySub2FontSize ?? 0);
+    setValue('chat-overlay-sub2-fontfamily-input', config.chatOverlaySub2FontFamily ?? '');
+    requestAnimationFrame(() => window.settingsChatPreview?.refresh());
     const opacityLabel = (value: string): string => `${Math.round(parseFloat(value) * 100)}%`;
     bindRange('chat-overlay-opacity-input', 'chat-overlay-opacity-val', config.chatOverlayOpacity ?? defaults.chatOverlayOpacity ?? 0.8, opacityLabel);
     bindRange('chat-overlay-sub-opacity-input', 'chat-overlay-sub-opacity-val', config.chatOverlaySubOpacity ?? defaults.chatOverlaySubOpacity ?? 0.8, opacityLabel);

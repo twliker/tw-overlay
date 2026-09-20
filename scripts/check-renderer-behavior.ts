@@ -2,6 +2,7 @@ import assert = require('node:assert/strict');
 import fs = require('node:fs');
 import os = require('node:os');
 import path = require('node:path');
+import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, ipcMain, powerMonitor } from 'electron';
 
 const projectRoot = path.resolve(__dirname, '..');
@@ -651,6 +652,7 @@ async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
       window.formatSeedAmount = value => Number(value).toLocaleString('ko-KR');
       let diaryUpdatedCallback = null;
       let configDataCallback = null;
+      let detectedHomework = null;
       window.electronAPI = {
         DEFAULT_CONFIG: ${JSON.stringify(defaultConfig)},
         getTodaySummary: async () => ({
@@ -660,6 +662,7 @@ async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
           totalEssence: 2,
           bossKills: 4,
           totalLootCount: 9,
+          detectedHomework,
           lootItems: [
             { name: '<img id="injected-summary">장비 강화석', count: 5 },
             { name: '융합된 기운', count: 3 },
@@ -685,18 +688,26 @@ async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 50));
 
       const summary = document.getElementById('today-summary-hud');
+      const detectedRow = document.getElementById('today-summary-detected-homework');
+      const noDetectionHidden = getComputedStyle(detectedRow).display === 'none';
+      detectedHomework = { name: '설계자의 채굴장', currentCount: 1, maxCount: 1 };
       const initialTop = Number.parseFloat(summary.style.top);
       const defaultCollapsed = summary.classList.contains('collapsed');
       configDataCallback({ ...${JSON.stringify(defaultConfig)}, todaySummaryCollapsed: true });
       await new Promise(resolve => setTimeout(resolve, 20));
       const collapsedApplied = summary.classList.contains('collapsed');
       const compactVisible = getComputedStyle(document.getElementById('today-summary-compact')).display !== 'none';
+      const detectedCollapsedVisible = getComputedStyle(detectedRow).display !== 'none';
+      const detectedTitle = document.getElementById('today-summary-detected-name').textContent;
+      const detectedCount = document.getElementById('today-summary-detected-count').textContent;
       configDataCallback({ ...${JSON.stringify(defaultConfig)}, showTodaySummaryHud: false });
       await new Promise(resolve => setTimeout(resolve, 20));
       const hiddenApplied = summary.classList.contains('hidden');
       configDataCallback({ ...${JSON.stringify(defaultConfig)}, todaySummaryCollapsed: false });
       await new Promise(resolve => setTimeout(resolve, 20));
       const restoredVisible = !summary.classList.contains('hidden') && !summary.classList.contains('collapsed');
+      const detectedExpandedVisible = getComputedStyle(detectedRow).display !== 'none';
+      detectedHomework = { name: '<img id="injected-detected">아주 긴 숙제 제목 '.repeat(12), currentCount: 4, maxCount: 7 };
       configDataCallback({ ...${JSON.stringify(defaultConfig)}, todaySummaryCollapsed: false });
       await new Promise(resolve => setTimeout(resolve, 20));
       const abandoned = document.getElementById('abandoned-widget');
@@ -706,10 +717,19 @@ async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
       abandoned.classList.add('active');
       await new Promise(resolve => setTimeout(resolve, 50));
       const finalTop = Number.parseFloat(summary.style.top);
+      const detectedName = document.getElementById('today-summary-detected-name');
+      const longDetectionTruncated = detectedName.scrollWidth > detectedName.clientWidth;
+      const detectedCountInside = document.getElementById('today-summary-detected-count').getBoundingClientRect().right <= summary.getBoundingClientRect().right;
+      const detectedWeeklyCount = document.getElementById('today-summary-detected-count').textContent;
+      const detectedInjectionCount = document.querySelectorAll('#injected-detected').length;
+      detectedHomework = null;
       diaryUpdatedCallback?.();
       await new Promise(resolve => setTimeout(resolve, 50));
 
       return {
+        noDetectionHidden, detectedCollapsedVisible, detectedExpandedVisible, detectedTitle, detectedCount,
+        longDetectionTruncated, detectedCountInside, detectedWeeklyCount, detectedInjectionCount,
+        clearedDetectionHidden: getComputedStyle(detectedRow).display === 'none',
         date: document.getElementById('today-summary-date')?.textContent,
         seed: document.getElementById('today-summary-seed')?.textContent,
         elso: document.getElementById('today-summary-elso')?.textContent,
@@ -734,6 +754,9 @@ async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
       };
     })()
   `) as {
+    noDetectionHidden: boolean; detectedCollapsedVisible: boolean; detectedExpandedVisible: boolean;
+    detectedTitle: string; detectedCount: string; longDetectionTruncated: boolean;
+    detectedCountInside: boolean; detectedWeeklyCount: string; detectedInjectionCount: number; clearedDetectionHidden: boolean;
     date: string;
     seed: string;
     elso: string;
@@ -756,6 +779,16 @@ async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
   };
 
   assert.equal(result.date, '08.15');
+  assert.equal(result.noDetectionHidden, true);
+  assert.equal(result.detectedCollapsedVisible, true);
+  assert.equal(result.detectedExpandedVisible, true);
+  assert.equal(result.detectedTitle, '설계자의 채굴장');
+  assert.equal(result.detectedCount, '1/1');
+  assert.equal(result.detectedWeeklyCount, '4/7');
+  assert.equal(result.longDetectionTruncated, true);
+  assert.equal(result.detectedCountInside, true);
+  assert.equal(result.detectedInjectionCount, 0);
+  assert.equal(result.clearedDetectionHidden, true);
   assert.equal(result.seed, '1234만');
   assert.equal(result.elso, '3,500 P');
   assert.equal(result.compact, 'SEED 1234만\nELSO 3,500 P\n경험의 정수 2개 · 남은 숙제 4개');
@@ -932,7 +965,7 @@ async function checkHudPositionEditSettingsSafety(window: BrowserWindow): Promis
   const settingsPath = path.join(projectRoot, 'dist', 'settings.html');
   const fullHtml = fs.readFileSync(settingsPath, 'utf8');
   const saveUiFunctionMatch = fullHtml.match(
-    /(function updateHudEditSaveUi\(editing\) \{[\s\S]*?\r?\n    \})\r?\n\r?\n    async function startHudEditMode/,
+    /(function updateHudEditSaveUi\(editing\) \{[\s\S]*?\r?\n    \})\r?\n\r?\n    function renderHudEditState/,
   );
   assert.ok(saveUiFunctionMatch, 'HUD 위치 편집 저장 UI 함수를 추출하지 못했습니다.');
   const html = cleanHtmlForTest(settingsPath);
@@ -1766,6 +1799,114 @@ async function checkEquipmentSimulator(window: BrowserWindow): Promise<void> {
   assert.equal(result.incryptVisible, true);
   assert.ok(result.incryptExpText.includes('목표 성공당 평균 시도'));
   assert.equal(result.closedByEscape, true);
+
+  // 실제 HTML의 입력 이벤트와 계산 모듈을 그대로 사용해 0/미입력 및 횟수 경계를 검증한다.
+  const boundaries = await evaluate(window, () => {
+    const set = (id: string, value: string, event = 'input') => {
+      const field = document.getElementById(id) as HTMLInputElement;
+      field.value = value;
+      field.dispatchEvent(new Event(event, { bubbles: true }));
+    };
+    const fee = (value: string) => {
+      const field = document.querySelector<HTMLInputElement>('[data-stage-fee="0"]')!;
+      field.value = value;
+      field.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const feeSnapshot = () => ({
+      value: document.querySelector<HTMLInputElement>('[data-stage-fee="0"]')!.value,
+      metric: document.querySelector('#enhance-exp-metrics .metric:last-child strong')!.textContent,
+      row: document.querySelector('#enhance-exp-stage-table tbody tr')!.textContent,
+    });
+    document.querySelector<HTMLButtonElement>('[data-main-tab="enhance"]')!.click();
+    set('enhance-current-stage', '0', 'change');
+    set('enhance-target-stage', '1', 'change');
+    const fees = [];
+    for (const currency of ['seed', 'elso']) {
+      for (const noPenalty of [false, true]) {
+        const toggle = document.getElementById('enhance-nopenalty-toggle') as HTMLInputElement;
+        toggle.checked = noPenalty;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+        set('enhance-nopenalty-rate', '1', 'change');
+        set('enhance-currency-type', currency, 'change');
+        set('enhance-price-fee', '1000000');
+        fee('0');
+        const zero = feeSnapshot();
+        fee('500000');
+        const positive = feeSnapshot();
+        set('enhance-price-fee', '2000000');
+        const retained = feeSnapshot();
+        fee('');
+        const inherited = feeSnapshot();
+        fees.push({ currency, noPenalty, zero, positive, retained, inherited });
+      }
+    }
+    document.querySelector<HTMLButtonElement>('[data-main-tab="enchant"]')!.click();
+    set('enchant-preset-select', 'custom_var', 'change');
+    set('enchant-initial-blessing', '98');
+    set('enchant-price-fee', '1000000');
+    const targets = ['-1', '0', '2.9', '101', '', '2'].map(value => {
+      set('enchant-target-success', value);
+      return {
+        input: value,
+        value: (document.getElementById('enchant-target-success') as HTMLInputElement).value,
+        metrics: document.getElementById('enchant-exp-metrics')!.textContent,
+      };
+    });
+    const prices = [];
+    for (const [panel, ids] of [
+      ['enhance', ['enhance-price-fee', 'enhance-price-stone', 'enhance-price-talisman', 'enhance-price-scroll']],
+      ['enchant', ['enchant-price-fee', 'enchant-price-scroll', 'enchant-price-enhance-scroll']],
+      ['incrypt', ['incrypt-price-fee', 'incrypt-price-scroll', 'incrypt-price-protect', 'incrypt-price-equip']],
+    ] as const) {
+      document.querySelector<HTMLButtonElement>('[data-main-tab="' + panel + '"]')!.click();
+      for (const id of ids) {
+        set(id, '-1000000');
+        prices.push({ id, value: (document.getElementById(id) as HTMLInputElement).value });
+      }
+    }
+    const protections = ['-1', '0.5', '99', '3.5'].map(value => {
+      set('incrypt-protect-count', value);
+      return {
+        input: value,
+        value: (document.getElementById('incrypt-protect-count') as HTMLInputElement).value,
+        guide: document.getElementById('incrypt-rates-guide')!.textContent,
+      };
+    });
+    const blessings = ['-1', '101'].map(value => {
+      set('enchant-initial-blessing', value);
+      return (document.getElementById('enchant-initial-blessing') as HTMLInputElement).value;
+    });
+    return { fees, targets, prices, protections, blessings };
+  });
+  const failures: string[] = [];
+  const verify = (label: string, check: () => void) => { try { check(); } catch (error) { failures.push(`${label}: ${String(error)}`); } };
+  for (const row of boundaries.fees) {
+    const unit = row.currency === 'elso' ? '엘소' : 'SEED';
+    const label = `${row.currency}/${row.noPenalty ? 'scroll' : 'normal'}`;
+    verify(`${label} explicit zero`, () => { assert.equal(row.zero.value, '0'); assert.equal(row.zero.metric, `0 ${unit}`); });
+    verify(`${label} positive`, () => assert.equal(row.positive.metric, `50만 ${unit}`));
+    verify(`${label} retained`, () => assert.equal(row.retained.metric, `50만 ${unit}`));
+    verify(`${label} empty inherits`, () => assert.equal(row.inherited.metric, `200만 ${unit}`));
+  }
+  for (const [index, value] of ['1', '1', '2', '100', '', '2'].entries()) {
+    const row = boundaries.targets[index];
+    verify(`enchant ${JSON.stringify(row.input)}`, () => {
+      assert.equal(row.value, value);
+      assert.ok(row.metrics?.includes(`(${value || '1'}회 성공 시:`));
+      assert.doesNotMatch(row.metrics || '', /-\d|NaN|Infinity/);
+      if (value === '2') assert.ok(row.metrics?.includes('약 9.5회'));
+    });
+  }
+  for (const row of boundaries.prices) verify(row.id, () => assert.equal(row.value, '0'));
+  for (const [index, value] of ['0', '0', '60', '3'].entries()) {
+    const row = boundaries.protections[index];
+    verify(`protection ${row.input}`, () => {
+      assert.equal(row.value, value);
+      assert.ok(row.guide?.includes(`파괴 확률: ${100 - Number(value)}%`));
+    });
+  }
+  verify('blessing input matches calculation', () => assert.deepEqual(boundaries.blessings, ['0', '100']));
+  assert.deepEqual(failures, [], '장비 계산기 실제 입력 경계 처리 실패');
 }
 
 async function checkContentsOrderingPersistence(): Promise<void> {
@@ -2947,6 +3088,648 @@ async function checkFocusedChat(window: BrowserWindow): Promise<void> {
   assert.deepEqual(result.windowBounds, { left: 0, top: 0, rightGap: 0, bottomGap: 0 });
 }
 
+/** 실제 preload/IPC와 임시 config 파일을 연결해 표시 설정 변경이 대화 이력을 소모하지 않는지 확인한다. */
+async function checkFocusedChatSettings(): Promise<void> {
+  const config = require(path.join(projectRoot, 'dist/modules/config.js'));
+  const defaults = require(path.join(projectRoot, 'dist/modules/constants.js')).DEFAULT_CONFIG;
+  const nicknameNotes = require(path.join(projectRoot, 'dist/shared/nicknameNotes.js'));
+  const original = config.load();
+  const message = (n: number, sender = '친구', type = 'general') => ({ id: `focused-${n}`, type, sender,
+    message: `읽던 대화 ${n}`, timestamp: '12시 00분 00초', color: '#ffffff', level: 10 });
+  let history = Array.from({ length: 30 }, (_, n) => message(n));
+  let historyCalls = 0;
+  let initialConfigReply: (() => void) | undefined;
+  let failSave = false;
+  let releaseSave: (() => void) | undefined;
+  let holdSave = false;
+  const targetWindow = new BrowserWindow({ show: false, width: 460, height: 720, webPreferences: {
+    preload: path.join(projectRoot, 'dist/preload.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false,
+  } });
+  const onDefaults = (event: Electron.IpcMainEvent) => { event.returnValue = defaults; };
+  const commit = (patch: unknown) => {
+    const sanitized = config.sanitizeExternalConfigPatch(patch);
+    assert.ok(sanitized);
+    assert.equal(config.saveConfirmed(sanitized), true);
+    targetWindow.webContents.send('config-data', config.load());
+  };
+  const settle = () => targetWindow.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))))');
+  const state = () => targetWindow.webContents.executeJavaScript(`(() => {
+    const list = document.getElementById('messageList'), rows = Array.from(list.querySelectorAll('.message-row'));
+    const top = list.getBoundingClientRect().top, anchor = rows.find(row => row.getBoundingClientRect().bottom > top);
+    return { messages: rows.map(row => row.querySelector('.bubble').textContent),
+      anchor: anchor?.querySelector('.bubble').textContent, offset: anchor ? anchor.getBoundingClientRect().top - top : 0,
+      notes: rows.map(row => row.querySelector('.nickname-note-badge')?.textContent || ''),
+      colors: rows.map(row => row.querySelector('.eta-badge')?.style.color || ''),
+      bottom: list.scrollHeight - list.scrollTop - list.clientHeight };
+  })()`);
+  const preserve = async (before: any, label: string) => {
+    await settle();
+    const after = await state();
+    assert.deepEqual(after.messages, before.messages, `${label}: 표시 대화가 달라졌습니다.`);
+    assert.equal(after.anchor, before.anchor, `${label}: 읽던 행이 달라졌습니다.`);
+    assert.ok(Math.abs(after.offset - before.offset) <= 2, `${label}: 읽던 행의 화면 내 위치가 달라졌습니다.`);
+    return after;
+  };
+  const openNote = async (text: string) => targetWindow.webContents.executeJavaScript(`(() => {
+    const list = document.getElementById('messageList'), top = list.getBoundingClientRect().top;
+    const row = Array.from(list.querySelectorAll('.message-row')).find(row => row.getBoundingClientRect().bottom > top);
+    row.querySelector('.sender').dispatchEvent(new MouseEvent('contextmenu', { bubbles:true, cancelable:true }));
+    document.getElementById('note-text').value = ${JSON.stringify(text)};
+  })()`);
+  const submitNote = () => targetWindow.webContents.executeJavaScript(`document.querySelector('.nickname-note-form').dispatchEvent(new Event('submit', { bubbles:true, cancelable:true }));`);
+  const waitNote = () => waitForRendererCondition(targetWindow, `!document.querySelector('.nickname-note-dialog').open`, '메모 저장 완료를 받지 못했습니다.');
+  ipcMain.on('get-default-config-sync', onDefaults);
+  ipcMain.handle('focused-chat-get-state', () => ({ selfNickname: '나', targets: ['친구'], knownNicknames: ['친구'] }));
+  ipcMain.handle('focused-chat-get-history', () => { historyCalls++; return history; });
+  ipcMain.handle('get-config', () => {
+    const snapshot = config.load();
+    return new Promise(resolve => { initialConfigReply = () => resolve(snapshot); });
+  });
+  // 실제 저장 핸들러를 사용하고 창 배치 부수 효과만 격리한다. 저장 검증을 테스트에 다시 구현하지 않는다.
+  const ipcSource = fs.readFileSync(path.join(projectRoot, 'src/modules/ipcHandlers.ts'), 'utf8');
+  const saveStart = ipcSource.indexOf("  ipcMain.handle('nickname-note-save'");
+  const saveEnd = ipcSource.indexOf('  // 기능 계약: 현재 저장 설정만', saveStart);
+  assert.ok(saveStart >= 0 && saveEnd > saveStart);
+  let saveHandler: (...args: any[]) => any;
+  const ts = require('typescript');
+  require('node:vm').runInNewContext(ts.transpileModule(ipcSource.slice(saveStart, saveEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+    ipcMain: { handle: (_channel: string, handler: typeof saveHandler) => { saveHandler = handler; } }, config,
+    require: (name: string) => { assert.equal(name, '../shared/nicknameNotes'); return nicknameNotes; },
+    wm: { applySettings: (patch: unknown) => {
+      if (failSave) { targetWindow.webContents.send('config-data', config.load()); return false; }
+      // VM에서 읽은 핸들러의 객체를 실제 메인 프로세스와 같은 realm으로 옮긴다.
+      commit(structuredClone(patch)); return true;
+    } },
+  });
+  ipcMain.handle('nickname-note-save', async (...args) => {
+    if (holdSave) await new Promise<void>(resolve => { releaseSave = resolve; });
+    return saveHandler(...args);
+  });
+  try {
+    assert.equal(config.saveConfirmed({ userServer: 7, nicknameNotes: [], chatEtaColorsEnabled: false }), true);
+    await targetWindow.loadFile(path.join(projectRoot, 'dist/focused-chat.html'));
+    await waitForRendererCondition(targetWindow, `document.querySelectorAll('.message-row').length === 30`, '집중 채팅 초기 이력 누락');
+    for (let n = 0; n < 151; n++) targetWindow.webContents.send('chat-updated', message(1000 + n, '다른 사용자', n % 2 ? 'system' : 'general'));
+    await settle();
+    await targetWindow.webContents.executeJavaScript(`document.getElementById('messageList').scrollTop = 400; window.__firstFocusedRow = document.querySelector('.message-row');`);
+    const before = await state();
+    initialConfigReply!();
+    await preserve(before, '늦게 도착한 최초 설정');
+    commit({ showXpWidget: !config.load().showXpWidget });
+    await preserve(before, '무관한 HUD 설정');
+    assert.equal(await targetWindow.webContents.executeJavaScript('window.__firstFocusedRow === document.querySelector(".message-row")'), true);
+
+    const longNote = '거래 내역과 캐릭터 메모 '.repeat(12).trim();
+    await openNote(longNote);
+    await submitNote();
+    await waitNote();
+    let after = await preserve(before, '메모 저장과 config-data');
+    assert.deepEqual([...new Set(after.notes)], [longNote]);
+    assert.equal(config.load().nicknameNotes[0].note, longNote, '화면의 메모 저장이 실제 설정 파일에 반영되어야 합니다.');
+    const savedOnDisk = JSON.parse(fs.readFileSync(path.join(testUserDataDirectory, 'config.json'), 'utf8'));
+    assert.equal(savedOnDisk.nicknameNotes[0].note, longNote);
+
+    commit({ nicknameNotes: [{ server: 7, nickname: '친구', note: longNote }, { server: 16, nickname: '친구', note: '다른 서버 메모' }],
+      userServer: 16, chatEtaColorsEnabled: true, chatEtaColors: ['#aabbcc', '#000002', '#000003', '#000004', '#000005'] });
+    after = await preserve(before, '외부 서버·메모·에타 변경');
+    assert.ok(after.notes.every((note: string) => note === '다른 서버 메모'));
+    assert.ok(after.colors.every((color: string) => color === 'rgb(170, 187, 204)'));
+    commit({ chatNicknameNotesCompact: true });
+    after = await preserve(before, '메모 간단 표시');
+    assert.ok(after.notes.every((note: string) => note === '메모'));
+    commit({ chatCompactDisplay: true });
+    await preserve(before, '집중 채팅 시간·배지 간단 표시');
+    assert.equal(await targetWindow.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.time,.eta-badge')).every(node=>getComputedStyle(node).display==='none')`), true);
+    commit({ chatCompactDisplay: false });
+    await preserve(before, '집중 채팅 기본 표시 복원');
+    commit({ chatNicknameNotesCompact: false, chatEtaColorsEnabled: false });
+    after = await preserve(before, '에타 색상 해제');
+    assert.ok(after.colors.every((color: string) => color === ''));
+
+    failSave = true;
+    await openNote('저장되지 않을 초안');
+    await submitNote();
+    await waitForRendererCondition(targetWindow, `document.getElementById('note-save-error').textContent === '메모를 저장하지 못했습니다.'`, '메모 저장 실패 안내 누락');
+    after = await preserve(before, '메모 저장 실패');
+    assert.ok(after.notes.every((note: string) => note === '다른 서버 메모'));
+    assert.equal(await targetWindow.webContents.executeJavaScript(`document.getElementById('note-text').value`), '저장되지 않을 초안');
+    await targetWindow.webContents.executeJavaScript(`document.getElementById('note-cancel').click()`);
+    failSave = false;
+    await openNote('');
+    await targetWindow.webContents.executeJavaScript(`document.getElementById('note-remove').click()`);
+    await waitNote();
+    after = await preserve(before, '메모 삭제');
+    assert.ok(after.notes.every((note: string) => note === ''));
+
+    holdSave = true;
+    await openNote('대기 중 수신도 보존');
+    await submitNote();
+    for (let attempt = 0; !releaseSave && attempt < 100; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.ok(releaseSave);
+    targetWindow.webContents.send('chat-updated', message(30));
+    await waitForRendererCondition(targetWindow, `document.querySelectorAll('.message-row').length === 31`, '메모 저장 중 실시간 메시지 누락');
+    releaseSave();
+    await waitNote();
+    after = await state();
+    assert.deepEqual(after.messages, [...before.messages, '읽던 대화 30']);
+    assert.equal(after.anchor, before.anchor);
+    assert.ok(Math.abs(after.offset - before.offset) <= 2);
+    holdSave = false;
+    await targetWindow.webContents.executeJavaScript(`const list = document.getElementById('messageList'); list.scrollTop = list.scrollHeight;`);
+    commit({ nicknameNotes: [] });
+    await settle();
+    assert.ok((await state()).bottom <= 2, '맨 아래에서 메모 높이가 바뀌어도 하단을 유지해야 합니다.');
+    targetWindow.webContents.send('chat-updated', message(31));
+    await waitForRendererCondition(targetWindow, `document.querySelectorAll('.message-row').length === 32`, '설정 갱신 후 새 대화 누락');
+    assert.ok((await state()).bottom <= 2, '새 메시지 하단 따라가기를 유지해야 합니다.');
+    assert.equal(historyCalls, 1, '외형 갱신 중 원본 이력을 다시 조회하면 안 됩니다.');
+
+    // 대상 변경과 명시적인 이력 초기화는 기존 필터 의미를 유지한다. 외형 갱신으로 지운 행을 부활시키지 않는다.
+    await targetWindow.webContents.executeJavaScript(`document.querySelector('.remove-target').click()`);
+    assert.equal((await state()).messages.length, 0);
+    targetWindow.webContents.send('chat-updated', message(32, '나', 'whisper'));
+    await waitForSelector(targetWindow, '.message-row.self');
+    history = [];
+    targetWindow.webContents.send('chat-history-cleared');
+    await waitForSelector(targetWindow, '.empty-state');
+    commit({ chatEtaColorsEnabled: true });
+    await settle();
+    assert.equal((await state()).messages.length, 0);
+    await targetWindow.webContents.executeJavaScript(`document.getElementById('nicknameInput').value='친구'; document.getElementById('targetForm').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));`);
+    for (let n = 0; n < 171; n++) targetWindow.webContents.send('chat-updated', message(2000 + n));
+    await waitForRendererCondition(targetWindow, `Array.from(document.querySelectorAll('.bubble')).some(node => node.textContent === '읽던 대화 2170')`, '연속 실시간 대화 수신 누락');
+    commit({ nicknameNotes: [{ server: 16, nickname: '친구', note: '상한 검사' }] });
+    await settle();
+    assert.deepEqual((await state()).messages, Array.from({ length: 150 }, (_, n) => `읽던 대화 ${2021 + n}`));
+    assert.equal(await targetWindow.webContents.executeJavaScript(`document.querySelectorAll('.nickname-note-badge').length`), 150);
+
+    // 초기 설정 응답보다 먼저 받은 최신 서버/메모 설정을 과거 응답이 되돌리지 않아야 한다.
+    history = Array.from({ length: 30 }, (_, n) => message(n));
+    await targetWindow.reload();
+    await waitForRendererCondition(targetWindow, `document.querySelectorAll('.message-row').length === 30`, '재시작 이력 누락');
+    commit({ userServer: 7, nicknameNotes: [{ server: 7, nickname: '친구', note: '최신 메모' }] });
+    await waitForSelector(targetWindow, '.nickname-note-badge');
+    initialConfigReply!();
+    await settle();
+    assert.ok((await state()).notes.every((note: string) => note === '최신 메모'), '늦은 최초 응답이 최신 설정을 되돌리면 안 됩니다.');
+  } finally {
+    initialConfigReply?.();
+    releaseSave?.();
+    targetWindow.destroy();
+    ipcMain.removeListener('get-default-config-sync', onDefaults);
+    for (const channel of ['focused-chat-get-state', 'focused-chat-get-history', 'get-config', 'nickname-note-save']) ipcMain.removeHandler(channel);
+    config.saveConfirmed(original);
+  }
+}
+
+async function checkActivityPresetsRenderer(window: BrowserWindow): Promise<void> {
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(cleanStyledHtmlForTest(path.join(projectRoot, 'dist', 'settings.html')))}`);
+  const code = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'settings', 'activity-presets.js'), 'utf8');
+  await window.webContents.executeJavaScript(`window.__presetCalls = []; window.electronAPI = {
+    saveActivityPreset: async (...args) => { window.__presetCalls.push(['save', ...args]); return { success: true }; },
+    applyActivityPreset: async id => { window.__presetCalls.push(['apply', id]); return { success: false, error: '저장 오류' }; },
+    deleteActivityPreset: async id => { window.__presetCalls.push(['delete', id]); return { success: true }; }
+  }; ${code}; window.settingsActivityPresets.bind({ activityPresets: [{ id: 'hunt', name: '<img id="preset-xss">', openWindows: ['xpHud'] }] });`);
+  assert.equal(await window.webContents.executeJavaScript('!!document.getElementById("preset-xss")'), false);
+  await window.webContents.executeJavaScript(`document.querySelector('#activity-preset-list button').click()`);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('activity-preset-status').textContent`), '저장 오류');
+  await window.webContents.executeJavaScript(`document.getElementById('activity-preset-name').value = '거래'; document.getElementById('activity-preset-save').click()`);
+  assert.deepEqual(await window.webContents.executeJavaScript('window.__presetCalls'), [['apply', 'hunt'], ['save', '거래']]);
+  const draftCode = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'settings', 'draft.js'), 'utf8');
+  await window.webContents.executeJavaScript(`${draftCode}
+    window.__refreshPreset = name => {
+      const draft = window.settingsDraft.beforeRefresh({});
+      window.settingsActivityPresets.bind({ activityPresets: [{ id: 'hunt', name, openWindows: ['xpHud'] }] });
+      draft.restore({});
+    };
+    window.__refreshPreset('사냥');
+    Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '상세').click();
+    window.__renameInput = () => document.querySelector('#activity-preset-list input');
+    window.__renameInput().value = '보스 사냥 수정 중'; window.__renameInput().focus(); window.__renameInput().setSelectionRange(3, 5);
+    window.__refreshPreset('사냥');
+  `);
+  assert.deepEqual(await window.webContents.executeJavaScript(`({ value:__renameInput().value, focused:document.activeElement === __renameInput(), start:__renameInput().selectionStart, end:__renameInput().selectionEnd })`),
+    { value:'보스 사냥 수정 중', focused:true, start:3, end:5 }, '외부 설정 갱신 후 프리셋 이름 초안·포커스·선택 영역을 보존해야 합니다.');
+  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();`);
+  await waitForRendererCondition(window, `document.getElementById('activity-preset-status').textContent === '이름을 변경했습니다.'`, '프리셋 이름 저장이 끝나지 않았습니다.');
+  await window.webContents.executeJavaScript(`window.__refreshPreset('외부에서 변경한 이름');`);
+  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '외부에서 변경한 이름', '저장 완료한 이름을 계속 미저장 초안으로 취급하면 안 됩니다.');
+  await window.webContents.executeJavaScript(`
+    window.electronAPI.saveActivityPreset = () => new Promise(resolve => window.__resolvePresetSave = resolve);
+    __renameInput().value = '저장 요청'; Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();
+    __renameInput().value = '저장 중 추가 편집'; __refreshPreset('저장 요청');
+    __resolvePresetSave({success:true});
+  `);
+  await window.webContents.executeJavaScript(`__refreshPreset('저장 요청');`);
+  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '저장 중 추가 편집', '늦은 저장 성공으로 이후 입력한 이름을 버리면 안 됩니다.');
+  await window.webContents.executeJavaScript(`
+    Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();
+    __resolvePresetSave({success:false,error:'이름 저장 실패'});
+  `);
+  await waitForRendererCondition(window, `document.getElementById('activity-preset-status').textContent === '이름 저장 실패'`, '이름 저장 실패가 표시되지 않았습니다.');
+  await window.webContents.executeJavaScript(`__refreshPreset('저장 요청');`);
+  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '저장 중 추가 편집');
+  const layout = await window.webContents.executeJavaScript(`(() => {
+    const card = document.getElementById('chat-font-settings');
+    document.body.replaceChildren(card);
+    card.style.width = '720px';
+    const grid = card.querySelector('.ui-font-grid');
+    const wide = Array.from(grid.children).map(node => node.getBoundingClientRect());
+    card.style.width = '300px';
+    const narrow = Array.from(grid.children).map(node => node.getBoundingClientRect());
+    const inputsFit = Array.from(card.querySelectorAll('select')).every(node => node.scrollWidth <= node.clientWidth + 1);
+    return { wideColumns: new Set(wide.map(rect => Math.round(rect.left))).size,
+      wideRows: new Set(wide.map(rect => Math.round(rect.top))).size,
+      narrowColumns: new Set(narrow.map(rect => Math.round(rect.left))).size, inputsFit };
+  })()`);
+  assert.deepEqual(layout, { wideColumns: 3, wideRows: 1, narrowColumns: 1, inputsFit: true },
+    '창별 글꼴 설정은 넓은 창에서 3열, 좁은 창에서 잘림 없이 1열이어야 합니다.');
+  const defaultConfig = require(path.join(projectRoot, 'dist', 'modules', 'constants.js')).DEFAULT_CONFIG;
+  const fontCode = ['shared/chatChannels.js', 'renderer/settings/config-binding.js', 'renderer/settings/form-collection.js']
+    .map(file => fs.readFileSync(path.join(projectRoot, 'dist', file), 'utf8')).join('\n');
+  const fontRoundTrips = await window.webContents.executeJavaScript(`(() => {
+    window.electronAPI.DEFAULT_CONFIG = ${JSON.stringify(defaultConfig)};
+    ${fontCode}
+    return [10, 11, 12, 14, 28].map(size => {
+      const config = { ...window.electronAPI.DEFAULT_CONFIG, chatOverlayFontSize: size };
+      window.settingsConfigBinding.applyChatAndAlertSettings(config, window.electronAPI.DEFAULT_CONFIG);
+      const saved = window.settingsFormCollection.collectChatOverlayDisplaySettings([], []);
+      return { size, input: Number(document.getElementById('chat-overlay-fontsize-input').value),
+        label: document.getElementById('chat-overlay-fontsize-val').textContent, saved: saved.chatOverlayFontSize,
+        inherited: window.chatChannels.resolveChatFont(saved, 'sub1').size };
+    });
+  })()`);
+  for (const row of fontRoundTrips) {
+    assert.deepEqual(row, { size: row.size, input: row.size, label: row.size + 'px', saved: row.size, inherited: row.size },
+      '기존 채팅 글꼴은 설정 화면을 열고 저장해도 표시값·저장값·보조 창 상속값을 보존해야 합니다.');
+  }
+}
+
+async function checkManagedWindowResizeLimits(window: BrowserWindow): Promise<void> {
+  const utils = fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'), 'utf8');
+  await window.loadURL('data:text/html;charset=utf-8,<title>Resize limits</title>');
+  await window.webContents.executeJavaScript(`
+    window.__resizeRequests = [];
+    window.electronAPI = {
+      setWindowSize: (width, height) => __resizeRequests.push([width, height]),
+      onManagedWindowResizeEnabled: callback => { window.__resizeLimits = callback; }
+    };
+    ${utils}
+    window.__resizeLimits({ minWidth:900, minHeight:650 });
+    window.__originalHandle = document.getElementById('tw-managed-window-resize-handle');
+  `);
+  for (const [minWidth, minHeight] of [[900, 650], [760, 560], [900, 650], [760, 560]]) {
+    const result = await window.webContents.executeJavaScript(`(() => {
+      __resizeLimits({ minWidth:${minWidth}, minHeight:${minHeight} });
+      __resizeLimits({ minWidth:${minWidth}, minHeight:${minHeight} });
+      __resizeRequests.length = 0;
+      const handle = document.getElementById('tw-managed-window-resize-handle');
+      handle.dispatchEvent(new MouseEvent('mousedown', { screenX:2000, screenY:2000, bubbles:true }));
+      window.dispatchEvent(new MouseEvent('mousemove', { screenX:0, screenY:0 }));
+      window.dispatchEvent(new MouseEvent('mouseup'));
+      return { requests:__resizeRequests, sameHandle:handle === __originalHandle,
+        count:document.querySelectorAll('#tw-managed-window-resize-handle').length };
+    })()`);
+    assert.deepEqual(result, { requests: [[minWidth, minHeight]], sameHandle: true, count: 1 },
+      '반복 프리셋 적용 후 기존 손잡이를 드래그해도 최신 최소 크기를 사용하며 리스너를 중복 등록하면 안 됩니다.');
+  }
+}
+
+async function checkNicknameNoteEscape(window: BrowserWindow): Promise<void> {
+  const notes = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'nickname-notes.js'), 'utf8');
+  const utils = fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'), 'utf8');
+  const settings = fs.readFileSync(path.join(projectRoot, 'dist', 'settings.html'), 'utf8');
+  const handler = settings.match(/window.addEventListener\('keydown', \(e\) => \{\r?\n      if \(window.settingsShortcuts.handleKeyDown\(e\)\) return;[\s\S]*?\r?\n    \}\);/);
+  assert.ok(handler, '설정 화면의 실제 Escape 처리기를 찾지 못했습니다.');
+  for (const parent of ['focused-chat', 'settings']) {
+    await window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<button id="nickname-note-add">메모 추가</button><input id="other-draft" value="아직 저장하지 않은 설정">'));
+    await window.webContents.executeJavaScript(`window.__closeCalls = 0; window.close = () => window.__closeCalls++;
+      window.electronAPI = {}; window.settingsShortcuts = { handleKeyDown: () => false };
+      ${utils} ${notes} ${parent === 'settings' ? handler[0] : 'window.bindEscapeClose();'}
+      document.getElementById('nickname-note-add').focus(); document.getElementById('nickname-note-add').click();
+    `);
+    window.webContents.focus();
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+    await waitForRendererCondition(window, `!document.querySelector('dialog').open`, `${parent}의 메모 창을 Escape로 닫지 못했습니다.`);
+    assert.deepEqual(await window.webContents.executeJavaScript(`({ closeCalls:__closeCalls, draft:document.getElementById('other-draft').value })`),
+      { closeCalls:0, draft:'아직 저장하지 않은 설정' }, '메모 취소가 부모 창이나 다른 입력을 닫으면 안 됩니다.');
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+    await waitForRendererCondition(window, `window.__closeCalls === 1`, `${parent}: 메모가 없을 때 기존 부모 창 Escape 닫기는 유지해야 합니다.`);
+  }
+}
+
+async function checkNicknameNoteSaveOrdering(window: BrowserWindow): Promise<void> {
+  const code = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'nickname-notes.js'), 'utf8');
+  async function setup(): Promise<void> {
+    await window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<button id="nickname-note-add">메모 추가</button><div id="nickname-note-list"></div>'));
+    await window.webContents.executeJavaScript(`
+      window.__requests = [];
+      window.electronAPI = { saveNicknameNote: (...args) => new Promise((resolve, reject) => __requests.push({args,resolve,reject})) };
+      ${code}
+      window.nicknameNotes.updateConfig({userServer:7,nicknameNotes:[]});
+      window.__open = (nickname, note) => {
+        document.getElementById('nickname-note-add').click();
+        document.getElementById('note-nickname').value = nickname;
+        document.getElementById('note-text').value = note;
+      };
+      window.__submit = () => document.querySelector('form').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
+      window.__escape = () => document.querySelector('dialog').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',cancelable:true,bubbles:true}));
+      window.__state = () => ({ open:document.querySelector('dialog').open, nickname:document.getElementById('note-nickname').value,
+        note:document.getElementById('note-text').value, error:document.getElementById('note-save-error').textContent,
+        disabled:document.getElementById('note-save').disabled,
+        list:Array.from(document.querySelectorAll('.nickname-note-list-item')).map(node=>node.textContent) });
+      void 0;
+    `);
+  }
+  await setup();
+  await window.webContents.executeJavaScript(`
+    __open('Alice','A 메모'); __submit(); __escape();
+    window.nicknameNotes.updateConfig({userServer:16,nicknameNotes:[{server:7,nickname:'Alice',note:'A 메모'}]});
+    __open('Bob','B 초안'); __submit(); __submit();
+    __requests[0].resolve({success:true});
+  `);
+  assert.deepEqual(await window.webContents.executeJavaScript('__requests.map(request=>request.args)'), [[7,'Alice','A 메모'],[16,'Bob','B 초안']], '서버·닉네임을 요청 시 고정하고 중복 제출을 막아야 합니다.');
+  assert.deepEqual(await window.webContents.executeJavaScript('__state()'),
+    { open:true,nickname:'Bob',note:'B 초안',error:'',disabled:true,list:[] }, '이전 저장 응답이 새 편집을 닫거나 새 요청의 버튼을 활성화하면 안 됩니다.');
+  await window.webContents.executeJavaScript('__requests[1].resolve({success:true});');
+  assert.deepEqual(await window.webContents.executeJavaScript('({open:__state().open,list:__state().list})'),
+    {open:false,list:['BobB 초안']});
+
+  for (const rejection of [false,true]) {
+    await setup();
+    await window.webContents.executeJavaScript(`
+      __open('Alice','옛 편집'); __submit(); __escape(); __open('Bob','새 편집'); __submit();
+      ${rejection ? "__requests[0].reject(new Error('이전 요청 오류'))" : "__requests[0].resolve({success:false,error:'이전 요청 실패'})"};
+    `);
+    assert.deepEqual(await window.webContents.executeJavaScript('__state()'),
+      {open:true,nickname:'Bob',note:'새 편집',error:'',disabled:true,list:[]});
+    await window.webContents.executeJavaScript("__requests[1].resolve({success:false,error:'현재 요청 실패'});");
+    assert.deepEqual(await window.webContents.executeJavaScript('({open:__state().open,error:__state().error,disabled:__state().disabled})'),
+      {open:true,error:'현재 요청 실패',disabled:false});
+  }
+
+  await setup();
+  await window.webContents.executeJavaScript(`
+    __open('Charlie','저장한 내용'); __submit();
+    document.getElementById('note-nickname').value = 'CharlieNew';
+    document.getElementById('note-text').value = '대기 중 추가 입력';
+    __requests[0].resolve({success:true});
+  `);
+  assert.deepEqual(await window.webContents.executeJavaScript('__state()'),
+    {open:true,nickname:'CharlieNew',note:'대기 중 추가 입력',error:'',disabled:false,list:['Charlie저장한 내용']}, '같은 편집창의 대기 중 입력도 보존해야 합니다.');
+  await window.webContents.executeJavaScript('__submit(); __requests[1].resolve({success:true});');
+  assert.equal(await window.webContents.executeJavaScript('__state().open'),false);
+
+  await setup();
+  await window.webContents.executeJavaScript(`
+    __open('Same','오래된 내용'); __submit(); __escape(); __open('Same','최신 내용'); __submit();
+    __requests[1].resolve({success:true});
+  `);
+  await window.webContents.executeJavaScript('__requests[0].resolve({success:true});');
+  assert.deepEqual(await window.webContents.executeJavaScript('__state().list'),['Same최신 내용'], '같은 닉네임의 응답 완료 순서가 뒤집혀도 최신 저장을 보존해야 합니다.');
+  await window.webContents.executeJavaScript(`
+    __open('Same','내 요청'); __submit();
+    window.nicknameNotes.updateConfig({userServer:7,nicknameNotes:[{server:7,nickname:'Same',note:'다른 창의 최신 저장'}]});
+    __requests[2].resolve({success:true});
+  `);
+  assert.deepEqual(await window.webContents.executeJavaScript('__state().list'),['Same다른 창의 최신 저장']);
+  await window.webContents.executeJavaScript(`
+    __open('Same','삭제할 메모'); document.getElementById('note-remove').click();
+    document.getElementById('note-text').value = '삭제 요청 후 추가 입력'; __requests[3].resolve({success:true});
+  `);
+  assert.deepEqual(await window.webContents.executeJavaScript('({open:__state().open,note:__state().note,list:__state().list})'),
+    {open:true,note:'삭제 요청 후 추가 입력',list:[]});
+}
+
+async function checkNotificationLayout(window: BrowserWindow): Promise<void> {
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(cleanHtmlForTest(path.join(projectRoot, 'dist', 'game-overlay.html')))}`);
+  window.setContentSize(1200, 800);
+  const code = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'game-overlay', 'notification-layout.js'), 'utf8');
+  await window.webContents.executeJavaScript(`window.__notificationTimers = []; window.electronAPI = { onNotificationPreview: callback => window.__notificationPreview = callback }; const realTimeout = window.setTimeout; window.setTimeout = (callback, ms) => { if (ms === 5000) { window.__notificationTimers.push(callback); return 0; } return realTimeout(callback, ms); }; ${code}`);
+  const result = await window.webContents.executeJavaScript(`(() => {
+    const original = { center: 'default', buff: 'default', hunting: 'default', toast: 'default' };
+    const layout = { center: 'top-right', buff: 'bottom-center', hunting: 'top-left', toast: 'bottom-right' };
+    const card = document.getElementById('quest-alert');
+    window.notificationLayout.updateConfig({ notificationPositions: layout });
+    const adjusted = parseFloat(card.style.left) > innerWidth / 2 && parseFloat(card.style.top) < innerHeight / 2;
+    window.__notificationPreview(layout);
+    const count = document.querySelectorAll('[data-notification-sample]').length;
+    window.notificationLayout.updateConfig({ notificationPositions: original });
+    window.__notificationTimers.at(-1)();
+    return { adjusted, count, restored: card.style.left === '' && card.style.top === '', removed: !document.querySelector('[data-notification-sample]'), realAlertUntouched: !card.classList.contains('show') };
+  })()`);
+  assert.deepEqual(result, { adjusted: true, count: 4, restored: true, removed: true, realAlertUntouched: true });
+}
+
+async function checkPinnedNoteReading(window: BrowserWindow): Promise<void> {
+  const page = path.join(projectRoot, 'dist', 'game-overlay.html');
+  const fixture = path.join(testUserDataDirectory, 'pinned-note-reading.html');
+  fs.writeFileSync(fixture, cleanStyledHtmlForTest(page).replace('<head>', `<head><base href="${pathToFileURL(page).href}">`));
+  await window.loadFile(fixture);
+  await window.webContents.executeJavaScript(fs.readFileSync(path.join(projectRoot, 'dist/assets/tailwind.min.js'), 'utf8'));
+  const code = fs.readFileSync(path.join(projectRoot, 'dist/shared/windowSnap.js'), 'utf8') + '\n' + ['companion-hud', 'edit-mode'].map(name => fs.readFileSync(path.join(projectRoot, 'dist/renderer/game-overlay', name + '.js'), 'utf8')).join('\n');
+  await window.webContents.executeJavaScript(`window.__noteWrites = [];
+    window.electronAPI = { applySettingsConfirmed: async patch => { window.__noteWrites.push(patch); return { success:true }; } };
+    ${code}
+    window.__readNote = () => {
+      const note = document.getElementById('pinned-note-hud'), text = document.getElementById('pinned-note-content');
+      const rect = note.getBoundingClientRect();
+      return { text: text.textContent, overflow: text.scrollHeight > text.clientHeight + 1,
+        hint: !document.getElementById('pinned-note-overflow').classList.contains('hidden'),
+        pointerEvents: getComputedStyle(text).pointerEvents, scrollTop: text.scrollTop,
+        fits: rect.left >= 11 && rect.top >= 11 && rect.right <= innerWidth - 11 && rect.bottom <= innerHeight - 11,
+        left: note.style.left, top: note.style.top };
+    }; true;`);
+  const samples = ['오늘 목표\n도핑 확인', Array.from({ length: 25 }, (_, i) => `${i + 1}. 도핑과 장비 확인`).join('\n'), '가'.repeat(1000), '체크\n'.repeat(333) + '끝'];
+  for (const [width, height] of [[800, 600], [1000, 700], [1920, 1080]]) {
+    window.setContentSize(width, height);
+    await waitForRendererCondition(window, `innerWidth === ${width} && innerHeight === ${height}`, '메모 화면 크기가 반영되지 않았습니다.');
+    for (const text of samples) {
+      const result = await window.webContents.executeJavaScript(`(() => {
+        window.__noteConfig = { pinnedNoteEnabled: true, pinnedNoteText: ${JSON.stringify(text)}, pinnedNotePos: { left: 1800, top: 900 } };
+        companionHud.updateConfig(window.__noteConfig); return window.__readNote();
+      })()`);
+      assert.equal(result.text, text);
+      assert.equal(result.fits, true, `${width}×${height}: 메모 패널이 화면을 벗어났습니다.`);
+      assert.equal(result.pointerEvents, 'none', '평상시 게임 입력 투과를 유지해야 합니다.');
+      assert.equal(result.hint, result.overflow, '넘치는 메모에만 전체 보기 안내를 표시해야 합니다.');
+      assert.equal(result.overflow, text !== samples[0]);
+      if (!result.overflow) continue;
+      const edited = await window.webContents.executeJavaScript(`(() => {
+        gameOverlayEditMode.enterEditMode();
+        const text = document.getElementById('pinned-note-content');
+        text.scrollTop = text.scrollHeight;
+        const end = document.createRange(); end.setStart(text.firstChild, text.textContent.length - 1); end.setEnd(text.firstChild, text.textContent.length);
+        const tail = end.getBoundingClientRect(), viewport = text.getBoundingClientRect();
+        const before = text.scrollTop;
+        companionHud.updateConfig({ ...window.__noteConfig, supplyHelperEnabled: false });
+        return { overflowY: getComputedStyle(text).overflowY, pointerEvents: getComputedStyle(text).pointerEvents,
+          tailVisible: tail.top >= viewport.top - 1 && tail.bottom <= viewport.bottom + 1,
+          scrollPreserved: text.scrollTop === before, fits: window.__readNote().fits };
+      })()`);
+      assert.deepEqual(edited, { overflowY: 'auto', pointerEvents: 'auto', tailVisible: true, scrollPreserved: true, fits: true });
+      const cancelled = await window.webContents.executeJavaScript(`gameOverlayEditMode.exitEditMode(false); window.__readNote()`);
+      assert.equal(cancelled.pointerEvents, 'none');
+      assert.equal(cancelled.fits, true);
+    }
+  }
+  // 실제 입력으로 본문 스크롤과 제목 드래그를 구분한다.
+  window.setContentSize(1000, 700);
+  await waitForRendererCondition(window, 'innerWidth === 1000 && innerHeight === 700', '입력 검사 화면 크기 변경 실패');
+  await waitForRendererCondition(window, 'window.__readNote().fits', '크기 변경 후 메모가 화면 안으로 보정되지 않았습니다.');
+  const resized = await window.webContents.executeJavaScript(`({ fits:window.__readNote().fits, position:window.__noteConfig.pinnedNotePos })`);
+  assert.deepEqual(resized, { fits:true, position:{left:1800, top:900} }, '화면 보정은 저장된 좌표를 덮지 않습니다.');
+  const input = await window.webContents.executeJavaScript(`(() => {
+    window.__noteConfig = { pinnedNoteEnabled: true, pinnedNoteText: ${JSON.stringify(samples[1])}, pinnedNotePos: { left: 120, top: 120 } };
+    companionHud.updateConfig(window.__noteConfig); gameOverlayEditMode.enterEditMode();
+    // 다른 HUD는 이 본문 입력 검사의 대상이 아니다.
+    document.querySelectorAll('.hud-draggable:not(#pinned-note-hud)').forEach(el => el.style.display = 'none');
+    const note = document.getElementById('pinned-note-hud'), text = document.getElementById('pinned-note-content');
+    text.scrollTop = 0;
+    const bodyDown = new PointerEvent('pointerdown', { bubbles:true, cancelable:true, button:0, pointerId:5 });
+    text.dispatchEvent(bodyDown);
+    const bodyDrags = note.classList.contains('is-dragging');
+    const titleDown = new PointerEvent('pointerdown', { bubbles:true, cancelable:true, button:0, pointerId:6 });
+    note.querySelector('.ui-hud-heading').dispatchEvent(titleDown);
+    const titleDrags = note.classList.contains('is-dragging');
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId:6 }));
+    const rect = text.getBoundingClientRect();
+    return { bodyDrags, bodyPrevented:bodyDown.defaultPrevented, titleDrags, titlePrevented:titleDown.defaultPrevented,
+      x:Math.round(rect.left + rect.width / 2), y:Math.round(rect.top + rect.height / 2) };
+  })()`);
+  assert.equal(input.bodyDrags, false);
+  assert.equal(input.bodyPrevented, false);
+  assert.equal(input.titleDrags, true);
+  assert.equal(input.titlePrevented, true);
+  await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+  assert.equal(await window.webContents.executeJavaScript(`document.elementFromPoint(${input.x}, ${input.y})?.id`), 'pinned-note-content');
+  window.webContents.focus();
+  window.webContents.sendInputEvent({ type: 'mouseMove', x: input.x, y: input.y });
+  window.webContents.sendInputEvent({ type: 'mouseWheel', x: input.x, y: input.y, deltaY: -1000, canScroll: true });
+  await waitForRendererCondition(window, "document.getElementById('pinned-note-content').scrollTop > 0", '실제 휠 입력으로 긴 메모를 스크롤할 수 없습니다.');
+  const final = await window.webContents.executeJavaScript(`(() => {
+    const note = document.getElementById('pinned-note-hud');
+    note.style.left = '200px'; note.style.top = '200px';
+    companionHud.updateConfig({ ...window.__noteConfig, pinnedNoteText:'편집 중 받은 짧은 메모', pinnedNotePos:{left:1, top:1} });
+    const editing = window.__readNote();
+    const draftPreserved = editing.left === '200px' && editing.top === '200px' && !editing.hint;
+    companionHud.updateConfig(window.__noteConfig);
+    gameOverlayEditMode.exitEditMode(false);
+    const noWrites = window.__noteWrites.length === 0;
+    const storedPosition = { ...window.__noteConfig.pinnedNotePos };
+    companionHud.updateConfig({ ...window.__noteConfig, pinnedNoteText: '짧은 메모' });
+    const short = window.__readNote();
+    companionHud.updateConfig({ ...window.__noteConfig, pinnedNoteEnabled: false });
+    const disabled = document.getElementById('pinned-note-hud').classList.contains('hidden');
+    companionHud.updateConfig({ ...window.__noteConfig, pinnedNoteText: '  ' });
+    return { noWrites, draftPreserved, storedPosition, shortHint:short.hint, shortScroll:short.scrollTop, disabled,
+      empty:document.getElementById('pinned-note-hud').classList.contains('hidden') };
+  })()`);
+  assert.deepEqual(final, { noWrites:true, draftPreserved:true, storedPosition:{left:120, top:120}, shortHint:false, shortScroll:0, disabled:true, empty:true });
+  const saved = await window.webContents.executeJavaScript(`(async () => {
+    companionHud.updateConfig({ ...window.__noteConfig, pinnedNoteText:'저장 위치 확인' });
+    gameOverlayEditMode.enterEditMode();
+    const note = document.getElementById('pinned-note-hud');
+    note.style.left = '250px'; note.style.top = '220px';
+    await gameOverlayEditMode.exitEditMode(true);
+    const beforeReply = [note.style.left, note.style.top];
+    const position = window.__noteWrites.at(-1).pinnedNotePos;
+    companionHud.updateConfig({ ...window.__noteConfig, pinnedNotePos:position, pinnedNoteText:'저장 위치 확인' });
+    return { beforeReply, position, afterReply:[note.style.left, note.style.top], writes:window.__noteWrites.length };
+  })()`);
+  assert.deepEqual(saved, { beforeReply:['250px', '220px'], position:{left:250, top:220}, afterReply:['250px', '220px'], writes:1 });
+}
+
+async function checkCompanionHud(window: BrowserWindow): Promise<void> {
+  const gameOverlayPath = path.join(projectRoot, 'dist', 'game-overlay.html');
+  const fixturePath = path.join(testUserDataDirectory, 'supply-hud.html');
+  fs.writeFileSync(fixturePath, cleanStyledHtmlForTest(gameOverlayPath).replace('<head>', `<head><base href="${pathToFileURL(gameOverlayPath).href}">`));
+  await window.loadFile(fixturePath);
+  window.setContentSize(800, 600);
+  await window.webContents.executeJavaScript(fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'tailwind.min.js'), 'utf8'));
+  const code = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'game-overlay', 'companion-hud.js'), 'utf8');
+  await window.webContents.executeJavaScript(`window.electronAPI = { onSupplyRunUpdate: callback => window.__supply = callback }; window.gameOverlayEditMode = { isEditMode: () => false };
+    window.__supplyClock = 100000; Date.now = () => window.__supplyClock;
+    window.__supplyTimers = new Map(); let supplyTimerId = 0;
+    window.setTimeout = (callback, ms) => { const id = ++supplyTimerId; window.__supplyTimers.set(id, { callback, ms }); return id; };
+    window.clearTimeout = id => window.__supplyTimers.delete(id);
+    ${code}`);
+  const result = await window.webContents.executeJavaScript(`(() => {
+    window.companionHud.updateConfig({ pinnedNoteEnabled: true, pinnedNoteText: '<img id="pinned-xss">목표\\n도핑 확인', pinnedNotePos: { left: 120, top: 250 } });
+    const element = document.getElementById('pinned-note-hud');
+    const visible = !element.classList.contains('hidden');
+    const position = [element.style.left, element.style.top];
+    const safe = !document.getElementById('pinned-xss');
+    window.gameOverlayEditMode.isEditMode = () => true;
+    window.companionHud.updateConfig({ pinnedNoteEnabled: false, pinnedNotePos: { left: 1, top: 1 } });
+    const preserved = [element.style.left, element.style.top];
+    window.gameOverlayEditMode.isEditMode = () => false;
+    window.companionHud.updateConfig({ pinnedNoteEnabled: false });
+    return { visible, safe, position, preserved, hidden: element.classList.contains('hidden') };
+  })()`);
+  assert.deepEqual(result, { visible: true, safe: true, position: ['120px', '250px'], preserved: ['120px', '250px'], hidden: true });
+  const supplyResult = await window.webContents.executeJavaScript(`(() => {
+    window.companionHud.updateConfig({ supplyHelperEnabled: true, supplyMapEnabled: true, supplyMapLarge: true, supplyHudPos: { left: 360, top: 90 } });
+    const panel = document.getElementById('supply-pad-alert');
+    window.__supply({ expiresAt: Date.now() + 60000, orderExpiresAt: 0, colors: [] });
+    const waitingHidden = panel.classList.contains('hidden');
+    window.__supply({ expiresAt: Date.now() + 60000, orderExpiresAt: Date.now() + 10000, colors: ['파랑', '노랑', '빨강'] });
+    const shown = !panel.classList.contains('hidden');
+    const colors = document.getElementById('supply-pad-order').textContent;
+    const rect = panel.getBoundingClientRect();
+    const fits = rect.left >= 12 && rect.right <= innerWidth - 12 && rect.height <= 120;
+    const noMapOrCard = !document.getElementById('supply-map') && !document.getElementById('supply-helper-hud') && !panel.classList.contains('ui-hud-card');
+    window.__supplyClock += 5000;
+    window.__supply({ expiresAt: Date.now() + 60000, orderExpiresAt: Date.now() + 10000, colors: ['빨강', '검정', '파랑'] });
+    const replacement = document.getElementById('supply-pad-order').textContent;
+    const timer = [...window.__supplyTimers.values()][0];
+    const renewed = window.__supplyTimers.size === 1 && timer.ms === 10000;
+    window.__supplyClock += 10000; timer.callback();
+    const expired = panel.classList.contains('hidden') && document.getElementById('supply-pad-order').textContent === '';
+    window.__supply({ expiresAt: Date.now() + 60000, orderExpiresAt: Date.now() + 10000, colors: ['흰색', '파랑', '노랑'] });
+    window.companionHud.updateConfig({ supplyHelperEnabled: false });
+    const disabled = panel.classList.contains('hidden');
+    window.companionHud.updateConfig({ supplyHelperEnabled: true });
+    window.__supply({ expiresAt: 0, orderExpiresAt: 0, colors: [] });
+    return { waitingHidden, shown, colors, fits, noMapOrCard, replacement, renewed, expired, disabled, ended: panel.classList.contains('hidden') };
+  })()`);
+  assert.deepEqual(supplyResult, { waitingHidden: true, shown: true, colors: '파랑→노랑→빨강', fits: true, noMapOrCard: true,
+    replacement: '빨강→검정→파랑', renewed: true, expired: true, disabled: true, ended: true });
+  for (const [colors, files] of [
+    [['파랑', '노랑', '빨강'], ['blue.png', 'yellow.png', 'red.png']],
+    [['빨강', '검정', '파랑'], ['red.png', 'black.png', 'blue.png']],
+    [['흰색', '파랑', '노랑'], ['white.png', 'blue.png', 'yellow.png']],
+  ]) {
+    const images = await window.webContents.executeJavaScript(`(async () => {
+      window.__supply({expiresAt:Date.now()+60000,orderExpiresAt:Date.now()+10000,colors:${JSON.stringify(colors)}});
+      const images = Array.from(document.querySelectorAll('#supply-pad-order img'));
+      await Promise.all(images.map(image => image.decode()));
+      return images.map(image => ({file:image.getAttribute('src').split('/').at(-1),width:image.naturalWidth,height:image.naturalHeight,
+        displayWidth:image.getBoundingClientRect().width,displayHeight:image.getBoundingClientRect().height}));
+    })()`);
+    assert.deepEqual(images, files.map(file => ({file,width:136,height:88,displayWidth:68,displayHeight:44})),
+      '암호 순서에 맞는 실제 발판 PNG가 빌드 결과에서 로드되어야 합니다.');
+  }
+  const layoutCode = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'game-overlay', 'notification-layout.js'), 'utf8');
+  await window.webContents.executeJavaScript(`${layoutCode}
+    window.__supply({expiresAt:Date.now()+60000,orderExpiresAt:Date.now()+10000,colors:['파랑','노랑','빨강']});
+  `);
+  for (const [width, height] of [[800, 600], [400, 300]]) {
+    window.setContentSize(width, height);
+    await waitForRendererCondition(window, `innerWidth === ${width} && innerHeight === ${height}`, '발판 안내 화면 크기가 변경되지 않았습니다.');
+    for (const anchor of ['default', 'top-right', 'bottom-left']) {
+      const fits = await window.webContents.executeJavaScript(`(() => {
+        window.notificationLayout.updateConfig({notificationPositions:{center:${JSON.stringify(anchor)}}});
+        const r = document.getElementById('supply-pad-alert').getBoundingClientRect();
+        return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && r.height <= 120;
+      })()`);
+      assert.equal(fits, true, `${width}×${height} ${anchor}: 발판 안내가 화면 밖으로 잘리거나 위치 변경으로 줄바꿈되면 안 됩니다.`);
+    }
+  }
+}
+
 async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
   const gameOverlayPath = path.join(projectRoot, 'dist', 'game-overlay.html');
   const fullHtml = fs.readFileSync(gameOverlayPath, 'utf8');
@@ -2985,7 +3768,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
           forgeQuestHudPos: { left: 200, bottom: 0 },
           todaySummaryHudPos: { left: 0, top: 200 },
         },
-        applySettings: settings => window.__hudPositionSettingWrites.push(settings),
+        applySettingsConfirmed: async settings => { window.__hudPositionSettingWrites.push(settings); return { success:true }; },
       };
       window.__hudPositionConfig = {
         xpWidgetPos: { left: 910, bottom: 70 },
@@ -3039,7 +3822,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
   }, '게임 오버레이 버프 HUD의 저장 좌표가 그대로 적용되지 않았습니다.');
 
   const hiddenSaveResult = await window.webContents.executeJavaScript(`
-    (() => {
+    (async () => {
       let editModeCallback = null;
       window.__hudPositionSettingWrites = [];
       window.electronAPI = {
@@ -3051,7 +3834,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
           forgeQuestHudPos: { left: 50, bottom: 215 },
           todaySummaryHudPos: { left: 0, top: 200 },
         },
-        applySettings: settings => window.__hudPositionSettingWrites.push(settings),
+        applySettingsConfirmed: async settings => { window.__hudPositionSettingWrites.push(settings); return { success:true }; },
         onGameOverlayEditMode: callback => { editModeCallback = callback; },
         onGameOverlayResetPositions: () => {},
       };
@@ -3061,7 +3844,7 @@ async function checkGameOverlayEditMode(window: BrowserWindow): Promise<void> {
       buff.style.left = '980px';
       buff.style.bottom = '80px';
       buff.classList.add('hidden');
-      editModeCallback(false, true);
+      await editModeCallback(false, true);
       return window.__hudPositionSettingWrites.at(-1)?.buffTimerHudPos;
     })()
   `) as { left: number; bottom: number };
@@ -3264,7 +4047,8 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
     .replace('<script src="assets/virtual-list.js"></script>', '')
     .replace('<script src="shared/chatChannels.js"></script>', '')
     .replace('<script src="shared/chatConstants.js"></script>', '')
-    .replace('<script src="chatOverlayRenderer.js"></script>', '');
+    .replace('<script src="chatOverlayRenderer.js"></script>', '')
+    .replace('<script src="renderer/nickname-notes.js"></script>', '');
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
   const uiUtilsCode = fs.readFileSync(
@@ -3313,6 +4097,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
     ]
   };
 
+  const notesCode = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'nickname-notes.js'), 'utf8');
   const script = `
     (() => {
       try {
@@ -3342,12 +4127,16 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
           cleanupAllListeners() {},
           setChatOverlaySize: (...args) => window.__chatSizeCalls.push(args),
           applySettings: settings => window.__appliedSettings.push(settings),
+          saveNicknameNote: async (...args) => { window.__noteSaved = args; return { success: true }; },
           toggleChatOverlay() {},
           toggleChatOverlaySub() {},
           toggleSettings() {},
         };
 
-        eval(${JSON.stringify(`${uiUtilsCode}\n${requestGenerationCode}\n${virtualListCode}\n${chatChannelsCode}\n${chatConstantsCode}\n${rendererCode}`)});
+        eval(${JSON.stringify(`${uiUtilsCode}\n${requestGenerationCode}\n${virtualListCode}\n${chatChannelsCode}\n${chatConstantsCode}\n${notesCode}\n
+          const createChatTestList = window.createVirtualList;
+          window.createVirtualList = options => (window.__chatTestList = createChatTestList(options));
+          ${rendererCode}`)});
 
         window.__modeCallback('main');
         window.__configCallback({
@@ -3852,6 +4641,506 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
     '과거 탐색 후 최신 구간으로 돌아왔을 때 새 live 데이터가 누락됐습니다.');
   assert.ok(virtualizationResult.liveAtTopDomCount < 300 && virtualizationResult.liveBottomDomCount < 300,
     'live 1,000건 추가 후 실제 DOM 행 수가 overscan 상한을 벗어났습니다.');
+  const typography = await window.webContents.executeJavaScript(`
+    (() => {
+      const config = { chatOverlayTab: 'Basic', chatOverlayFontSize: 15, chatOverlayFontFamily: 'malgun', chatOverlaySubFontSize: 22, chatOverlaySubFontFamily: 'gulim', chatOverlaySub2FontSize: 0, chatOverlaySub2FontFamily: '' };
+      window.__configCallback(config);
+      const read = () => ({ size: document.documentElement.style.getPropertyValue('--font-size-base'), family: document.body.style.fontFamily });
+      window.__modeCallback('main'); const main = read();
+      window.__modeCallback('sub1'); const sub1 = read();
+      window.__modeCallback('sub2'); const sub2 = read();
+      return { main, sub1, sub2 };
+    })()
+  `);
+  assert.equal(typography.main.size, '15px');
+  assert.equal(typography.sub1.size, '22px');
+  assert.match(typography.sub1.family, /Gulim/);
+  assert.deepEqual(typography.sub2, typography.main, '보조 창의 미설정 글꼴은 메인 설정을 상속해야 합니다.');
+
+  const shoutFiltering = await window.webContents.executeJavaScript(`
+    (async () => {
+      const rows = ['free', 'paid', 'notice'].map(kind => ({ id: 'kind-' + kind, type: 'shout', shoutKind: kind, sender: kind, message: kind, timestamp: '12시 00분 00초', color: '#c896c8', level: null }));
+      window.electronAPI.getChatHistory = async () => rows;
+      window.__modeCallback('main');
+      window.__configCallback({ chatOverlayTab: 'Basic', chatOverlayShowFreeShout: false, chatOverlayShowPaidShout: true, chatOverlayShowNoticeShout: false });
+      await new Promise(resolve => setTimeout(resolve, 160));
+      const filtered = Array.from(document.querySelectorAll('.chat-message-row'), row => row.dataset.chatId);
+      window.__configCallback({ chatOverlayTab: 'Basic', chatOverlayShowFreeShout: true, chatOverlayShowPaidShout: true, chatOverlayShowNoticeShout: true });
+      await new Promise(resolve => setTimeout(resolve, 160));
+      return { filtered, restored: document.querySelectorAll('.chat-message-row').length };
+    })()
+  `);
+  assert.deepEqual(shoutFiltering.filtered, ['kind-paid']);
+  assert.equal(shoutFiltering.restored, 3, '필터를 다시 켜면 기존 외치기가 복원되어야 합니다.');
+
+  const noteResult = await window.webContents.executeJavaScript(`
+    (async () => {
+      const row = { id: 'note-user', type: 'general', sender: 'Tester', message: '안녕하세요', timestamp: '12시 00분 00초', color: '#ffffff', level: 10 };
+      window.electronAPI.getChatHistory = async () => [row];
+      const notes = [{ server: 7, nickname: 'Tester', note: '<img id="note-xss">거래했던 분' }, { server: 16, nickname: 'Tester', note: '네냐플 메모' }];
+      window.__configCallback({ userServer: 7, chatOverlayTab: 'Basic', nicknameNotes: notes });
+      await new Promise(resolve => setTimeout(resolve, 180));
+      const first = document.querySelector('.nickname-note-badge')?.textContent;
+      const injected = Boolean(document.getElementById('note-xss'));
+      const sender = document.querySelector('[data-note-nickname="Tester"]');
+      sender.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      const opened = document.querySelector('.nickname-note-dialog').open;
+      document.getElementById('note-text').value = '새 메모';
+      document.querySelector('.nickname-note-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await new Promise(resolve => setTimeout(resolve, 30));
+      window.__configCallback({ userServer: 16, chatOverlayTab: 'Basic', nicknameNotes: notes.map(note => ({ ...note })) });
+      await new Promise(resolve => setTimeout(resolve, 180));
+      return { first, injected, opened, saved: window.__noteSaved, second: document.querySelector('.nickname-note-badge')?.textContent };
+    })()
+  `);
+  assert.equal(noteResult.first, '<img id="note-xss">거래했던 분');
+  assert.equal(noteResult.injected, false);
+  assert.equal(noteResult.opened, true);
+  assert.deepEqual(noteResult.saved, [7, 'Tester', '새 메모']);
+  assert.equal(noteResult.second, '네냐플 메모');
+
+  const searchRefresh = await window.webContents.executeJavaScript(`
+    (async () => {
+      const pause = () => new Promise(resolve => setTimeout(resolve, 160));
+      const rows = ['free', 'paid'].map(kind => ({ id: 'search-' + kind, type: 'shout', shoutKind: kind,
+        sender: kind, message: '매물 ' + kind, timestamp: '12시 00분 00초', color: '#c896c8', level: null }));
+      let config = { userServer: 7, chatOverlayTab: 'Basic', nicknameNotes: [], chatOverlayShowFreeShout: true, chatOverlayShowPaidShout: true };
+      let historyCalls = 0;
+      const queries = [];
+      window.electronAPI.getChatHistory = async () => { historyCalls++; return [{ ...rows[0], id: 'unrelated', message: '다른 물건' }]; };
+      window.electronAPI.searchChatLogs = async query => { queries.push(query); return rows; };
+      window.electronAPI.saveNicknameNote = async (server, nickname, note) => {
+        config = { ...config, nicknameNotes: [{ server, nickname, note }] };
+        window.__configCallback(config);
+        return { success: true };
+      };
+      window.__configCallback(config);
+      await pause();
+      document.getElementById('btnToggleSearch').click();
+      document.getElementById('searchInput').value = '매물';
+      document.getElementById('btnExecuteSearch').click();
+      await pause();
+      const historyBeforeSave = historyCalls;
+      // 입력창만 고친 미실행 검색어가 아닌 현재 실행 중인 검색어를 유지한다.
+      document.getElementById('searchInput').value = '아직 실행하지 않은 검색어';
+      document.querySelector('[data-note-nickname="free"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      document.getElementById('note-text').value = '거래 메모';
+      document.querySelector('.nickname-note-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await pause();
+      const read = () => ({ ids: Array.from(document.querySelectorAll('.chat-message-row'), row => row.dataset.chatId),
+        status: document.getElementById('searchResultText').textContent, note: document.querySelector('.nickname-note-badge')?.textContent });
+      const afterSave = read();
+      config = { ...config, chatOverlayShowPaidShout: false };
+      window.__configCallback(config);
+      await pause();
+      const afterFilter = read();
+      const pending = [];
+      window.electronAPI.searchChatLogs = query => new Promise(resolve => pending.push({ query, resolve }));
+      config = { ...config, chatOverlayShowPaidShout: true };
+      window.__configCallback(config);
+      config = { ...config, chatOverlayShowFreeShout: false };
+      window.__configCallback(config);
+      pending[1].resolve([rows[1]]);
+      await pause();
+      pending[0].resolve([{ ...rows[1], id: 'stale', message: '오래된 응답' }]);
+      await pause();
+      const afterRace = read();
+      const historyAfterRefresh = historyCalls;
+      document.getElementById('btnExitSearchMode').click();
+      await pause();
+      return { afterSave, afterFilter, afterRace, historyBeforeSave, historyAfterRefresh, historyAfterExit: historyCalls, queries,
+        pendingQueries: pending.map(request => request.query), searchHidden: document.getElementById('searchStatusBar').classList.contains('hidden') };
+    })()
+  `);
+  assert.deepEqual(searchRefresh.afterSave.ids, ['search-free', 'search-paid']);
+  assert.equal(searchRefresh.afterSave.note, '거래 메모');
+  assert.equal(searchRefresh.afterSave.status, '검색 결과: 2건 ("매물")');
+  assert.deepEqual(searchRefresh.afterFilter.ids, ['search-free']);
+  assert.equal(searchRefresh.afterFilter.status, '검색 결과: 1건 ("매물")');
+  assert.deepEqual(searchRefresh.afterRace.ids, ['search-paid'], '이전 설정으로 시작한 검색 응답이 최신 결과를 덮으면 안 됩니다.');
+  assert.equal(searchRefresh.afterRace.status, '검색 결과: 1건 ("매물")');
+  assert.deepEqual(searchRefresh.queries, ['매물', '매물'], '메모 표시는 검색을 다시 실행하지 않습니다.');
+  assert.deepEqual(searchRefresh.pendingQueries, ['매물', '매물']);
+  assert.equal(searchRefresh.historyBeforeSave, searchRefresh.historyAfterRefresh, '검색 중 메모/필터 갱신은 일반 이력을 요청하지 않습니다.');
+  assert.equal(searchRefresh.historyAfterExit, searchRefresh.historyBeforeSave + 1);
+  assert.equal(searchRefresh.searchHidden, true);
+
+  // 자정/로그 재연결 이벤트는 세 채팅창 모두 실행한 검색 조건을 유지한다.
+  // 이벤트 처리와 렌더링은 실제 코드, 조회 응답만 지연시켜 이전 요청과의 경합을 검사한다.
+  const resetSearch = await window.webContents.executeJavaScript(`
+    (async () => {
+      const pause = () => new Promise(resolve => setTimeout(resolve, 80));
+      const results = [];
+      const row = (id, message) => ({ id, type: 'general', sender: '모험가', message,
+        timestamp: '00시 01분 00초', color: '#ffffff' });
+      for (const mode of ['main', 'sub1', 'sub2']) {
+        const pending = [];
+        let historyCalls = 0;
+        window.electronAPI.getChatHistory = async () => { historyCalls++; return [row('unrelated', '일반 이력')]; };
+        window.electronAPI.getMoreChatHistory = async () => [];
+        window.electronAPI.searchChatLogs = query => new Promise(resolve => pending.push({ query, resolve }));
+        window.__modeCallback(mode);
+        window.__configCallback({ chatOverlayTab: 'Basic', chatOverlaySubTab: 'Basic', chatOverlaySub2Tab: 'Basic' });
+        await pause();
+        document.getElementById('btnToggleSearch').click();
+        document.getElementById('searchInput').value = '갱신 대상';
+        document.getElementById('btnExecuteSearch').click();
+        const beforeReset = historyCalls;
+        document.getElementById('searchInput').value = '아직 실행하지 않은 입력';
+        window.__chatUpdatedCallback(row('queued-old', '갱신 대상 이전 파일의 대기 행'));
+        window.__chatClearedCallback();
+        if (pending.length !== 2) throw new Error(mode + ': 초기화가 검색을 다시 요청하지 않음');
+        pending[1].resolve([row('current', '갱신 대상 새 파일')]);
+        await pause();
+        pending[0].resolve([row('stale', '갱신 대상 이전 응답')]);
+        await pause();
+        results.push({ mode, queries: pending.map(request => request.query),
+          historyUnchanged: beforeReset === historyCalls,
+          ids: Array.from(document.querySelectorAll('.chat-message-row'), row => row.dataset.chatId),
+          status: document.getElementById('searchResultText').textContent,
+          draft: document.getElementById('searchInput').value });
+        document.getElementById('btnExitSearchMode').click();
+        await pause();
+      }
+      return results;
+    })()
+  `);
+  for (const result of resetSearch) {
+    assert.deepEqual(result.queries, ['갱신 대상', '갱신 대상'], result.mode);
+    assert.equal(result.historyUnchanged, true, result.mode);
+    assert.deepEqual(result.ids, ['current'], result.mode);
+    assert.equal(result.status, '검색 결과: 1건 ("갱신 대상")', result.mode);
+    assert.equal(result.draft, '아직 실행하지 않은 입력', result.mode);
+  }
+
+  const filteredPagination = await window.webContents.executeJavaScript(`
+    (async () => {
+      const pause = (ms = 40) => new Promise(resolve => setTimeout(resolve, ms));
+      const until = async (condition, label) => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+          if (condition()) return;
+          await pause();
+        }
+        throw new Error('필터 페이지 대기 실패: ' + label);
+      };
+      const area = document.getElementById('chatArea');
+      area.style.height = '240px';
+      area.style.flex = 'none';
+      const make = (id, kind = 'free', type = 'shout') => ({ id, type, shoutKind: kind,
+        sender: '페이지 검사', message: id, timestamp: '12시 00분 00초', color: '#c896c8', level: null });
+      const batch = (prefix, kind = 'paid') => Array.from({ length: 150 }, (_, index) => make(prefix + index, kind));
+      const hidden = batch('숨김-');
+      const config = { userServer: 7, chatOverlayTab: 'Basic', nicknameNotes: [],
+        chatOverlayVisibleTabs: ['Basic', 'General', 'Shout'], chatOverlaySelectedChannels: ['general', 'shout'],
+        chatOverlayShowFreeShout: true, chatOverlayShowPaidShout: false, chatOverlayShowNoticeShout: false };
+      const ids = () => Array.from(area.querySelectorAll('.chat-message-row'), row => row.dataset.chatId);
+      let calls = 0;
+      let pages = [batch('숨김1-'), batch('숨김2-'), [make('가장 오래된 무료')]];
+      window.electronAPI.getChatHistory = async () => hidden;
+      window.electronAPI.getMoreChatHistory = async () => { calls++; return pages.shift() || []; };
+      window.__configCallback(config);
+      document.querySelector('[data-tab="Basic"]').click();
+      await until(() => ids().includes('가장 오래된 무료'), '빈 첫 화면 자동 채우기');
+      await pause(100);
+      const emptyInitial = { ids: ids(), calls, scrollable: area.scrollHeight > area.clientHeight };
+      // 표시 설정을 다시 켜면 최초 원본 페이지도 복원한다.
+      window.__configCallback({ ...config, chatOverlayShowPaidShout: true });
+      await until(() => ids().some(id => id.startsWith('숨김-')), '필터 해제');
+      const restoredPaid = ids().some(id => id.startsWith('숨김-'));
+
+      calls = 0;
+      pages = [[make('중간 무료'), ...hidden.slice(1)], batch('오래된 무료-', 'free')];
+      window.electronAPI.getChatHistory = async () => [make('최신 무료')];
+      window.__configCallback(config);
+      await until(() => calls === 2 && area.scrollHeight > area.clientHeight, '짧은 첫 화면 채우기');
+      await pause(100);
+      const shortInitial = { calls, ids: ids(), scrollable: area.scrollHeight > area.clientHeight };
+
+      // 스크롤 가능한 화면의 위쪽에서 숨긴 페이지를 만나도 추가 휠 입력 없이 넘긴다.
+      calls = 0;
+      pages = [batch('위 숨김1-'), batch('위 숨김2-'), [make('위쪽 무료')]];
+      window.electronAPI.getChatHistory = async () => batch('현재-', 'free');
+      document.querySelector('[data-tab="Basic"]').click();
+      await until(() => ids().includes('현재-149'), '스크롤 초기 이력');
+      await pause(100);
+      const callsBeforeScroll = calls;
+      let releaseScrollPage;
+      const nextPage = window.electronAPI.getMoreChatHistory;
+      window.electronAPI.getMoreChatHistory = async () => {
+        await new Promise(resolve => { releaseScrollPage = resolve; });
+        window.electronAPI.getMoreChatHistory = nextPage;
+        return nextPage();
+      };
+      area.scrollTop = 0;
+      area.dispatchEvent(new Event('scroll'));
+      await until(() => releaseScrollPage && area.querySelector('[data-chat-id="현재-0"]'), '가상 목록의 위쪽 앵커');
+      await pause(150);
+      const anchorBefore = area.querySelector('[data-chat-id="현재-0"]')?.getBoundingClientRect().top;
+      releaseScrollPage();
+      await until(() => ids().includes('위쪽 무료'), '스크롤 중 숨긴 페이지');
+      await pause(150);
+      const scrolled = { calls, anchorBefore,
+        anchorAfter: area.querySelector('[data-chat-id="현재-0"]')?.getBoundingClientRect().top };
+
+      // 전부 숨겨진 경우에도 원본 끝에서 멈추고 중복 스크롤로 재조회하지 않는다.
+      calls = 0;
+      pages = [hidden, hidden, []];
+      window.electronAPI.getChatHistory = async () => hidden;
+      document.querySelector('[data-tab="Basic"]').click();
+      await until(() => calls === 3, '모든 기록 숨김');
+      await pause(100);
+      area.dispatchEvent(new Event('scroll'));
+      await pause(100);
+      const allHidden = { ids: ids(), calls };
+
+      const cancelled = [];
+      for (const change of ['config', 'tab', 'search']) {
+        window.__configCallback(config);
+        let resolveOld;
+        let oldCalls = 0;
+        window.electronAPI.getChatHistory = async category => category === 'General'
+          ? [make('새 탭', 'free', 'general')] : hidden;
+        window.electronAPI.getMoreChatHistory = () => { oldCalls++; return new Promise(resolve => { resolveOld = resolve; }); };
+        document.querySelector('[data-tab="Basic"]').click();
+        await until(() => resolveOld, change + ' 전환 전 요청');
+        window.electronAPI.getMoreChatHistory = async () => [];
+        if (change === 'config') window.__configCallback({ ...config, chatOverlayShowPaidShout: true });
+        if (change === 'tab') document.querySelector('[data-tab="General"]').click();
+        if (change === 'search') {
+          window.electronAPI.searchChatLogs = async () => [make('검색 결과')];
+          document.getElementById('searchInput').value = '검색';
+          document.getElementById('btnExecuteSearch').click();
+        }
+        await pause(100);
+        resolveOld(batch('오래된 응답-', 'free'));
+        await pause(100);
+        cancelled.push({ change, oldCalls, ids: ids() });
+        if (change === 'search') { document.getElementById('btnExitSearchMode').click(); await pause(100); }
+      }
+
+      // 채우는 도중 도착한 실시간 기록도 과거 응답과 함께 유지한다.
+      let resolveLivePage;
+      window.electronAPI.getChatHistory = async () => hidden;
+      window.electronAPI.getMoreChatHistory = () => new Promise(resolve => { resolveLivePage = resolve; });
+      document.querySelector('[data-tab="Basic"]').click();
+      await until(() => resolveLivePage, '실시간 수신 전 요청');
+      window.__chatUpdatedCallback(make('실시간 무료'));
+      await pause(100);
+      resolveLivePage([make('과거 무료')]);
+      await until(() => ids().includes('과거 무료') && ids().includes('실시간 무료'), '실시간 기록 보존');
+      return { emptyInitial, restoredPaid, shortInitial, callsBeforeScroll, scrolled, allHidden, cancelled, liveIds: ids() };
+    })()
+  `);
+  assert.deepEqual(filteredPagination.emptyInitial, { ids: ['가장 오래된 무료'], calls: 3, scrollable: false });
+  assert.equal(filteredPagination.restoredPaid, true);
+  assert.equal(filteredPagination.shortInitial.calls, 2);
+  assert.equal(filteredPagination.shortInitial.scrollable, true);
+  assert.ok(filteredPagination.shortInitial.ids.includes('최신 무료'));
+  assert.equal(filteredPagination.callsBeforeScroll, 0);
+  assert.equal(filteredPagination.scrolled.calls, 3);
+  assert.equal(typeof filteredPagination.scrolled.anchorBefore, 'number');
+  assert.ok(Math.abs(filteredPagination.scrolled.anchorAfter - filteredPagination.scrolled.anchorBefore) <= 2,
+    `숨긴 페이지를 넘기는 동안 기존 채팅 행의 화면 위치가 바뀌었습니다: ${JSON.stringify(filteredPagination.scrolled)}`);
+  assert.deepEqual(filteredPagination.allHidden, { ids: [], calls: 3 });
+  for (const result of filteredPagination.cancelled) {
+    assert.equal(result.oldCalls, 1);
+    assert.ok(!result.ids.some((id: string) => id.startsWith('오래된 응답-')), `${result.change} 변경 후 이전 추가 이력이 섞였습니다.`);
+    assert.ok(result.ids.length > 0);
+  }
+  assert.deepEqual(filteredPagination.liveIds, ['과거 무료', '실시간 무료']);
+
+  await window.webContents.insertCSS(fs.readFileSync(path.join(projectRoot, 'dist', 'style.css'), 'utf8'));
+  const appearanceState = await window.webContents.executeJavaScript(`
+    (async () => {
+      const pause = (ms = 100) => new Promise(resolve => setTimeout(resolve, ms));
+      const until = async (condition, label) => {
+        for (let attempt = 0; attempt < 100; attempt++) { if (condition()) return; await pause(30); }
+        throw new Error('표시 설정 검사 대기 실패: ' + label);
+      };
+      const area = document.getElementById('chatArea');
+      area.style.height = '240px';
+      area.style.flex = 'none';
+      const list = window.__chatTestList;
+      const make = n => ({ id: 'memo-' + n, type: 'shout', shoutKind: 'free', sender: '거래상대',
+        message: '매물 확인 ' + n, timestamp: '12시 00분 00초', color: '#c896c8', level: 10 });
+      const batch = start => Array.from({ length: 150 }, (_, i) => make(start + i));
+      const anchor = () => {
+        const top = area.getBoundingClientRect().top;
+        const row = Array.from(area.querySelectorAll('.chat-message-row')).find(el => el.getBoundingClientRect().bottom > top + 1);
+        return { id: row?.dataset.chatId, top: row?.getBoundingClientRect().top };
+      };
+      const savedAnchor = reference => ({ id: reference.id,
+        top: area.querySelector('[data-chat-id="' + reference.id + '"]')?.getBoundingClientRect().top });
+      const snapshots = [];
+      let config;
+      for (const mode of ['main', 'sub1', 'sub2']) {
+        config = { userServer: 7, nicknameNotes: [], chatOverlayTab: 'Shout', chatOverlaySubTab: 'Shout', chatOverlaySub2Tab: 'Shout',
+          chatOverlayVisibleTabs: ['Basic', 'Shout'], chatOverlaySelectedChannels: ['shout'], chatOverlayCustomTabs: [],
+          chatOverlayShowFreeShout: true, chatOverlayShowPaidShout: true, chatOverlayShowNoticeShout: true, chatOverlayClickThrough: false };
+        let historyCalls = 0;
+        let moreCalls = 0;
+        let resolvePage;
+        window.electronAPI.getChatHistory = async () => { historyCalls++; return batch(300); };
+        window.electronAPI.getMoreChatHistory = async () => {
+          moreCalls++;
+          if (moreCalls === 1) return batch(150);
+          if (moreCalls === 2) return new Promise(resolve => { resolvePage = resolve; });
+          return [];
+        };
+        window.electronAPI.saveNicknameNote = async (server, nickname, note) => {
+          config = { ...config, nicknameNotes: note ? [{ server, nickname, note }] : [] };
+          window.__configCallback(config);
+          return { success: true };
+        };
+        window.__modeCallback(mode);
+        window.__configCallback(config);
+        document.querySelector('[data-tab="Shout"]').click();
+        await until(() => list.getItems().length === 150, mode + ' 최초 이력');
+        await pause();
+        area.scrollTop = 0;
+        area.dispatchEvent(new Event('scroll'));
+        await until(() => list.getItems().length === 300, mode + ' 과거 페이지');
+        area.scrollTop = 700;
+        area.dispatchEvent(new Event('scroll'));
+        await pause(180);
+        // 숨긴 Electron 창에서는 native scroll 통지가 늦을 수 있다. 화면 밖의 오래된
+        // 가상 행을 기준으로 잡지 않고 실제 표시 행이 준비된 뒤 동일한 위치 단언을 적용한다.
+        await until(() => {
+          const candidate = anchor(), bounds = area.getBoundingClientRect();
+          return candidate.id && Number.isFinite(candidate.top) && candidate.top < bounds.bottom;
+        }, mode + ' 스크롤 후 표시 행');
+        const before = { count: list.getItems().length, historyCalls, moreCalls, anchor: anchor() };
+        const edit = text => {
+          document.querySelector('[data-note-nickname="거래상대"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+          document.getElementById('note-text').value = text;
+          document.querySelector('.nickname-note-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        };
+        edit('거래 기록과 다음 약속 '.repeat(12));
+        await pause(220);
+        const afterSave = { count: list.getItems().length, historyCalls, moreCalls, anchor: savedAnchor(before.anchor),
+          note: document.querySelector('.nickname-note-badge')?.textContent };
+        // 다른 창의 변경과 서버별 메모/색상도 기존 페이지와 읽던 행을 보존한다.
+        config = { ...config, userServer: 16, nicknameNotes: [{ server: 16, nickname: '거래상대', note: '다른 창의 메모' }],
+          chatOverlayColorShout: '#123456', chatEtaColorsEnabled: true, chatEtaColors: ['#abcdef', '#abcdef', '#abcdef', '#abcdef', '#abcdef'] };
+        window.__configCallback(config);
+        await pause(180);
+        const afterExternal = { count: list.getItems().length, historyCalls, moreCalls, anchor: savedAnchor(before.anchor),
+          note: document.querySelector('.nickname-note-badge')?.textContent,
+          nicknameColor: document.querySelector('.chat-sender')?.style.color, etaColor: document.querySelector('.eta-badge')?.style.color };
+        window.__configCallback({ ...config, chatNicknameNotesCompact: true });
+        await pause(180);
+        if (document.querySelector('.nickname-note-badge')?.textContent !== '메모'
+          || list.getItems().length !== before.count || historyCalls !== before.historyCalls || moreCalls !== before.moreCalls
+          || JSON.stringify(savedAnchor(before.anchor)) !== JSON.stringify(afterExternal.anchor)) throw new Error(mode + ' 간단 표시가 과거 이력/스크롤을 변경했습니다.');
+        window.__configCallback({ ...config, chatNicknameNotesCompact: false });
+        await pause(180);
+        window.__configCallback({ ...config, chatCompactDisplay: true });
+        await pause(180);
+        if (list.getItems().length !== before.count || historyCalls !== before.historyCalls || moreCalls !== before.moreCalls
+          || Math.abs(savedAnchor(before.anchor).top - before.anchor.top) > 2
+          || !Array.from(document.querySelectorAll('.chat-timestamp,.eta-badge')).every(node=>getComputedStyle(node).display==='none')
+          || !document.querySelector('.channel-badge')) throw new Error(mode + ' 채팅 간단 표시가 이력/위치/채널을 변경했습니다.');
+        window.__configCallback({ ...config, chatCompactDisplay: false });
+        await pause(180);
+        // 실패는 config-data를 발생시키지 않고 현재 메모·목록·편집 초안을 유지한다.
+        const successfulSave = window.electronAPI.saveNicknameNote;
+        window.electronAPI.saveNicknameNote = async () => ({ success: false, error: '저장 실패 검사' });
+        edit('저장 실패 초안');
+        await pause();
+        const failure = { count: list.getItems().length, historyCalls, anchor: savedAnchor(before.anchor),
+          text: document.getElementById('note-text').value, error: document.getElementById('note-save-error').textContent,
+          note: document.querySelector('.nickname-note-badge')?.textContent };
+        document.getElementById('note-cancel').click();
+        window.electronAPI.saveNicknameNote = successfulSave;
+        // 진행 중인 과거 페이지 요청은 메모 삭제로 무효화하지 않는다. 같은 프레임의 실시간 수신도 유지한다.
+        area.scrollTop = 0;
+        area.dispatchEvent(new Event('scroll'));
+        await until(() => resolvePage, '두 번째 페이지 요청');
+        await pause(180);
+        const pageAnchor = anchor();
+        document.querySelector('[data-note-nickname="거래상대"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        document.getElementById('note-remove').click();
+        window.__chatUpdatedCallback(make(450));
+        await pause();
+        resolvePage(batch(0));
+        await until(() => list.getItems().length === 451, '대기 페이지와 실시간 수신');
+        await pause(150);
+        const afterPage = { count: list.getItems().length, first: list.getItems()[0].id, last: list.getItems().at(-1).id,
+          historyCalls, moreCalls, anchor: savedAnchor(pageAnchor), noteCount: area.querySelectorAll('.nickname-note-badge').length };
+        list.scrollToEnd();
+        await pause();
+        edit('맨 아래의 메모');
+        window.__chatUpdatedCallback(make(451));
+        await until(() => list.getItems().length === 452, '맨 아래 실시간 수신');
+        await pause(150);
+        snapshots.push({ mode, before, afterSave, afterExternal, failure, pageAnchor, afterPage, atEnd: list.isAtEnd(2) });
+      }
+      // 검색 결과에서 긴 목록을 읽다가 메모를 바꾸어도 재검색·강조·스크롤 변화가 없다.
+      let searches = 0;
+      let resolveSearch;
+      window.electronAPI.searchChatLogs = () => { searches++; return new Promise(resolve => { resolveSearch = resolve; }); };
+      document.getElementById('searchInput').value = '매물';
+      document.getElementById('btnExecuteSearch').click();
+      await until(() => resolveSearch, '검색 요청');
+      window.__configCallback({ userServer: 16, nicknameNotes: [{server:16,nickname:'거래상대',note:'검색 대기 중 변경'}],
+        chatOverlayTab:'Shout', chatOverlaySubTab:'Shout', chatOverlaySub2Tab:'Shout', chatOverlayVisibleTabs:['Basic','Shout'],
+        chatOverlaySelectedChannels:['shout'],chatOverlayCustomTabs:[],chatOverlayShowFreeShout:true,
+        chatOverlayShowPaidShout:true,chatOverlayShowNoticeShout:true,chatOverlayClickThrough:false });
+      resolveSearch(batch(0));
+      await until(() => list.getItems().length === 150, '검색 결과');
+      area.scrollTop = 700;
+      await pause(180);
+      const searchAnchor = anchor();
+      document.querySelector('[data-note-nickname="거래상대"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      document.getElementById('note-text').value = '검색 저장';
+      document.querySelector('.nickname-note-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await pause(180);
+      const search = { searches, count: list.getItems().length, anchorBefore: searchAnchor, anchorAfter: savedAnchor(searchAnchor),
+        status: document.getElementById('searchResultText').textContent,
+        highlight: document.querySelector('.search-highlight')?.textContent, note: document.querySelector('.nickname-note-badge')?.textContent };
+      window.__configCallback({ ...config, chatCompactDisplay: true });
+      await pause(180);
+      if (searches !== search.searches || list.getItems().length !== search.count || !document.querySelector('.search-highlight')
+        || Math.abs(savedAnchor(searchAnchor).top - search.anchorAfter.top) > 2) throw new Error('채팅 간단 표시가 검색 결과/강조/위치를 변경했습니다.');
+      return { snapshots, search };
+    })()
+  `);
+  const assertAnchor = (before: { id: string; top: number }, after: { id: string; top: number }, label: string): void => {
+    assert.equal(after.id, before.id, label);
+    assert.ok(Number.isFinite(after.top) && Math.abs(after.top - before.top) <= 2,
+      `${label}: ${JSON.stringify({ before, after })}`);
+  };
+  for (const row of appearanceState.snapshots) {
+    for (const state of [row.afterSave, row.afterExternal, row.failure]) {
+      assert.equal(state.count, 300, `${row.mode}: 표시 설정은 불러온 과거 페이지를 보존해야 합니다.`);
+      assert.equal(state.historyCalls, row.before.historyCalls, `${row.mode}: 메모 갱신이 최초 이력을 다시 조회했습니다.`);
+      assertAnchor(row.before.anchor, state.anchor, `${row.mode}: 메모 변경 후 읽던 위치`);
+    }
+    assert.equal(row.afterSave.moreCalls, row.before.moreCalls);
+    assert.equal(row.afterExternal.moreCalls, row.before.moreCalls);
+    assert.equal(row.afterSave.note, '거래 기록과 다음 약속 '.repeat(12));
+    assert.equal(row.afterExternal.note, '다른 창의 메모');
+    assert.equal(row.afterExternal.nicknameColor, 'rgb(18, 52, 86)');
+    assert.equal(row.afterExternal.etaColor, 'rgb(171, 205, 239)');
+    assert.equal(row.failure.note, '다른 창의 메모');
+    assert.equal(row.failure.text, '저장 실패 초안');
+    assert.equal(row.failure.error, '저장 실패 검사');
+    assert.equal(row.afterPage.count, 451);
+    assert.equal(row.afterPage.first, 'memo-0');
+    assert.equal(row.afterPage.last, 'memo-450');
+    assert.equal(row.afterPage.historyCalls, row.before.historyCalls);
+    assert.equal(row.afterPage.moreCalls, 2);
+    assert.equal(row.afterPage.noteCount, 0);
+    assertAnchor(row.pageAnchor, row.afterPage.anchor, `${row.mode}: 메모 삭제 중 과거 응답`);
+    assert.equal(row.atEnd, true, `${row.mode}: 맨 아래를 보던 창은 계속 끝을 따라가야 합니다.`);
+  }
+  assert.equal(appearanceState.search.searches, 1, '메모 갱신은 진행 중이거나 완료된 검색을 재실행하지 않습니다.');
+  assert.equal(appearanceState.search.count, 150);
+  assert.equal(appearanceState.search.status, '검색 결과: 150건 ("매물")');
+  assert.equal(appearanceState.search.highlight, '매물');
+  assert.equal(appearanceState.search.note, '검색 저장');
+  assertAnchor(appearanceState.search.anchorBefore, appearanceState.search.anchorAfter, '검색 중 메모 저장 위치');
+
 }
 
 function cleanHtmlForTest(filePath: string): string {
@@ -3859,6 +5148,13 @@ function cleanHtmlForTest(filePath: string): string {
   return content
     .replace(/<script(?![^>]*src=)[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<script[^>]*src=["'][^"']*["'][^>]*><\/script>/gi, '');
+
+}
+
+/** 공통 CSS를 실제로 적용해 토큰·컨트롤 크기를 검사한다. data URL의 상대 경로에 의존하지 않는다. */
+function cleanStyledHtmlForTest(filePath: string): string {
+  return cleanHtmlForTest(filePath).replace(/<link[^>]*href="style.css"[^>]*>/,
+    () => `<style>${fs.readFileSync(path.join(projectRoot, 'dist', 'style.css'), 'utf8')}</style>`);
 }
 
 async function evaluate<T>(
@@ -4057,6 +5353,8 @@ async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
     /(function updateStats\(data, isInitial = false\) \{[\s\S]*?\r?\n    \})\r?\n    \/\/ ── 이벤트 리스너/,
   );
   assert.ok(updateStatsMatch, '경험치 HUD 갱신 함수를 추출하지 못했습니다.');
+  const efficiencyMatch = fullHtml.match(/(function updateEfficiency\(state\) \{[\s\S]*?\r?\n    \})/);
+  assert.ok(efficiencyMatch, '경험치 감소 상태 함수를 추출하지 못했습니다.');
   const html = cleanHtmlForTest(xpHudPath);
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
@@ -4065,10 +5363,12 @@ async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
       let _startTime = Date.now();
       let _accumulatedTime = 0;
       let _isActive = false;
+      let _pauseReason = 'manual';
       const xpChart = null;
       const lucide = { createIcons() {} };
       const formatStartTime = () => '테스트 시작';
       const formatXP = value => String(value);
+      ${efficiencyMatch[1]}
       ${updateStatsMatch[1]}
       updateStats({
         total: 10000000000,
@@ -4105,6 +5405,185 @@ async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
     '100억 경고 경계에서 HUD가 음수 남은 시간 또는 잘못된 상태를 표시합니다.');
   assert.equal(result.essenceProgressWidth, '100%',
     '100억 경고 경계에서 경험의 정수 진행도가 가득 차지 않았습니다.');
+}
+
+async function checkHuntingAssistRenderer(window: BrowserWindow): Promise<void> {
+  const overlayPath = path.join(projectRoot, 'dist', 'game-overlay.html');
+  const script = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'game-overlay', 'hunting-assist.js'), 'utf8');
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(cleanStyledHtmlForTest(overlayPath))}`);
+  window.setContentSize(1200, 800);
+  await window.webContents.executeJavaScript(`
+    window.__clock = 1000000;
+    Date.now = () => window.__clock;
+    window.electronAPI = {
+      getBossEntryWindows: async () => [],
+      onBossEntryUpdate: callback => window.__entryUpdate = callback,
+      onXpEfficiencyAlert: callback => window.__xpWarning = callback,
+    };
+    ${script}
+    true;
+  `);
+  const result = await window.webContents.executeJavaScript(`(() => {
+    __entryUpdate([{ id:'first', name:'혼란한 대지', opensAt:800000, closesAt:1040000 }, { id:'second', name:'파멸의 기원', opensAt:900000, closesAt:1260000 }]);
+    __xpWarning({ at:__clock, average:5000000, current:3800000, dropPercent:24 });
+    window.huntingAssist.updateXp({ isActive:false, pauseReason:'idle', efficiency:{ status:'low' } });
+    return {
+      cards: document.querySelectorAll('#boss-entry-list > section').length,
+      urgent: document.querySelectorAll('#boss-entry-list > .urgent').length,
+      time: document.querySelector('.boss-entry-time').textContent,
+      warningVisible: !document.getElementById('xp-efficiency-alert').hidden,
+      comparison: document.getElementById('xp-efficiency-alert-comparison').textContent,
+      idle: document.getElementById('xp-activity-label').textContent,
+      bossColor: getComputedStyle(document.querySelector('.hunting-assist-label')).color,
+      xpColor: getComputedStyle(document.querySelector('#xp-efficiency-alert .hunting-assist-label')).color,
+      radius: getComputedStyle(document.querySelector('.hunting-assist-card')).borderRadius,
+      background: getComputedStyle(document.querySelector('.hunting-assist-card')).backgroundColor,
+    };
+  })()`);
+  assert.equal(result.cards, 2);
+  assert.equal(result.urgent, 1);
+  assert.match(result.time, /0:40/);
+  assert.equal(result.warningVisible, true);
+  assert.match(result.comparison, /5,000,000.*3,800,000.*24%/);
+  assert.match(result.idle, /자동 휴식/);
+  assert.equal(result.bossColor, 'rgb(248, 113, 113)', '보스 안내는 디자인 토큰의 빨강을 사용해야 합니다.');
+  assert.equal(result.xpColor, 'rgb(96, 165, 250)', '경험치 안내는 디자인 토큰의 파랑을 사용해야 합니다.');
+  assert.equal(result.radius, '12px');
+  assert.equal(result.background, 'rgba(15, 18, 30, 0.96)');
+  if (process.env.TW_HUNTING_CAPTURE_DIR) {
+    fs.mkdirSync(process.env.TW_HUNTING_CAPTURE_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.TW_HUNTING_CAPTURE_DIR, 'hunting-overlay.png'), (await window.webContents.capturePage()).toPNG());
+  }
+  const afterDismissal = await window.webContents.executeJavaScript(`(() => {
+    // 종료 시각 전 메인에서 해당 회차를 제거했을 때 다른 카드와 경험치 경고는 유지한다.
+    __entryUpdate([{ id:'first', name:'혼란한 대지', opensAt:800000, closesAt:1040000 }]);
+    return {
+      names: Array.from(document.querySelectorAll('#boss-entry-list .hunting-assist-label')).map(node => node.textContent),
+      warningVisible: !document.getElementById('xp-efficiency-alert').hidden,
+    };
+  })()`);
+  assert.deepEqual(afterDismissal.names, ['혼란한 대지']);
+  assert.equal(afterDismissal.warningVisible, true);
+  if (process.env.TW_HUNTING_CAPTURE_DIR) {
+    fs.writeFileSync(path.join(process.env.TW_HUNTING_CAPTURE_DIR, 'origin-dismissed.png'), (await window.webContents.capturePage()).toPNG());
+  }
+  await window.webContents.executeJavaScript(`__entryUpdate([]); true`);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('boss-entry-list').children.length`), 0,
+    '마감 전에도 마지막 안내가 즉시 제거되어야 합니다.');
+  await window.webContents.executeJavaScript(`window.__clock = 1300000; window.huntingAssist.updateConfig({ xpEfficiencyAlertEnabled:false }); true`);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('boss-entry-list').children.length`), 0);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('xp-efficiency-alert').hidden`), true);
+
+  // 상세 창의 실제 인라인 코드와 버튼을 실행해 수동 정지·설정 저장·기준 재설정을 확인한다.
+  const xpPath = path.join(projectRoot, 'dist', 'xp-hud.html');
+  const source = fs.readFileSync(xpPath, 'utf8');
+  const inline = [...source.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]).at(-1)!;
+  let html = cleanHtmlForTest(xpPath);
+  html = html.replace(/<link[^>]*href="style.css"[^>]*>/, `<style>${fs.readFileSync(path.join(projectRoot, 'dist', 'style.css'), 'utf8')}</style>`);
+  const essenceIcon = fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'img', '경험의정수.png')).toString('base64');
+  html = html.split('src="assets/img/경험의정수.png"').join(`src="data:image/png;base64,${essenceIcon}"`);
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  window.setContentSize(420, 940);
+  await window.webContents.executeJavaScript(fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'tailwind.min.js'), 'utf8'));
+  await window.webContents.executeJavaScript(fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'lucide.min.js'), 'utf8'));
+  await window.webContents.executeJavaScript(fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'chart.umd.min.js'), 'utf8'));
+  await window.webContents.executeJavaScript(`
+    window.__calls = [];
+    window.electronAPI = {
+      onXpUpdate: callback => window.__xpUpdate = callback,
+      onXpResetDone: callback => window.__xpReset = callback,
+      onConfigData: callback => window.__config = callback,
+      onHighlightAlarmSettings: callback => window.__highlightAlarm = callback,
+      applySettings: patch => window.__calls.push(patch),
+      stopXpSession: () => window.__calls.push('stop'),
+      startXpSession: () => window.__calls.push('start'),
+      resetXpEfficiencyBaseline: () => window.__calls.push('baseline'),
+      resetXp: () => window.__calls.push('reset'),
+    };
+    window.loadSoundList = async () => [{ name:'기본 알림', file:'orb.mp3' }, { name:'소리 없음', file:'none' }];
+    window.refreshIcons = () => lucide.createIcons();
+    window.highlightElement = element => window.__highlighted = element.id;
+    ${inline}
+    true;
+  `);
+  await window.webContents.executeJavaScript(`window.__config({ xpAutoPauseEnabled:true, xpAutoPauseSeconds:60, xpEfficiencyAlertEnabled:true, xpEfficiencyDropPercent:20, xpEfficiencyAlertVolume:0, xpEfficiencyAlertSound:'none' })`);
+  const overview = await window.webContents.executeJavaScript(`(() => {
+    refreshIcons();
+    initChart();
+    window.__exampleStats = { total:4860000000, epm:135000000, movingEpm:150000000, kills:972, essenceCount:0, xpSinceLastExchange:4860000000, accumulatedTime:1944000, startTime:Date.now(), history:Array.from({length:30}, (_,i) => i === 29 ? 150000000 : 135000000 + Math.round(Math.sin(i * .6) * 25000000)), isActive:true, pauseReason:null, efficiency:{ status:'ready', average:5000000, sampleCount:240, warmupSeconds:0, warning:null } };
+    __xpUpdate(__exampleStats);
+    document.getElementById('elapsed-timer').textContent = '00:32:24';
+    const alwaysVisible = ['stat-total','stat-epm','stat-moving-epm','stat-essence-per-hour','stat-essence-eta','stat-essence-count','stat-kills','stat-xp-per-kill','stat-start-time','elapsed-timer','xpChart','btn-reset','xp-reset-baseline','xp-efficiency-comparison'];
+    return { settingsHidden:document.getElementById('view-settings').hidden, visible:alwaysVisible.filter(id => document.getElementById(id).getBoundingClientRect().height > 0).length, control:document.getElementById('session-control-label').textContent, lastChartValue:xpChart.data.datasets[0].data.at(-1) };
+  })()`);
+  assert.deepEqual(overview, { settingsHidden:true, visible:14, control:'일시정지', lastChartValue:150000000 }, '기존 수치·그래프·초기화·사냥 기준이 처음부터 보여야 합니다.');
+  await waitForRendererCondition(window, `xpChart.getDatasetMeta(0).data.every(point => point.y < xpChart.chartArea.bottom - 20)`, '경험치 데이터가 실제 그래프 선의 위치에 반영되지 않았습니다.');
+  await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`);
+  assert.equal(await window.webContents.executeJavaScript(`(() => { const scroller = document.querySelector('.scroll-area'); return scroller.scrollWidth <= scroller.clientWidth + 1 && document.getElementById('xpChart').getBoundingClientRect().bottom < innerHeight; })()`), true, '기본 창에서 그래프를 바로 볼 수 있어야 합니다.');
+  if (process.env.TW_HUNTING_CAPTURE_DIR) fs.writeFileSync(path.join(process.env.TW_HUNTING_CAPTURE_DIR, 'xp-restored.png'), (await window.webContents.capturePage()).toPNG());
+  const settings = await window.webContents.executeJavaScript(`(() => {
+    __xpUpdate({ isActive:false, pauseReason:'idle', efficiency:{ status:'warming', warmupSeconds:60, sampleCount:0, average:0, warning:null } });
+    document.getElementById('btn-session-control').click();
+    __xpUpdate({ isActive:false, pauseReason:'manual' });
+    document.getElementById('btn-session-control').click();
+    document.getElementById('xp-reset-baseline').click();
+    document.getElementById('btn-reset').click();
+    document.getElementById('tab-settings').click();
+    const threshold = document.getElementById('xp-efficiency-percent');
+    threshold.value = '10'; threshold.dispatchEvent(new Event('change'));
+    __xpUpdate({ isActive:true, pauseReason:null, efficiency:{ status:'low', average:5000000, sampleCount:240, warmupSeconds:0, warning:{ average:5000000, current:3800000, dropPercent:24 } } });
+    document.getElementById('hunting-activity-settings').scrollIntoView();
+    return { calls:__calls, sound:document.getElementById('xp-efficiency-sound').value, volume:document.getElementById('xp-efficiency-volume').value, comparison:document.getElementById('xp-efficiency-comparison').textContent };
+  })()`);
+  assert.deepEqual(settings.calls, ['stop', 'start', 'baseline', 'reset', { xpEfficiencyDropPercent:10 }]);
+  assert.equal(settings.sound, 'none');
+  assert.equal(settings.volume, '0');
+  assert.match(settings.comparison, /5,000,000.*3,800,000.*24%/);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('view-measure').hidden`), true, '측정 갱신이나 경고가 설정 탭을 강제로 바꾸면 안 됩니다.');
+  assert.equal(await window.webContents.executeJavaScript(`['toggle-xp-auto-start','xp-auto-pause','xp-idle-seconds','xp-efficiency-enabled','xp-efficiency-percent','xp-efficiency-sound','xp-efficiency-preview','xp-efficiency-volume','toggle-essence-alert','essence-alert-sound','btn-essence-preview','essence-alert-volume','toggle-show','toggle-ignore-negative','pos-left','pos-bottom','btn-apply-pos'].every(id => { const element = document.getElementById(id); return element && element.getBoundingClientRect().height > 0 && !element.closest('details'); })`), true, '설정 탭의 기존 항목과 알림음·음량을 중첩된 접기 안에 숨기면 안 됩니다.');
+  if (process.env.TW_HUNTING_CAPTURE_DIR) {
+    await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => {
+      document.getElementById('hunting-activity-settings').scrollIntoView();
+      requestAnimationFrame(() => resolve(true));
+    }))`);
+    fs.writeFileSync(path.join(process.env.TW_HUNTING_CAPTURE_DIR, 'xp-restored-settings.png'), (await window.webContents.capturePage()).toPNG());
+  }
+  const navigation = await window.webContents.executeJavaScript(`(() => {
+    document.getElementById('tab-settings').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowLeft', bubbles:true}));
+    const measureFocused = document.activeElement.id === 'tab-measure';
+    const warningVisible = !document.getElementById('xp-efficiency-comparison').hidden;
+    __highlightAlarm();
+    return { measureFocused, warningVisible, settingsSelected:document.getElementById('tab-settings').getAttribute('aria-selected'), highlighted:window.__highlighted };
+  })()`);
+  assert.deepEqual(navigation, { measureFocused:true, warningVisible:true, settingsSelected:'true', highlighted:'essence-alert-settings-section' });
+  await window.webContents.executeJavaScript(`showXpView('measure'); true;`);
+  await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`);
+  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('xpChart').getBoundingClientRect().width > 100`), true, '설정에서 측정으로 돌아와도 차트 크기가 유지되어야 합니다.');
+  if (process.env.TW_HUNTING_CAPTURE_DIR) {
+    await window.webContents.executeJavaScript(`__xpUpdate({...__exampleStats, efficiency:{ status:'low', average:5000000, sampleCount:240, warmupSeconds:0, warning:{ average:5000000, current:3800000, dropPercent:24 } }}); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`);
+    fs.writeFileSync(path.join(process.env.TW_HUNTING_CAPTURE_DIR, 'xp-restored-warning.png'), (await window.webContents.capturePage()).toPNG());
+  }
+  window.setContentSize(360, 620);
+  await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))`);
+  assert.equal(await window.webContents.executeJavaScript(`document.querySelector('.scroll-area').scrollWidth <= document.querySelector('.scroll-area').clientWidth + 1`), true, '작은 창에서도 가로 스크롤이 생기면 안 됩니다.');
+  const soundRace = await window.webContents.executeJavaScript(`(async () => {
+    const pending = [];
+    window.loadSoundList = () => new Promise(resolve => pending.push(resolve));
+    const sounds = [{name:'기본',file:'orb.mp3'}, {name:'새 경고음',file:'echo.mp3'}, {name:'소리 없음',file:'none'}];
+    const oldRequest = window.__config({xpEfficiencyAlertSound:'orb.mp3', essenceAlertVolume:20});
+    const newRequest = window.__config({xpEfficiencyAlertSound:'echo.mp3', essenceAlertVolume:70});
+    pending[1](sounds); await newRequest; pending[0](sounds); await oldRequest;
+    const selected = document.getElementById('xp-efficiency-sound').value;
+    window.playPreview = sound => window.__previewSound = sound;
+    document.getElementById('xp-efficiency-preview').click();
+    const preview = window.__previewSound;
+    const editingRequest = window.__config({xpEfficiencyAlertSound:'echo.mp3'});
+    const input = document.getElementById('xp-efficiency-sound'); input.value = 'none'; input.dispatchEvent(new Event('change'));
+    pending[2](sounds); await editingRequest;
+    return {selected, preview, essenceVolume:document.getElementById('essence-alert-volume').value, edited:input.value};
+  })()`);
+  assert.deepEqual(soundRace, {selected:'echo.mp3', preview:'echo.mp3', essenceVolume:'70', edited:'none'},
+    '오래된 목록 응답으로 최신 경고음/설정을 되돌리거나 응답 대기 중 사용자의 선택을 덮으면 안 됩니다.');
 }
 
 async function checkBuffTimerRenderer(window: BrowserWindow): Promise<void> {
@@ -4147,6 +5626,85 @@ async function checkWordAlarmRenderer(window: BrowserWindow): Promise<void> {
   assert.ok(result.title.includes('단어 알림'), '지정 단어 알림 창 타이틀이 일치하지 않습니다.');
   assert.equal(result.hasHistoryList, true, '단어 알림 히스토리 컨테이너가 없습니다.');
   assert.equal(result.hasKeywordList, true, '키워드 목록 컨테이너가 없습니다.');
+}
+
+async function checkAlarmVolumeBoundaries(): Promise<void> {
+  // Full product pages, helpers and preload. Capture IPC at the main-process boundary:
+  // game state/config replies are fixtures; volume parsing and preview dispatch are not replaced.
+  const defaults = require(path.join(projectRoot, 'dist/modules/constants.js')).DEFAULT_CONFIG;
+  let config = { ...defaults, fieldBossNotifyVolume: 30, essenceAlertVolume: 30 };
+  const saves: any[] = [];
+  const previews: Array<{ sound: string; volume: number }> = [];
+  const onDefaults = (event: Electron.IpcMainEvent) => { event.returnValue = defaults; };
+  const onSave = (event: Electron.IpcMainEvent, patch: any) => {
+    saves.push(patch);
+    config = { ...config, ...patch };
+    event.sender.send('config-data', config);
+  };
+  const onPreview = (_event: Electron.IpcMainEvent, sound: string, volume: number) => previews.push({ sound, volume });
+  ipcMain.on('get-default-config-sync', onDefaults);
+  ipcMain.on('apply-settings', onSave);
+  ipcMain.on('preview-boss-sound', onPreview);
+  ipcMain.handle('get-config', () => config);
+  ipcMain.handle('diary-get-by-date', () => ({ activityLogs: [] }));
+  ipcMain.handle('xp-get-stats', () => null);
+  ipcMain.handle('check-chat-log-status', () => true);
+  const window = new BrowserWindow({ show: false, webPreferences: {
+    preload: path.join(projectRoot, 'dist/preload.js'), contextIsolation: true, sandbox: true,
+    backgroundThrottling: false,
+  } });
+  const failures: string[] = [];
+  const check = (actual: unknown, expected: unknown, label: string) => {
+    try { assert.deepEqual(actual, expected, label); } catch (error) { failures.push(String(error)); }
+  };
+  const waitForCall = async (check: () => boolean) => {
+    for (let i = 0; i < 100; i++) {
+      if (check()) return;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    throw new Error('Alarm IPC was not received');
+  };
+  const load = async (file: string) => {
+    await window.loadFile(path.join(projectRoot, 'dist', file));
+    window.webContents.send('config-data', config);
+    window.webContents.send('boss-times-data', { '골론': ['12:00'] });
+    await waitForRendererCondition(window, file === 'boss-settings.html'
+      ? `document.querySelectorAll('#boss-list select option').length > 0`
+      : `document.querySelectorAll('#essence-alert-sound option').length > 0`, 'sound options');
+  };
+  try {
+    await load('boss-settings.html');
+    for (const volume of [35, 100, 0]) {
+      const before = saves.length;
+      await window.webContents.executeJavaScript(`{const slider=document.getElementById('boss-volume-input');slider.value='${volume}';slider.dispatchEvent(new Event('input'));slider.dispatchEvent(new Event('change'));}`);
+      await waitForCall(() => saves.length > before);
+      await waitForRendererCondition(window, `document.getElementById('boss-volume-input').value === '${config.fieldBossNotifyVolume}'`, 'boss config reply');
+      check(saves.at(-1).fieldBossNotifyVolume, volume, `boss save ${volume}%`);
+    }
+    await load('boss-settings.html');
+    check(await window.webContents.executeJavaScript(`document.getElementById('boss-volume-input').value`), '0', 'boss reload mute');
+    await window.webContents.executeJavaScript(`document.querySelector('.boss-offset-check[value="5"]').click()`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    check(saves.at(-1).fieldBossNotifyVolume, 0, 'offset edit retains mute');
+    await window.webContents.executeJavaScript(`document.querySelector('#boss-list button[title="미리듣기"]').click()`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    check(previews.at(-1)?.volume, 0, 'boss preview mute');
+    await load('xp-hud.html');
+    for (const volume of [35, 100, 0]) {
+      const before = previews.length;
+      await window.webContents.executeJavaScript(`{const slider=document.getElementById('essence-alert-volume');slider.value='${volume}';slider.dispatchEvent(new Event('input'));document.getElementById('btn-essence-preview').click();}`);
+      await waitForCall(() => previews.length > before);
+      check(saves.at(-1)?.essenceAlertVolume, volume, `essence save ${volume}%`);
+      check(previews.at(-1)?.volume, volume, `essence preview ${volume}%`);
+    }
+    assert.deepEqual(failures, [], failures.join('\n'));
+  } finally {
+    window.destroy();
+    ipcMain.removeListener('get-default-config-sync', onDefaults);
+    ipcMain.removeListener('apply-settings', onSave);
+    ipcMain.removeListener('preview-boss-sound', onPreview);
+    for (const channel of ['get-config', 'diary-get-by-date', 'xp-get-stats', 'check-chat-log-status']) ipcMain.removeHandler(channel);
+  }
 }
 
 async function checkBossSettingsRenderer(window: BrowserWindow): Promise<void> {
@@ -4192,15 +5750,87 @@ async function checkMagicStoneCalculator(window: BrowserWindow): Promise<void> {
 }
 
 async function checkThesisCoreCalculator(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'thesis-core-calculator.html'));
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-  const result = await evaluate(window, () => {
-    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
-    return { title };
+  // Load the product HTML and its real scripts; only this test's temporary storage is reset.
+  const file = path.join(projectRoot, 'dist', 'thesis-core-calculator.html');
+  await window.loadFile(file);
+  await evaluate(window, () => {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('tc_')) localStorage.removeItem(key);
   });
+  await window.loadFile(file);
+  const failures: string[] = [];
+  const snapshot = () => evaluate(window, () => ({
+    active: Array.from(document.querySelectorAll('.active[id]')).map(element => element.id),
+    inputs: Object.fromEntries(Array.from(document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input[id],select[id]'))
+      .map(element => [element.id, element.value])),
+    results: ['res-powder', 'res-crystal', 'res-currency', 'total-box-cost', 'total-reinforce-cost',
+      'final-total-cost', 'final-total-unit', 'final-total-korean'].map(id => document.getElementById(id)?.textContent),
+    stored: Object.fromEntries(Object.keys(localStorage).filter(key => key.startsWith('tc_')).sort()
+      .map(key => [key, localStorage.getItem(key)])),
+    warning: !document.getElementById('warning-box')!.classList.contains('hidden'),
+    icons: document.querySelectorAll('svg[data-lucide]').length,
+  }));
+  await evaluate(window, () => {
+    const input = (id: string, value: string, event = 'input') => {
+      (document.getElementById(id) as HTMLInputElement).value = value;
+      document.getElementById(id)!.dispatchEvent(new Event(event, { bubbles: true }));
+    };
+    for (const id of ['tab-eclipse', 'stat-sub', 'curr-elso', 'qty-6']) document.getElementById(id)!.click();
+    input('discount-input', '20');
+    input('step-from', '23', 'change');
+    input('step-to', '24', 'change');
+    input('box-qty', '3');
+    input('box-price', '50');
+  });
+  const saved = await snapshot();
+  assert.equal(saved.icons, 6, '계산기 아이콘 초기화');
+  assert.deepEqual(saved.results.slice(0, 5), ['87,000', '1,500', '561,600', '150 만 시드', '561,600 엘소']);
+  for (let reopening = 1; reopening <= 2; reopening++) {
+    await window.loadFile(file);
+    if (JSON.stringify(await snapshot()) !== JSON.stringify(saved)) failures.push(`재실행 ${reopening}: 선택·입력·계산 결과·저장값이 달라짐`);
+  }
 
-  assert.ok(result.title.includes('테시스 코어'), '테시스 코어 계산기 창 타이틀이 일치하지 않습니다.');
+  failures.push(...await evaluate(window, () => {
+    const errors: string[] = [];
+    const input = (id: string, value: string, event = 'input') => {
+      (document.getElementById(id) as HTMLInputElement).value = value;
+      document.getElementById(id)!.dispatchEvent(new Event(event, { bubbles: true }));
+    };
+    const text = (id: string) => document.getElementById(id)!.textContent;
+    const expect = (condition: boolean, message: string) => { if (!condition) errors.push(message); };
+    for (const currency of ['seed', 'elso']) {
+      for (const from of ['1', '2']) {
+        const label = `${currency}/${from === '1' ? '동일 단계' : '역순 단계'}`;
+        for (const id of ['tab-eclipse', 'stat-sub', `curr-${currency}`, 'qty-6']) document.getElementById(id)!.click();
+        input('discount-input', '20');
+        input('step-from', '0', 'change');
+        input('step-to', '1', 'change');
+        input('box-qty', '3');
+        input('box-price', '50');
+        const cost = currency === 'seed' ? '960' : '1,440';
+        expect(text('res-currency') === cost, `${label}: 정상 범위 비용`);
+        input('step-from', from, 'change');
+        expect(!document.getElementById('warning-box')!.classList.contains('hidden'), `${label}: 오류 안내`);
+        expect(text('total-reinforce-cost') === '계산 불가' && text('final-total-cost') === '계산 불가'
+          && text('final-total-unit') === '' && text('final-total-korean') === '', `${label}: 이전 합계 제거`);
+        input('box-qty', '4');
+        input('box-price', '60');
+        expect(text('total-box-cost') === '240 만 시드', `${label}: 상자 소계 갱신`);
+        expect(localStorage.getItem('tc_box_qty') === '4' && localStorage.getItem('tc_box_price') === '60', `${label}: 상자 입력 저장`);
+        input('step-from', '0', 'change');
+        expect(document.getElementById('warning-box')!.classList.contains('hidden') && text('res-currency') === cost, `${label}: 정상 범위 복귀`);
+        expect(currency === 'seed'
+          ? text('final-total-cost') === '1,200' && text('final-total-unit') === '만 시드'
+          : text('final-total-cost') === '240만 시드 + 1,440' && text('final-total-unit') === '엘소', `${label}: 최종 비용 복구`);
+      }
+    }
+    input('step-from', '2', 'change');
+    input('box-qty', '5');
+    return errors;
+  }));
+  const invalidSaved = await snapshot();
+  await window.loadFile(file);
+  if (JSON.stringify(await snapshot()) !== JSON.stringify(invalidSaved)) failures.push('오류 범위 재실행: 범위·상자 입력·오류 표시 보존 실패');
+  assert.deepEqual(failures, [], failures.join('\n'));
 }
 
 async function checkAbbreviationRenderer(window: BrowserWindow): Promise<void> {
@@ -4309,6 +5939,107 @@ async function checkQteChallengeRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.speedHiddenInChallenge, true, '챌린지에서 실전 연습 속도 선택이 노출됩니다.');
   assert.equal(result.stopVisibleWhileRunning, true, 'QTE 세션 시작 후 중지 제어가 표시되지 않습니다.');
   assert.equal(result.practiceModeRestored, true, 'QTE 실전 연습 모드로 돌아오지 못합니다.');
+
+  // Drive the complete renderer through its buttons, pointer handler and scheduled callbacks.
+  // Only time/randomness are controlled; scoring, round advancement and persistence are real.
+  const boundaries = await evaluate(window, () => {
+    const failures: string[] = [];
+    const expect = (condition: boolean, message: string) => { if (!condition) failures.push(message); };
+    const text = (id: string) => document.getElementById(id)!.textContent!.trim();
+    const click = (id: string) => (document.getElementById(id) as HTMLElement).click();
+    const stage = document.getElementById('qte-stage')!;
+    const native = {
+      timeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout,
+      raf: globalThis.requestAnimationFrame, cancelRaf: globalThis.cancelAnimationFrame,
+      random: Math.random, now: Object.getOwnPropertyDescriptor(performance, 'now'),
+    };
+    let now = 1_000;
+    let sequence = 0;
+    const timers = new Map<number, { at: number; run: () => void }>();
+    const frames = new Map<number, FrameRequestCallback>();
+    globalThis.setTimeout = ((callback: () => void, delay = 0) => {
+      const id = ++sequence;
+      timers.set(id, { at: now + delay, run: callback });
+      return id;
+    }) as typeof globalThis.setTimeout;
+    globalThis.clearTimeout = ((id: number) => timers.delete(id)) as typeof globalThis.clearTimeout;
+    globalThis.requestAnimationFrame = callback => { const id = ++sequence; frames.set(id, callback); return id; };
+    globalThis.cancelAnimationFrame = id => { frames.delete(id); };
+    Object.defineProperty(performance, 'now', { configurable: true, value: () => now });
+    Math.random = () => 0;
+    const runTimer = () => {
+      const next = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next) throw new Error('QTE scheduled callback missing');
+      timers.delete(next[0]);
+      now = Math.max(now, next[1].at);
+      next[1].run();
+    };
+    const advanceUntil = (condition: () => boolean) => {
+      for (let i = 0; !condition() && i < 8; i++) runTimer();
+      if (!condition()) throw new Error('QTE phase did not advance');
+    };
+    const start = () => { click('start-button'); advanceUntil(() => stage.classList.contains('active')); };
+    const hit = (success: boolean) => {
+      const duration = (globalThis as any).qteChallenge.getQteChallengeDifficulty(Number(text('stage-value'))).durationMs;
+      if (success) {
+        const arc = document.getElementById('blue-arc') as unknown as SVGCircleElement;
+        const angle = -Number.parseFloat(arc.style.strokeDashoffset) + Number.parseFloat(arc.style.strokeDasharray) / 2;
+        now += duration * angle / 360;
+        stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+      } else {
+        now += duration;
+        const frame = [...frames.entries()][0];
+        if (!frame) throw new Error('QTE animation callback missing');
+        frames.delete(frame[0]);
+        frame[1](now);
+      }
+    };
+    const record = () => JSON.parse(localStorage.getItem('tw-overlay:qte-challenge:v1')!);
+    const finishAt = (rounds: number) => {
+      start();
+      for (let index = 0; index < rounds; index++) {
+        // Two early misses, then genuine blue-arc clicks until the terminal miss.
+        hit(index >= 2 && index < rounds - 1);
+        if (index < rounds - 1) advanceUntil(() => stage.classList.contains('active'));
+      }
+      advanceUntil(() => text('round-overlay') === 'GAME OVER');
+    };
+    try {
+      click('sound-toggle'); // Default test profile is enabled; avoid actual audio during clock control.
+      click('challenge-tab');
+      finishAt(3);
+      expect(text('life-value') === '0' && text('round-value') === '3/10', '3회 실패 종료에 4라운드 표시');
+      expect(record().totalAttempts === 3, '3회 실패 시 기록 횟수 불일치');
+      finishAt(10);
+      expect(text('stage-value') === '1' && text('round-value') === '10/10', '10라운드 탈락에 다음 스테이지 표시');
+      expect(record().bestStage === 1, '입장하지 않은 2스테이지가 최고 기록에 저장됨');
+      finishAt(40);
+      expect(text('stage-value') === '4' && text('round-value') === '10/10', '40라운드 탈락에 5스테이지 표시');
+      expect(record().bestStage === 4, '입장하지 않은 5스테이지가 최고 기록에 저장됨');
+      expect(!document.querySelector('[data-achievement="stage-five"]')!.classList.contains('unlocked'), '5스테이지 진입 전 도전과제 해금');
+      start();
+      for (let index = 0; index < 40; index++) {
+        hit(true);
+        if (index < 39) advanceUntil(() => stage.classList.contains('active'));
+      }
+      expect(record().bestStage === 4, '40라운드 성공 결과 표시 중 다음 스테이지를 미리 기록함');
+      advanceUntil(() => stage.classList.contains('active'));
+      expect(text('stage-value') === '5' && text('round-value') === '1/10', '41번째 라운드 시작에 스테이지 미전환');
+      expect(record().bestStage === 5 && document.querySelector('[data-achievement="stage-five"]')!.classList.contains('unlocked'), '실제 5스테이지 진입 기록·해금 실패');
+      const attempts = record().totalAttempts;
+      click('stop-button');
+      expect(timers.size === 0 && frames.size === 0 && record().totalAttempts === attempts, '중지 후 타이머/추가 판정이 남음');
+      click('practice-tab');
+    } finally {
+      globalThis.setTimeout = native.timeout; globalThis.clearTimeout = native.clearTimeout;
+      globalThis.requestAnimationFrame = native.raf; globalThis.cancelAnimationFrame = native.cancelRaf;
+      Math.random = native.random;
+      if (native.now) Object.defineProperty(performance, 'now', native.now);
+      else Reflect.deleteProperty(performance, 'now');
+    }
+    return failures;
+  });
+  assert.deepEqual(boundaries, [], 'QTE 최종 라운드·스테이지 기록 경계가 일치하지 않습니다.');
 }
 
 async function checkDockRenderer(window: BrowserWindow): Promise<void> {
@@ -4906,15 +6637,112 @@ async function checkEvolutionCalculatorRenderer(window: BrowserWindow): Promise<
 }
 
 async function checkSienaAuraRenderer(window: BrowserWindow): Promise<void> {
-  const html = cleanHtmlForTest(path.join(projectRoot, 'dist', 'siena-aura.html'));
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-  const result = await evaluate(window, () => {
-    const title = document.querySelector('.win-title-main')?.textContent?.trim() || '';
-    return { title };
-  });
-
-  assert.ok(result.title.includes('시에나'), '시에나의 기운 강화 창 타이틀이 일치하지 않습니다.');
+  await window.loadFile(path.join(projectRoot, 'dist', 'siena-aura.html'));
+  await waitForRendererCondition(window, `document.querySelectorAll('#auto-stat-name option').length > 0`, '시에나 초기화');
+  const failures = await window.webContents.executeJavaScript(`(() => {
+    const failures=[];
+    const click=id=>document.getElementById(id).click();
+    const read=label=>Array.from(document.querySelectorAll('#expectation-view .justify-between'))
+      .find(row=>row.firstElementChild?.textContent===label)?.lastElementChild?.textContent;
+    const check=(actual,expected,label)=>{if(actual!==expected) failures.push(label+': '+actual+' !== '+expected);};
+    // Only the random draw is fixed so every rank is reached through actual amplification.
+    // Rendering, slot creation, locking, probability and cost calculations remain production code.
+    const random=Math.random;
+    Math.random=()=>0;
+    try {
+      for(const [kind,probabilities] of [['weapon',[0.167,0.005]],['armor',[0.056,0.006]]]) {
+        click('btn-'+kind);
+        click('tab-stats');
+        const target=document.getElementById('auto-stat-name');
+        target.value=kind==='weapon'?'찌르기':'물리 피해 저항';target.dispatchEvent(new Event('change'));
+        check(document.getElementById('expectation-view').textContent.includes('증폭'),true,kind+' zero rank guidance');
+        check(read('1회 시도 시 획득률'),undefined,kind+' zero rank no false probability');
+        for(let rank=1;rank<=10;rank++) {
+          // Unlock the preceding rank through the same cards a user clicks.
+          for(const row of Array.from(document.querySelectorAll('#stat-slots .locked-stat'))) row.click();
+          click('tab-amplify'); click('btn-amplify'); click('tab-stats');
+          check(document.getElementById('stat-count').textContent,rank+' / 10',kind+' rank');
+          for(let locks=0;locks<rank;locks++) {
+            if(locks) document.querySelectorAll('#stat-slots .stat-row')[locks-1].click();
+            for(const [index,grade] of ['하','상'].entries()) {
+              const select=document.getElementById('auto-stat-grade');
+              select.value=grade;select.dispatchEvent(new Event('change'));
+              const probability=1-Math.pow(1-probabilities[index],rank-locks);
+              const label=kind+' rank='+rank+' locks='+locks+' grade='+grade;
+              check(read('1회 시도 시 획득률'),(100*probability).toFixed(2)+'%',label+' probability');
+              check(read('예상 시도 횟수'),Math.round(1/probability).toLocaleString()+'회',label+' attempts');
+              if(kind==='weapon'&&rank===1&&grade==='하') {
+                check(read('예상 SEED'),'598만',label+' seed');
+                check(read('예상 ELSO'),'898',label+' elso');
+                check(read('예상 에이라의 망치'),'5개',label+' hammers');
+              }
+            }
+          }
+        }
+      }
+    } finally {Math.random=random;}
+    return failures;
+  })()`);
+  const extraFailures = await window.webContents.executeJavaScript(`(() => {
+    const failures=[];
+    const click=id=>document.getElementById(id).click();
+    const set=(id,value)=>{const el=document.getElementById(id);el.value=value;el.dispatchEvent(new Event('change'));};
+    const read=label=>Array.from(document.querySelectorAll('#expectation-view .justify-between'))
+      .find(row=>row.firstElementChild?.textContent===label)?.lastElementChild?.textContent;
+    const check=(actual,expected,label)=>{if(actual!==expected) failures.push(label+': '+actual+' !== '+expected);};
+    // Independent reference: enumerate every ordered group selection with no repeats,
+    // then weight whether the target group is present. Conditional grade shares are fixed.
+    const weights=[.0137,.0857,.085,.0053,.0053,.24,.24,.24,.085];
+    const reference=(count,target)=>{
+      let success=0;
+      const visit=(selected,probability)=>{
+        if(selected.length===count) {if(selected.includes(target))success+=probability;return;}
+        const remaining=weights.reduce((sum,w,i)=>sum+(selected.includes(i)?0:w),0);
+        for(let i=0;i<weights.length;i++)if(!selected.includes(i)) visit([...selected,i],probability*weights[i]/remaining);
+      };
+      visit([],1);return success;
+    };
+    const targets=[['공격력',0,[.0137,.0047,.0005]],['방어력',1,[.0857,.0357,.0057]],
+      ['스탯',2,[.085,.035,.005]],['중딜',3,[.0053,.0013,.0003]],['방무',4,[.0053,.0013,.0003]],
+      ['HP',5,[.24,.14,.06]],['MP',6,[.24,.14,.06]],['SP',7,[.24,.14,.06]],['크리',8,[.085,.035,.005]]];
+    for(const [rank,count] of [[3,1],[7,2],[10,3]]) {
+      click('btn-reset-all');set('instant-rank-select',String(rank));click('btn-instant-rank');click('tab-extra');
+      document.querySelector('input[name="item-type"][value="all"]').click();
+      for(const [group,index,grades] of targets)for(const [gradeIndex,grade] of ['하','중','상'].entries()) {
+        set('auto-extra-name',group);set('auto-extra-grade',grade);
+        const probability=reference(count,index)*grades[gradeIndex]/weights[index];
+        check(read('1회(슬롯'+count+'개) 시 획득률'),(100*probability).toFixed(2)+'%',group+'/'+rank+'/'+grade);
+        check(read('환류의 서 예상 시도'),Math.round(1/probability).toLocaleString()+'회',group+'/'+rank+'/'+grade+' attempts');
+      }
+    }
+    document.querySelector('input[name="item-type"][value="single"]').click();
+    check(document.getElementById('expectation-view').textContent.includes('선택해주세요'),true,'single needs selected slot');
+    document.querySelector('#extra-slots .extra-row').click();
+    const otherGroups=extraOptions.slice(1).map(option=>option.group);
+    set('auto-extra-name',otherGroups[0]);
+    check(document.getElementById('expectation-view').textContent.includes('중복 등장할 수 없습니다'),true,'single duplicate excluded');
+    const available=EXTRA_OPTION_POOL.filter(option=>!otherGroups.includes(option.group));
+    const target=available[0];set('auto-extra-name',target.group);set('auto-extra-grade','상');
+    const singleProbability=target.grades[2].chance/available.reduce((sum,option)=>sum+option.grades.reduce((s,g)=>s+g.chance,0),0);
+    check(read('1회 시도 시 획득률'),(singleProbability*100).toFixed(2)+'%','single unchanged probability');
+    // Exercise the actual production draw, with a reproducible random stream only.
+    const random=Math.random;let seed=0x09232026,hp=0,attack=0;
+    Math.random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+    try {
+      for(let trial=0;trial<20000;trial++) {
+        const used=[];
+        for(let slot=0;slot<3;slot++) {const result=drawExtraOption(used);used.push(result.group);}
+        if(new Set(used).size!==3)throw new Error('production draw repeated a group');
+        if(used.includes('HP'))hp++;
+        if(used.includes('공격력'))attack++;
+      }
+    } finally {Math.random=random;}
+    check(Math.abs(hp/20000-.6656989566209397)<.015,true,'production HP sampling');
+    check(Math.abs(attack/20000-.05283453207763038)<.005,true,'production attack sampling');
+    return failures;
+  })()`);
+  failures.push(...extraFailures);
+  assert.deepEqual(failures, [], failures.join('\n'));
 }
 
 async function checkStopwatchRenderer(window: BrowserWindow): Promise<void> {
@@ -5202,6 +7030,53 @@ async function main(): Promise<void> {
   app.commandLine.appendSwitch('disable-gpu');
   app.setPath('userData', testUserDataDirectory);
   await app.whenReady();
+  if (process.argv.includes('--qte')) {
+    const window = new BrowserWindow({ show: false, webPreferences: { contextIsolation: false, nodeIntegration: false } });
+    try {
+      await checkQteChallengeRenderer(window);
+      console.log('QTE terminal round and stage checks passed.');
+    } finally { window.destroy(); }
+    app.exit(0);
+    return;
+  }
+  if (process.argv.includes('--siena-aura')) {
+    const window = new BrowserWindow({ show: false, webPreferences: { contextIsolation: false, nodeIntegration: false } });
+    try {
+      await checkSienaAuraRenderer(window);
+      console.log('Siena aura slot expectation checks passed.');
+    } finally { window.destroy(); }
+    app.exit(0);
+    return;
+  }
+  if (process.argv.includes('--equipment-simulator')) {
+    const window = new BrowserWindow({ show: false, webPreferences: { contextIsolation: false, nodeIntegration: false } });
+    try {
+      await checkEquipmentSimulator(window);
+      console.log('Equipment simulator behavior checks passed.');
+    } finally {
+      window.destroy();
+    }
+    app.exit(0);
+    return;
+  }
+  if (process.argv.includes('--thesis-core')) {
+    const window = new BrowserWindow({ show: false, webPreferences: { contextIsolation: false, nodeIntegration: false } });
+    try {
+      await checkThesisCoreCalculator(window);
+      console.log('Thesis core behavior checks passed.');
+    } finally {
+      window.destroy();
+    }
+    app.exit(0);
+    return;
+  }
+  if (process.argv.includes('--alarm-volume')) {
+    await checkAlarmVolumeBoundaries();
+    console.log('Alarm volume boundary checks passed.');
+    app.exit(0);
+    return;
+  }
+  ipcMain.handle('nickname-info-get', () => ({level:null,characterName:null,collectDate:null,stale:true}));
   checkNativeModuleCompatibility();
   await checkLifecycleStartIsIdempotent();
   await checkBuffRefreshPolicy();
@@ -5244,6 +7119,8 @@ async function main(): Promise<void> {
     await checkCoefficientDropdown(window);
     console.log('[TEST] checkFocusedChat');
     await checkFocusedChat(window);
+    console.log('[TEST] checkFocusedChatSettings');
+    await checkFocusedChatSettings();
     console.log('[TEST] checkChatOverlayRenderer');
     await checkChatOverlayRenderer(window);
     console.log('[TEST] checkDiaryRenderer');
@@ -5252,12 +7129,15 @@ async function main(): Promise<void> {
     await checkShoutHistoryRenderer(window);
     console.log('[TEST] checkXpHudRenderer');
     await checkXpHudRenderer(window);
+    console.log('[TEST] checkHuntingAssistRenderer');
+    await checkHuntingAssistRenderer(window);
     console.log('[TEST] checkBuffTimerRenderer');
     await checkBuffTimerRenderer(window);
     console.log('[TEST] checkWordAlarmRenderer');
     await checkWordAlarmRenderer(window);
     console.log('[TEST] checkBossSettingsRenderer');
     await checkBossSettingsRenderer(window);
+    await checkAlarmVolumeBoundaries();
     console.log('[TEST] checkMagicStoneCalculator');
     await checkMagicStoneCalculator(window);
     console.log('[TEST] checkThesisCoreCalculator');
@@ -5302,6 +7182,14 @@ async function main(): Promise<void> {
     await checkSplashRenderer(window);
     console.log('[TEST] checkGameOverlayEditMode');
     await checkGameOverlayEditMode(window);
+    await checkCompanionHud(window);
+    console.log('[TEST] checkPinnedNoteReading');
+    await checkPinnedNoteReading(window);
+    await checkActivityPresetsRenderer(window);
+    await checkManagedWindowResizeLimits(window);
+    await checkNicknameNoteEscape(window);
+    await checkNicknameNoteSaveOrdering(window);
+    await checkNotificationLayout(window);
     console.log('[TEST] checkWelcomeGuideTabs');
     await checkWelcomeGuideTabs(window);
     console.log('Renderer behavior checks passed.');

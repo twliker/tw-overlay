@@ -16,6 +16,87 @@ async function waitFor(window: BrowserWindow, expression: string, message: strin
   throw new Error(message);
 }
 
+/** 실제 두 file-origin 제품 창을 사용한다. 저장·초기화·storage 이벤트·계산식을 대체하지 않는다. */
+async function checkBuffCalculatorIntegration(): Promise<void> {
+  const catalog = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
+  const calculator = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
+  const failures: string[] = [];
+  const check = (label: string, actual: unknown, expected: unknown): void => {
+    try { assert.deepEqual(actual, expected, label); }
+    catch (error) { failures.push(String(error)); }
+  };
+  const js = (window: BrowserWindow, source: string): Promise<any> => window.webContents.executeJavaScript(source);
+  const profileKey = 'tw-coefficient-calculator-profiles-v1';
+  const loadCalculator = async (): Promise<void> => {
+    await calculator.loadFile(path.join(projectRoot, 'dist', 'coefficient-calculator.html'));
+    await waitFor(calculator, "document.querySelector('#buff-preset-select').options.length >= 3 && document.querySelector('.custom-dropdown-menu')", '계산기 초기화 실패');
+  };
+  const selection = (): Promise<any> => js(calculator, `(() => {
+    const select = document.getElementById('buff-preset-select');
+    return { id: select.value, name: select.selectedOptions[0]?.textContent,
+      character: document.getElementById('character-main-stat-display').textContent };
+  })()`);
+  try {
+    await catalog.loadFile(path.join(projectRoot, 'dist', 'storage-bridge.html'));
+    await js(catalog, `['buff_presets','buff_current_selection','buff_active_preset_id',${JSON.stringify(profileKey)},${JSON.stringify(profileKey + '_last')}].forEach(key => localStorage.removeItem(key));`);
+    await catalog.loadFile(path.join(projectRoot, 'dist', 'buffs.html'));
+    await waitFor(catalog, "document.querySelectorAll('.buff-card').length > 10", '실제 버프 자료 로드 실패');
+    const preset = await js(catalog, `(() => {
+      document.querySelector('[data-preset-id="standard"] .preset-card-main').click();
+      const summary = Array.from(document.querySelectorAll('#total-stats .stat-card')).find(card => card.querySelector('.stat-label').textContent === '능력치').querySelector('.stat-value').textContent;
+      document.getElementById('begin-selected-preset-button').click();
+      document.getElementById('preset-name').value = '연계 검사';
+      document.getElementById('save-preset-button').click();
+      return { ...JSON.parse(localStorage.getItem('buff_presets'))[0], summary };
+    })()`);
+    check('기본 도핑에서 비율 효과를 고정 수치에 중복 합산', preset.summary, '+54 / +40%');
+    await js(catalog, `localStorage.setItem(${JSON.stringify(profileKey)}, JSON.stringify({default: {
+      id:'default', name:'연계 프로필', data: { stats:{stab:'660',hack:'290',int:'120',mr:'200',dex:'930'},
+      buffPreset:${JSON.stringify(String(preset.id))}, currentType:'stab',mainCore:'none' }
+    }})); localStorage.setItem(${JSON.stringify(profileKey + '_last')}, 'default');`);
+    await loadCalculator();
+    check('저장된 사용자 도핑의 첫 로드', await selection(), { id: String(preset.id), name: '연계 검사', character: '999' });
+    // 수정 전에도 후속 검사를 계속할 수 있도록 사용자가 직접 선택하는 실제 change 경로를 실행한다.
+    await js(calculator, `var select = document.getElementById('buff-preset-select');select.value=${JSON.stringify(String(preset.id))};select.dispatchEvent(new Event('change',{bubbles:true}));`);
+    const tooltipRows = await js(calculator, `(() => {
+      const results = {};
+      for (const type of ['stab','hack','phycomp','magatk','maghack','magdef']) {
+        document.querySelector('.tab-btn[data-type="'+type+'"]').click();
+        results[type] = Array.from(document.querySelectorAll('#active-buff-info .flex-col > div')).map(row => row.textContent.replace(/\\s+/g,' ').trim());
+      }
+      document.querySelector('.tab-btn[data-type="stab"]').click();
+      return results;
+    })()`);
+    check('모든 공격 계열의 실제 입력 스탯으로 도핑 상세 계산', tooltipRows, {
+      stab: ['찌르기: +54, +40% (+285)', '베기: +54, +40% (+137)', '명중: +54, +40% (+393)'],
+      hack: ['베기: +54, +40% (+137)', '찌르기: +54, +40% (+285)', '명중: +54, +40% (+393)'],
+      phycomp: ['찌르기: +54, +40% (+285)', '베기: +54, +40% (+137)', '명중: +54, +40% (+393)'],
+      magatk: ['마공: +54, +40% (+69)', '마방: +54, +40% (+101)', '명중: +54, +40% (+393)'],
+      maghack: ['베기: +54, +40% (+137)', '마공: +54, +40% (+69)', '명중: +54, +40% (+393)'],
+      magdef: ['마방: +54, +40% (+101)', '마공: +54, +40% (+69)', '명중: +54, +40% (+393)'],
+    });
+    await loadCalculator();
+    check('사용자 도핑 선택 후 재개방', await selection(), { id: String(preset.id), name: '연계 검사', character: '999' });
+    await js(calculator, `var select = document.getElementById('buff-preset-select');select.value=${JSON.stringify(String(preset.id))};select.dispatchEvent(new Event('change',{bubbles:true}));`);
+    await js(catalog, `document.querySelector('[data-action="edit-preset"]').click();document.getElementById('preset-name').value='연계 변경';document.querySelector('.buff-select-action[aria-label="이자벨의 비법 (고정) 선택 해제"]').click();document.getElementById('save-preset-button').click();`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    check('다른 제품 창에서 이름·조합 저장 후 열린 계산기 갱신', await selection(), { id: String(preset.id), name: '연계 변경', character: '971' });
+    await js(catalog, `document.getElementById('begin-selected-preset-button').click();document.getElementById('preset-name').value='추가 조합';document.getElementById('save-preset-button').click();`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    check('다른 창의 새 프리셋 추가 시 현재 선택 보존', await js(calculator, `({count:document.getElementById('buff-preset-select').options.length,id:document.getElementById('buff-preset-select').value})`), { count: 4, id: String(preset.id) });
+    // 격리된 검사 자료만 삭제한다. 실제 confirm 모달을 대신 승인하는 것 외에 제품 삭제·저장 경로는 그대로다.
+    await js(catalog, `window.confirm=()=>true;document.querySelector('[data-preset-id="${preset.id}"] [data-action="delete-preset"]').click();`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    check('선택 중이던 프리셋 삭제 시 없음으로 계산·표시 일치', await selection(), { id: 'none', name: '없음', character: '660' });
+    check('삭제 후 프로필의 도핑 선택 저장', await js(calculator, `JSON.parse(localStorage.getItem(${JSON.stringify(profileKey)})).default.data.buffPreset`), 'none');
+    assert.equal(failures.length, 0, failures.join('\n\n'));
+    console.log('Actual buff catalog/calculator lifecycle and stat summary integration passed.');
+  } finally {
+    calculator.destroy();
+    catalog.destroy();
+  }
+}
+
 function buildTestHtml(): string {
   const svgImage = (width: number, height: number): string =>
     `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"></svg>`)}`;
@@ -564,6 +645,7 @@ async function main(): Promise<void> {
       previewWindow.hide();
     }
 
+    await checkBuffCalculatorIntegration();
     console.log('Buff encyclopedia behavior checks passed.');
   } finally {
     if (previewWindow && !previewWindow.isDestroyed()) previewWindow.destroy();

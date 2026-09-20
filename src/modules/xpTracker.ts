@@ -4,6 +4,10 @@
  * - 사용자가 시작한 세션 동안 양수 `XP_CHANGED` 한 건을 처치 1회로 보아 총 경험치, EPM, 처치 수,
  *   분별 히스토리를 계산합니다. HUD 표시 여부와 세션 측정 상태는 별도이며 `xpAutoStart=true`일 때만
  *   앱 시작 시 측정을 자동 시작합니다.
+ * - 자동 휴식은 마지막 획득 이후 시간을 측정에서 제외하고, 다음 양수 획득부터 기록을 이어갑니다.
+ *   수동 정지는 자동 재개하지 않으며, HUD 표시·정수 경고 누적은 각각 독립적으로 유지합니다.
+ * - 획득량 감소는 최근 5분의 1회 평균으로 판단합니다. 시작/재개 후 1분·30회 준비, 3회 연속
+ *   감소, 60초 알림 간격을 적용합니다. 사냥 기준 재설정은 세션 통계를 지우지 않습니다.
  * - 경험의 정수 교환은 수동·자동 모두 공통으로 남는 정확한 100억 경험치 감소 배수만 인정합니다.
  *   자동 교환 뒤의 별도 획득 안내를 다시 더하지 않으며, 일반 사망/이동 감소를 정수로 환산하지 않습니다.
  * - 직접 획득한 `[경험의 정수]` 로그는 일지·오늘 요약 경로가 담당하며 이 tracker의 교환 카운트에는
@@ -26,6 +30,7 @@ import {
 } from './windowMessaging';
 import type { AppConfig, XpStats } from '../shared/types';
 import { updateEssenceWarningAccumulator } from '../shared/experienceEssence';
+import { XpEfficiencyMonitor } from '../shared/xpEfficiency';
 
 export { getEssenceExchangeCount, XP_PER_ESSENCE } from '../shared/experienceEssence';
 
@@ -48,10 +53,15 @@ class XpTracker {
   private _sessionKills = 0;
   private _startTime = Date.now();
   private _minuteHistory: number[] = [];
-  private _lastMinuteTimestamp = Math.floor(Date.now() / 60000);
+  private _lastMinuteTimestamp = 0; // 휴식 시간을 제외한 측정 분 인덱스
   private _currentMinuteXP = 0;
+  private _historyBeforeIdle: { minutes: number[]; minute: number; currentXP: number } | null = null;
   private _historyTimer: NodeJS.Timeout | null = null;
   private _isActive = false;
+  private _autoPaused = false;
+  private _lastActivityAt: number | null = null;
+  private _efficiency = new XpEfficiencyMonitor();
+  private _efficiencySettingsKey = '';
   private _accumulatedTime = 0;
 
   // 경험의 정수 자동 교환 버프 미감지 알람
@@ -108,12 +118,20 @@ class XpTracker {
     // 세션 추적과 HUD 표시는 서로 독립된 사용자 선택이다.
     // 기존 명시값은 config missing-only 병합으로 보존하고, true일 때만 자동 시작한다.
     this._isActive = shouldAutoStartXpSession(cfg);
+    this._startTime = Date.now();
+    this._lastActivityAt = this._isActive ? this._startTime : null;
+    this.refreshActivitySettings();
+    config.addConfigChangeListener(patch => {
+      if (['xpAutoPauseEnabled', 'xpAutoPauseSeconds', 'xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent'].some(key => Object.prototype.hasOwnProperty.call(patch, key))) this.refreshActivitySettings();
+    });
 
-    // 히스토리 갱신 타이머 (10초마다 분 롤오버 체크)
+    // 마지막 획득 이후의 휴식을 감지하고 준비 상태를 UI에 반영한다.
     if (this._historyTimer) clearInterval(this._historyTimer);
     this._historyTimer = setInterval(() => {
+      this.checkInactivity();
       if (this._isActive) this.checkMinuteRollover();
-    }, 10000);
+      if (this._isActive) this.scheduleXpUpdate(this._lastGainForThrottledUpdate);
+    }, 1000);
 
     // 도전과제 매크로 감지
     chatParser.on('NORMAL_CHAT', (data) => {
@@ -128,6 +146,8 @@ class XpTracker {
 
     // 경험치 변동
     chatParser.on('XP_CHANGED', (data) => {
+      if (!Number.isFinite(data.amount)) return;
+      this.checkInactivity();
       // 경고용 누적은 세션 통계보다 먼저, 세션 활성 여부와 무관하게 처리합니다.
       // 세션을 일시정지하거나 초기화해도 자동 교환 버프 감시는 이어져야 합니다.
       const warningUpdate = updateEssenceWarningAccumulator(this._essenceWarningXp, data.amount);
@@ -153,6 +173,8 @@ class XpTracker {
         return;
       }
 
+      if (data.amount > 0 && this._autoPaused) this.startSession();
+
       if (!this._isActive) {
         // 경고 진행도는 HUD에 반영하되 세션 총 경험치·킬·분당 경험치는 변경하지 않습니다.
         this.scheduleXpUpdate(0);
@@ -167,7 +189,23 @@ class XpTracker {
       this._sessionXP = Math.max(0, this._sessionXP + amount);
       this._currentMinuteXP = Math.max(0, this._currentMinuteXP + amount);
       if (amount > 0) {
+        this._historyBeforeIdle = null;
+        this._lastActivityAt = Date.now();
         this._sessionKills++;
+        const activityConfig = config.loadFields(['xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent', 'xpEfficiencyAlertSound', 'xpEfficiencyAlertVolume']);
+        if (activityConfig.xpEfficiencyAlertEnabled !== false) {
+          const warning = this._efficiency.observe(amount, this._lastActivityAt, this.efficiencyDropPercent(activityConfig.xpEfficiencyDropPercent));
+          if (warning) {
+            this.sendToXpWindows('xp-efficiency-alert', warning);
+            const soundFile = activityConfig.xpEfficiencyAlertSound || 'orb.mp3';
+            wm.sendPlaySound({
+              label: `경험치 ${warning.dropPercent}% 감소 · 버프·도핑 확인`,
+              soundFile,
+              volume: soundFile === 'none' ? 0 : (activityConfig.xpEfficiencyAlertVolume ?? 40),
+              isCustom: true,
+            });
+          }
+        }
 
         // 도전과제 킬 카운트 갱신 및 완료 검사
         if (this._questActive && this._questType) {
@@ -200,7 +238,7 @@ class XpTracker {
     let movingEpm = epm;
     if (recentMins > 0) {
       const recentSum = this._minuteHistory.slice(-recentMins).reduce((a, b) => a + b, 0) + this._currentMinuteXP;
-      const denominator = recentMins + (Date.now() % 60000 / 60000);
+      const denominator = recentMins + (this.getElapsedMs() % 60000 / 60000);
       movingEpm = Math.floor(recentSum / Math.max(0.001, denominator));
     }
     return {
@@ -211,13 +249,25 @@ class XpTracker {
       xpSinceLastExchange: this._essenceWarningXp,
       startTime: this._startTime,
       accumulatedTime: this._accumulatedTime,
-      isActive: this._isActive
+      isActive: this._isActive,
+      pauseReason: this._isActive ? null : this._autoPaused ? 'idle' : 'manual',
+      efficiency: this._efficiency.state(Date.now(), config.loadFields(['xpEfficiencyAlertEnabled']).xpEfficiencyAlertEnabled !== false, this._isActive),
     };
   }
 
   public checkMinuteRollover(): void {
-    const nowMinute = Math.floor(Date.now() / 60000);
+    const nowMinute = Math.floor(this.getElapsedMs() / 60000);
+    while (nowMinute < this._lastMinuteTimestamp) {
+      this._currentMinuteXP += this._minuteHistory.pop() || 0;
+      this._lastMinuteTimestamp--;
+    }
     if (nowMinute > this._lastMinuteTimestamp) {
+      // 감지 대기 중 밀려난 최근 30분도 휴식 확정 시 되돌릴 수 있도록 한 번만 보관한다.
+      this._historyBeforeIdle ??= {
+        minutes: [...this._minuteHistory],
+        minute: this._lastMinuteTimestamp,
+        currentXP: this._currentMinuteXP,
+      };
       const diff = nowMinute - this._lastMinuteTimestamp;
       for (let i = 0; i < diff; i++) {
         this._minuteHistory.push(i === 0 ? this._currentMinuteXP : 0);
@@ -311,74 +361,58 @@ class XpTracker {
     this._startTime = Date.now();
     this._accumulatedTime = 0;
     this._minuteHistory = [];
+    this._historyBeforeIdle = null;
     this._currentMinuteXP = 0;
-    this._lastMinuteTimestamp = Math.floor(Date.now() / 60000);
+    this._lastMinuteTimestamp = 0;
+    this._lastActivityAt = this._isActive ? Date.now() : null;
+    this._efficiency.reset();
     this._sessionEssenceCount = 0;
     this._lastGainForThrottledUpdate = 0;
 
     log('[XP_TRACKER] XP 세션 초기화됨');
 
     this.sendToWindow('game-overlay.html', 'xp-update', this.buildXpPayload(0));
-    this.sendToWindow('xp-hud.html', 'xp-reset-done', {
-      startTime: this._startTime,
-      accumulatedTime: 0,
-      isActive: this._isActive,
-      xpSinceLastExchange: this._essenceWarningXp,
-    });
+    this.sendToWindow('xp-hud.html', 'xp-reset-done', this.buildXpPayload(0));
   }
 
   public getStats(): XpStats {
+    this.checkInactivity();
     if (this._isActive) {
       this.checkMinuteRollover();
     }
-    const elapsedMins = this.getElapsedMs() / 60000;
-    const epm = Math.floor(this._sessionXP / Math.max(1, elapsedMins));
-    const recentMins = Math.min(5, this._minuteHistory.length);
-    let movingEpm = epm;
-    if (recentMins > 0) {
-      const recentSum = this._minuteHistory.slice(-recentMins).reduce((a, b) => a + b, 0) + this._currentMinuteXP;
-      const denominator = recentMins + (Date.now() % 60000 / 60000);
-      movingEpm = Math.floor(recentSum / Math.max(0.001, denominator));
-    }
-    return {
-      total: this._sessionXP, epm, movingEpm, startTime: this._startTime,
-      history: [...this._minuteHistory, this._currentMinuteXP],
-      kills: this._sessionKills,
-      essenceCount: this._sessionEssenceCount,
-      xpSinceLastExchange: this._essenceWarningXp,
-      accumulatedTime: this._accumulatedTime,
-      isActive: this._isActive
-    };
+    return this.buildXpPayload(this._lastGainForThrottledUpdate);
   }
 
   public startSession(): void {
     if (this._isActive) return;
-    const nowMinute = Math.floor(Date.now() / 60000);
-    if (nowMinute > this._lastMinuteTimestamp) {
-      // 일시정지 시간은 EPM 분모에 포함하지 않으므로 빈 wall-clock 분도 히스토리에 추가하지 않는다.
-      this._minuteHistory.push(this._currentMinuteXP);
-      if (this._minuteHistory.length > 30) this._minuteHistory.shift();
-      this._currentMinuteXP = 0;
-    }
+    this._autoPaused = false;
     this._isActive = true;
     this._startTime = Date.now();
-    this._lastMinuteTimestamp = nowMinute;
+    this._lastActivityAt = this._startTime;
+    this._historyBeforeIdle = null;
+    this._efficiency.reset();
     log('[XP_TRACKER] XP 세션 측정 시작');
     
     this.broadcastUpdate();
   }
 
   public stopSession(): void {
-    if (!this._isActive) return;
-    this._isActive = false;
-    this._accumulatedTime += Date.now() - this._startTime;
+    if (this._isActive) {
+      this._accumulatedTime += Math.max(0, Date.now() - this._startTime);
+      this._isActive = false;
+      this.checkMinuteRollover();
+    }
+    this._autoPaused = false;
+    this._lastActivityAt = null;
+    this._historyBeforeIdle = null;
+    this._efficiency.reset();
     log('[XP_TRACKER] XP 세션 측정 중지');
     
     this.broadcastUpdate();
   }
 
   public toggleSession(): void {
-    if (this._isActive) {
+    if (this._isActive || this._autoPaused) {
       this.stopSession();
     } else {
       this.startSession();
@@ -398,6 +432,47 @@ class XpTracker {
     }
     const payload = this.buildXpPayload(0);
     this.sendToXpWindows('xp-update', payload);
+  }
+
+  private efficiencyDropPercent(value: number | undefined): number {
+    return Math.max(10, Math.min(50, Number(value) || 20));
+  }
+
+  private refreshActivitySettings(): void {
+    const cfg = config.loadFields(['xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent', 'xpAutoPauseEnabled']);
+    const key = `${cfg.xpEfficiencyAlertEnabled !== false}:${this.efficiencyDropPercent(cfg.xpEfficiencyDropPercent)}`;
+    if (key !== this._efficiencySettingsKey) {
+      this._efficiencySettingsKey = key;
+      this._efficiency.reset();
+    }
+    if (cfg.xpAutoPauseEnabled === false && this._autoPaused) this.stopSession();
+    this.broadcastUpdate();
+  }
+
+  /** 자동 휴식은 마지막 획득 이후의 대기 시간 전체를 측정에서 제외한다. */
+  public checkInactivity(now = Date.now()): void {
+    if (!this._isActive || this._lastActivityAt === null) return;
+    const cfg = config.loadFields(['xpAutoPauseEnabled', 'xpAutoPauseSeconds']);
+    if (cfg.xpAutoPauseEnabled === false) return;
+    const seconds = Math.max(30, Math.min(300, Number(cfg.xpAutoPauseSeconds) || 60));
+    if (now - this._lastActivityAt < seconds * 1000) return;
+    this._accumulatedTime += Math.max(0, this._lastActivityAt - this._startTime);
+    this._isActive = false;
+    this._autoPaused = true;
+    if (this._historyBeforeIdle) {
+      this._minuteHistory = this._historyBeforeIdle.minutes;
+      this._lastMinuteTimestamp = this._historyBeforeIdle.minute;
+      this._currentMinuteXP = this._historyBeforeIdle.currentXP;
+      this._historyBeforeIdle = null;
+    }
+    this.checkMinuteRollover();
+    this._efficiency.reset();
+    this.broadcastUpdate();
+  }
+
+  public resetEfficiencyBaseline(): void {
+    this._efficiency.reset();
+    this.broadcastUpdate();
   }
 
   private _fireEssenceAlert(): void {

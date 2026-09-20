@@ -10,6 +10,8 @@ export const MAIN_CHAR_ID = 'char-main';
 export const DEFAULT_CHAR_NAME = '본캐';
 
 export interface ChatParserEventMap {
+    ORIGIN_OF_DOOM_ACTIVITY: { date: string; timestamp: string; message: string; phase: 'started' | 'finished' };
+    SUPPLY_RECAPTURE: SupplyInstruction & { date: string; timestamp: string; message: string };
     SEED_GAINED: { date: string; timestamp: string; amount: number; message: string };
     ABANDONED_FEE: { date: string; timestamp: string; amount: number; message: string };
     ABANDONED_ENTRY: { date: string; timestamp: string; region: string; count: number; message: string };
@@ -25,7 +27,7 @@ export interface ChatParserEventMap {
         isOwn: boolean;
     };
     XP_CHANGED: { date: string; timestamp: string; amount: number; message: string };
-    TRADE_SHOUT: { date: string; timestamp: string; sender: string; message: string };
+    TRADE_SHOUT: { date: string; timestamp: string; sender: string; message: string; shoutKind?: ShoutKind };
     BUFF_USED: { date: string; timestamp: string; buffId: string; usedBy: string; message: string };
     PITTA_ENTRY: { date: string; timestamp: string; energy: number; grade: string; message: string };
     PITTA_CLEAR: { date: string; timestamp: string; grade: string; itemName: string; message: string };
@@ -67,7 +69,7 @@ export interface ChatParserEventMap {
     MOON_QUEEN_TRAINING_CLEAR: { date: string; timestamp: string; count: number; message: string };
     CONFUSED_LAND_CLEAR: { date: string; timestamp: string; message: string };
     COLORLESS_LAND_CLEAR: { date: string; timestamp: string; message: string };
-    ARCHITECT_MINE_ENTRY: { date: string; timestamp: string; count?: number; message: string };
+    ARCHITECT_MINE_CLEAR: { date: string; timestamp: string; message: string };
     NORMAL_CHAT: { date: string; timestamp: string; sender: string; message: string; color: string };
     ABYSS_APOSTLE_PATTERN: { date: string; timestamp: string; message: string };
     WAVE_MONSTER_WARNING: { date: string; timestamp: string; message: string };
@@ -181,10 +183,35 @@ export interface XpStats {
     xpSinceLastExchange: number;
     accumulatedTime: number;
     isActive: boolean;
+    pauseReason?: 'manual' | 'idle' | null;
+    efficiency?: XpEfficiencyState;
     lastGain?: number;
 }
 
+export interface XpEfficiencyWarning {
+    at: number;
+    average: number;
+    current: number;
+    dropPercent: number;
+}
+
+export interface XpEfficiencyState {
+    status: 'disabled' | 'paused' | 'warming' | 'ready' | 'low';
+    average: number;
+    sampleCount: number;
+    warmupSeconds: number;
+    warning: XpEfficiencyWarning | null;
+}
+
+export interface BossEntryWindow {
+    id: string;
+    name: string;
+    opensAt: number;
+    closesAt: number;
+}
+
 export type ChatChannel = 'general' | 'team' | 'club' | 'shout' | 'whisper' | 'system';
+export type ShoutKind = 'free' | 'paid' | 'notice';
 export type ChatOverlayTab = 'Basic' | 'General' | 'Team' | 'Club' | 'Shout' | 'Whisper' | 'System';
 
 export type SystemColorGroup = 'purple' | 'yellow' | 'red' | 'green' | 'blue' | 'gray';
@@ -197,6 +224,7 @@ export interface CustomChatTab {
 }
 
 export interface ChatItem {
+    shoutKind?: ShoutKind;
     id: string;
     type: ChatChannel;
     timestamp: string;
@@ -283,6 +311,8 @@ export interface CustomAlert {
 }
 
 export interface ShortcutsConfig {
+    /** 전체 창 일시 숨김·복원. 미지정 시 트레이에서 사용한다. */
+    toggleAllWindows?: string;
     /** 창 투과(Click-through) 토글 */
     toggleClickThrough: string;
     /** 숙제 체크 리스트 창 토글 */
@@ -421,7 +451,24 @@ export interface TradeSearchState {
     notifiedRanges: Array<[number, number]>;
 }
 
+export interface NicknameInfo { level: number | null; characterName: string | null; collectDate: string | null; stale: boolean; }
+
+export interface NicknameNote { server: number; nickname: string; note: string; }
+export type SupplyPadColor = '파랑' | '노랑' | '빨강' | '검정' | '흰색';
+export interface SupplyInstruction { phase: 'start' | 'order' | 'end'; colors?: SupplyPadColor[]; }
+export interface SupplyRunState { expiresAt: number; orderExpiresAt: number; colors: SupplyPadColor[]; }
+export interface ActivityPreset {
+    id: string; name: string; updatedAt: number;
+    settings: Partial<AppConfig>; openWindows: WindowPositionKey[];
+}
+export type NotificationAnchor = 'default' | 'top-left' | 'top-center' | 'top-right' | 'middle-left' | 'middle-center' | 'middle-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+export type NotificationPositions = Record<'center' | 'buff' | 'hunting' | 'toast', NotificationAnchor>;
+
 export interface AppConfig {
+    /** 숙제창을 사용하지 않을 때 제목줄로 접기. 기본 꺼짐. */
+    contentsAutoCollapse?: boolean;
+    activityPresets?: ActivityPreset[];
+    notificationPositions?: NotificationPositions;
     width: number;
     height: number;
     opacity: number;
@@ -445,6 +492,7 @@ export interface AppConfig {
     fieldBossNotifyOffsets?: number[];
     fieldBossNotifyVolume?: number;
     fieldBossSettings?: Record<string, BossSetting>;
+    bossEntryCountdownBosses?: string[];
     notifyWhenGameClosed?: boolean;
     positions?: Partial<Record<WindowPositionKey, WindowPosition>>;
     /** 창모드 전체화면에서만 사용하는 게임 기준 상대 위치. 일반 창모드 위치와 분리해 보존합니다. */
@@ -491,6 +539,12 @@ export interface AppConfig {
     wordAlarmHistoryEnabled?: boolean;
     showXpWidget?: boolean;
     xpAutoStart?: boolean;
+    xpAutoPauseEnabled?: boolean;
+    xpAutoPauseSeconds?: number;
+    xpEfficiencyAlertEnabled?: boolean;
+    xpEfficiencyDropPercent?: number;
+    xpEfficiencyAlertSound?: string;
+    xpEfficiencyAlertVolume?: number;
     ignoreNegativeXp?: boolean;
     xpWidgetPos?: HudPosition;
     showTodaySummaryHud?: boolean;
@@ -575,6 +629,31 @@ export interface AppConfig {
     chatOverlaySubOpacity?: number;
     chatOverlaySub2Opacity?: number;
     chatOverlayFontSize?: number;
+    chatOverlayShowFreeShout?: boolean;
+    chatOverlayShowPaidShout?: boolean;
+    chatOverlayShowNoticeShout?: boolean;
+    chatNicknameNotesCompact?: boolean;
+    chatCompactDisplay?: boolean;
+    chatEtaColorsEnabled?: boolean;
+    chatEtaColors?: string[];
+    nicknameNotes?: NicknameNote[];
+    pinnedNoteEnabled?: boolean;
+    pinnedNoteText?: string;
+    pinnedNoteFontSize?: number;
+    pinnedNoteColor?: string;
+    pinnedNoteBackground?: boolean;
+    windowSnapEnabled?: boolean;
+    pinnedNotePos?: HudPosition;
+    supplyHelperEnabled?: boolean;
+    /** 이전 설정/프리셋 호환용. 발판 기믹 알림은 지도 옵션과 HUD 좌표를 사용하지 않는다. */
+    supplyMapEnabled?: boolean;
+    supplyMapLarge?: boolean;
+    supplyHudPos?: HudPosition;
+    chatOverlayFontFamily?: string;
+    chatOverlaySubFontSize?: number;
+    chatOverlaySubFontFamily?: string;
+    chatOverlaySub2FontSize?: number;
+    chatOverlaySub2FontFamily?: string;
     chatOverlayClickThrough?: boolean;
     chatOverlayVisibleTabs?: ChatOverlayBuiltInTab[];
     chatOverlayKeywords?: string[];
@@ -989,6 +1068,12 @@ export interface TodaySummaryHomeworkItem {
     maxCount: number;
 }
 
+export interface TodaySummaryDetectedHomework {
+    name: string;
+    currentCount: number;
+    maxCount: number;
+}
+
 export interface TodaySummary {
     date: string;
     totalSeed: number;
@@ -997,6 +1082,7 @@ export interface TodaySummary {
     bossKills: number;
     totalLootCount: number;
     lootItems: TodaySummaryLootItem[];
+    detectedHomework: TodaySummaryDetectedHomework | null;
     homework: {
         characterName: string;
         completedCount: number;
@@ -1034,6 +1120,14 @@ export interface AlarmLog {
     title: string;
     message: string;
 }
+export interface StopwatchState {
+    revision: number;
+    running: boolean;
+    startedAt: number | null;
+    stoppedAt: number | null;
+    duration: number;
+}
+
 export interface TimerRecord {
     id?: number;
     date: string;          // YYYY-MM-DD HH:mm:ss

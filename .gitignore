@@ -18,6 +18,7 @@
 /.idea/
 /dist/
 /dist-tools/
+/output/
 node_modules/
 SHASUMS256.txt
 compile_commands.json

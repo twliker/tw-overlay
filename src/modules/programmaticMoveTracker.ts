@@ -13,6 +13,7 @@ interface ProgrammaticMove extends Point {
 export class ProgrammaticMoveTracker {
   private readonly moves: Record<string, ProgrammaticMove> = {};
   private readonly userDragUntil: Record<string, number> = {};
+  private readonly nativeUserDrags = new Set<string>();
 
   constructor(
     private readonly positionThreshold: number,
@@ -59,8 +60,20 @@ export class ProgrammaticMoveTracker {
     this.userDragUntil[key] = this.now() + durationMs;
   }
 
+  /** will-move부터 moved까지는 커서가 멈춰 있어도 사용자 이동이 끝난 것이 아닙니다. */
+  beginUserDrag(key: string): void {
+    this.nativeUserDrags.add(key);
+    delete this.moves[key];
+  }
+
+  endUserDrag(key: string): void {
+    this.nativeUserDrags.delete(key);
+    delete this.userDragUntil[key];
+  }
+
   /** 해당 창이 현재 사용자에 의해 마우스 드래그 중인지 확인합니다. */
   isUserDragging(key: string): boolean {
+    if (this.nativeUserDrags.has(key)) return true;
     const until = this.userDragUntil[key];
     if (!until) return false;
     if (this.now() > until) {
@@ -72,6 +85,7 @@ export class ProgrammaticMoveTracker {
 
   /** 현재 사용자가 어떤 창이든 마우스로 드래그 중인지 확인합니다. */
   isAnyUserDragging(): boolean {
+    if (this.nativeUserDrags.size > 0) return true;
     const now = this.now();
     for (const key of Object.keys(this.userDragUntil)) {
       if (this.userDragUntil[key] && now <= this.userDragUntil[key]) {
@@ -84,6 +98,7 @@ export class ProgrammaticMoveTracker {
   }
 
   clear(): void {
+    this.nativeUserDrags.clear();
     for (const key of Object.keys(this.moves)) delete this.moves[key];
     for (const key of Object.keys(this.userDragUntil)) delete this.userDragUntil[key];
   }

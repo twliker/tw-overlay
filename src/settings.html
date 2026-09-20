@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
+  <title>환경 설정</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="assets/pickr-nano.min.css">
   <style>
@@ -375,6 +376,16 @@
       <div id="settings-context-tabs" class="settings-context-tabs" aria-label="세부 설정"></div>
       <!-- 0. 일반 설정 (앱 동작 & 사이드바) -->
       <div id="section-general" class="settings-section space-y-8">
+        <section id="activity-presets-card" class="settings-group" data-settings-view="general-app">
+          <h2 class="ui-section-heading"><i data-lucide="layout-template"></i>활동 프리셋</h2>
+          <div class="ui-card ui-stack">
+            <p class="ui-description">사냥·보스·거래 상황에 맞는 창 배치와 알림 설정을 저장해 한 번에 전환합니다.</p>
+            <div class="ui-actions"><input id="activity-preset-name" list="activity-preset-suggestions" maxlength="32" class="ui-input flex-1 min-w-0" placeholder="프리셋 이름 (예: 사냥)" aria-label="새 활동 프리셋 이름"><datalist id="activity-preset-suggestions"><option value="사냥"><option value="보스"><option value="거래"></datalist><button id="activity-preset-save" class="ui-button ui-button-primary"><i data-lucide="save"></i>현재 상태 저장</button></div>
+            <div id="activity-preset-list" class="ui-stack"></div>
+            <p class="ui-description">미저장 설정은 먼저 저장해 주세요. 캐릭터 기록과 메모 내용은 전환해도 유지됩니다.</p>
+            <p id="activity-preset-status" class="ui-status" role="status"></p>
+          </div>
+        </section>
         <div class="settings-group">
           <h2 class="text-lg font-bold mb-6 flex items-center gap-2"><i data-lucide="settings-2"
               class="w-5 h-5 text-purple-500"></i><span id="general-section-title">앱 동작 설정</span></h2>
@@ -419,6 +430,7 @@
                 </div>
               </label>
 
+              <label class="ui-toggle-row"><span><span class="ui-heading">창끼리 모서리 맞춤</span><span class="ui-description">창을 끌어 놓으면 가까운 다른 도구·채팅창의 모서리에 맞춥니다.</span></span><span class="ui-switch"><input type="checkbox" id="window-snap-enabled"><span class="ui-switch-track"></span></span></label>
               <label
                 class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
                 <input type="checkbox" id="auto-open-contents-checker-input" class="w-5 h-5 accent-purple-600">
@@ -798,12 +810,34 @@
 
       <!-- 1-1. 게임 오버레이 설정 -->
       <div id="section-game-overlay" class="settings-section space-y-8 hidden">
+        <section id="notification-layout-card" class="settings-group">
+          <h2 class="ui-section-heading"><i data-lucide="bell"></i>알림 위치</h2>
+          <div class="ui-card ui-stack">
+            <p class="ui-description">알림별 위치를 한곳에서 조절합니다. ‘기존 위치’를 선택하면 원래 배치를 사용합니다.</p>
+            <div class="ui-two-column"><div class="ui-stack">
+              <label class="ui-field">게임 진행 알림<select id="notification-position-center" class="ui-input" aria-label="게임 진행 알림 위치"></select></label>
+              <label class="ui-field">버프 만료 알림<select id="notification-position-buff" class="ui-input" aria-label="버프 만료 알림 위치"></select></label>
+              <label class="ui-field">입장·사냥 안내<select id="notification-position-hunting" class="ui-input" aria-label="입장·사냥 안내 위치"></select></label>
+              <label class="ui-field">독 알림<select id="notification-position-toast" class="ui-input" aria-label="독 알림 위치"></select></label>
+            </div><div id="notification-position-preview" class="ui-preview-stage" aria-label="알림 배치 예시"></div></div>
+            <p class="ui-description">진행 알림에는 도전과제·콘텐츠 완료, 경험의 정수, 기믹 경고가 포함됩니다. 같은 위치를 선택하면 알림이 겹칠 수 있으니 미리보기로 확인하세요.</p>
+            <div class="ui-actions"><button id="notification-position-save" class="ui-button ui-button-primary"><i data-lucide="save"></i>알림 위치 저장</button><button id="notification-position-test" class="ui-button"><i data-lucide="monitor"></i>게임 화면에서 미리보기</button></div>
+            <p id="notification-position-status" class="ui-status" role="status"></p>
+          </div>
+        </section>
         <div class="settings-group">
           <h2 class="text-lg font-bold mb-6 flex items-center gap-2">
             <i data-lucide="layers" class="w-5 h-5 text-purple-500"></i> 게임 오버레이 (HUD) 설정
           </h2>
 
           <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
+            <section class="ui-inset ui-stack">
+              <label class="ui-toggle-row"><span class="ui-heading"><i data-lucide="sticky-note"></i>게임 화면에 메모 고정</span><span class="ui-switch"><input type="checkbox" id="pinned-note-enabled"><span class="ui-switch-track"></span></span></label>
+              <div class="ui-two-column"><textarea id="pinned-note-text" maxlength="1000" rows="5" class="ui-input w-full" placeholder="오늘 목표, 도핑 체크, 거래할 물품 등을 적어 보세요." aria-label="고정 메모 내용"></textarea><div class="ui-preview"><div class="ui-preview-label">화면 예시</div><div id="pinned-note-preview" class="ui-hud-card ui-note-preview custom-scroll text-sm whitespace-pre-wrap break-words" tabindex="0" role="region" aria-label="메모 화면 예시"></div></div></div>
+              <div class="ui-actions"><label class="ui-field">글자 크기<select id="pinned-note-font-size" class="ui-input"><option value="12">12px</option><option value="13">13px</option><option value="14">14px</option><option value="15">15px</option><option value="16">16px</option><option value="17">17px</option><option value="18">18px</option><option value="19">19px</option><option value="20">20px</option><option value="21">21px</option><option value="22">22px</option><option value="23">23px</option><option value="24">24px</option><option value="25">25px</option><option value="26">26px</option><option value="27">27px</option><option value="28">28px</option></select></label><label class="ui-field">글자 색<input type="color" id="pinned-note-color" value="#ffffff" class="ui-color-input" style="width:64px" aria-label="메모 글자 색"></label><label class="ui-field"><span>배경 표시</span><span class="ui-switch"><input type="checkbox" id="pinned-note-background" checked><span class="ui-switch-track"></span></span></label></div>
+              <p class="ui-description">아래 HUD 위치 설정으로 옮길 수 있습니다. 긴 메모는 게임 화면에 일부만 표시되며, HUD 위치 설정 중 본문을 스크롤하면 전체를 읽을 수 있습니다. 내용은 이 PC에 저장됩니다.</p>
+              <div class="ui-actions"><button data-save-companion="pinnedNoteEnabled,pinnedNoteText,pinnedNoteFontSize,pinnedNoteColor,pinnedNoteBackground" class="ui-button ui-button-primary"><i data-lucide="save"></i>메모 저장</button><span class="ui-status" role="status"></span></div>
+            </section>
             <!-- HUD 위치 편집 컨트롤 카드 -->
             <div id="hud-position-settings-card"
               class="p-5 bg-purple-950/20 rounded-xl border border-purple-500/30 space-y-4">
@@ -1334,15 +1368,16 @@
 
                 <!-- 폰트 크기 및 투명도 -->
                 <div class="grid grid-cols-2 gap-4">
-                  <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-2">
-                    <h4 class="text-xs font-bold text-slate-400">글자 크기 (Font Size)</h4>
-                    <div class="flex items-center gap-3">
-                      <input type="range" id="chat-overlay-fontsize-input" min="10" max="28" value="14"
-                        class="flex-1 accent-indigo-600">
-                      <span id="chat-overlay-fontsize-val"
-                        class="text-xs font-bold text-slate-200 min-w-[24px] text-right">14px</span>
-                    </div>
-                  </div>
+                  <div id="chat-font-settings" class="ui-inset ui-stack col-span-2"><h4 class="ui-heading"><i data-lucide="type"></i>창별 글꼴과 크기</h4><p class="ui-description">보조 창은 기본적으로 메인 설정을 따릅니다. 바꾼 모습은 아래 예시에 바로 반영됩니다.</p><div class="ui-actions"><button type="button" id="chat-font-add" class="ui-button ui-button-small">글꼴 파일 추가</button><button type="button" id="chat-font-use-main" class="ui-button ui-button-small">모두 메인 글꼴로</button><span id="chat-font-status" class="ui-status" role="status"></span></div><p class="ui-description">추가한 글꼴은 창별로 선택한 뒤 설정을 저장하세요. 파일은 이 PC에 보관되며, 다른 PC에 없으면 기본 글꼴로 표시됩니다.</p><div class="ui-font-grid"><div class="ui-stack"><label class="ui-field" for="chat-overlay-fontfamily-input">메인<select id="chat-overlay-fontfamily-input" class="ui-input" aria-label="메인 글꼴"><option value="system">기본 글꼴</option><option value="malgun">맑은 고딕</option><option value="gulim">굴림</option><option value="dotum">돋움</option><option value="batang">바탕</option></select></label>
+ <!-- 사용자 채팅 글꼴은 기존 10~28px 선택을 보존한다. 설정 UI의 최소 글꼴 토큰과 별개다. -->
+ <div class="flex gap-3 items-center h-11"><input type="range" id="chat-overlay-fontsize-input" min="10" max="28" value="14" class="min-w-0 w-full accent-indigo-500" aria-label="메인 글자 크기"><span id="chat-overlay-fontsize-val" class="ui-description whitespace-nowrap">14px</span></div>
+ <div id="chat-font-preview-main" class="ui-preview" aria-label="메인 채팅 예시"><span style="color:#94ddfa">[클럽] 모험가</span><br>같이 사냥해요!</div></div>
+<div class="ui-stack"><label class="ui-field" for="chat-overlay-sub-fontfamily-input">보조 1<select id="chat-overlay-sub-fontfamily-input" class="ui-input" aria-label="보조 1 글꼴"><option value="">메인과 같게</option><option value="system">기본 글꼴</option><option value="malgun">맑은 고딕</option><option value="gulim">굴림</option><option value="dotum">돋움</option><option value="batang">바탕</option></select></label>
+ <select id="chat-overlay-sub-fontsize-input" class="ui-input w-full" aria-label="보조 1 글자 크기"><option value="0">메인 크기 따르기</option><option value="12">12px</option><option value="13">13px</option><option value="14">14px</option><option value="15">15px</option><option value="16">16px</option><option value="17">17px</option><option value="18">18px</option><option value="19">19px</option><option value="20">20px</option><option value="21">21px</option><option value="22">22px</option><option value="23">23px</option><option value="24">24px</option><option value="25">25px</option><option value="26">26px</option><option value="27">27px</option><option value="28">28px</option></select>
+ <div id="chat-font-preview-sub1" class="ui-preview" aria-label="보조 1 채팅 예시"><span style="color:#94ddfa">[클럽] 모험가</span><br>같이 사냥해요!</div></div>
+<div class="ui-stack"><label class="ui-field" for="chat-overlay-sub2-fontfamily-input">보조 2<select id="chat-overlay-sub2-fontfamily-input" class="ui-input" aria-label="보조 2 글꼴"><option value="">메인과 같게</option><option value="system">기본 글꼴</option><option value="malgun">맑은 고딕</option><option value="gulim">굴림</option><option value="dotum">돋움</option><option value="batang">바탕</option></select></label>
+ <select id="chat-overlay-sub2-fontsize-input" class="ui-input w-full" aria-label="보조 2 글자 크기"><option value="0">메인 크기 따르기</option><option value="12">12px</option><option value="13">13px</option><option value="14">14px</option><option value="15">15px</option><option value="16">16px</option><option value="17">17px</option><option value="18">18px</option><option value="19">19px</option><option value="20">20px</option><option value="21">21px</option><option value="22">22px</option><option value="23">23px</option><option value="24">24px</option><option value="25">25px</option><option value="26">26px</option><option value="27">27px</option><option value="28">28px</option></select>
+ <div id="chat-font-preview-sub2" class="ui-preview" aria-label="보조 2 채팅 예시"><span style="color:#94ddfa">[클럽] 모험가</span><br>같이 사냥해요!</div></div></div></div>
                   <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4 col-span-2">
                     <h4 class="text-xs font-bold text-slate-400">오버레이 기본 불투명도</h4>
                     <div class="grid grid-cols-3 gap-4">
@@ -1377,6 +1412,18 @@
                   </div>
                 </div>
 
+<section class="ui-inset ui-stack"><h4 class="ui-heading"><i data-lucide="megaphone"></i>외치기 종류별 표시</h4><div class="ui-actions"><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-free-shout" checked>무료</label><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-paid-shout" checked>유료</label><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-notice-shout" checked>공지</label></div><p class="ui-description">통합·외치기·사용자 탭과 검색에 적용됩니다. 기록은 계속 수집됩니다.</p></section>
+<section id="chat-reading-settings" class="ui-inset ui-stack">
+  <label class="ui-toggle-row"><span class="ui-heading">채팅 간단 표시</span><span class="ui-switch"><input type="checkbox" id="chat-compact-display"><span class="ui-switch-track"></span></span></label>
+  <p class="ui-description">시간과 에타 배지를 접어 본문을 넓게 봅니다. 채널·주의·메모 표시는 유지됩니다. 메인·보조·집중 채팅에 적용되며, 접힌 정보는 메시지 위에 마우스를 올려 확인합니다.</p>
+  <div id="chat-reading-preview" class="ui-preview" aria-label="채팅 표시 예시"><span class="chat-timestamp">12:30</span> <span class="ui-chip">클럽</span> <span class="eta-badge ui-chip">에타 42</span> 모험가: 같이 사냥해요!</div>
+</section>
+<section id="eta-color-settings" class="ui-inset ui-stack" data-ui-accent="eta"><label class="ui-toggle-row"><span class="ui-heading"><i data-lucide="palette"></i>에타 레벨에 따라 배지 색상 표시</span><span class="ui-switch"><input type="checkbox" id="chat-eta-colors-enabled"><span class="ui-switch-track"></span></span></label><div class="grid grid-cols-5 gap-3"><label class="ui-field text-xs"><span>1~20</span><input type="color" id="chat-eta-color-0" value="#94a3b8" class="ui-color-input" aria-label="에타 1~20 색상"><span id="chat-eta-preview-0" class="ui-chip justify-center">에타 1</span></label>
+<label class="ui-field text-xs"><span>21~40</span><input type="color" id="chat-eta-color-1" value="#60a5fa" class="ui-color-input" aria-label="에타 21~40 색상"><span id="chat-eta-preview-1" class="ui-chip justify-center">에타 21</span></label>
+<label class="ui-field text-xs"><span>41~60</span><input type="color" id="chat-eta-color-2" value="#34d399" class="ui-color-input" aria-label="에타 41~60 색상"><span id="chat-eta-preview-2" class="ui-chip justify-center">에타 41</span></label>
+<label class="ui-field text-xs"><span>61~80</span><input type="color" id="chat-eta-color-3" value="#a78bfa" class="ui-color-input" aria-label="에타 61~80 색상"><span id="chat-eta-preview-3" class="ui-chip justify-center">에타 61</span></label>
+<label class="ui-field text-xs"><span>81 이상</span><input type="color" id="chat-eta-color-4" value="#facc15" class="ui-color-input" aria-label="에타 81 이상 색상"><span id="chat-eta-preview-4" class="ui-chip justify-center">에타 81</span></label></div></section>
+<section class="ui-inset ui-stack"><div class="ui-card-header"><h4 class="ui-heading"><i data-lucide="sticky-note"></i>닉네임 메모</h4><button id="nickname-note-add" class="ui-button ui-button-small"><i data-lucide="plus"></i>메모 추가</button></div><span id="nickname-note-server" class="ui-description"></span><p class="ui-description">위에서 선택한 서버의 개인 메모입니다. 채팅 닉네임을 우클릭해 바로 적을 수도 있습니다.</p><label class="ui-description"><input id="chat-nickname-notes-compact" type="checkbox"> 간단 표시 · 채팅에서 메모 본문 대신 ‘메모’만 표시</label><div id="nickname-note-list" class="max-h-56 overflow-y-auto custom-scroll space-y-2"></div></section>
                 <!-- 오버레이 크기 설정 그룹 (3열 컬럼) -->
                 <div class="grid grid-cols-3 gap-4 pt-2">
                   <!-- MAIN 오버레이 설정 그룹 -->
@@ -1955,6 +2002,17 @@
 
           <!-- 서브 탭 4: 기믹 & 도전과제 -->
           <div id="sub-tab-gimmick" class="sub-tab-content space-y-6">
+<section class="ui-card ui-stack" data-ui-accent="homework">
+ <h3 class="ui-heading"><i data-lucide="package-open"></i>보급품 발판 안내</h3>
+ <label class="ui-toggle-row"><span>암호 감지 시 밟을 색상과 순서 표시</span><span class="ui-switch"><input type="checkbox" id="supply-helper-enabled" checked><span class="ui-switch-track"></span></span></label>
+ <div class="ui-preview"><div class="ui-preview-label">발판 순서 예시</div><div class="flex items-center justify-center gap-3 text-sm">
+  <span class="inline-flex flex-col items-center gap-1"><img src="assets/img/supply-pads/blue.png" width="68" height="44" alt="" draggable="false">파랑</span><span class="text-slate-400">→</span>
+  <span class="inline-flex flex-col items-center gap-1"><img src="assets/img/supply-pads/yellow.png" width="68" height="44" alt="" draggable="false">노랑</span><span class="text-slate-400">→</span>
+  <span class="inline-flex flex-col items-center gap-1"><img src="assets/img/supply-pads/red.png" width="68" height="44" alt="" draggable="false">빨강</span>
+ </div></div>
+ <p class="ui-description">입장 안내 후 암호가 나오면 게임 화면에 10초간 표시합니다. 성공·실패하면 바로 사라집니다. 다른 기믹과 같은 게임 진행 알림 위치를 사용합니다.</p>
+ <div class="ui-actions"><button data-save-companion="supplyHelperEnabled" class="ui-button ui-button-primary"><i data-lucide="save"></i>발판 안내 저장</button><span class="ui-status" role="status"></span></div>
+</section>
             <!-- 인게임 기믹 및 시스템 알림 (기존 기믹 알림 병합 및 웨이브 알림 추가) -->
             <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6" data-settings-view="game-gimmick">
               <label class="section-label flex items-center gap-2">
@@ -2407,6 +2465,21 @@
 
           <div id="shortcuts-list-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
             <div class="grid grid-cols-1 gap-6">
+              <div class="flex flex-wrap items-center justify-between gap-4 p-4 bg-black/20 rounded-xl border border-white/5 group">
+                <div class="flex flex-col gap-1">
+                  <span class="text-sm font-bold text-slate-200">전체 창 숨기기·복원</span>
+                  <p class="text-xs text-slate-300 leading-relaxed">열어 둔 창을 잠시 숨겼다가 그대로 복원합니다. 트레이 메뉴에서도 사용할 수 있습니다.</p>
+                </div>
+                <div class="relative">
+                  <input type="text" id="shortcut-toggleAllWindows" readonly aria-label="전체 창 숨기기·복원 단축키"
+                    class="shortcut-input w-48 text-center font-mono text-xs py-2.5 px-4 bg-black/40 border border-white/10 rounded-lg text-purple-400 cursor-pointer focus:border-purple-500/50 outline-none transition-all"
+                    placeholder="미지정" onclick="recordShortcut('toggleAllWindows')">
+                  <button onclick="resetShortcut('toggleAllWindows')" aria-label="전체 창 숨기기·복원 단축키 초기화"
+                    class="absolute -right-2 -top-2 w-5 h-5 bg-slate-800 border border-white/10 rounded-full text-slate-300 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                    <i data-lucide="rotate-ccw" class="w-3 h-3"></i>
+                  </button>
+                </div>
+              </div>
               <!-- 1. 창 투과 토글 -->
               <div class="flex items-center justify-between p-4 bg-black/20 rounded-xl border border-white/5 group">
                 <div class="flex flex-col gap-1">
@@ -2778,6 +2851,26 @@
 
           <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
             <div class="grid grid-cols-1 gap-4" data-settings-view="data-backup">
+              <section id="settings-share-card" class="ui-card ui-stack">
+                <h3 class="ui-heading"><i data-lucide="share-2"></i>선택한 설정 공유</h3>
+                <p class="ui-description">현재 저장된 배치·외관·알림을 파일로 주고받습니다. 개인 메모·대화·계정 연동과 글꼴·소리 파일은 포함하지 않습니다.</p>
+                <div class="ui-actions" aria-label="저장할 설정">
+                  <label class="ui-filter-choice"><input type="checkbox" data-share-export value="layout" checked>배치</label>
+                  <label class="ui-filter-choice"><input type="checkbox" data-share-export value="appearance" checked>외관</label>
+                  <label class="ui-filter-choice"><input type="checkbox" data-share-export value="alerts" checked>알림</label>
+                </div>
+                <div class="ui-actions"><button id="settings-share-export" class="ui-button">선택한 설정 저장</button><button id="settings-share-open" class="ui-button">공유 파일 가져오기</button></div>
+                <div id="settings-share-review" hidden>
+                  <div class="ui-stack">
+                    <h4 class="ui-heading">가져올 항목</h4><div id="settings-share-import-groups" class="ui-actions"></div>
+                    <p class="ui-description">현재 저장 설정과 비교합니다. 창의 열림 상태와 개인 기록은 유지됩니다. 독립 창은 현재 화면 크기에 맞추며, HUD 좌표는 기존 위치 설정에서 조정할 수 있습니다.</p>
+                    <div class="ui-actions"><button id="settings-share-compare" class="ui-button">변경 내용 비교</button><button id="settings-share-cancel" class="ui-button">취소</button></div>
+                    <div id="settings-share-changes" class="ui-stack ui-share-changes custom-scroll"></div>
+                    <button id="settings-share-apply" class="ui-button ui-button-primary" disabled>선택한 설정 적용</button>
+                  </div>
+                </div>
+                <p id="settings-share-status" class="ui-status" role="status"></p>
+              </section>
               <!-- 백업 -->
               <div class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between group">
                 <div class="flex flex-col gap-1">
@@ -2997,6 +3090,13 @@
   <script src="renderer/settings/shortcuts.js"></script>
   <script src="renderer/settings/menu-management.js"></script>
   <script src="renderer/settings/audio-controls.js"></script>
+  <script src="renderer/custom-chat-fonts.js"></script>
+  <script src="renderer/settings/chat-preview.js"></script>
+  <script src="renderer/nickname-notes.js"></script>
+  <script src="renderer/settings/companion-controls.js"></script>
+  <script src="renderer/settings/activity-presets.js"></script>
+  <script src="renderer/settings/sharing.js"></script>
+  <script src="renderer/settings/notification-layout.js"></script>
   <script src="renderer/settings/config-binding.js"></script>
   <script src="renderer/settings/draft.js"></script>
   <script>
@@ -4405,6 +4505,14 @@
 
     // ─── 빠른 검색 (Quick Search) 색인 데이터 ───
     const SETTINGS_SEARCH_INDEX = [
+      { title: '채팅 간단 표시', keywords: ['시간', '시각', '배지', '간단', '읽기'], category: '채팅 > 채팅 오버레이', groupId: 'chat', routeIndex: 1, targetId: 'chat-reading-settings' },
+      { title: '선택한 설정 공유', keywords: ['공유', '내보내기', '가져오기', '배치', '외관'], category: '시스템 & 관리 > 데이터 관리', groupId: 'system', routeIndex: 1, targetId: 'settings-share-card' },
+      { title: '활동 프리셋', keywords: ['사냥', '보스', '거래', '프리셋', '창 배치'], category: '앱 & 런처 > 앱 동작', groupId: 'app', routeIndex: 0, targetId: 'activity-presets-card' },
+      { title: '알림 위치와 미리보기', keywords: ['알림', '위치', '미리보기', '배치'], category: '게임 플레이 > HUD 위젯 관리', groupId: 'game', routeIndex: 0, targetId: 'notification-layout-card' },
+      { title: '화면 고정 메모', keywords: ['메모', '고정', '목표'], category: '게임 플레이 > HUD 위젯 관리', groupId: 'game', routeIndex: 0, targetId: 'pinned-note-enabled' },
+      { title: '보급품 발판 안내', keywords: ['보급품', '탈환', '발판', '색상', '암호'], category: '게임 플레이 > 게임 진행 알림', groupId: 'game', routeIndex: 1, targetId: 'supply-helper-enabled' },
+      { title: '채팅 창별 글꼴', keywords: ['폰트', '글꼴', '글자 크기', '서브'], category: '채팅 > 채팅 오버레이', groupId: 'chat', routeIndex: 1, targetId: 'chat-font-settings' },
+      { title: '에타 구간 색상', keywords: ['에타', '색상', '배지'], category: '채팅 > 채팅 오버레이', groupId: 'chat', routeIndex: 1, targetId: 'eta-color-settings' },
       // 1. 앱 & 런처 (app)
       {
         title: '윈도우 시작 시 자동 실행',
@@ -4887,7 +4995,7 @@
           clearAllHighlights();
           const el = document.getElementById(targetId);
           if (el) {
-            const targetContainer = el.closest('label, .slot-card, .p-6, .p-5, .p-4, .settings-group') || el;
+            const targetContainer = el.closest('label, .slot-card, .ui-card, .ui-inset, .p-6, .p-5, .p-4, .settings-group') || el;
             targetContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
             targetContainer.classList.remove('highlight-pulse-effect');
             void targetContainer.offsetWidth;
@@ -5296,6 +5404,7 @@
     }
 
     window.electronAPI.onConfigData((config, context) => {
+      window.nicknameNotes?.updateConfig(config);
       const hudPositionFields = {
         todaySummaryHudPos: ['today-summary-pos-left', 'today-summary-pos-top'],
         forgeQuestHudPos: ['forge-hud-pos-left', 'forge-hud-pos-bottom'],
@@ -5305,6 +5414,9 @@
       lastConfig = config;
       window.lastConfig = config;
       window.settingsConfigBinding.applyGeneralSettings(config, window.electronAPI.DEFAULT_CONFIG);
+      window.settingsCompanion?.bind(config);
+      window.settingsActivityPresets?.bind(config);
+      window.settingsNotificationLayout?.bind(config);
 
       // 체크박스 상태 적용 시도
       window.settingsMenuManagement.applyConfig(config);
@@ -5573,7 +5685,7 @@
           clearAllHighlights();
           const targetEl = document.getElementById(targetId);
           if (targetEl) {
-            const targetContainer = targetEl.closest('label, .slot-card, .p-6, .p-5, .p-4, .settings-group') || targetEl;
+            const targetContainer = targetEl.closest('label, .slot-card, .ui-card, .ui-inset, .p-6, .p-5, .p-4, .settings-group') || targetEl;
             targetContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
             targetContainer.classList.remove('highlight-pulse-effect');
             void targetContainer.offsetWidth; // reflow trigger
@@ -5968,6 +6080,8 @@
           volumeCalculators: parseInt(document.getElementById('volume-calculators').value),
           notifyWhenGameClosed: document.getElementById('notify-when-game-closed-input') ? document.getElementById('notify-when-game-closed-input').checked : false,
 
+          ...window.settingsCompanion.collect().settings,
+          ...window.settingsNotificationLayout.collect().settings,
           ...window.settingsFormCollection.collectChatOverlayDisplaySettings(chatOverlayFilterList, customTabsList),
 
           chatLogPath: document.getElementById('chat-log-path-input').value,
@@ -6089,49 +6203,44 @@
       }
     }
 
-    async function startHudEditMode() {
+    function renderHudEditState(editing, message) {
+      isHudEditing = editing;
+      updateHudEditSaveUi(editing);
       const statusBadge = document.getElementById('hud-edit-status-badge');
-      const startBtn = document.getElementById('btn-start-hud-edit');
-      const saveBtn = document.getElementById('btn-save-hud-edit');
-      const cancelBtn = document.getElementById('btn-cancel-hud-edit');
+      if (statusBadge) {
+        statusBadge.textContent = message || (editing ? '편집 중 · HUD 도구에서도 저장·취소할 수 있습니다' : '대기 중');
+        statusBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold border whitespace-normal ' + (editing ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-slate-800 text-slate-400 border-white/10');
+      }
+      document.getElementById('btn-start-hud-edit')?.classList.toggle('hidden', editing);
+      document.getElementById('btn-save-hud-edit')?.classList.toggle('hidden', !editing);
+      document.getElementById('btn-cancel-hud-edit')?.classList.toggle('hidden', !editing);
+    }
+    window.electronAPI?.onGameOverlayEditState?.(editing => renderHudEditState(editing));
 
-      if (window.electronAPI && window.electronAPI.setGameOverlayEditMode) {
-        const success = await window.electronAPI.setGameOverlayEditMode(true);
+    async function startHudEditMode() {
+      try {
+        const success = await window.electronAPI?.setGameOverlayEditMode(true);
         if (!success) {
           alert('테일즈위버가 실행 중일 때만 게임 오버레이 위치를 설정할 수 있습니다.\n게임을 먼저 실행해 주세요.');
           return;
         }
-      }
-
-      isHudEditing = true;
-      updateHudEditSaveUi(true);
-      if (statusBadge) {
-        statusBadge.textContent = '편집 모드 실행 중 (마우스 드래그 가능)';
-        statusBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap animate-pulse';
-      }
-      if (startBtn) startBtn.classList.add('hidden');
-      if (saveBtn) saveBtn.classList.remove('hidden');
-      if (cancelBtn) cancelBtn.classList.remove('hidden');
+        renderHudEditState(true);
+      } catch { renderHudEditState(false, '편집 모드를 열지 못했습니다. 다시 시도하세요.'); }
     }
 
-    function stopHudEditMode(save = true) {
-      isHudEditing = false;
-      updateHudEditSaveUi(false);
-      const statusBadge = document.getElementById('hud-edit-status-badge');
-      const startBtn = document.getElementById('btn-start-hud-edit');
+    async function stopHudEditMode(save = true) {
       const saveBtn = document.getElementById('btn-save-hud-edit');
       const cancelBtn = document.getElementById('btn-cancel-hud-edit');
-
-      if (statusBadge) {
-        statusBadge.textContent = save ? '위치 저장 완료' : '대기 중';
-        statusBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-800 text-slate-400 border border-white/10 whitespace-nowrap';
-      }
-      if (startBtn) startBtn.classList.remove('hidden');
-      if (saveBtn) saveBtn.classList.add('hidden');
-      if (cancelBtn) cancelBtn.classList.add('hidden');
-
-      if (window.electronAPI && window.electronAPI.setGameOverlayEditMode) {
-        window.electronAPI.setGameOverlayEditMode(false, save);
+      if (saveBtn) saveBtn.disabled = true;
+      if (cancelBtn) cancelBtn.disabled = true;
+      try {
+        const success = await window.electronAPI?.setGameOverlayEditMode(false, save);
+        if (success) renderHudEditState(false, save ? '위치 저장 완료' : '대기 중');
+        else if (isHudEditing) renderHudEditState(true, '저장하지 못했습니다. 편집 중인 위치를 유지합니다.');
+      } catch { if (isHudEditing) renderHudEditState(true, '편집을 종료하지 못했습니다. 다시 시도하세요.'); }
+      finally {
+        if (saveBtn) saveBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
       }
     }
 

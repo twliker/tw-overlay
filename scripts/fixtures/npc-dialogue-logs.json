@@ -1,0 +1,234 @@
+{
+  "dialogues": [
+    {
+      "sender": "운명의 심판자, 노아",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 2695,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 26분 13초] </font> <font size=\"2\" color=\"#ffffff\">운명의 심판자, 노아 : 나의 환영 속에서 길을 잃어라.</font></br>"
+    },
+    {
+      "sender": "회랑의 파수꾼, 가고일",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 2796,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 28분 56초] </font> <font size=\"2\" color=\"#ffffff\">회랑의 파수꾼, 가고일 : 이곳은 산 자가 머물 곳이 아니다.</font></br>"
+    },
+    {
+      "sender": "양면의 군주, 야누아르",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 2890,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 30분 30초] </font> <font size=\"2\" color=\"#ffffff\">양면의 군주, 야누아르 : 나의 두 얼굴을 마주하라.</font></br>"
+    },
+    {
+      "sender": "회랑의 거목, 에테르",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 2971,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 32분 31초] </font> <font size=\"2\" color=\"#ffffff\">회랑의 거목, 에테르 : 대지가 분노한다...</font></br>"
+    },
+    {
+      "sender": "수르트의 분신",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 10094,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 55분 39초] </font> <font size=\"2\" color=\"#ffffff\">수르트의 분신 : 감히 이곳이 어디라고 왔느냐! 너희들의 뜻대로 될 순 없을 거다!</font></br>"
+    },
+    {
+      "sender": "심연의 제2사도",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 13964,
+      "raw": "<font size=\"2\" color=\"white\"> [21시 29분 42초] </font> <font size=\"2\" color=\"#ffffff\">심연의 제2사도 : 절제와 균형의 중심에서 빗나간 힘은 칼날이 되어 돌아오지.</font></br>"
+    },
+    {
+      "sender": "검의 사제, 셀리니아코스",
+      "source": "TWChatLog_2026_09_07.html",
+      "line": 4117,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 27분 43초] </font> <font size=\"2\" color=\"#ffffff\">검의 사제, 셀리니아코스 : 집행을 시작하겠소.</font></br>"
+    },
+    {
+      "sender": "지팡이의 사제, 고이티아",
+      "source": "TWChatLog_2026_09_07.html",
+      "line": 4188,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 29분  3초] </font> <font size=\"2\" color=\"#ffffff\">지팡이의 사제, 고이티아 : 시작해볼까?</font></br>"
+    },
+    {
+      "sender": "궤의 사제, 프로에드로스",
+      "source": "TWChatLog_2026_09_07.html",
+      "line": 4345,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 30분 26초] </font> <font size=\"2\" color=\"#ffffff\">궤의 사제, 프로에드로스 : 저들을 사형에 처하겠소! 셀리니아코스여 집행을 시작해주</font></br>"
+    },
+    {
+      "sender": "근위 부대장",
+      "source": "TWChatLog_2026_09_07.html",
+      "line": 7055,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 56분 32초] </font> <font size=\"2\" color=\"#ffffff\">근위 부대장 : 되받아쳐 주마.</font></br>"
+    },
+    {
+      "sender": "고문관 크로우",
+      "source": "TWChatLog_2026_09_07.html",
+      "line": 10133,
+      "raw": "<font size=\"2\" color=\"white\"> [22시 12분 54초] </font> <font size=\"2\" color=\"#ffffff\">고문관 크로우 : 어디 이 고문도 견딜 수 있는지 볼까? 케케</font></br>"
+    },
+    {
+      "sender": "원소의 정령",
+      "source": "TWChatLog_2026_09_07.html",
+      "line": 10215,
+      "raw": "<font size=\"2\" color=\"white\"> [22시 14분 30초] </font> <font size=\"2\" color=\"#ffffff\">원소의 정령 : 자연을 느껴보고 싶어졌나?</font></br>"
+    },
+    {
+      "sender": "유마 프레키",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 977,
+      "raw": "<font size=\"2\" color=\"white\"> [20시  4분  9초] </font> <font size=\"2\" color=\"#ffffff\">유마 프레키 : 그르르…</font></br>"
+    },
+    {
+      "sender": "유마 올름",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 1032,
+      "raw": "<font size=\"2\" color=\"white\"> [20시  5분  8초] </font> <font size=\"2\" color=\"#ffffff\">유마 올름 : 쉬이이익…</font></br>"
+    },
+    {
+      "sender": "선봉대장, 로카고스",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 2585,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 40분 47초] </font> <font size=\"2\" color=\"#ffffff\">선봉대장, 로카고스 : 그대들은 누구요? 아무래도 상관없소. 살아서 이곳을 나설 수 없</font></br>"
+    },
+    {
+      "sender": "수색대장, 에토스",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 2986,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 56분 51초] </font> <font size=\"2\" color=\"#ffffff\">수색대장, 에토스 : 너희들이 그 첩보 대상들이구나? 모두 파악하고 분해해 줄게.</font></br>"
+    },
+    {
+      "sender": "소매의 사제, 체리아",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 3212,
+      "raw": "<font size=\"2\" color=\"white\"> [21시  0분 32초] </font> <font size=\"2\" color=\"#ffffff\">소매의 사제, 체리아 : 너희들은 뭐야? 내 물건에 손대지 마!!!</font></br>"
+    },
+    {
+      "sender": "서클릿의 사제, 마티아",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 3412,
+      "raw": "<font size=\"2\" color=\"white\"> [21시  3분 59초] </font> <font size=\"2\" color=\"#ffffff\">서클릿의 사제, 마티아 : 또 다른 제물들이군요?</font></br>"
+    },
+    {
+      "sender": "흉포한 라이코스",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 3671,
+      "raw": "<font size=\"2\" color=\"white\"> [21시 44분  6초] </font> <font size=\"2\" color=\"#ffffff\">흉포한 라이코스 : '이를 드러내고 으르렁댄다'</font></br>"
+    },
+    {
+      "sender": "메달의 사제, 티로로스",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 3885,
+      "raw": "<font size=\"2\" color=\"white\"> [21시 48분  7초] </font> <font size=\"2\" color=\"#ffffff\">메달의 사제, 티로로스 : 이런, 이런…… 귀한 곳에 누추한 분들이 오셨군요. 손님을 </font></br>"
+    },
+    {
+      "sender": "경보 장치",
+      "source": "TWChatLog_2026_09_09.html",
+      "line": 4448,
+      "raw": "<font size=\"2\" color=\"white\"> [21시 56분 50초] </font> <font size=\"2\" color=\"#ffffff\">경보 장치 : 침입자 감지!!</font></br>"
+    },
+    {
+      "sender": "녹색 프토마",
+      "source": "TWChatLog_2026_09_11.html",
+      "line": 3065,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 40분 35초] </font> <font size=\"2\" color=\"#ffffff\">녹색 프토마 : 끝끝나나지지 않않는는 죽죽음음!!</font></br>"
+    },
+    {
+      "sender": "푸른 프토마",
+      "source": "TWChatLog_2026_09_11.html",
+      "line": 3109,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 40분 58초] </font> <font size=\"2\" color=\"#ffffff\">푸른 프토마 : 끝끝나나지지 않않는는 죽죽음음!!</font></br>"
+    },
+    {
+      "sender": "붉은 프토마",
+      "source": "TWChatLog_2026_09_11.html",
+      "line": 3139,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 41분 13초] </font> <font size=\"2\" color=\"#ffffff\">붉은 프토마 : 끝끝나나지지 않않는는 죽죽음음!!</font></br>"
+    },
+    {
+      "sender": "회색 프토마",
+      "source": "TWChatLog_2026_09_11.html",
+      "line": 3169,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 41분 36초] </font> <font size=\"2\" color=\"#ffffff\">회색 프토마 : 끝끝나나지지 않않는는 죽죽음음!!</font></br>"
+    },
+    {
+      "sender": "정원사 기미르",
+      "source": "TWChatLog_2026_09_12.html",
+      "line": 164829,
+      "raw": "<font size=\"2\" color=\"white\"> [23시 56분 26초] </font> <font size=\"2\" color=\"#ffffff\">정원사 기미르 : 나의 꽃밭에 더러운 발을 붙이다니!</font></br>"
+    },
+    {
+      "sender": "수상한 거지",
+      "source": "TWChatLog_2026_09_13.html",
+      "line": 102325,
+      "raw": "<font size=\"2\" color=\"white\"> [23시  1분 33초] </font> <font size=\"2\" color=\"#ffffff\">수상한 거지 : 나는 긍지높은 오를리의 거지! 오늘도 난 명예로운 구걸을 하지. 시드 </font></br>"
+    },
+    {
+      "sender": "슬픔의 무희, 오페리아",
+      "source": "TWChatLog_2026_09_16.html",
+      "line": 208,
+      "raw": "<font size=\"2\" color=\"white\"> [19시  7분  9초] </font> <font size=\"2\" color=\"#ffffff\">슬픔의 무희, 오페리아 : 무도회가 곧 시작됩니다. 춤출 준비는 되셨나요?</font></br>"
+    },
+    {
+      "sender": "회랑의 잔재, 루이나스",
+      "source": "TWChatLog_2026_09_16.html",
+      "line": 671,
+      "raw": "<font size=\"2\" color=\"white\"> [19시 16분 39초] </font> <font size=\"2\" color=\"#ffffff\">회랑의 잔재, 루이나스 : 침입자... 파괴한다...</font></br>"
+    },
+    {
+      "sender": "수액 괴물",
+      "source": "TWChatLog_2026_09_17.html",
+      "line": 27799,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 34분 58초] </font> <font size=\"2\" color=\"#ffffff\">수액 괴물 : 터... 터진다... !</font></br>"
+    },
+    {
+      "sender": "쉐프 레오",
+      "source": "TWChatLog_2026_09_17.html",
+      "line": 28001,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 36분 23초] </font> <font size=\"2\" color=\"#ffffff\">쉐프 레오 : 벌써 식사 시간인가!!!!!! 이거 더 서둘러야겠군!</font></br>"
+    },
+    {
+      "sender": "과학자 이발디",
+      "source": "TWChatLog_2026_09_17.html",
+      "line": 28057,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 38분  0초] </font> <font size=\"2\" color=\"#ffffff\">과학자 이발디 : 약 먹을 시간이다!</font></br>"
+    },
+    {
+      "sender": "말랑 핑크빈",
+      "source": "TWChatLog_2026_09_20.html",
+      "line": 28691,
+      "raw": "<font size=\"2\" color=\"white\"> [21시 35분 10초] </font> <font size=\"2\" color=\"#ffffff\">말랑 핑크빈 : 주인님 일어나세요!</font></br>"
+    }
+  ],
+  "progress": [
+    {
+      "sender": "피버 효과",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 122,
+      "raw": "<font size=\"2\" color=\"white\"> [ 0시 44분 33초] </font> <font size=\"2\" color=\"#ff64ff\">피버 효과 : [공격 피해량(기본발동) +10%, 전체 능력치 +30, 이동속도 +2] 적용되었습</font></br>"
+    },
+    {
+      "sender": "일시적으로 명중률이 상승했습니다",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 640,
+      "raw": "<font size=\"2\" color=\"white\"> [ 0시 49분 42초] </font> <font size=\"2\" color=\"#ff64ff\">일시적으로 명중률이 상승했습니다 : 상태이상 [명중]</font></br>"
+    },
+    {
+      "sender": "루미너스 클리어 횟수",
+      "source": "TWChatLog_2026_09_05.html",
+      "line": 12210,
+      "raw": "<font size=\"2\" color=\"white\"> [21시 24분 15초] </font> <font size=\"2\" color=\"#ff64ff\">루미너스 클리어 횟수: [1회/7회]</font></br>"
+    },
+    {
+      "sender": "남은 공격 횟수",
+      "source": "TWChatLog_2026_09_07.html",
+      "line": 6511,
+      "raw": "<font size=\"2\" color=\"white\"> [20시 50분 25초] </font> <font size=\"2\" color=\"#64ff80\">남은 공격 횟수 : 30</font></br>"
+    },
+    {
+      "sender": "봉인 결계",
+      "source": "TWChatLog_2026_09_08.html",
+      "line": 33880,
+      "raw": "<font size=\"2\" color=\"white\"> [20시  3분 33초] </font> <font size=\"2\" color=\"#ffffff\">봉인 결계 : 설치 완료까지 20초 남았습니다.</font></br>"
+    }
+  ]
+}

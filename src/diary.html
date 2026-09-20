@@ -347,6 +347,7 @@
       </div>
     </div>
     <div class="win-controls flex items-center gap-1.5">
+      <button id="diary-export-open" class="win-btn hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors" title="기간별 기록 내보내기" aria-label="기간별 기록 내보내기"><i data-lucide="download" class="w-4.5 h-4.5"></i></button>
       <button onclick="openLootSettingsDirect()" class="win-btn hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors" title="득템 설정">
         <i data-lucide="settings" class="w-4.5 h-4.5"></i>
       </button>
@@ -570,7 +571,7 @@
       <div class="grid grid-cols-6 gap-4 mb-8">
         <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl">
           <div class="text-xs font-bold text-teal-400 mb-2 flex items-center gap-1.5"><i data-lucide="calendar-check" class="w-3.5 h-3.5"></i> 성실도</div>
-          <div class="flex items-baseline gap-1"><span id="stats-attendance" class="text-3xl font-black text-white">0</span><span class="text-sm font-bold text-slate-500">/ 31일</span></div>
+          <div class="flex items-baseline gap-1"><span id="stats-attendance" class="text-3xl font-black text-white">0</span><span id="stats-total-days" class="text-sm font-bold text-slate-500">/ —일</span></div>
         </div>
         <div class="bg-slate-800/40 border border-slate-700/50 p-5 rounded-2xl">
           <div class="text-xs font-bold text-red-400 mb-2 flex items-center gap-1.5"><i data-lucide="swords" class="w-3.5 h-3.5"></i> 보스 정복</div>
@@ -722,6 +723,18 @@
     </div>
   </div>
 
+  <dialog id="diary-export-dialog" class="ui-file-dialog ui-card" aria-labelledby="diary-export-title">
+    <div class="ui-stack">
+      <h2 id="diary-export-title" class="ui-heading">모험 일지 내보내기</h2>
+      <p class="ui-description">기간 내 숙제·득템·수익을 브라우저로 읽는 파일로 저장합니다. 현재 일지에 표시되는 득템 기준이며, 채팅 원문과 개인 메모는 포함하지 않습니다.</p>
+      <div class="ui-two-column"><label class="ui-field">시작일<input type="date" id="diary-export-start" class="ui-input"></label><label class="ui-field">종료일<input type="date" id="diary-export-end" class="ui-input"></label></div>
+      <p class="ui-description">최대 366일. 금화 주머니는 기존 수익에 이미 환산되어 있습니다.</p>
+      <button id="diary-export-preview" class="ui-button">기록 확인</button>
+      <p id="diary-export-status" class="ui-status" role="status"></p>
+      <div class="ui-actions"><button id="diary-export-save" class="ui-button ui-button-primary" disabled>파일로 저장</button><button id="diary-export-close" class="ui-button">닫기</button></div>
+    </div>
+  </dialog>
+  <script src="renderer/diary/export.js"></script>
   <script src="assets/ui-utils.js"></script>
   <script src="assets/request-generation.js"></script>
   <script src="renderer/diary/log-utils.js"></script>
@@ -730,7 +743,7 @@
   <script src="renderer/diary/calendar-cell-expansion.js"></script>
   <script src="renderer/diary/loot-split-pane.js"></script>
   <script>
-    const { parseAutoLogAmount, formatLogContent, resolveLootCount } = window.diaryLogUtils;
+    const { parseAutoLogAmount, normalizeLogTime, formatLogContent, resolveLootCount } = window.diaryLogUtils;
     const { format: formatWeeklyHomeworkProgress } = window.diaryHomeworkProgress;
     const escapeHtml = (value) => String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -885,7 +898,7 @@
           const itemsHtml = log.items.map(it => {
             const t = isWeekly ? it.displayTime.split(' ')[1] : it.time;
             const msg = it.content.split('(')[0].replace('[자동] ', '').trim();
-            const seed = (it.content.match(/\(([^)]+)\)/) || [])[1] || '';
+            const seed = window.formatSeedAmount(parseAutoLogAmount(it.content, it.amount));
             return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${escapeHtml(t)}</span><span class="text-slate-400 truncate flex-1 px-2">${escapeHtml(msg)}</span><span class="text-orange-300/50 font-mono">${escapeHtml(seed)}</span></div>`;
           }).join('');
 
@@ -1147,6 +1160,8 @@
       }
     }
 
+    // 기능 계약: 성실도의 분모와 활동 분포 칸 수는 선택한 월의 실제 일수(윤년 포함)를 따른다.
+    // 최신 요청의 통계 응답을 채택한 뒤 함께 갱신한다. check-companion-files에서 실제 DB/IPC/DOM을 검증한다.
     async function loadStatistics() {
       const year = currentDate.getFullYear();
       const month = String(currentDate.getMonth() + 1).padStart(2, '0');
@@ -1158,6 +1173,7 @@
       if (!statisticsRequests.isCurrent(request) || currentTab !== 'stats' || !stats) return;
 
       document.getElementById('stats-attendance').innerText = stats.attendanceDays;
+      document.getElementById('stats-total-days').innerText = `/ ${stats.totalDays}일`;
       document.getElementById('stats-bosses').innerText = stats.totalBosses.toLocaleString();
       document.getElementById('stats-loots').innerText = stats.totalLoots.toLocaleString();
       document.getElementById('stats-essences').innerText = (stats.totalEssences || 0).toLocaleString();
@@ -1175,7 +1191,7 @@
 
       const heatmapEl = document.getElementById('stats-heatmap');
       heatmapEl.innerHTML = '';
-      const daysInMonth = new Date(year, parseInt(month), 0).getDate();
+      const daysInMonth = stats.totalDays;
       for (let i = 1; i <= daysInMonth; i++) {
         const dStr = `${year}-${month}-${String(i).padStart(2, '0')}`;
         const dayData = stats.heatmap.find(h => h.date === dStr);
@@ -1350,14 +1366,8 @@
         const autoGroups = {};
         autoSeeds.forEach(s => {
           if (!autoGroups[s.date]) autoGroups[s.date] = { date: s.date, total: 0, items: [] };
-          const m = s.content.match(/\(([^)]+)\)/);
-          const amountStr = m ? m[1] : '';
-          let amount = 0;
-          const valMatch = amountStr.match(/([\d,]+)/);
-          if (valMatch) amount = parseInt(valMatch[1].replace(/,/g, ''), 10);
-          if (amountStr.includes('조')) amount *= 1000000000000;
-          if (amountStr.includes('억')) amount *= 100000000;
-          else if (amountStr.includes('만')) amount *= 10000;
+          const amount = parseAutoLogAmount(s.content, s.amount);
+          const amountStr = window.formatSeedAmount(amount);
           autoGroups[s.date].total += amount;
           autoGroups[s.date].items.push({ content: s.content, amountStr });
         });
@@ -1366,7 +1376,7 @@
         manualSeeds.forEach(item => {
           let desc = item.content.replace(/\s*\([^)]+\)/, '').trim();
           if (desc.includes(':')) desc = desc.split(':').pop().trim();
-          seedListEl.innerHTML += `<div class="flex items-baseline justify-between py-2 border-b border-orange-500/5 last:border-0 gap-3"><div class="flex items-baseline gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(item.date.slice(5))}</span><span class="text-[13px] font-bold text-slate-400 truncate">${escapeHtml(desc)}</span></div><span class="text-[13px] font-black text-orange-300 shrink-0 text-right">${escapeHtml((item.content.match(/\(([^)]+)\)/) || [])[1] || '')}</span></div>`;
+          seedListEl.innerHTML += `<div class="flex items-baseline justify-between py-2 border-b border-orange-500/5 last:border-0 gap-3"><div class="flex items-baseline gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(item.date.slice(5))}</span><span class="text-[13px] font-bold text-slate-400 truncate">${escapeHtml(desc)}</span></div><span class="text-[13px] font-black text-orange-300 shrink-0 text-right">${escapeHtml(window.formatSeedAmount(parseAutoLogAmount(item.content, item.amount)))}</span></div>`;
         });
 
                 Object.values(autoGroups).sort((a, b) => b.date.localeCompare(a.date)).forEach((group, idx) => {
@@ -1570,17 +1580,15 @@
       const list = document.getElementById('timeline-list');
       let logs = [];
       allHomework.forEach(h => logs.push({ 
-        displayTime: `${h.date.slice(5)} ${new Date(h.completed_at).toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit'})}`, 
-        sortTime: `${h.date} ${h.completed_at}`,
+        displayTime: `${h.date.slice(5)} ${normalizeLogTime(h.completed_at).slice(0, 5)}`,
+        sortTime: `${h.date} ${normalizeLogTime(h.completed_at)}`,
         type: 'homework', content: `[숙제 완료] ${h.content_name}` 
       }));
       allActivity.forEach(a => {
-        const parts = (a.time || '').split(':');
-        const hh = (parts[0] || '00').padStart(2, '0');
-        const mm = (parts[1] || '00').padStart(2, '0');
+        const time = normalizeLogTime(a.time);
         logs.push({ 
-          displayTime: `${a.date.slice(5)} ${hh}:${mm}`, 
-          sortTime: `${a.date} ${a.time}`,
+          displayTime: `${a.date.slice(5)} ${time.slice(0, 5)}`,
+          sortTime: `${a.date} ${time}`,
           type: a.type, content: a.content, amount: a.amount
         });
       });
@@ -1595,12 +1603,12 @@
 
         if (log.content.includes('[자동]') && last && last.isAutoGroup && last.date === logDate) {
           last.items.push(log); last.endTime = log.displayTime.split(' ')[1];
-          last.totalAmount += parseAutoLogAmount(log.content);
+          last.totalAmount += parseAutoLogAmount(log.content, log.amount);
         } else if (log.content.includes('[자동]')) {
           groupedLogs.push({ 
             isAutoGroup: true, date: logDate,
             startTime: log.displayTime, endTime: log.displayTime.split(' ')[1], 
-            items: [log], totalAmount: parseAutoLogAmount(log.content), type: 'calc'
+            items: [log], totalAmount: parseAutoLogAmount(log.content, log.amount), type: 'calc'
           });
         } else if (isStone && last && last.isStoneGroup && last.grade === stoneGrade && last.date === logDate) {
           last.items.push(log); last.endTime = log.displayTime.split(' ')[1];
@@ -1686,14 +1694,12 @@
 
       const list = document.getElementById('timeline-list');
       let logs = [];
-      data.homeworkLogs.forEach(h => logs.push({ time: new Date(h.completed_at).toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit'}), type: 'homework', content: `[숙제 완료] ${h.content_name}` }));
+      data.homeworkLogs.forEach(h => logs.push({ time: normalizeLogTime(h.completed_at).slice(0, 5), sortTime: normalizeLogTime(h.completed_at), type: 'homework', content: `[숙제 완료] ${h.content_name}` }));
       data.activityLogs.forEach(a => {
-        const parts = (a.time || '').split(':');
-        const hh = (parts[0] || '00').padStart(2, '0');
-        const mm = (parts[1] || '00').padStart(2, '0');
-        logs.push({ id: a.id, source: a.source, time: `${hh}:${mm}`, type: a.type, content: a.content, amount: a.amount });
+        const time = normalizeLogTime(a.time);
+        logs.push({ id: a.id, source: a.source, time: time.slice(0, 5), sortTime: time, type: a.type, content: a.content, amount: a.amount });
       });
-      logs.sort((a, b) => a.time.localeCompare(b.time));
+      logs.sort((a, b) => a.sortTime.localeCompare(b.sortTime));
 
       const groupedLogs = [];
       logs.forEach(log => {
@@ -1703,9 +1709,9 @@
 
         if (log.content.includes('[자동]') && last && last.isAutoGroup) {
           last.items.push(log); last.endTime = log.time;
-          last.totalAmount += parseAutoLogAmount(log.content);
+          last.totalAmount += parseAutoLogAmount(log.content, log.amount);
         } else if (log.content.includes('[자동]')) {
-          groupedLogs.push({ isAutoGroup: true, startTime: log.time, endTime: log.time, items: [log], totalAmount: parseAutoLogAmount(log.content), type: 'calc' });
+          groupedLogs.push({ isAutoGroup: true, startTime: log.time, endTime: log.time, items: [log], totalAmount: parseAutoLogAmount(log.content, log.amount), type: 'calc' });
         } else if (isStone && last && last.isStoneGroup && last.grade === stoneGrade) {
           last.items.push(log); last.endTime = log.time;
           last.totalCount += (log.amount || resolveLootCount(log.content, log.amount));

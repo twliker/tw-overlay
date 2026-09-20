@@ -41,7 +41,7 @@ const STATIC_WINDOW_DEFINITIONS: readonly StaticWindowDefinition[] = [
   { key: 'shoutHistory', html: 'shout-history.html', width: 450, height: 600 },
   { key: 'gameOverlay', html: 'game-overlay.html', width: 0, height: 0 },
   { key: 'buffTimer', html: 'buff-timer.html', width: 900, height: 850 },
-  { key: 'xpHud', html: 'xp-hud.html', width: 420, height: 1050 },
+  { key: 'xpHud', html: 'xp-hud.html', width: 420, height: 940 },
   { key: 'scamDetector', html: 'scam-detector.html', width: 480, height: 780 },
   { key: 'sienaAura', html: 'siena-aura.html', width: 1230, height: 930 },
   { key: 'wordAlarm', html: 'word-alarm.html', width: 450, height: 950 },
