@@ -589,7 +589,7 @@
           <div class="volume-row mt-1">
             <i data-lucide="volume-1" style="width:13px;height:13px;color:#94a3b8;flex-shrink:0;"></i>
             <input type="range" id="volume-slider" min="0" max="100" value="70">
-            <span class="volume-val" id="volume-val">70</span>
+            <span class="volume-val" id="volume-val">70%</span>
           </div>
         </div>
       </div>
@@ -827,7 +827,7 @@
       document.getElementById('volume-container').style.pointerEvents = e.target.checked ? '' : 'none';
     };
 
-    document.getElementById('volume-slider').oninput = (e) => document.getElementById('volume-val').textContent = e.target.value;
+    document.getElementById('volume-slider').oninput = (e) => document.getElementById('volume-val').textContent = e.target.value + '%';
 
     document.getElementById('preview-sound').onclick = () => {
       const vol = parseInt(document.getElementById('volume-slider').value);
@@ -974,7 +974,7 @@
       const volSlider = document.getElementById('volume-slider');
       if (volSlider) volSlider.value = vol;
       const volVal = document.getElementById('volume-val');
-      if (volVal) volVal.textContent = vol;
+      if (volVal) volVal.textContent = vol + '%';
 
       warnSeconds = (config.buffTimerWarnSeconds ?? [60]).filter(s => s > 5);
       buffEnabled = { ...(config.buffTimerBuffs ?? { exp_heart: true, rare_heart: true, stat_exorcist: true, stat_sami_sunryeong: true, rare_loto: true, util_ampoule: true, dmg_izabel: true, util_illumination: true, insight_elixir_large: true, insight_elixir_special: true, exp_eos_supreme: true, exp_sweetpotato_legend: true, exp_earlybird: true }) };

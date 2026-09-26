@@ -4,6 +4,10 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <script src="shared/chatChannels.js"></script>
   <style>
     .window-container {
       display: flex;
@@ -287,10 +291,6 @@
     </div>
   </div>
 
-  <script src="assets/tailwind.min.js"></script>
-  <script src="assets/lucide.min.js"></script>
-  <script src="assets/ui-utils.js"></script>
-  <script src="shared/chatChannels.js"></script>
   <script>
     let openedAlarmId = null;
     let appConfig = null;
@@ -313,6 +313,7 @@
     }
 
     async function init() {
+      if (window.refreshIcons) window.refreshIcons();
       window.bindEscapeClose();
 
       // 초기 설정 바인딩 (레이스 컨디션을 예방하기 위해 가장 먼저 동기 등록)

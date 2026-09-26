@@ -749,7 +749,7 @@
 
     document.getElementById('essence-alert-volume').addEventListener('input', (e) => {
       const vol = parseInt(e.target.value);
-      document.getElementById('essence-alert-volume-label').textContent = vol;
+      document.getElementById('essence-alert-volume-label').textContent = vol + '%';
       window.electronAPI.applySettings({ essenceAlertVolume: vol });
     });
 
@@ -876,7 +876,7 @@
       }
       if (config.essenceAlertVolume !== undefined) {
         document.getElementById('essence-alert-volume').value = config.essenceAlertVolume;
-        document.getElementById('essence-alert-volume-label').textContent = config.essenceAlertVolume;
+        document.getElementById('essence-alert-volume-label').textContent = config.essenceAlertVolume + '%';
       }
     });
 

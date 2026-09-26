@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
   <style>
     .window-container {
       display: flex;
@@ -222,9 +225,6 @@
     </div>
   </div>
 
-  <script src="assets/tailwind.min.js"></script>
-  <script src="assets/lucide.min.js"></script>
-  <script src="assets/ui-utils.js"></script>
   <script>
     let appConfig = null;
     let discordRules = [];
@@ -232,6 +232,7 @@
     let discordWebhookUrl = '';
 
     async function init() {
+      if (window.refreshIcons) window.refreshIcons();
       window.bindEscapeClose();
 
       // 설정 수신 바인딩
