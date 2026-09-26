@@ -16,9 +16,14 @@
   const shortcutInput = (key: string): HTMLInputElement | null =>
     document.getElementById(`shortcut-${key}`) as HTMLInputElement | null;
 
+  function formatDisplayShortcut(raw: string): string {
+    if (!raw) return '';
+    return raw.replace(/CommandOrControl/g, 'Ctrl');
+  }
+
   function updateDockShortcutGuide(): void {
     const guide = document.getElementById('dock-shortcut-guide');
-    if (guide) guide.innerText = (shortcuts.toggleDock || DEFAULT_SHORTCUTS.toggleDock).replace('CommandOrControl', 'Ctrl');
+    if (guide) guide.innerText = formatDisplayShortcut(shortcuts.toggleDock || DEFAULT_SHORTCUTS.toggleDock);
   }
 
   function stopRecording(): void {
@@ -29,7 +34,7 @@
 
     const input = shortcutInput(key);
     if (input) {
-      input.value = shortcuts[key] || '';
+      input.value = formatDisplayShortcut(shortcuts[key] || '');
       input.classList.remove('animate-pulse', '!border-purple-500', 'ring-2', 'ring-purple-500/20');
     }
   }
@@ -54,7 +59,7 @@
     if (defaultValue === undefined) return;
     shortcuts[key] = defaultValue;
     const input = shortcutInput(key);
-    if (input) input.value = defaultValue;
+    if (input) input.value = formatDisplayShortcut(defaultValue);
     if (key === 'toggleDock') updateDockShortcutGuide();
   }
 
@@ -101,7 +106,7 @@
     const key = recordingKey;
     shortcuts[key] = shortcut;
     const input = shortcutInput(key);
-    if (input) input.value = shortcut;
+    if (input) input.value = formatDisplayShortcut(shortcut);
     stopRecording();
     // 기존 동작과 동일하게 녹화 완료 시에는 독 안내를 즉시 다시 쓰지 않습니다.
     return true;
@@ -114,7 +119,7 @@
   function renderInputs(): void {
     Object.keys(shortcuts).forEach(key => {
       const input = shortcutInput(key);
-      if (input) input.value = shortcuts[key];
+      if (input) input.value = formatDisplayShortcut(shortcuts[key]);
     });
     updateDockShortcutGuide();
   }
