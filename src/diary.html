@@ -1735,14 +1735,25 @@
       const renderedDate = selectedDateStr;
       if (!renderedDate) return;
       const removed = await window.electronAPI.diaryRemoveActivity(rowId);
-      if (removed && selectedDateStr === renderedDate) await selectDate(renderedDate);
+      if (removed && selectedDateStr === renderedDate) {
+        await selectDate(renderedDate);
+        await loadMonthData();
+      }
     }
 
     async function saveLoot() {
       const targetDate = selectedDateStr;
       if (!targetDate) return;
-      const name = document.getElementById('loot-name').value.trim(), count = parseInt(document.getElementById('loot-count').value) || 1;
-      if (!name) return;
+      const nameInput = document.getElementById('loot-name');
+      const countInput = document.getElementById('loot-count');
+      const name = nameInput.value.trim();
+      const count = parseInt(countInput.value) || 1;
+      if (!name) {
+        nameInput.focus();
+        nameInput.classList.add('ring-2', 'ring-rose-500');
+        setTimeout(() => nameInput.classList.remove('ring-2', 'ring-rose-500'), 1500);
+        return;
+      }
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
       const rowId = await window.electronAPI.diaryAddActivity(
         targetDate,
@@ -1752,16 +1763,27 @@
         count,
       );
       if (!Number.isSafeInteger(rowId)) return;
-      document.getElementById('loot-name').value = ''; document.getElementById('loot-count').value = '1';
-      if (selectedDateStr === targetDate) await selectDate(targetDate);
+      nameInput.value = '';
+      countInput.value = '1';
+      if (selectedDateStr === targetDate) {
+        await selectDate(targetDate);
+        await loadMonthData();
+      }
     }
 
     async function saveManualSeed(btn) {
       const targetDate = selectedDateStr;
       if (!targetDate) return;
-      const dIn = document.getElementById('manual-seed-desc'), aIn = document.getElementById('manual-seed-amount');
-      const desc = dIn.value.trim() || '수익', amount = parseInt(aIn.value) || 0;
-      if (amount === 0) return;
+      const dIn = document.getElementById('manual-seed-desc');
+      const aIn = document.getElementById('manual-seed-amount');
+      const desc = dIn.value.trim() || '수익';
+      const amount = parseInt(aIn.value) || 0;
+      if (amount <= 0) {
+        aIn.focus();
+        aIn.classList.add('ring-2', 'ring-rose-500');
+        setTimeout(() => aIn.classList.remove('ring-2', 'ring-rose-500'), 1500);
+        return;
+      }
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
       // calc 행의 content는 타임라인 표시용이고 amount가 일·월 SEED 통계의 실제 원본입니다.
       // 금액을 생략하면 문구만 보이고 통계는 0이 되는 상태가 생기므로 반드시 함께 저장합니다.
@@ -1775,7 +1797,10 @@
       if (!Number.isSafeInteger(rowId)) return;
       dIn.value = ''; aIn.value = ''; document.getElementById('manual-seed-preview').innerText = '';
       const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black');
-      if (selectedDateStr === targetDate) await selectDate(targetDate);
+      if (selectedDateStr === targetDate) {
+        await selectDate(targetDate);
+        await loadMonthData();
+      }
       setTimeout(() => { btn.innerHTML = old; btn.classList.remove('bg-orange-500', 'text-black'); }, 1000);
     }
 

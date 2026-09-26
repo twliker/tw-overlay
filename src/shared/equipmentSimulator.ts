@@ -1035,33 +1035,59 @@ function calculateIncryptExpectation(
   }
 
   const protects = Math.max(0, Math.min(info.maxProtectionScrolls, Math.trunc(options.protectionScrollCount || 0)));
-  const pFail = 1.0 - pSucc;
   const effectiveDestroyRateOnFail = Math.max(0, info.baseDestroyRate - protects * 0.01);
-  const overallDestroyRate = pFail * effectiveDestroyRateOnFail;
-  const overallSurvivalRate = 1.0 - overallDestroyRate;
-
   const target = normalizeIncryptTargetSuccesses(targetSuccesses);
-  let scrollCount = 0;
-  let totalDestroyedEquips = 0;
+
+  // 단계별 전이 확률 계산
+  // q_k: 결판 시 성공 확률 = p_k / (p_k + d_k)
+  // 완주 생존 확률: P_surv = prod(q_k)
+  // 단일 장비당 시도 횟수 기댓값: E[T_single] = sum( (prod_{j=0}^{k-1} q_j) / (p_k + d_k) )
+  // 완주 달성까지 총 장비 소모 기댓값: 1 / P_surv (파괴 장비 수 E[D] = (1 - P_surv) / P_surv)
+  // 완주 달성까지 총 시도 횟수 기댓값: E[T_total] = E[T_single] / P_surv
   let survivalProbabilityUntilTarget = 1;
+  let singleRunExpectedAttempts = 0;
+  let probReachStage = 1;
+
   for (let success = 0; success < target; success++) {
     const index = Math.max(0, Math.min(12, Math.trunc(options.currentIncryptCount || 0) + success));
-    const rate = options.scrollType === 'vianu' ? VIANU_RATES_BY_COUNT[index] : pSucc;
+    const rate = options.scrollType === 'vianu' ? VIANU_RATES_BY_COUNT[index] : info.successRate;
     const destroyed = (1 - rate) * effectiveDestroyRateOnFail;
-    scrollCount += 1 / rate;
-    totalDestroyedEquips += destroyed / rate;
-    survivalProbabilityUntilTarget *= rate / (rate + destroyed);
+    const decisiveRate = rate + destroyed;
+
+    if (decisiveRate <= 0) {
+      // 성공도 파괴도 없는 경우 (이론상 발생하지 않으나 방어)
+      singleRunExpectedAttempts += probReachStage * (1 / Math.max(1e-6, rate));
+      continue;
+    }
+
+    const qStage = rate / decisiveRate;
+    singleRunExpectedAttempts += probReachStage * (1 / decisiveRate);
+    survivalProbabilityUntilTarget *= qStage;
+    probReachStage *= qStage;
   }
+
+  const totalDestroyedEquips = survivalProbabilityUntilTarget > 0
+    ? (1 - survivalProbabilityUntilTarget) / survivalProbabilityUntilTarget
+    : Infinity;
+  const scrollCount = survivalProbabilityUntilTarget > 0
+    ? singleRunExpectedAttempts / survivalProbabilityUntilTarget
+    : Infinity;
+
   const expectedAttemptsPerSuccess = scrollCount / target;
   const expectedDestroyedEquips = totalDestroyedEquips / target;
 
+  const overallDestroyRate = (1.0 - pSucc) * effectiveDestroyRateOnFail;
+  const overallSurvivalRate = 1.0 - overallDestroyRate;
+
   const currencyType = options.currencyType || 'seed';
-  const totalProtectionCount = scrollCount * protects;
-  const feeCost = scrollCount * (options.costPerAttempt || 0);
-  const itemCostSeed =
-    scrollCount * (options.scrollPrice || 0) +
-    totalProtectionCount * (options.protectionScrollPrice || 0);
-  const equipLossSeed = totalDestroyedEquips * (options.equipmentPrice || 0);
+  const totalProtectionCount = Number.isFinite(scrollCount) ? scrollCount * protects : Infinity;
+  const feeCost = Number.isFinite(scrollCount) ? scrollCount * (options.costPerAttempt || 0) : Infinity;
+  const itemCostSeed = Number.isFinite(scrollCount)
+    ? scrollCount * (options.scrollPrice || 0) + totalProtectionCount * (options.protectionScrollPrice || 0)
+    : Infinity;
+  const equipLossSeed = Number.isFinite(totalDestroyedEquips)
+    ? totalDestroyedEquips * (options.equipmentPrice || 0)
+    : Infinity;
   const totalSeedCostWithEquipLoss =
     itemCostSeed + (currencyType === 'seed' ? feeCost : 0) + equipLossSeed;
 
