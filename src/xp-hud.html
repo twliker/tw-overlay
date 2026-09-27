@@ -457,8 +457,9 @@
         <div class="section-label"><i data-lucide="bell-ring" style="width:12px;height:12px"></i>경험치 감소 알림</div>
         <div class="setting-row"><div><div class="setting-row-label">경험치 감소 감지</div><div class="setting-row-sub">최근 5분의 1회당 평균과 비교</div></div><label class="toggle-wrap"><input type="checkbox" id="xp-efficiency-enabled" aria-label="경험치 감소 감지"><span class="toggle-slider"></span></label></div>
         <label class="setting-row"><span class="setting-row-label">평균보다 낮아지면</span><select id="xp-efficiency-percent" class="num-input compact-select"><option value="10">10% 감소</option><option value="20">20% 감소</option><option value="30">30% 감소</option><option value="40">40% 감소</option><option value="50">50% 감소</option></select></label>
+        <label class="setting-row"><span class="setting-row-label">알림 최소 기준</span><select id="xp-efficiency-min-amount" class="num-input compact-select"><option value="0">제한 없음</option><option value="500000">50만 이상</option><option value="1000000">100만 이상</option><option value="2000000" selected>200만 이상 (권장)</option><option value="3000000">300만 이상</option><option value="5000000">500만 이상</option><option value="10000000">1,000만 이상</option></select></label>
         <div class="audio-row"><select id="xp-efficiency-sound" class="num-input" aria-label="경험치 감소 알림음"></select><button id="xp-efficiency-preview" class="btn-sm preview-button"><i data-lucide="play" class="w-3 h-3"></i>미리듣기</button></div><label class="volume-row">알림 음량<input type="range" id="xp-efficiency-volume" min="0" max="100" value="40" aria-label="경험치 감소 알림 음량"><span id="xp-efficiency-volume-value">40%</span></label>
-        <p class="setting-row-sub">3회 연속 감소 시 알리고, 60초간 반복 알림을 쉽니다. 큰 일회성 획득은 기준에서 제외합니다.</p>
+        <p class="setting-row-sub">3회 연속 감소 시 알리고, 60초간 반복 알림을 쉽니다. 단일 획득이나 사냥터 평균이 최소 기준 미만인 경우 감지에서 제외합니다.</p>
       </section>
       <section id="essence-alert-settings-section" class="settings-section">
         <div class="section-label"><i data-lucide="bell-ring" style="width:12px;height:12px"></i>경험의 정수 버프 알림</div>
@@ -799,11 +800,15 @@
 
     [ ['xp-auto-pause', 'xpAutoPauseEnabled'], ['xp-efficiency-enabled', 'xpEfficiencyAlertEnabled'] ].forEach(([id, key]) => {
       document.getElementById(id).addEventListener('change', event => {
-        document.getElementById(id === 'xp-auto-pause' ? 'xp-idle-seconds' : 'xp-efficiency-percent').disabled = !event.target.checked;
+        const targetIds = id === 'xp-auto-pause' ? ['xp-idle-seconds'] : ['xp-efficiency-percent', 'xp-efficiency-min-amount'];
+        targetIds.forEach(targetId => {
+          const el = document.getElementById(targetId);
+          if (el) el.disabled = !event.target.checked;
+        });
         window.electronAPI.applySettings({ [key]: event.target.checked });
       });
     });
-    [ ['xp-idle-seconds', 'xpAutoPauseSeconds'], ['xp-efficiency-percent', 'xpEfficiencyDropPercent'], ['xp-efficiency-volume', 'xpEfficiencyAlertVolume'] ].forEach(([id, key]) => {
+    [ ['xp-idle-seconds', 'xpAutoPauseSeconds'], ['xp-efficiency-percent', 'xpEfficiencyDropPercent'], ['xp-efficiency-min-amount', 'xpEfficiencyMinAmount'], ['xp-efficiency-volume', 'xpEfficiencyAlertVolume'] ].forEach(([id, key]) => {
       document.getElementById(id).addEventListener('change', event => window.electronAPI.applySettings({ [key]: Number(event.target.value) }));
     });
     document.getElementById('xp-efficiency-sound').addEventListener('change', event => window.electronAPI.applySettings({ xpEfficiencyAlertSound: event.target.value }));
@@ -820,6 +825,8 @@
       document.getElementById('xp-efficiency-enabled').checked = config.xpEfficiencyAlertEnabled !== false;
       document.getElementById('xp-efficiency-percent').disabled = config.xpEfficiencyAlertEnabled === false;
       document.getElementById('xp-efficiency-percent').value = config.xpEfficiencyDropPercent ?? 20;
+      document.getElementById('xp-efficiency-min-amount').disabled = config.xpEfficiencyAlertEnabled === false;
+      document.getElementById('xp-efficiency-min-amount').value = config.xpEfficiencyMinAmount ?? 2000000;
       document.getElementById('xp-efficiency-volume').value = config.xpEfficiencyAlertVolume ?? 40;
       document.getElementById('xp-efficiency-volume-value').textContent = (config.xpEfficiencyAlertVolume ?? 40) + '%';
       if (config.showXpWidget !== undefined) {

@@ -545,6 +545,7 @@ export interface AppConfig {
     xpAutoPauseSeconds?: number;
     xpEfficiencyAlertEnabled?: boolean;
     xpEfficiencyDropPercent?: number;
+    xpEfficiencyMinAmount?: number;
     xpEfficiencyAlertSound?: string;
     xpEfficiencyAlertVolume?: number;
     ignoreNegativeXp?: boolean;

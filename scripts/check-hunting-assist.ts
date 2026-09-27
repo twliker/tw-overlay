@@ -164,6 +164,19 @@ async function main(): Promise<void> {
   assert.equal(monitor.state(60_000, false, true).status, 'disabled');
   assert.equal(monitor.state(60_000, true, false).status, 'paused');
 
+  // 최소 기준(minAmount) 필터링 동작 단위 검증
+  const minMonitor = new XpEfficiencyMonitor();
+  for (let i = 0; i <= 60; i++) minMonitor.observe(1_000_000, i * 1000, 20, 2_000_000);
+  for (let i = 0; i < 5; i++) assert.equal(minMonitor.observe(500_000, 61_000 + i * 1000, 20, 2_000_000), null, '평균이 200만 미만이면 감소 알람이 발생하지 않아야 합니다.');
+
+  const highMonitor = new XpEfficiencyMonitor();
+  for (let i = 0; i <= 60; i++) highMonitor.observe(10_000_000, i * 1000, 20, 2_000_000);
+  assert.equal(highMonitor.observe(500_000, 61_000, 20, 2_000_000), null, '단일 200만 미만 획득은 알람을 발생시키지 않습니다.');
+  assert.equal(highMonitor.observe(7_000_000, 62_000, 20, 2_000_000), null);
+  assert.equal(highMonitor.observe(7_000_000, 63_000, 20, 2_000_000), null);
+  const minWarning = highMonitor.observe(7_000_000, 64_000, 20, 2_000_000);
+  assert.ok(minWarning && minWarning.current === 7_000_000, '200만 이상에서 3회 연속 감소 시 정상 경고');
+
   const { getActiveBossEntryWindows } = shared('bossEntry');
   const schedule = [{ name: '혼란한 대지', time: '23:59' }, { name: '파멸의 기원', time: '00:00' }];
   const bossConfig = { fieldBossNotifyEnabled: true, bossEntryCountdownBosses: ['혼란한 대지', '파멸의 기원'], fieldBossSettings: { '혼란한 대지': { enabled: true }, '파멸의 기원': { enabled: true } } };
@@ -184,10 +197,12 @@ async function main(): Promise<void> {
     sendToFirstWindowByPage(_page: string, channel: string, payload: unknown) { messages.push({ channel, payload }); },
   } } as NodeModule;
   const config = require(moduleFile('config'));
-  config.saveImmediate({ xpAutoStart: false, xpAutoPauseEnabled: true, xpAutoPauseSeconds: 60, xpEfficiencyAlertEnabled: true, essenceAlertEnabled: false });
-  assert.ok(config.sanitizeExternalConfigPatch({ xpAutoPauseSeconds: 60, xpEfficiencyDropPercent: 20, bossEntryCountdownBosses: [] }));
+  config.saveImmediate({ xpAutoStart: false, xpAutoPauseEnabled: true, xpAutoPauseSeconds: 60, xpEfficiencyAlertEnabled: true, xpEfficiencyMinAmount: 0, essenceAlertEnabled: false });
+  assert.ok(config.sanitizeExternalConfigPatch({ xpAutoPauseSeconds: 60, xpEfficiencyDropPercent: 20, xpEfficiencyMinAmount: 2_000_000, bossEntryCountdownBosses: [] }));
   assert.equal(config.sanitizeExternalConfigPatch({ xpAutoPauseSeconds: 0 }), null);
   assert.equal(config.sanitizeExternalConfigPatch({ xpEfficiencyDropPercent: 101 }), null);
+  assert.equal(config.sanitizeExternalConfigPatch({ xpEfficiencyMinAmount: -1 }), null);
+  assert.equal(config.sanitizeExternalConfigPatch({ xpEfficiencyMinAmount: 100_000_001 }), null);
   assert.equal(config.sanitizeExternalConfigPatch({ bossEntryCountdownBosses: ['없는 보스'] }), null);
   const originalNow = Date.now;
   let now = 1_000_000;
@@ -242,6 +257,22 @@ async function main(): Promise<void> {
     assert.equal(stats.essenceCount, 1);
     assert.equal(stats.efficiency.warning, null);
     assert.equal(stats.efficiency.status, 'warming');
+
+    // xpEfficiencyMinAmount(기본 200만)가 켜진 상태 검증:
+    // 200만 미만 획득은 알람이 울리지 않고, 200만 이상에서 감소할 때만 알람이 울린다.
+    config.saveImmediate({ xpEfficiencyMinAmount: 2_000_000 });
+    tracker.resetEfficiencyBaseline();
+    const soundCountBefore = sounds.length;
+    for (let i = 0; i <= 60; i++) { now += 1000; gain(500); }
+    for (let i = 0; i < 3; i++) { now += 1000; gain(350); }
+    assert.equal(sounds.length, soundCountBefore, '200만 미만의 획득은 최소 기준에 걸려 감소 알람이 울리지 않아야 합니다.');
+
+    tracker.resetEfficiencyBaseline();
+    now += 70_000;
+    for (let i = 0; i <= 60; i++) { now += 1000; gain(10_000_000); }
+    for (let i = 0; i < 3; i++) { now += 1000; gain(7_000_000); }
+    assert.equal(sounds.length, soundCountBefore + 1, '200만 이상의 정상 사냥터에서 감소 시 알람이 울려야 합니다.');
+
     config.saveImmediate({ xpAutoPauseEnabled: false });
     now += 120_000;
     tracker.checkInactivity();

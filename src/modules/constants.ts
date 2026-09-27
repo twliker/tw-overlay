@@ -169,6 +169,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   xpAutoPauseSeconds: 60,
   xpEfficiencyAlertEnabled: true,
   xpEfficiencyDropPercent: 20,
+  xpEfficiencyMinAmount: 2_000_000,
   xpEfficiencyAlertSound: 'orb.mp3',
   xpEfficiencyAlertVolume: 40,
   ignoreNegativeXp: true,

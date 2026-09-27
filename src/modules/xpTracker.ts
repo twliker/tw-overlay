@@ -192,9 +192,14 @@ class XpTracker {
         this._historyBeforeIdle = null;
         this._lastActivityAt = Date.now();
         this._sessionKills++;
-        const activityConfig = config.loadFields(['xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent', 'xpEfficiencyAlertSound', 'xpEfficiencyAlertVolume']);
+        const activityConfig = config.loadFields(['xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent', 'xpEfficiencyMinAmount', 'xpEfficiencyAlertSound', 'xpEfficiencyAlertVolume']);
         if (activityConfig.xpEfficiencyAlertEnabled !== false) {
-          const warning = this._efficiency.observe(amount, this._lastActivityAt, this.efficiencyDropPercent(activityConfig.xpEfficiencyDropPercent));
+          const warning = this._efficiency.observe(
+            amount,
+            this._lastActivityAt,
+            this.efficiencyDropPercent(activityConfig.xpEfficiencyDropPercent),
+            this.efficiencyMinAmount(activityConfig.xpEfficiencyMinAmount),
+          );
           if (warning) {
             this.sendToXpWindows('xp-efficiency-alert', warning);
             const soundFile = activityConfig.xpEfficiencyAlertSound || 'orb.mp3';
@@ -438,9 +443,15 @@ class XpTracker {
     return Math.max(10, Math.min(50, Number(value) || 20));
   }
 
+  private efficiencyMinAmount(value: number | undefined): number {
+    if (value === undefined || value === null) return 2_000_000;
+    const num = Number(value);
+    return Number.isFinite(num) && num >= 0 ? num : 2_000_000;
+  }
+
   private refreshActivitySettings(): void {
-    const cfg = config.loadFields(['xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent', 'xpAutoPauseEnabled']);
-    const key = `${cfg.xpEfficiencyAlertEnabled !== false}:${this.efficiencyDropPercent(cfg.xpEfficiencyDropPercent)}`;
+    const cfg = config.loadFields(['xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent', 'xpEfficiencyMinAmount', 'xpAutoPauseEnabled']);
+    const key = `${cfg.xpEfficiencyAlertEnabled !== false}:${this.efficiencyDropPercent(cfg.xpEfficiencyDropPercent)}:${this.efficiencyMinAmount(cfg.xpEfficiencyMinAmount)}`;
     if (key !== this._efficiencySettingsKey) {
       this._efficiencySettingsKey = key;
       this._efficiency.reset();

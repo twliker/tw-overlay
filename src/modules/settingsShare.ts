@@ -34,7 +34,7 @@ export const SHARE_FIELDS: Record<ShareGroup, readonly Field[]> = {
     ['notificationPositions', '알림 위치'], ['fieldBossNotifyEnabled', '필드보스 알림'], ['fieldBossNotifyOffsets', '필드보스 사전 알림'], ['fieldBossNotifyVolume', '필드보스 음량'],
     ['wordAlarmEnabled', '지정 단어 알림'], ['wordAlarmVolume', '지정 단어 음량'],
     ['buffTimerAudioAlert', '버프 소리 알림'], ['buffTimerVisualAlert', '버프 화면 알림'], ['buffTimerWarnSeconds', '버프 사전 알림'], ['buffTimerVolume', '버프 음량'],
-    ['xpEfficiencyAlertEnabled', '사냥 효율 알림'], ['xpEfficiencyDropPercent', '사냥 효율 감소 기준'], ['xpEfficiencyAlertVolume', '사냥 효율 음량'],
+    ['xpEfficiencyAlertEnabled', '사냥 효율 알림'], ['xpEfficiencyDropPercent', '사냥 효율 감소 기준'], ['xpEfficiencyMinAmount', '사냥 효율 최소 기준'], ['xpEfficiencyAlertVolume', '사냥 효율 음량'],
     ['essenceAlertEnabled', '정수 알림'], ['essenceAlertVolume', '정수 음량'],
     ['specialMonsterAlertEnabled', '특수 몬스터 알림'], ['abandonedAlertEnabled', '어벤던 알림'], ['pittaHillAlertEnabled', '피타 힐 알림'],
     ['questCompleteAlertEnabled', '퀘스트 완료 알림'], ['questCompleteAlertVolume', '퀘스트 음량'],

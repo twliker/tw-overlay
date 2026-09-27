@@ -56,6 +56,7 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'xpAutoPauseSeconds',
   'xpEfficiencyAlertEnabled',
   'xpEfficiencyDropPercent',
+  'xpEfficiencyMinAmount',
   'xpEfficiencyAlertSound',
   'xpEfficiencyAlertVolume',
   'ignoreNegativeXp',

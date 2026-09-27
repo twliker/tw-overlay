@@ -158,6 +158,7 @@ const EXTERNAL_NUMBER_RANGES: Partial<Record<keyof AppConfig, [number, number]>>
   essenceAlertVolume: [0, 100],
   xpAutoPauseSeconds: [30, 300],
   xpEfficiencyDropPercent: [10, 50],
+  xpEfficiencyMinAmount: [0, 100_000_000],
   xpEfficiencyAlertVolume: [0, 100],
   questCompleteAlertVolume: [0, 100],
   abyssTreasureAlertVolume: [0, 100],

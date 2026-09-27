@@ -31,7 +31,7 @@ export class XpEfficiencyMonitor {
     return this.buckets.reduce((total, bucket) => ({ sum: total.sum + bucket.sum, count: total.count + bucket.count }), { sum: 0, count: 0 });
   }
 
-  observe(amount: number, now: number, dropPercent: number): XpEfficiencyWarning | null {
+  observe(amount: number, now: number, dropPercent: number, minAmount = 0): XpEfficiencyWarning | null {
     if (!Number.isFinite(amount) || amount <= 0) return null;
     if (this.lastObservedAt !== null && (now < this.lastObservedAt || now - this.lastObservedAt > WINDOW_MS)) this.reset();
     this.lastObservedAt = now;
@@ -54,6 +54,19 @@ export class XpEfficiencyMonitor {
     const average = total.count ? total.sum / total.count : amount;
     // 퀘스트 보상 등의 큰 획득은 통계 합계에는 남기되 감소 감지의 기준에서는 제외한다.
     if (amount > average * 3) return null;
+
+    // 최소 기준 필터링: 사냥터 평균이 기준치 미만이거나, 단일 획득량이 기준치 미만인 경우 알람 억제
+    if (minAmount > 0) {
+      if (average < minAmount) {
+        this.append(amount, now);
+        return null;
+      }
+      if (amount < minAmount) {
+        // 소량 획득(잡몹 1마리 스침 등)은 통계에는 누적하되 기존 감소 연속 카운트를 깨거나 오경보를 울리지 않는다.
+        this.append(amount, now);
+        return null;
+      }
+    }
     const ready = total.count >= MIN_SAMPLES && now - this.startedAt >= WARMUP_MS;
     const low = ready && amount < average * (1 - dropPercent / 100);
     this.lowCount = low ? this.lowCount + 1 : 0;

@@ -17,7 +17,7 @@ export const ACTIVITY_SETTING_KEYS = [
   'showXpWidget', 'showBuffHud', 'showHudShortcuts', 'showTodaySummaryHud', 'todaySummaryCollapsed',
   'xpWidgetPos', 'buffTimerHudPos', 'todaySummaryHudPos', 'abandonedWidgetPos', 'digsiteWidgetPos', 'forgeQuestHudPos',
   'abandonedEnabled', 'digsiteHudEnabled', 'pinnedNoteEnabled', 'pinnedNotePos', 'supplyHelperEnabled', 'supplyMapEnabled', 'supplyMapLarge', 'supplyHudPos',
-  'xpAutoStart', 'xpAutoPauseEnabled', 'xpAutoPauseSeconds', 'xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent',
+  'xpAutoStart', 'xpAutoPauseEnabled', 'xpAutoPauseSeconds', 'xpEfficiencyAlertEnabled', 'xpEfficiencyDropPercent', 'xpEfficiencyMinAmount',
   'xpEfficiencyAlertSound', 'xpEfficiencyAlertVolume', 'ignoreNegativeXp',
   'fieldBossNotifyEnabled', 'fieldBossNotifyOffsets', 'fieldBossNotifyVolume', 'fieldBossSettings', 'bossEntryCountdownBosses',
   'wordAlarmEnabled', 'wordAlarmSound', 'wordAlarmVolume',
