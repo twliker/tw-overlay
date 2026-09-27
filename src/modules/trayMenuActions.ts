@@ -39,6 +39,7 @@ const TRAY_MENU_ACTIONS = {
   toggleOverlay: wm.toggleOverlay,
   toggleChatOverlay: wm.toggleChatOverlayWindow,
   toggleClickThrough: wm.toggleClickThrough,
+  toggleMasterMute: wm.toggleMasterMute,
   toggleWelcomeGuide: wm.toggleWelcomeGuideWindow,
 } satisfies Record<TrayMenuAction, TrayMenuHandler>;
 

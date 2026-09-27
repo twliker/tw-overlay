@@ -307,6 +307,15 @@
     "isSystem": true
   },
   {
+    "id": "master-mute-btn",
+    "label": "모든 소리 음소거",
+    "icon": "volume-2",
+    "tooltip": "모든 소리 음소거\n현재: 소리 켜짐 (정상)",
+    "color": "slate-400",
+    "api": "toggleMasterMute",
+    "isSystem": true
+  },
+  {
     "id": "welcome-guide-btn",
     "label": "사용 가이드",
     "icon": "help-circle",
@@ -315,4 +324,4 @@
     "api": "toggleWelcomeGuide",
     "isSystem": true
   }
-]
+]

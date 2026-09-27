@@ -151,6 +151,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   volumeContentsChecker: 30,
   volumeCalculators: 30,
+  masterMute: false,
   sidebarPosition: 'right',
   showSidebarToastOnOverlay: false,
   chatLogPath: '',

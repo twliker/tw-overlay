@@ -60,7 +60,7 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'abandonedAutoHideMinutes', 'abandonedEnabled', 'abandonedWidgetPos', 'digsiteHudEnabled', 'digsiteWidgetPos', 'scamDetectorEnabled',
   'msgerLogPath', 'scamAlertSound', 'scamGpuVariant', 'scamLlmDisabled', 'discordWebhookUrl',
   'discordAlertEnabled', 'discordKeywords', 'discordRules', 'volumeContentsChecker',
-  'volumeCalculators', 'sidebarPosition', 'chatOverlayEnabled', 'chatOverlaySubEnabled',
+  'volumeCalculators', 'masterMute', 'sidebarPosition', 'chatOverlayEnabled', 'chatOverlaySubEnabled',
   'chatOverlaySub2Enabled', 'chatOverlayOpacity', 'chatOverlaySubOpacity',
   'chatOverlaySub2Opacity', 'chatOverlayFontSize', 'chatOverlayClickThrough', 'chatOverlayVisibleTabs',
   'chatOverlayKeywords', 'userServer', 'etaDataUrl', 'chatOverlayWidth', 'chatOverlayHeight',
@@ -176,7 +176,7 @@ const EXTERNAL_NUMBER_RANGES: Partial<Record<keyof AppConfig, [number, number]>>
 const OPTIONAL_BOOLEAN_KEYS = new Set([
   'autoLaunch', 'hasSeenWelcomeGuide', 'lootKeywordsMigratedV2', 'hudHiddenPositionRepairV1', 'scamDetectorEnabled',
   'scamLlmDisabled', 'followGameWindow', 'setupCompleted', 'googleSyncEnabled',
-  'googleSyncAutoSync',
+  'googleSyncAutoSync', 'masterMute',
 ]);
 const OPTIONAL_STRING_KEYS = new Set([
   'selectedCharacterId', 'msgerLogPath', 'scamAlertSound', 'buffTimerSound',

@@ -654,10 +654,19 @@
         const camelKey = windowKey ? windowKey.charAt(0).toLowerCase() + windowKey.slice(1) : '';
         item.dataset.winKey = camelKey;
 
+        let iconName = menu.icon;
+        let tooltip = menu.tooltip || menu.label;
+        if (menu.id === 'master-mute-btn') {
+          const isMuted = Boolean(appConfig && appConfig.masterMute);
+          iconName = isMuted ? 'volume-x' : 'volume-2';
+          tooltip = isMuted ? '모든 소리 음소거 (현재: 음소거 켜짐)' : '모든 소리 음소거 (현재: 소리 켜짐)';
+          if (isMuted) item.className = 'dock-item color-red-400';
+        }
+
         item.innerHTML = `
-          <i data-lucide="${menu.icon}"></i>
+          <i data-lucide="${iconName}"></i>
           <span class="indicator-dot"></span>
-          <span class="dock-tooltip">${menu.tooltip || menu.label}</span>
+          <span class="dock-tooltip">${tooltip}</span>
         `;
 
         item.onclick = () => {

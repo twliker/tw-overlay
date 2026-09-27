@@ -465,6 +465,8 @@ export type NotificationAnchor = 'default' | 'top-left' | 'top-center' | 'top-ri
 export type NotificationPositions = Record<'center' | 'buff' | 'hunting' | 'toast', NotificationAnchor>;
 
 export interface AppConfig {
+    /** 모든 소리 전역 음소거. 기본 꺼짐. */
+    masterMute?: boolean;
     /** 숙제창을 사용하지 않을 때 제목줄로 접기. 기본 꺼짐. */
     contentsAutoCollapse?: boolean;
     activityPresets?: ActivityPreset[];

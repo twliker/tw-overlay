@@ -36,6 +36,7 @@
     abyssTreasureAlertEnabled?: boolean;
     abyssTreasureAlertSound?: string;
     abyssTreasureAlertVolume?: number;
+    masterMute?: boolean;
     notifyWhenGameClosed?: boolean;
     userServer?: number;
     chatOverlayFontSize?: number;
@@ -198,6 +199,7 @@
       config.abyssTreasureAlertVolume ?? defaults.abyssTreasureAlertVolume ?? 40,
       value => `${value}%`,
     );
+    setChecked('master-mute-input', config.masterMute ?? defaults.masterMute ?? false);
     setChecked('notify-when-game-closed-input', config.notifyWhenGameClosed ?? defaults.notifyWhenGameClosed ?? false);
 
     setChecked('chat-overlay-show-free-shout', config.chatOverlayShowFreeShout !== false);

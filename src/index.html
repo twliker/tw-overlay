@@ -497,12 +497,13 @@
           if (menu.id === 'overlay-toggle-btn') btn.querySelector('i').id = 'overlay-icon';
           if (menu.id === 'chat-overlay-toggle-btn') btn.querySelector('i').id = 'chat-overlay-icon';
           if (menu.id === 'click-through-btn') btn.querySelector('i').id = 'click-through-icon';
+          if (menu.id === 'master-mute-btn') btn.querySelector('i').id = 'master-mute-icon';
 
           btn.onclick = () => {
             if (menu.api && window.electronAPI[menu.api]) window.electronAPI[menu.api]();
           };
 
-          btn.onmouseenter = () => showTooltip(menu.tooltip, btn);
+          btn.onmouseenter = () => showTooltip(btn.dataset.tooltip || menu.tooltip, btn);
           btn.onmouseleave = () => hideTooltip();
 
           systemContainer.appendChild(btn);
@@ -510,6 +511,7 @@
 
         refreshIcons();
         applyMenuVisibility();
+        if (lastConfig) updateMasterMuteButton(Boolean(lastConfig.masterMute));
       } catch (e) { console.error('Failed to load dynamic menus:', e); }
     }
 
@@ -659,8 +661,9 @@
         return;
       }
 
+      const isMuted = Boolean(lastConfig && lastConfig.masterMute);
       const vol = (lastConfig && lastConfig.volumeCalculators !== undefined ? lastConfig.volumeCalculators : 50) / 100;
-      if (vol > 0) {
+      if (!isMuted && vol > 0) {
         const audio = new Audio('assets/sound/item_get.wav');
         audio.volume = vol;
         audio.play().catch(e => { });
@@ -819,6 +822,24 @@
       window.electronAPI.googleSyncGetStatus().then(updateCloudSyncStatus).catch(() => {});
     }
 
+    function updateMasterMuteButton(isMuted) {
+      const btn = document.getElementById('master-mute-btn');
+      if (!btn) return;
+      const icon = document.getElementById('master-mute-icon') || btn.querySelector('i, svg');
+      if (isMuted) {
+        btn.classList.add('text-red-400');
+        btn.classList.remove('text-slate-400');
+        btn.dataset.tooltip = '모든 소리 음소거\n현재: 음소거 켜짐 (무음)';
+        if (icon) icon.setAttribute('data-lucide', 'volume-x');
+      } else {
+        btn.classList.add('text-slate-400');
+        btn.classList.remove('text-red-400');
+        btn.dataset.tooltip = '모든 소리 음소거\n현재: 소리 켜짐 (정상)';
+        if (icon) icon.setAttribute('data-lucide', 'volume-2');
+      }
+      refreshIcons();
+    }
+
     window.electronAPI.onClickThroughStatus((isClickThrough) => {
       const icon = document.getElementById('click-through-icon');
       const btn = document.getElementById('click-through-btn');
@@ -838,6 +859,8 @@
       if (sidebarPos === 'left' && currentWidth !== 400) {
         performWidthUpdate(400);
       }
+
+      updateMasterMuteButton(Boolean(config.masterMute));
 
       // 화살표 방향 갱신
       let iconName = 'chevron-left';

@@ -2760,11 +2760,14 @@ export function sendPlaySound(data: {
   const shouldShowToastOnIndex = !areAllWindowsHidden() && !isDock && !showOnOverlay;
   const shouldShowToastOnOverlay = !areAllWindowsHidden() && (isDock || showOnOverlay);
 
-  // 3. index.html (메인 창) 처리: 사운드는 여기서만 무조건 재생, 토스트는 조건 만족 시 노출
+  // 3. index.html (메인 창) 처리: 사운드는 여기서만 재생, 토스트는 조건 만족 시 노출
+  const isMuted = !data.isPreview && !!cfg.masterMute;
+  const effectiveSoundFile = isMuted ? '' : data.soundFile;
+
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('play-sound', {
       ...data,
-      soundFile: data.soundFile, // 사운드는 무조건 재생
+      soundFile: effectiveSoundFile,
       showToast: shouldShowToastOnIndex
     });
   }
@@ -2777,6 +2780,15 @@ export function sendPlaySound(data: {
       showToast: shouldShowToastOnOverlay
     });
   }
+}
+
+export function toggleMasterMute(): boolean {
+  const current = config.load();
+  const next = !current.masterMute;
+  config.save({ masterMute: next });
+  broadcastConfig();
+  log(`[SOUND] Master mute toggled: ${next}`);
+  return next;
 }
 
 export function openAndHighlightWindow(key: string): void {

@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleDock: () => ipcRenderer.send('toggle-dock'),
   toggleOverlay: () => ipcRenderer.send('toggle-overlay'),
   toggleClickThrough: () => ipcRenderer.send('toggle-click-through'),
+  toggleMasterMute: () => ipcRenderer.send('toggle-master-mute'),
   toggleSettings: (tabId?: string) => ipcRenderer.send('toggle-settings', tabId),
   getNicknameInfo: (server: number, nickname: string): Promise<import('./shared/types').NicknameInfo> =>
     ipcRenderer.invoke('nickname-info-get', server, nickname),

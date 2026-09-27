@@ -562,8 +562,9 @@
         return;
       }
 
+      const isMuted = Boolean(config && config.masterMute);
       const vol = (config && config.volumeCalculators !== undefined ? config.volumeCalculators : 50) / 100;
-      if (vol > 0) {
+      if (!isMuted && vol > 0) {
         const audio = new Audio('assets/sound/item_get.wav');
         audio.volume = vol;
         audio.play().catch(() => {});

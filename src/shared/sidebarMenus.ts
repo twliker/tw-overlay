@@ -35,6 +35,7 @@ export const SIDEBAR_MENU_ACTIONS = [
   'toggleOverlay',
   'toggleChatOverlay',
   'toggleClickThrough',
+  'toggleMasterMute',
   'toggleWelcomeGuide',
 ] as const;
 

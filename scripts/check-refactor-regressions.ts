@@ -4951,6 +4951,19 @@ function checkEquipmentSimulator(): void {
   assert.match(read('src/modules/windowManager.ts'), /toggleEquipmentSimulatorWindow/);
 }
 
+function checkMasterMuteContracts(): void {
+  const menus = JSON.parse(read('src/assets/data/sidebar_menus.json')) as Array<{ id: string; api?: string; isSystem?: boolean }>;
+  assert.ok(menus.find(item => item.id === 'master-mute-btn' && item.isSystem), 'sidebar_menus.json에 master-mute-btn 시스템 메뉴가 없습니다.');
+  assert.match(read('src/modules/ipcHandlers.ts'), /'toggle-master-mute':\s*wm\.toggleMasterMute/, 'toggle-master-mute IPC 핸들러가 없습니다.');
+  assert.match(read('src/preload.ts'), /toggleMasterMute:\s*\(\)\s*=>\s*ipcRenderer\.send\('toggle-master-mute'\)/, 'preload에 toggleMasterMute API가 없습니다.');
+  assert.match(read('src/modules/windowManager.ts'), /export function toggleMasterMute\(\)/, 'windowManager에 toggleMasterMute 함수가 없습니다.');
+  assert.match(read('src/modules/windowManager.ts'), /const isMuted = !data\.isPreview && !!cfg\.masterMute;[\s\S]*?effectiveSoundFile/, 'sendPlaySound에 masterMute 음소거 가드가 없습니다.');
+  assert.match(read('src/index.html'), /updateMasterMuteButton/, 'index.html에 masterMute 상태 갱신 함수가 없습니다.');
+  assert.match(read('src/dock.html'), /master-mute-btn/, 'dock.html에 master-mute-btn 대응 처리가 없습니다.');
+  assert.match(read('src/settings.html'), /id="master-mute-input"/, 'settings.html에 master-mute-input이 없습니다.');
+  assert.match(read('src/renderer/settings/config-binding.ts'), /setChecked\('master-mute-input'/, 'config-binding에 master-mute-input 바인딩이 없습니다.');
+}
+
 function checkResponsiveDockFlyouts(): void {
   const dock = read('src/dock.html');
   assert.match(dock, /\.dock-flyout-submenu\s*\{[\s\S]*?max-width:\s*calc\(100vw - 24px\)/,
@@ -5545,6 +5558,7 @@ checkNoAuthoredJavaScriptSources();
 checkAgentDocumentationLocations();
 checkBuffTimerChatTriggers();
 checkResponsiveDockFlyouts();
+checkMasterMuteContracts();
 checkUpdateNoticeFeature();
 checkChatLogSyncManagerContracts();
 checkPhaseOneSafetyContracts();

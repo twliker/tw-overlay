@@ -686,6 +686,7 @@ export function register(): void {
     'toggle-update-notice': wm.toggleUpdateNoticeWindow,
     'toggle-shout-history': wm.toggleShoutHistoryWindow,
     'toggle-stopwatch': wm.toggleStopwatchWindow,
+    'toggle-master-mute': wm.toggleMasterMute,
   };
 
   Object.entries(toggleHandlers).forEach(([event, handler]) => {

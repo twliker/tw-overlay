@@ -8,7 +8,8 @@
     ) / 100;
   }
 
-  function play(config: { volumeContentsChecker?: number } | null | undefined, soundFile: string): void {
+  function play(config: { volumeContentsChecker?: number; masterMute?: boolean } | null | undefined, soundFile: string): void {
+    if (config?.masterMute) return;
     const volume = getVolume(config);
     if (volume <= 0) return;
     const audio = new Audio(soundFile);

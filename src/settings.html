@@ -575,6 +575,23 @@
           <!-- 서브 탭 1: 소리 설정 -->
           <div id="sub-tab-sound-settings" class="sub-tab-content active space-y-6">
             <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-8">
+              <!-- 전역 음소거 토글 카드 -->
+              <div class="pb-6 border-b border-white/5">
+                <label
+                  class="flex items-center justify-between cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-red-500/30 transition-all">
+                  <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
+                      <i data-lucide="volume-x" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                      <div class="text-sm font-bold text-slate-200">모든 소리 음소거 (Master Mute)</div>
+                      <div class="text-xs text-slate-400 mt-0.5">보스, 버프, 숙제, 계산기 등 프로그램의 모든 알림음과 효과음을 일괄 차단합니다. (시각 알림은 유지)</div>
+                    </div>
+                  </div>
+                  <input type="checkbox" id="master-mute-input" class="w-5 h-5 accent-red-600">
+                </label>
+              </div>
+
               <div class="space-y-4">
                 <label class="section-label flex items-center justify-between mb-2">
                   <div class="flex items-center gap-2">
@@ -6078,6 +6095,7 @@
 
           volumeContentsChecker: parseInt(document.getElementById('volume-contents-checker').value),
           volumeCalculators: parseInt(document.getElementById('volume-calculators').value),
+          masterMute: document.getElementById('master-mute-input') ? document.getElementById('master-mute-input').checked : false,
           notifyWhenGameClosed: document.getElementById('notify-when-game-closed-input') ? document.getElementById('notify-when-game-closed-input').checked : false,
 
           ...window.settingsCompanion.collect().settings,
