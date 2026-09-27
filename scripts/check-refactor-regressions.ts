@@ -2613,13 +2613,12 @@ function checkWindowFocusControllerContracts(): void {
   assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23']);
 
   controller.setLauncherInteractive(main, true);
-  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23']);
   (newerSub as any).isFocused = () => true;
-  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23'],
-    '보조 창이 포커스되어 있는 동안에는 런처가 보조 창 위로 올라오면 안 됩니다.');
-  (newerSub as any).isFocused = () => false;
-  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23']);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23'],
+    '런처와 상호작용 중일 때는 서브메뉴 노출을 위해 보조 창보다 위에 위치해야 합니다.');
   controller.setLauncherInteractive(main, false);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23'],
+    '상호작용이 끝나면 보조 창 뒤로 복귀하여 보조 창을 가리지 않아야 합니다.');
 
   olderSub.emitWeb('devtools-opened');
   assert.equal(olderSub.getDevtoolsCloseCount(), 1, '프로덕션 창의 개발자 도구 방어가 연결되지 않았습니다.');
