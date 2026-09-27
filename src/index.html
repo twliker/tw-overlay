@@ -946,12 +946,33 @@
 
       const wrapperRect = wrapper.getBoundingClientRect();
       const hitPadding = 14;
-      const isOverSidebar = (
+      const isWithinX = (
         e.clientX >= wrapperRect.left - hitPadding &&
-        e.clientX <= wrapperRect.right + hitPadding &&
-        e.clientY >= wrapperRect.top - hitPadding &&
-        e.clientY <= wrapperRect.bottom + hitPadding
+        e.clientX <= wrapperRect.right + hitPadding
       );
+
+      let isOverSidebar = false;
+      if (isWithinX) {
+        const topScrollArea = document.querySelector('.sidebar-scroll-area');
+        const toggleBtn = document.querySelector('.toggle-btn');
+        const topBound = toggleBtn ? toggleBtn.getBoundingClientRect().top : wrapperRect.top;
+        let topBottom = topBound + 40;
+        if (topScrollArea) {
+          const lastChild = topScrollArea.lastElementChild;
+          if (lastChild) {
+            topBottom = Math.max(topBottom, lastChild.getBoundingClientRect().bottom);
+          } else {
+            topBottom = Math.max(topBottom, topScrollArea.getBoundingClientRect().bottom);
+          }
+        }
+        const isOverTopGroup = (e.clientY >= topBound - hitPadding && e.clientY <= topBottom + hitPadding);
+
+        const systemMenus = document.getElementById('system-menus');
+        const bottomBound = systemMenus ? systemMenus.getBoundingClientRect().top : wrapperRect.bottom - 120;
+        const isOverBottomGroup = (e.clientY >= bottomBound - hitPadding && e.clientY <= wrapperRect.bottom + hitPadding);
+
+        isOverSidebar = isOverTopGroup || isOverBottomGroup;
+      }
 
       let isOverSubmenu = false;
       const flyouts = document.querySelectorAll('.flyout-submenu');
@@ -990,15 +1011,19 @@
         }
       }
     }
-    // 전역 마우스 이동 감시
-    window.addEventListener('mousemove', checkMouseIgnore);
-    window.addEventListener('blur', () => {
-      const category = keyboardMenuCategory;
-      if (!category) return;
-      keyboardMenuCategory = null;
-      category.onmouseleave?.(new MouseEvent('mouseleave'));
+    function resetPointerState() {
+      if (keyboardMenuCategory) {
+        const category = keyboardMenuCategory;
+        keyboardMenuCategory = null;
+        category.onmouseleave?.(new MouseEvent('mouseleave'));
+      }
       checkMouseIgnore({ clientX: -Infinity, clientY: -Infinity }, true);
-    });
+    }
+
+    // 전역 마우스 이동 및 창 이탈/포커스 해제 감시
+    window.addEventListener('mousemove', checkMouseIgnore);
+    window.addEventListener('mouseleave', resetPointerState);
+    window.addEventListener('blur', resetPointerState);
 
     // 초기 상태 설정
     updateIgnoreMouseEvents(true);

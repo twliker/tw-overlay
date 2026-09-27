@@ -53,7 +53,11 @@ function spawnElectronProbe(
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
       return lastResult;
     }
-    if (!retryAccessViolation || lastResult.status !== 0xC0000005 || attempt >= 2) return lastResult;
+    const isTransientCrash = lastResult.status === 0xC0000005
+      || lastResult.status === 0x80000003
+      || lastResult.status === 2147483651
+      || lastResult.status === 3221225477;
+    if (!retryAccessViolation || !isTransientCrash || attempt >= 2) return lastResult;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   }
   return lastResult!;
@@ -2607,6 +2611,15 @@ function checkWindowFocusControllerContracts(): void {
     '이전 런처의 늦은 leave가 현재 독 메뉴를 뒤로 보내면 안 됩니다.');
   controller.setLauncherInteractive(dock, false);
   assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23']);
+
+  controller.setLauncherInteractive(main, true);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23']);
+  (newerSub as any).isFocused = () => true;
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23'],
+    '보조 창이 포커스되어 있는 동안에는 런처가 보조 창 위로 올라오면 안 됩니다.');
+  (newerSub as any).isFocused = () => false;
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23']);
+  controller.setLauncherInteractive(main, false);
 
   olderSub.emitWeb('devtools-opened');
   assert.equal(olderSub.getDevtoolsCloseCount(), 1, '프로덕션 창의 개발자 도구 방어가 연결되지 않았습니다.');

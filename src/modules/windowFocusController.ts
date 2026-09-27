@@ -84,8 +84,16 @@ export class WindowFocusController {
         && win !== dockWindow
         && win !== gameOverlayWindow)
       .reverse();
+    const hasFocusedSubWindow = subWindows.some(win => {
+      try {
+        return !win.isDestroyed() && typeof win.isFocused === 'function' && win.isFocused();
+      } catch {
+        return false;
+      }
+    });
+
     const launcher = this.interactiveLauncher;
-    const foregroundLauncher = launcher && (launcher === mainWindow || launcher === dockWindow)
+    const foregroundLauncher = !hasFocusedSubWindow && launcher && (launcher === mainWindow || launcher === dockWindow)
       && this.isVisible(launcher) ? launcher : null;
     const orderedWindows = foregroundLauncher ? [foregroundLauncher, ...subWindows] : [...subWindows];
 
