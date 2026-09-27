@@ -461,7 +461,16 @@ export interface ActivityPreset {
     id: string; name: string; updatedAt: number;
     settings: Partial<AppConfig>; openWindows: WindowPositionKey[];
 }
-export type NotificationAnchor = 'default' | 'top-left' | 'top-center' | 'top-right' | 'middle-left' | 'middle-center' | 'middle-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+export interface NotificationPoint {
+    left: number;
+    top: number;
+}
+export type NotificationAnchor =
+    | 'default'
+    | 'top-left' | 'top-center' | 'top-right'
+    | 'middle-left' | 'middle-center' | 'middle-right'
+    | 'bottom-left' | 'bottom-center' | 'bottom-right'
+    | NotificationPoint;
 export type NotificationPositions = Record<'center' | 'buff' | 'hunting' | 'toast', NotificationAnchor>;
 
 export interface AppConfig {

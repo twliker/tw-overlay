@@ -3507,7 +3507,7 @@ async function checkNotificationLayout(window: BrowserWindow): Promise<void> {
   await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(cleanHtmlForTest(path.join(projectRoot, 'dist', 'game-overlay.html')))}`);
   window.setContentSize(1200, 800);
   const code = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'game-overlay', 'notification-layout.js'), 'utf8');
-  await window.webContents.executeJavaScript(`window.__notificationTimers = []; window.electronAPI = { onNotificationPreview: callback => window.__notificationPreview = callback }; const realTimeout = window.setTimeout; window.setTimeout = (callback, ms) => { if (ms === 5000) { window.__notificationTimers.push(callback); return 0; } return realTimeout(callback, ms); }; ${code}`);
+  await window.webContents.executeJavaScript(`window.__notificationTimers = []; window.electronAPI = { onNotificationPreview: callback => window.__notificationPreview = callback, onNotificationEditMode: callback => window.__notificationEditCallback = callback }; const realTimeout = window.setTimeout; window.setTimeout = (callback, ms) => { if (ms === 5000) { window.__notificationTimers.push(callback); return 0; } return realTimeout(callback, ms); }; ${code}`);
   const result = await window.webContents.executeJavaScript(`(() => {
     const original = { center: 'default', buff: 'default', hunting: 'default', toast: 'default' };
     const layout = { center: 'top-right', buff: 'bottom-center', hunting: 'top-left', toast: 'bottom-right' };
@@ -3521,6 +3521,55 @@ async function checkNotificationLayout(window: BrowserWindow): Promise<void> {
     return { adjusted, count, restored: card.style.left === '' && card.style.top === '', removed: !document.querySelector('[data-notification-sample]'), realAlertUntouched: !card.classList.contains('show') };
   })()`);
   assert.deepEqual(result, { adjusted: true, count: 4, restored: true, removed: true, realAlertUntouched: true });
+
+  const editResult = await window.webContents.executeJavaScript(`(async () => {
+    let savedPositions = null;
+    let editModeEnded = false;
+    window.electronAPI.saveNotificationPositions = async (positions) => { savedPositions = positions; return { success: true }; };
+    window.electronAPI.finishNotificationEditMode = async () => { editModeEnded = true; return true; };
+
+    // 편집 모드 시작
+    window.__notificationEditCallback(true, true, 101);
+    const cardCount = document.querySelectorAll('.notification-edit-card').length;
+    const toolbarVisible = !document.getElementById('notification-edit-toolbar').hidden;
+    const isBodyClassSet = document.body.classList.contains('notification-edit-mode');
+
+    // 센터 카드 드래그 시뮬레이션 (자유 좌표로 이동)
+    const centerCard = document.querySelector('.notification-edit-card[data-group="center"]');
+    centerCard.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: 500, clientY: 300, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 700, clientY: 250, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 700, clientY: 250, bubbles: true }));
+
+    // 개별 리셋 버튼 테스트 (버프 알림 리셋 클릭)
+    const buffResetBtn = document.querySelector('.notification-edit-card[data-group="buff"] .notification-edit-card-reset');
+    buffResetBtn.click();
+
+    // 저장 버튼 클릭
+    document.getElementById('notif-edit-save').click();
+    await new Promise(r => setTimeout(r, 50));
+
+    const centerSaved = savedPositions?.center;
+    const isCenterCustom = centerSaved && typeof centerSaved === 'object' && typeof centerSaved.left === 'number' && typeof centerSaved.top === 'number';
+
+    return {
+      cardCount,
+      toolbarVisible,
+      isBodyClassSet,
+      isCenterCustom,
+      buffDefault: savedPositions?.buff === 'default',
+      editModeEnded,
+      cleanedUp: document.getElementById('notification-edit-toolbar').hidden && !document.body.classList.contains('notification-edit-mode')
+    };
+  })()`);
+  assert.deepEqual(editResult, {
+    cardCount: 4,
+    toolbarVisible: true,
+    isBodyClassSet: true,
+    isCenterCustom: true,
+    buffDefault: true,
+    editModeEnded: true,
+    cleanedUp: true
+  });
 }
 
 async function checkPinnedNoteReading(window: BrowserWindow): Promise<void> {

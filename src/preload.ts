@@ -83,6 +83,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSupplyRun: (): Promise<import('./shared/types').SupplyRunState> => ipcRenderer.invoke('supply-run-get'),
   previewNotificationPositions: (positions: import('./shared/types').NotificationPositions): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('notification-positions-preview', positions),
   onNotificationPreview: (callback: (positions: import('./shared/types').NotificationPositions) => void) => bindIpcListener('notification-positions-preview', callback),
+  setNotificationEditMode: (enabled: boolean, saveOnExit: boolean = true): Promise<boolean> =>
+    ipcRenderer.invoke('set-notification-edit-mode', enabled, saveOnExit),
+  onNotificationEditMode: (callback: (enabled: boolean, saveOnExit?: boolean, requestId?: number) => void) =>
+    bindIpcListener('notification-edit-mode', callback),
+  onNotificationEditState: (callback: (editing: boolean, outcome?: 'saved' | 'cancelled') => void) =>
+    bindIpcListener('notification-edit-state', callback),
+  saveNotificationPositions: (positions: import('./shared/types').NotificationPositions): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('save-notification-positions', positions),
+  finishNotificationEditMode: (requestId: number, success: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('finish-notification-edit-mode', requestId, success),
+  resetNotificationPositions: () => ipcRenderer.send('reset-notification-positions'),
+  onNotificationResetPositions: (callback: () => void) =>
+    bindIpcListener('notification-reset-positions', callback),
   onSupplyRunUpdate: (callback: (state: import('./shared/types').SupplyRunState) => void) => bindIpcListener('supply-run-update', callback),
   resetXpEfficiencyBaseline: () => ipcRenderer.send('xp-reset-efficiency-baseline'),
   getBossEntryWindows: (): Promise<import('./shared/types').BossEntryWindow[]> => ipcRenderer.invoke('boss-entry-get-windows'),
@@ -481,6 +494,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'trigger-jellyppy-rain', 'trigger-firework', 'chat-log-status-changed',
       'alarm-logs-updated', 'highlight-alarm-settings', 'timer-toggle', 'timer-updated',
       'game-overlay-edit-mode', 'game-overlay-edit-state', 'game-overlay-reset-positions', 'google-sync-status-changed',
+      'notification-edit-mode', 'notification-edit-state', 'notification-reset-positions',
       'chat-log-sync-progress', 'active-windows', 'managed-window-resize-enabled'
     ];
     events.forEach(event => ipcRenderer.removeAllListeners(event));

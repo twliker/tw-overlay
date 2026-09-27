@@ -3617,7 +3617,11 @@ function checkPreloadDefaultConfigCompatibility() {
     match => match[1],
   );
   assert.deepEqual(listenerChannels, [
-    'notification-positions-preview', 'supply-run-update', 'boss-entry-update', 'xp-efficiency-alert',
+    'notification-positions-preview',
+    'notification-edit-mode',
+    'notification-edit-state',
+    'notification-reset-positions',
+    'supply-run-update', 'boss-entry-update', 'xp-efficiency-alert',
     'contents-collapse-state',
     'trigger-jellyppy-rain', 'trigger-firework', 'sidebar-status', 'overlay-status',
     'chat-overlay-status', 'click-through-status', 'active-windows', 'managed-window-resize-enabled', 'config-data',

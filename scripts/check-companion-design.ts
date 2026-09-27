@@ -79,6 +79,7 @@ async function main(): Promise<void> {
   // the persistence failure/delay boundary are controlled; no replacement save algorithm.
   const bindings = {
     ...session, config, require: createRequire(path.join(root, 'dist', 'modules', 'ipcHandlers.js')),
+    cancelNotificationEdit: () => {},
     ipcMain: { handle: (name: string, handler: (...args: any[]) => any) => handlers.set(name, handler) },
     isBoolean: (value: unknown) => typeof value === 'boolean',
     tracker: { isGameRunning: () => true, focusGameWindow: () => false },

@@ -1,5 +1,6 @@
 import { registerStopwatchIpc } from './stopwatchSession';
 import { beginGameOverlayEdit, requestGameOverlayEditExit, finishGameOverlayEdit, cancelGameOverlayEdit, isGameOverlayEditRequest } from './gameOverlayEditSession';
+import { beginNotificationEdit, requestNotificationEditExit, finishNotificationEdit, cancelNotificationEdit } from './notificationEditSession';
 import { importChatFont, listChatFonts, readChatFont } from './customChatFonts';
 import { registerCompanionFiles } from './companionFiles';
 /**
@@ -402,6 +403,7 @@ export function register(): void {
       if (!ready || overlayWin.isDestroyed() || _e.sender.isDestroyed()) return false;
     }
     if (wm.areAllWindowsHidden()) return false;
+    cancelNotificationEdit();
     beginGameOverlayEdit(overlayWin);
     reconcileGameAttachedWindows();
     return true;
@@ -615,6 +617,56 @@ export function register(): void {
     if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return { success: false, error: '게임 화면이 보이는 상태에서 미리보기해 주세요.' };
     overlay.webContents.send('notification-positions-preview', valid.notificationPositions);
     return { success: true };
+  });
+  ipcMain.handle('set-notification-edit-mode', async (_e, enabled: boolean, saveOnExit: boolean = true) => {
+    if (!isBoolean(enabled) || !isBoolean(saveOnExit)) return false;
+    if (!enabled) return requestNotificationEditExit(saveOnExit);
+    if (wm.areAllWindowsHidden()) return false;
+    if (!tracker.isGameRunning()) return false;
+    tracker.focusGameWindow();
+    let overlayWin = wm.getGameOverlayWindow();
+    if (!overlayWin || overlayWin.isDestroyed()) {
+      wm.createGameOverlayWindow();
+      overlayWin = wm.getGameOverlayWindow();
+    }
+    if (!overlayWin || overlayWin.isDestroyed()) return false;
+    if (overlayWin.webContents.isLoadingMainFrame()) {
+      const loadingContents = overlayWin.webContents;
+      const ready = await new Promise<boolean>(resolve => {
+        const loaded = () => { cleanup(); resolve(true); };
+        const closed = () => { cleanup(); resolve(false); };
+        const cleanup = () => { loadingContents.removeListener('did-finish-load', loaded); overlayWin!.removeListener('closed', closed); };
+        loadingContents.once('did-finish-load', loaded);
+        overlayWin!.once('closed', closed);
+      });
+      if (!ready || overlayWin.isDestroyed() || _e.sender.isDestroyed()) return false;
+    }
+    if (wm.areAllWindowsHidden()) return false;
+    cancelGameOverlayEdit();
+    beginNotificationEdit(overlayWin);
+    reconcileGameAttachedWindows();
+    return true;
+  });
+  ipcMain.handle('save-notification-positions', (_e, positions: unknown) => {
+    const valid = config.sanitizeExternalConfigPatch({ notificationPositions: positions });
+    if (!valid || !valid.notificationPositions) return { success: false, error: '알림 위치를 확인해 주세요.' };
+    config.saveImmediate({ notificationPositions: valid.notificationPositions });
+    broadcastToAllWindows('config-data', config.load());
+    return { success: true };
+  });
+  ipcMain.handle('finish-notification-edit-mode', (event, requestId: unknown, success: unknown) => {
+    const accepted = finishNotificationEdit(event.sender, requestId, success);
+    if (accepted && success) reconcileGameAttachedWindows();
+    return accepted;
+  });
+  ipcMain.on('reset-notification-positions', () => {
+    const defaults = { center: 'default', buff: 'default', hunting: 'default', toast: 'default' } as const;
+    config.saveImmediate({ notificationPositions: defaults });
+    broadcastToAllWindows('config-data', config.load());
+    const overlayWin = wm.getGameOverlayWindow();
+    if (overlayWin && !overlayWin.isDestroyed()) {
+      overlayWin.webContents.send('notification-reset-positions');
+    }
   });
   ipcMain.on('activity-preset-menu', event => {
     const parent = BrowserWindow.fromWebContents(event.sender);
