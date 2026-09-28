@@ -95,6 +95,9 @@ async function checkHtmlSourceToScreen(): Promise<void> {
     fetchEtaRanking: (params: { sc?: number; cc?: number; page?: number; search?: string }) => Promise<unknown>;
   };
   ipcMain.handle('get-eta-ranking', (_event, params) => fetchEtaRanking(params));
+  const defaults = require(path.join(projectRoot, 'dist/modules/constants.js')).DEFAULT_CONFIG;
+  const onDefaultConfig = (event: Electron.IpcMainEvent) => { event.returnValue = defaults; };
+  ipcMain.on('get-default-config-sync', onDefaultConfig);
   const window = new BrowserWindow({ show: false, webPreferences: {
     preload: path.join(projectRoot, 'dist/preload.js'), contextIsolation: true, sandbox: false,
   } });
@@ -118,6 +121,7 @@ async function checkHtmlSourceToScreen(): Promise<void> {
   } finally {
     window.destroy();
     ipcMain.removeHandler('get-eta-ranking');
+    ipcMain.removeListener('get-default-config-sync', onDefaultConfig);
     session.defaultSession.protocol.unhandle('https');
   }
 }

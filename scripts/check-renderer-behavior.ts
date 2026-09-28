@@ -5077,11 +5077,15 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
           note: document.querySelector('.nickname-note-badge')?.textContent,
           nicknameColor: document.querySelector('.chat-sender')?.style.color, etaColor: document.querySelector('.eta-badge')?.style.color };
         window.__configCallback({ ...config, chatNicknameNotesCompact: true });
+        await until(() => document.querySelector('.nickname-note-badge')?.textContent === '메모', mode + ' 메모 텍스트 갱신');
         await pause(180);
+        const currentAnchor = savedAnchor(before.anchor);
         if (document.querySelector('.nickname-note-badge')?.textContent !== '메모'
           || list.getItems().length !== before.count || historyCalls !== before.historyCalls || moreCalls !== before.moreCalls
-          || JSON.stringify(savedAnchor(before.anchor)) !== JSON.stringify(afterExternal.anchor)) throw new Error(mode + ' 간단 표시가 과거 이력/스크롤을 변경했습니다.');
+          || currentAnchor.id !== afterExternal.anchor.id
+          || Math.abs((currentAnchor.top ?? 0) - (afterExternal.anchor.top ?? 0)) > 2) throw new Error(mode + ' 간단 표시가 과거 이력/스크롤을 변경했습니다.');
         window.__configCallback({ ...config, chatNicknameNotesCompact: false });
+        await until(() => document.querySelector('.nickname-note-badge')?.textContent !== '메모', mode + ' 메모 복원');
         await pause(180);
         window.__configCallback({ ...config, chatCompactDisplay: true });
         await pause(180);

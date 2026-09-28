@@ -465,6 +465,20 @@ async function main(): Promise<void> {
   wm.syncOverlay(game);
   assert.equal(hud.isVisible(), true, '최소화 중 시작한 전체 숨김 이후 HUD가 영구히 숨겨짐');
   assert.ok(chats.every(win => win.isVisible()));
+
+  // 게임 최소화 중 전체 숨김 -> 게임 복원 -> 전체 창 복원 시나리오 검증
+  wm.hideAll({ preserveForResume: true });
+  assert.equal(hud.isVisible(), false);
+  assert.ok(chats.every(win => !win.isVisible()));
+  wm.toggleAllWindowsHidden();
+  assert.equal(wm.areAllWindowsHidden(), true);
+  wm.syncOverlay(game);
+  assert.equal(hud.isVisible(), false, '전체 숨김 중에는 게임이 복귀해도 HUD가 표시되지 않아야 함');
+  assert.ok(chats.every(win => !win.isVisible()), '전체 숨김 중에는 게임이 복귀해도 채팅창이 표시되지 않아야 함');
+  wm.restoreUserHiddenWindows();
+  assert.equal(wm.areAllWindowsHidden(), false);
+  assert.equal(hud.isVisible(), true, '게임 복귀 후 전체 복원 시 HUD가 복원되어야 함');
+  assert.ok(chats.every(win => win.isVisible()), '게임 복귀 후 전체 복원 시 채팅창이 복원되어야 함');
   // Complete manager opt-in wiring, with real native windows and production position saving.
   for (const win of BrowserWindow.getAllWindows()) if (!chats.includes(win)) win.hide();
   chats[2].hide();

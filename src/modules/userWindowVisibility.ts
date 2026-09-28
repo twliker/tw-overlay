@@ -26,14 +26,15 @@ export class UserWindowVisibility {
     win.once('closed', () => { this.pending.delete(win); this.excluded.delete(win); });
   }
 
-  hide(windows: BrowserWindow[]): void {
+  hide(windows: BrowserWindow[], isCandidate?: (win: BrowserWindow) => boolean): void {
     if (this.hidden) return;
     this.hidden = true;
     // 복원 대기 중 다시 숨긴 경우에도 원래 대상은 잃지 않는다.
     for (const win of windows) {
       if (win.isDestroyed()) continue;
       this.watch(win);
-      if (win.isVisible() && !win.isMinimized()) {
+      const shouldTrack = (win.isVisible() && !win.isMinimized()) || (isCandidate ? isCandidate(win) : false);
+      if (shouldTrack) {
         this.pending.add(win);
         this.excluded.delete(win);
       } else if (!this.pending.has(win)) this.excluded.add(win);

@@ -114,7 +114,7 @@ async function main(): Promise<void> {
   db.addManualActivityLog('2026-09-20', '12:03:00', 'memo', '절대로 내보내지 않는 메모');
   db.addManualActivityLog('2026-09-20', '12:04:00', 'homework', '<script>alert(1)</script>', 0);
   db.addManualActivityLog('2026-09-19', '12:00:00', 'calc', '기간 밖', 9999);
-  db.getStmt('INSERT INTO homework_logs (date,content_id,content_name,category,type,completed_at) VALUES (?,?,?,?,?,?)').run('2026-09-20', 'daily-test', '채굴장', 'test', 'daily', new Date('2026-09-20T12:00:00+09:00').getTime());
+  db.getStmt('INSERT INTO homework_logs (date,content_id,content_name,category,type,completed_at) VALUES (?,?,?,?,?,?)').run('2026-09-20', 'daily-test', '채굴장', 'test', 'daily', new Date('2026-09-20T12:00:00').getTime());
   const diary = new BrowserWindow({ width: 800, height: 600, show: false, webPreferences: { preload: path.join(root, 'dist/preload.js'), contextIsolation: true, sandbox: true, offscreen: true, backgroundThrottling: false } });
   await diary.loadFile(path.join(root, 'dist/diary.html'));
   const dj = (script: string) => diary.webContents.executeJavaScript(script);

@@ -132,9 +132,37 @@ function canRestoreUserWindow(win: BrowserWindow): boolean {
   return true;
 }
 
+function isWindowActiveCandidate(win: BrowserWindow): boolean {
+  if (win.isDestroyed()) return false;
+  if (win.isVisible() && !win.isMinimized()) return true;
+  const cfg = config.load();
+  if (win === mainWindow) return cfg.sidebarPosition !== 'dock' && cfg.sidebarPosition !== 'dock-top';
+  if (win === gameOverlayWindow) return true;
+  if (win === overlayWindow) return isOverlayVisible;
+  const dockRef = windowRegistry.dock.ref;
+  if (win === dockRef) return isDockVisible && (cfg.sidebarPosition === 'dock' || cfg.sidebarPosition === 'dock-top');
+  if (win === windowRegistry.chatOverlay.ref) return isChatOverlayVisible;
+  if (win === windowRegistry.chatOverlaySub.ref) return isChatOverlayVisible && isChatOverlaySubVisible;
+  if (win === windowRegistry.chatOverlaySub2.ref) return isChatOverlayVisible && isChatOverlaySub2Visible;
+  if (win === windowRegistry.contentsChecker.ref) return cfg.autoOpenContentsChecker === true;
+  return false;
+}
+
 export function restoreUserHiddenWindows(): void {
   userWindowVisibility.restore(() => false);
   focusController.setRestoreSuppressed(false);
+  // 게임 최소화 중 숨겨졌던 창들에 걸렸던 영구 억제를 해제하여 정상적인 표시 라이프사이클로 복귀시킨다.
+  const appWindows = [
+    mainWindow, overlayWindow, gameOverlayWindow,
+    windowRegistry.dock.ref, windowRegistry.chatOverlay.ref,
+    windowRegistry.chatOverlaySub.ref, windowRegistry.chatOverlaySub2.ref,
+    windowRegistry.contentsChecker.ref,
+  ];
+  for (const win of appWindows) {
+    if (win && !win.isDestroyed() && isWindowActiveCandidate(win)) {
+      userWindowVisibility.allowExplicitOpen(win);
+    }
+  }
   // 숨긴 사이 화면이 이동했어도 현재 게임 좌표로 배치한 뒤 사용한다.
   if (physicalGameRect) syncOverlay(physicalGameRect);
   userWindowVisibility.resume(canRestoreUserWindow);
@@ -147,7 +175,10 @@ export function toggleAllWindowsHidden(): boolean {
   else {
     focusController.cancelPendingRestore();
     focusController.setRestoreSuppressed(true);
-    userWindowVisibility.hide(BrowserWindow.getAllWindows().filter(win => win !== splashWindow));
+    userWindowVisibility.hide(
+      BrowserWindow.getAllWindows().filter(win => win !== splashWindow),
+      isWindowActiveCandidate
+    );
     void import('./tray').then(mod => mod.updateTrayMenu());
   }
   return areAllWindowsHidden();
@@ -1826,14 +1857,18 @@ export function syncOverlay(currentRect: GameRect): void {
   if (mandatoryUpdateLock) return; // 필수 업데이트 중에는 창 동기화 중지
   if (currentRect && currentRect.x > -10000) {
     let cfg = config.load();
-    if (!gameRect && !areAllWindowsHidden()) {
-      // 게임 최소화 중 전체 숨김을 시작하면 게임 부착 창은 애초에 보이지 않아 캡처되지 않는다.
-      // 다음 게임 복귀는 새 자동 표시 시점이므로, 저장된 활성 설정이 영구히 막히지 않게 한다.
+    if (!gameRect) {
+      // 게임 최소화 중 전체 숨김을 시작했더라도, 게임 복귀는 새 자동 표시 시점이므로
+      // 활성 설정 대상 창들이 영구히 excluded에 갇히지 않도록 억제를 해제한다.
       [mainWindow, overlayWindow, gameOverlayWindow,
         windowRegistry.dock.ref, windowRegistry.chatOverlay.ref,
         windowRegistry.chatOverlaySub.ref, windowRegistry.chatOverlaySub2.ref,
         ...(cfg.autoOpenContentsChecker ? [windowRegistry.contentsChecker.ref] : []),
-      ].forEach(win => { if (win && !win.isDestroyed()) userWindowVisibility.allowExplicitOpen(win); });
+      ].forEach(win => {
+        if (win && !win.isDestroyed() && isWindowActiveCandidate(win)) {
+          userWindowVisibility.allowExplicitOpen(win);
+        }
+      });
     }
     const sidebarPos = cfg.sidebarPosition || 'right';
 

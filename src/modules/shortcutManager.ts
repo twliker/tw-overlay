@@ -41,7 +41,6 @@ export function registerAll(): void {
 
   if (shortcuts.toggleAllWindows) {
     const registered = globalShortcut.register(shortcuts.toggleAllWindows, () => {
-      if (!tracker.isGameOrAppForeground()) return;
       wm.toggleAllWindowsHidden();
     });
     if (!registered) log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.toggleAllWindows}`);
