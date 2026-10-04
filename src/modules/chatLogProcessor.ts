@@ -995,7 +995,11 @@ class ChatLogProcessor {
       ['CLUB_POINT_500_GAIN', 'daily-club-boss'],
       ['CONFUSED_LAND_CLEAR', 'daily-confused-land'],
       ['COLORLESS_LAND_CLEAR', 'daily-colorless-land'],
-      ['ARCHITECT_MINE_CLEAR', 'daily-architect-mine']
+      ['ARCHITECT_MINE_CLEAR', 'daily-architect-mine'],
+      ['GOLGOTHA_DEFENSE_CLEAR', 'daily-golgotha-defense'],
+      ['FINAL_BATTLE_CLEAR', 'weekly-final-battle'],
+      ['JOY_CLEAR', 'daily-joy'],
+      ['SORROW_CLEAR', 'daily-sorrow']
     ].forEach(([event, homeworkId]) => queueFixedHomework(event as keyof ChatParserEventMap, homeworkId));
 
     // 어벤던로드 지역별 도전 횟수 감지 및 숙제 리스트 연동

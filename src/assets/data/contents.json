@@ -595,5 +595,56 @@
     "resetRule": { "type": "daily", "hour": 0 },
     "maxCount": 1,
     "auto": true
+  },
+  {
+    "id": "daily-golgotha-defense",
+    "name": "골고다 협곡 방어전",
+    "category": "내실",
+    "isVisible": true,
+    "isCustom": false,
+    "resetRule": { "type": "daily", "hour": 0 },
+    "maxCount": 1,
+    "auto": true,
+    "autoType": "semi",
+    "autoDescription": "1시간 완주 시에만 자동 완료됩니다. (중도 퇴장 시 수동 체크)"
+  },
+  {
+    "id": "weekly-final-battle",
+    "name": "최후의 결전",
+    "category": "보스",
+    "isVisible": true,
+    "isCustom": false,
+    "resetRule": { "type": "weekly", "dayOfWeek": 1, "hour": 0 },
+    "maxCount": 10,
+    "auto": true
+  },
+  {
+    "id": "daily-void-realm",
+    "name": "공허의 영역",
+    "category": "내실",
+    "isVisible": true,
+    "isCustom": false,
+    "resetRule": { "type": "daily", "hour": 0 },
+    "maxCount": 1
+  },
+  {
+    "id": "daily-joy",
+    "name": "추종하는 환희 (일반/어려움)",
+    "category": "보스",
+    "isVisible": true,
+    "isCustom": false,
+    "resetRule": { "type": "daily", "hour": 0 },
+    "maxCount": 1,
+    "auto": true
+  },
+  {
+    "id": "daily-sorrow",
+    "name": "응시하는 슬픔 (일반/어려움)",
+    "category": "보스",
+    "isVisible": true,
+    "isCustom": false,
+    "resetRule": { "type": "daily", "hour": 0 },
+    "maxCount": 1,
+    "auto": true
   }
 ]

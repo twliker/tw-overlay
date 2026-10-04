@@ -690,6 +690,51 @@ export class ChatParser extends EventEmitter {
       });
     }
 
+    /**
+     * 기능 계약 — 상위 컨텐츠(골고다 협곡 방어전, 최후의 결전, 추종하는 환희, 응시하는 슬픔) 완료
+     * - 골고다 협곡 방어전: 1시간 완주 시 시스템이 출력하는 확정 퇴각 문구인
+     *   "적들이 퇴각하고 있습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다."를 반자동(SEMI) 완료 기준으로 삼는다.
+     *   마법의 눈 사용 여부와 무관하며, 1시간 미만의 중도 퇴장은 오판을 막기 위해 수동 체크로 유지한다.
+     * - 최후의 결전: 티로로스 처치 후 출력되는 고유 완료 문구인
+     *   "티로로스의 계략을 막아내었습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다."를 기준으로 주간 10회까지 1회씩 누적한다.
+     * - 추종하는 환희 (일반/어려움): 보스 레이티아 처치 시의 고유 보상 상자 획득 문구인
+     *   "레이티아 퇴치 보상으로 레이티아 보상 상자"를 기준으로 일반/어려움 난이도와 함께 단일 JOY_CLEAR 이벤트를 발생시킨다.
+     * - 응시하는 슬픔 (일반/어려움): 보스 설계자 처치 시의 고유 보상 상자 획득 문구인
+     *   "설계자 퇴치 보상으로 설계자 보상 상자"를 기준으로 일반/어려움 난이도와 함께 단일 SORROW_CLEAR 이벤트를 발생시킨다.
+     * - 모든 판정은 플레이어 채팅 및 대화 인용을 배제하기 위해 !isPlayerChatLine(rawLine)을 필수 선행한다.
+     */
+    if (!isPlayerChatLine(rawLine)) {
+      if (cleanMsg === '적들이 퇴각하고 있습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.') {
+        this.emit('GOLGOTHA_DEFENSE_CLEAR', {
+          date: this._currentDate,
+          timestamp,
+          message: cleanMsg
+        });
+      } else if (cleanMsg === '티로로스의 계략을 막아내었습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.') {
+        this.emit('FINAL_BATTLE_CLEAR', {
+          date: this._currentDate,
+          timestamp,
+          message: cleanMsg
+        });
+      } else if (cleanMsg.includes('레이티아 퇴치 보상으로 레이티아 보상 상자')) {
+        const difficulty = cleanMsg.includes('(어려움)') ? '어려움' : '일반';
+        this.emit('JOY_CLEAR', {
+          date: this._currentDate,
+          timestamp,
+          difficulty,
+          message: cleanMsg
+        });
+      } else if (cleanMsg.includes('설계자 퇴치 보상으로 설계자 보상 상자')) {
+        const difficulty = cleanMsg.includes('(어려움)') ? '어려움' : '일반';
+        this.emit('SORROW_CLEAR', {
+          date: this._currentDate,
+          timestamp,
+          difficulty,
+          message: cleanMsg
+        });
+      }
+    }
+
     // G. 어벤던로드 특화 패턴
     // 1. 입장료 (예: "입장료 5680만 Seed를 지불 하였습니다.", "입장료 5,680,000 Seed를 지불하였습니다.")
     if (cleanMsg.includes('입장료') && (cleanMsg.toLowerCase().includes('seed') || cleanMsg.includes('시드'))) {

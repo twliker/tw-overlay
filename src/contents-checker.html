@@ -400,6 +400,38 @@
         body.contents-collapsed .win-controls > :not(.contents-collapse-only):not(.win-close-btn),
         body.contents-collapsed #progress-percent-text { display: none; }
         body.contents-collapsed .contents-collapse-only { display: inline-flex; }
+
+        /* 숙제 아이템 / 배지 플로팅 툴팁 */
+        .contents-checker-tooltip {
+            position: fixed;
+            z-index: 300;
+            display: none;
+            max-width: 280px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.4;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(12px);
+            pointer-events: none;
+            word-break: keep-all;
+        }
+        .contents-checker-tooltip.theme-semi {
+            background: rgba(15, 23, 42, 0.98);
+            border: 1px solid rgba(245, 158, 11, 0.5);
+            color: #fef3c7;
+        }
+        .contents-checker-tooltip.theme-auto {
+            background: rgba(15, 23, 42, 0.98);
+            border: 1px solid rgba(168, 85, 247, 0.5);
+            color: #f3e8ff;
+        }
+        .contents-checker-tooltip.theme-default {
+            background: rgba(15, 23, 42, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #e2e8f0;
+        }
     </style>
 </head>
 
@@ -671,6 +703,9 @@
         </div>
     </div>
 
+    <!-- Tooltip Element -->
+    <div id="contents-checker-tooltip" class="contents-checker-tooltip"></div>
+
   <script src="renderer/contents-checker/audio-feedback.js"></script>
   <script src="renderer/contents-checker/dom-rendering.js"></script>
   <script src="renderer/contents-checker/auto-collapse.js"></script>
@@ -682,6 +717,36 @@
         let collapsedCategories = new Set(); // 던전/재화 등
         let promptCallback = null;
         const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+        const tooltipEl = document.getElementById('contents-checker-tooltip');
+        function showFloatingTooltip(e, text, theme = 'default') {
+            if (!tooltipEl || !text) return;
+            tooltipEl.textContent = text;
+            tooltipEl.className = `contents-checker-tooltip theme-${theme}`;
+            tooltipEl.style.display = 'block';
+            positionFloatingTooltip(e);
+        }
+        function positionFloatingTooltip(e) {
+            if (!tooltipEl || tooltipEl.style.display !== 'block') return;
+            const x = e.clientX;
+            const y = e.clientY;
+            const tooltipWidth = tooltipEl.offsetWidth || 220;
+            const tooltipHeight = tooltipEl.offsetHeight || 34;
+
+            let left = x - tooltipWidth / 2;
+            if (left < 8) left = 8;
+            if (left + tooltipWidth > window.innerWidth - 8) left = window.innerWidth - tooltipWidth - 8;
+
+            let top = y - tooltipHeight - 10;
+            if (top < 8) top = y + 18;
+
+            tooltipEl.style.left = `${left}px`;
+            tooltipEl.style.top = `${top}px`;
+        }
+        function hideFloatingTooltip() {
+            if (!tooltipEl) return;
+            tooltipEl.style.display = 'none';
+        }
 
         function updateChecklistCloudSyncStatus(status) {
             const button = document.getElementById('checklist-cloud-sync-status');
@@ -1007,8 +1072,15 @@
 
                 if (!isCatCollapsed) {
                     visibleItems.forEach(item => {
+                        const isSemi = item.autoType === 'semi' || item.id === 'daily-golgotha-defense';
+                        const autoHelp = item.autoDescription || (isSemi ? '1시간 완주 시에만 자동 완료됩니다. (중도 퇴장 시 수동 체크)' : (item.auto ? '클리어 시 자동 완료' : ''));
+                        const autoBadgeLabel = isSemi ? 'SEMI' : 'AUTO';
+                        const fullItemHelp = autoHelp
+                            ? `[${item.category}] ${item.name} (${autoBadgeLabel}: ${autoHelp})`
+                            : `[${item.category}] ${item.name}`;
+
                         const infoCell = document.createElement('div');
-                        infoCell.title = `[${item.category}] ${item.name}`;
+                        infoCell.title = fullItemHelp;
                         infoCell.className = `matrix-cell item-info sticky-col ${item.isVisible === false ? 'hidden-row' : ''}`;
 
                         const timeStr = String(item.resetRule.hour || 0).padStart(2, '0') + ':00';
@@ -1023,11 +1095,21 @@
                             'div',
                             'flex items-center gap-1 min-w-0'
                         );
-                        titleRow.appendChild(window.contentsDomRendering.createElement(
+                        const titleSpan = window.contentsDomRendering.createElement(
                             'span',
                             'text-xs font-bold truncate text-slate-100',
                             item.name
-                        ));
+                        );
+                        if (autoHelp) {
+                            titleSpan.title = `${item.name} (${autoBadgeLabel}: ${autoHelp})`;
+                            titleSpan.classList.add('cursor-help');
+                            titleSpan.addEventListener('mouseenter', (e) => {
+                                showFloatingTooltip(e, `${item.name} • ${autoHelp}`, isSemi ? 'semi' : 'auto');
+                            });
+                            titleSpan.addEventListener('mousemove', positionFloatingTooltip);
+                            titleSpan.addEventListener('mouseleave', hideFloatingTooltip);
+                        }
+                        titleRow.appendChild(titleSpan);
                         if (isCustomItem) {
                             titleRow.appendChild(window.contentsDomRendering.createBadge(
                                 'CUSTOM',
@@ -1035,10 +1117,19 @@
                             ));
                         }
                         if (item.auto) {
-                            titleRow.appendChild(window.contentsDomRendering.createBadge(
-                                'AUTO',
-                                'px-1 py-0.5 text-[8px] leading-none font-bold bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded flex-shrink-0 select-none'
-                            ));
+                            const badge = window.contentsDomRendering.createBadge(
+                                autoBadgeLabel,
+                                isSemi
+                                    ? 'px-1 py-0.5 text-[8px] leading-none font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded flex-shrink-0 select-none cursor-help'
+                                    : 'px-1 py-0.5 text-[8px] leading-none font-bold bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded flex-shrink-0 select-none cursor-help'
+                            );
+                            badge.title = autoHelp;
+                            badge.addEventListener('mouseenter', (e) => {
+                                showFloatingTooltip(e, autoHelp, isSemi ? 'semi' : 'auto');
+                            });
+                            badge.addEventListener('mousemove', positionFloatingTooltip);
+                            badge.addEventListener('mouseleave', hideFloatingTooltip);
+                            titleRow.appendChild(badge);
                         }
                         info.append(
                             titleRow,

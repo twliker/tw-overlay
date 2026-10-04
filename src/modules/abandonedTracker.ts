@@ -2,9 +2,11 @@
  * 기능 계약 — 어벤던로드 세션 추적
  *
  * - `ABANDONED_ENTRY`, `ABANDONED_FEE`, `MAGIC_STONE_GAIN/LOSS` 로그를 한 세션의 지역별 도전,
- *   입장료, 마정석 증감과 추정 수익으로 조립합니다. 일반 득템 키워드와는 독립된 전용 로그입니다.
+ *   입장료, 마정석 증감, 누(Nu) 조우 횟수와 추정 수익으로 조립합니다. 일반 득템 키워드와는 독립된 전용 로그입니다.
  * - 입장료와 지역 진입 로그의 순서는 일정하지 않으므로 15초 범위에서 앞/뒤 도착을 모두 매칭합니다.
  *   매칭되지 않은 입장료도 전체 수익에서 즉시 빼고 `unassignedFee`로 보존해 금액을 잃지 않습니다.
+ * - 마정석 소실(`MAGIC_STONE_LOSS`) 감지 시 전체 및 해당 지역의 누 조우 횟수(`nuEncounters`)와
+ *   등급별 소실량(`stoneLosses`)을 동시에 누적합니다.
  * - 10회 도달 알림은 설정이 켜졌을 때만 Windows/HUD에 보내며, 통계 상태는 모든 관련 창에
  *   브로드캐스트합니다. 자동 숨김은 통계 수집을 중단하지 않습니다.
  * - 사용자가 직접 숨긴 상태는 활동으로 자동 해제하지 않고 명시적 표시 또는 다음 게임 세션에서만
@@ -36,6 +38,7 @@ class AbandonedTracker {
     totalFee: 0,
     unassignedFee: 0,
     currentRegion: '',
+    nuEncounters: 0,
     regionDetails: {},
   };
 
@@ -76,7 +79,7 @@ class AbandonedTracker {
         this._lastEntryRegion = null;
 
         const rd = this._abandonedState.regionDetails;
-        if (!rd[region]) rd[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {} };
+        if (!rd[region]) rd[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {}, nuEncounters: 0 };
         rd[region].totalFee += data.amount;
 
         // 입장료는 감지 즉시 전체 수익에 반영하고, 지역 귀속만 시간 범위로 결정한다.
@@ -125,7 +128,7 @@ class AbandonedTracker {
       this._abandonedState.currentRegion = data.region;
 
       const rd = this._abandonedState.regionDetails;
-      if (!rd[data.region]) rd[data.region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {} };
+      if (!rd[data.region]) rd[data.region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {}, nuEncounters: 0 };
       rd[data.region].count = data.count;
       rd[data.region].totalFee += fee;
 
@@ -150,7 +153,7 @@ class AbandonedTracker {
       const region = this._abandonedState.currentRegion;
       if (region) {
         if (!this._abandonedState.regionDetails[region]) {
-          this._abandonedState.regionDetails[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {} };
+          this._abandonedState.regionDetails[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {}, nuEncounters: 0 };
         }
         const rds = this._abandonedState.regionDetails[region].stoneGains;
         rds[gradeKey] = (rds[gradeKey] ?? 0) + data.count;
@@ -159,7 +162,7 @@ class AbandonedTracker {
       log(`[ABANDONED] 마정석 획득: ${gradeKey} x${data.count}, 수익 추가: +${unitValue * data.count}, 현재 수익: ${this._abandonedState.profit}`);
     });
 
-    // 마정석 소실
+    // 마정석 소실 (누 조우)
     chatParser.on('MAGIC_STONE_LOSS', (data) => {
       if (!this._abandonedState.isEnabled) return;
 
@@ -167,16 +170,18 @@ class AbandonedTracker {
       const unitValue = this.MAGIC_STONE_VALUES[gradeKey] || 0;
       this._abandonedState.profit -= (unitValue * data.count);
       this._abandonedState.stoneLosses[gradeKey] = (this._abandonedState.stoneLosses[gradeKey] ?? 0) + data.count;
+      this._abandonedState.nuEncounters = (this._abandonedState.nuEncounters ?? 0) + 1;
       const region = this._abandonedState.currentRegion;
       if (region) {
         if (!this._abandonedState.regionDetails[region]) {
-          this._abandonedState.regionDetails[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {} };
+          this._abandonedState.regionDetails[region] = { count: 0, totalFee: 0, stoneGains: {}, stoneLosses: {}, nuEncounters: 0 };
         }
         const rdl = this._abandonedState.regionDetails[region].stoneLosses;
         rdl[gradeKey] = (rdl[gradeKey] ?? 0) + data.count;
+        this._abandonedState.regionDetails[region].nuEncounters = (this._abandonedState.regionDetails[region].nuEncounters ?? 0) + 1;
       }
       this.activateFromActivity();
-      log(`[ABANDONED] 마정석 소실: ${gradeKey} x${data.count}, 수익 차감: -${unitValue * data.count}, 현재 수익: ${this._abandonedState.profit}`);
+      log(`[ABANDONED] 마정석 소실: ${gradeKey} x${data.count}, 수익 차감: -${unitValue * data.count}, 누 조우 횟수: ${this._abandonedState.nuEncounters}, 현재 수익: ${this._abandonedState.profit}`);
     });
   }
 
@@ -253,6 +258,7 @@ class AbandonedTracker {
       isEnabled: this._abandonedState.isEnabled,
       stoneGains: {}, stoneLosses: {}, totalFee: 0, unassignedFee: 0,
       currentRegion: '', regionDetails: {},
+      nuEncounters: 0,
     };
     this._pendingAbandonedFee = null;
     this._manualVisibilitySuppressed = false;

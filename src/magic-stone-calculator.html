@@ -119,7 +119,10 @@
       <!-- 총계 (마을 데이터 있을 때만 표시) -->
       <div id="session-totals" class="hidden">
         <div class="h-px bg-white/10 my-1.5"></div>
-        <div class="text-xs font-black text-slate-400 uppercase tracking-wider mb-1">총계</div>
+        <div class="flex items-center justify-between mb-1">
+          <div class="text-xs font-black text-slate-400 uppercase tracking-wider">총계</div>
+          <span id="session-nu" class="text-[11px] font-bold text-rose-400 hidden">누 조우 0회</span>
+        </div>
         <div id="session-stones" class="flex flex-col gap-1 mb-1.5"></div>
         <div class="flex flex-col gap-1 mb-2">
           <div class="flex justify-between items-center">
@@ -377,10 +380,11 @@
                   </span>`;
                 }).join('')}</div>`
               : '';
+            const nuText = rd.nuEncounters ? ` (누 ${rd.nuEncounters}회)` : '';
             return `<div class="mb-0.5">
               <div class="flex items-center justify-between">
                 <span class="text-[11px] font-black text-amber-300">${region}</span>
-                <span class="text-[11px] text-slate-400">${rd.count}회 | ${formatSeedShort(-rd.totalFee)}</span>
+                <span class="text-[11px] text-slate-400">${rd.count}회${nuText} | ${formatSeedShort(-rd.totalFee)}</span>
               </div>
               ${stonesHtml}
             </div>`;
@@ -388,6 +392,17 @@
         }
 
         if (totalsEl) totalsEl.classList.remove('hidden');
+
+        const nuEl = document.getElementById('session-nu');
+        if (nuEl) {
+          const nuCount = state.nuEncounters || 0;
+          if (nuCount > 0) {
+            nuEl.classList.remove('hidden');
+            nuEl.textContent = `누 조우 ${nuCount}회`;
+          } else {
+            nuEl.classList.add('hidden');
+          }
+        }
 
         const stonesEl = document.getElementById('session-stones');
         if (stonesEl) {

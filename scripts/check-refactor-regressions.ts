@@ -4498,6 +4498,100 @@ function checkChatLogNormalizationAndItemAcquisition(): void {
     assert.equal(fileArchitectClears, 1, '실제 로그 파일에서 설계자의 채굴장 포탈 생성이 정확히 1회 감지되어야 합니다.');
   }
 
+  // ── 신규 상위 컨텐츠 7종 정의 및 로그 감지 회귀 검증 ──
+  const highContents = JSON.parse(read('src/assets/data/contents.json')) as Array<{
+    id: string;
+    name: string;
+    category: string;
+    maxCount: number;
+    resetRule: { type: string };
+    auto?: boolean;
+    autoType?: string;
+    autoDescription?: string;
+  }>;
+
+  const golgothaItem = highContents.find(c => c.id === 'daily-golgotha-defense');
+  assert.ok(golgothaItem, '골고다 협곡 방어전 숙제 정의가 누락되었습니다.');
+  assert.equal(golgothaItem.maxCount, 1);
+  assert.equal(golgothaItem.resetRule.type, 'daily');
+  assert.equal(golgothaItem.autoType, 'semi');
+  assert.equal(golgothaItem.auto, true);
+  assert.equal(golgothaItem.autoDescription, '1시간 완주 시에만 자동 완료됩니다. (중도 퇴장 시 수동 체크)');
+
+  const finalBattleItem = highContents.find(c => c.id === 'weekly-final-battle');
+  assert.ok(finalBattleItem, '최후의 결전 숙제 정의가 누락되었습니다.');
+  assert.equal(finalBattleItem.maxCount, 10);
+  assert.equal(finalBattleItem.resetRule.type, 'weekly');
+  assert.equal(finalBattleItem.auto, true);
+
+  const voidRealmItem = highContents.find(c => c.id === 'daily-void-realm');
+  assert.ok(voidRealmItem, '공허의 영역 숙제 정의가 누락되었습니다.');
+  assert.equal(voidRealmItem.maxCount, 1);
+  assert.equal(voidRealmItem.resetRule.type, 'daily');
+  assert.equal(voidRealmItem.auto, undefined, '공허의 영역은 사냥형 컨텐츠이므로 수동 체크여야 합니다.');
+
+  const joyItem = highContents.find(c => c.id === 'daily-joy');
+  assert.ok(joyItem, '추종하는 환희 (일반/어려움) 숙제 정의가 누락되었습니다.');
+  assert.equal(joyItem.name, '추종하는 환희 (일반/어려움)');
+  assert.equal(joyItem.maxCount, 1);
+  assert.equal(joyItem.auto, true);
+
+  const sorrowItem = highContents.find(c => c.id === 'daily-sorrow');
+  assert.ok(sorrowItem, '응시하는 슬픔 (일반/어려움) 숙제 정의가 누락되었습니다.');
+  assert.equal(sorrowItem.name, '응시하는 슬픔 (일반/어려움)');
+  assert.equal(sorrowItem.maxCount, 1);
+  assert.equal(sorrowItem.auto, true);
+
+  // 파서 이벤트 트리거 검증
+  {
+    const parser = new (chatParser.constructor as any)();
+    let golgothaTriggered = false;
+    let finalBattleTriggered = false;
+    const joyEvents: Array<{ difficulty: string }> = [];
+    const sorrowEvents: Array<{ difficulty: string }> = [];
+
+    parser.on('GOLGOTHA_DEFENSE_CLEAR', () => { golgothaTriggered = true; });
+    parser.on('FINAL_BATTLE_CLEAR', () => { finalBattleTriggered = true; });
+    parser.on('JOY_CLEAR', (e: { difficulty: string }) => { joyEvents.push(e); });
+    parser.on('SORROW_CLEAR', (e: { difficulty: string }) => { sorrowEvents.push(e); });
+
+    // 1. 정상 시스템 완료 로그 파싱
+    parser.parseLine('<font size="2" color="white"> [12시 00분 00초] </font> <font size="2" color="#ff64ff">적들이 퇴각하고 있습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.</font></br>');
+    assert.ok(golgothaTriggered, '골고다 협곡 방어전 완료 이벤트가 발생하지 않았습니다.');
+
+    parser.parseLine('<font size="2" color="white"> [12시 00분 01초] </font> <font size="2" color="#ff64ff">티로로스의 계략을 막아내었습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.</font></br>');
+    assert.ok(finalBattleTriggered, '최후의 결전 완료 이벤트가 발생하지 않았습니다.');
+
+    parser.parseLine('<font size="2" color="white"> [12시 00분 02초] </font> <font size="2" color="#ff64ff">레이티아 퇴치 보상으로 레이티아 보상 상자 (일반) 1개를 획득했습니다.</font></br>');
+    parser.parseLine('<font size="2" color="white"> [12시 00분 03초] </font> <font size="2" color="#ff64ff">레이티아 퇴치 보상으로 레이티아 보상 상자 (어려움) 1개를 획득했습니다.</font></br>');
+    assert.equal(joyEvents.length, 2, '추종하는 환희 완료 이벤트가 2회 발생해야 합니다.');
+    assert.equal(joyEvents[0].difficulty, '일반');
+    assert.equal(joyEvents[1].difficulty, '어려움');
+
+    parser.parseLine('<font size="2" color="white"> [12시 00분 04초] </font> <font size="2" color="#ff64ff">설계자 퇴치 보상으로 설계자 보상 상자 (일반) 1개를 획득했습니다.</font></br>');
+    parser.parseLine('<font size="2" color="white"> [12시 00분 05초] </font> <font size="2" color="#ff64ff">설계자 퇴치 보상으로 설계자 보상 상자 (어려움) 1개를 획득했습니다.</font></br>');
+    assert.equal(sorrowEvents.length, 2, '응시하는 슬픔 완료 이벤트가 2회 발생해야 합니다.');
+    assert.equal(sorrowEvents[0].difficulty, '일반');
+    assert.equal(sorrowEvents[1].difficulty, '어려움');
+
+    // 2. 일반 채팅 인용 또는 타인 대화 시 오인 방지 검증
+    let falsePositiveCount = 0;
+    const testFalsePositive = () => { falsePositiveCount++; };
+    parser.on('GOLGOTHA_DEFENSE_CLEAR', testFalsePositive);
+    parser.on('FINAL_BATTLE_CLEAR', testFalsePositive);
+    parser.on('JOY_CLEAR', testFalsePositive);
+    parser.on('SORROW_CLEAR', testFalsePositive);
+
+    for (const color of ['#ffffff', '#c8ffc8', '#94ddfa', '#f7b73c', '#64ff64', '#c896c8']) {
+      parser.parseLine(`<font color="white"> [12시 00분 10초] </font><font color="${color}">적들이 퇴각하고 있습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.</font></br>`);
+      parser.parseLine(`<font color="white"> [12시 00분 11초] </font><font color="${color}">티로로스의 계략을 막아내었습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.</font></br>`);
+      parser.parseLine(`<font color="white"> [12시 00분 12초] </font><font color="${color}">레이티아 퇴치 보상으로 레이티아 보상 상자 (일반) 1개를 획득했습니다.</font></br>`);
+    }
+    parser.parseLine('<font color="white"> [12시 00분 13초] </font><font color="#ff64ff">유저1 : 적들이 퇴각하고 있습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.</font></br>');
+    parser.parseLine('<font color="white"> [12시 00분 14초] </font><font color="#ff64ff">유저2 : 티로로스의 계략을 막아내었습니다. 잠시 후 기억의 숲 전초기지로 이동됩니다.</font></br>');
+    assert.equal(falsePositiveCount, 0, '채팅 인용 또는 비시스템 메시지에서 신규 상위 컨텐츠 완료 이벤트가 오작동했습니다.');
+  }
+
   // ── 과거 채팅 히스토리 분류 및 색상 보정 회귀 검증 ──
   const { classifyHistoryMessage } = require(
     path.join(projectRoot, 'dist/modules/chatLogManager.js'),
@@ -6507,7 +6601,31 @@ function checkAbandonedFeeMatchingContracts(): void {
   assert.equal(state.unassignedFee, 0);
   assert.equal(state.regionDetails['후도착 지역'].totalFee, 200,
     '도전 횟수 뒤에 도착한 입장료가 가까운 지역에 귀속되지 않았습니다.');
+
+  // 누(Nu) 조우 횟수 및 마정석 소실 계약 검증
   abandonedTracker.reset();
+  assert.equal(abandonedTracker.getState().nuEncounters, 0, '리셋 후 nuEncounters가 0이어야 합니다.');
+  chatParser.emit('ABANDONED_ENTRY', {
+    date: '2099-12-31', timestamp: '23시 59분 10초', region: '카디프', count: 1, message: '입장',
+  });
+  chatParser.emit('MAGIC_STONE_LOSS', {
+    date: '2099-12-31', timestamp: '23시 59분 11초', grade: '하급', count: 20, message: '소실',
+  });
+  state = abandonedTracker.getState();
+  assert.equal(state.nuEncounters, 1, 'MAGIC_STONE_LOSS 감지 시 nuEncounters가 1 증가해야 합니다.');
+  assert.equal(state.stoneLosses['하급'], 20, '하급 마정석 20개가 소실 집계되어야 합니다.');
+  assert.equal(state.regionDetails['카디프'].nuEncounters, 1, '지역별 nuEncounters도 1 증가해야 합니다.');
+  assert.equal(state.regionDetails['카디프'].stoneLosses['하급'], 20, '지역별 소실량도 반영되어야 합니다.');
+
+  chatParser.emit('MAGIC_STONE_LOSS', {
+    date: '2099-12-31', timestamp: '23시 59분 12초', grade: '중급', count: 1, message: '소실',
+  });
+  state = abandonedTracker.getState();
+  assert.equal(state.nuEncounters, 2, '2번째 조우 시 nuEncounters가 2가 되어야 합니다.');
+  assert.equal(state.stoneLosses['중급'], 1);
+
+  abandonedTracker.reset();
+  assert.equal(abandonedTracker.getState().nuEncounters, 0, '리셋 후 nuEncounters가 다시 0이어야 합니다.');
 }
 
 function checkDigsiteBoardContracts(): void {

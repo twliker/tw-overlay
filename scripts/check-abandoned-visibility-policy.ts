@@ -27,6 +27,7 @@ async function main(): Promise<void> {
         stoneGains: Record<string, number>;
         stoneLosses: Record<string, number>;
         totalFee: number;
+        nuEncounters?: number;
       };
     };
   };
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
   assert.equal(hiddenState.isActive, false, '수동 숨김 뒤 자동 활동이 HUD를 다시 표시했습니다.');
   assert.equal(hiddenState.stoneGains['중급'], 3, '수동 숨김 중 마정석 획득 집계가 누락됐습니다.');
   assert.equal(hiddenState.stoneLosses['중급'], 1, '수동 숨김 중 마정석 소실 집계가 누락됐습니다.');
+  assert.equal(hiddenState.nuEncounters, 1, '수동 숨김 중 누 조우 횟수 집계가 누락됐습니다.');
   assert.equal(hiddenState.totalFee, 100, '수동 숨김 중 입장료 집계가 누락됐습니다.');
   assert.equal(hiddenState.regions['숨김 테스트 지역'], 4, '수동 숨김 중 지역 도전 횟수가 누락됐습니다.');
 

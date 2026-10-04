@@ -304,6 +304,22 @@ async function runWorker() {
     recordHomework('daily-architect-mine', 1, true);
   });
 
+  syncParser.on('GOLGOTHA_DEFENSE_CLEAR', () => {
+    recordHomework('daily-golgotha-defense', 1, true);
+  });
+
+  syncParser.on('FINAL_BATTLE_CLEAR', () => {
+    recordHomework('weekly-final-battle', 1, true);
+  });
+
+  syncParser.on('JOY_CLEAR', () => {
+    recordHomework('daily-joy', 1, true);
+  });
+
+  syncParser.on('SORROW_CLEAR', () => {
+    recordHomework('daily-sorrow', 1, true);
+  });
+
   syncParser.on('ABANDONED_ENTRY', (evt) => {
     const regionMapping: Record<string, string> = {
       '필멸의 땅': 'weekly-abandon-road-mortal',

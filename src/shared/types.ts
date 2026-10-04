@@ -70,6 +70,10 @@ export interface ChatParserEventMap {
     CONFUSED_LAND_CLEAR: { date: string; timestamp: string; message: string };
     COLORLESS_LAND_CLEAR: { date: string; timestamp: string; message: string };
     ARCHITECT_MINE_CLEAR: { date: string; timestamp: string; message: string };
+    GOLGOTHA_DEFENSE_CLEAR: { date: string; timestamp: string; message: string };
+    FINAL_BATTLE_CLEAR: { date: string; timestamp: string; message: string };
+    JOY_CLEAR: { date: string; timestamp: string; difficulty: '일반' | '어려움'; message: string };
+    SORROW_CLEAR: { date: string; timestamp: string; difficulty: '일반' | '어려움'; message: string };
     NORMAL_CHAT: { date: string; timestamp: string; sender: string; message: string; color: string };
     ABYSS_APOSTLE_PATTERN: { date: string; timestamp: string; message: string };
     WAVE_MONSTER_WARNING: { date: string; timestamp: string; message: string };
@@ -87,11 +91,13 @@ export interface AbandonedRoadState {
     totalFee: number;
     unassignedFee?: number;
     currentRegion: string;
+    nuEncounters?: number;
     regionDetails: Record<string, {
         count: number;
         totalFee: number;
         stoneGains: Record<string, number>;
         stoneLosses: Record<string, number>;
+        nuEncounters?: number;
     }>;
 }
 
@@ -407,6 +413,8 @@ export interface ContentsCheckerItem {
     resetRule: ResetRule;
     maxCount?: number; // 최대 완료 필요 횟수 (생략 시 기본값: 1)
     auto?: boolean;    // 실시간 채팅 로그를 통한 자동 체크 지원 여부
+    autoType?: 'semi'; // 반자동 여부 (예: 골고다 협곡 방어전 1시간 완주 감지 등)
+    autoDescription?: string; // 자동/반자동 완료 조건 안내 툴팁
 
     /** 캐릭터별 완료 상태 (다중 캐릭터 지원) */
     completedState: {
@@ -1102,23 +1110,6 @@ export interface TodaySummary {
         remainingCount: number;
         remainingItems: TodaySummaryHomeworkItem[];
     };
-}
-
-export interface AbandonedRoadState {
-    regions: Record<string, number>;
-    profit: number;
-    isActive: boolean;
-    stoneGains: Record<string, number>;
-    stoneLosses: Record<string, number>;
-    totalFee: number;
-    unassignedFee?: number;
-    currentRegion: string;
-    regionDetails: Record<string, {
-        count: number;
-        totalFee: number;
-        stoneGains: Record<string, number>;
-        stoneLosses: Record<string, number>;
-    }>;
 }
 
 export interface AlarmLog {

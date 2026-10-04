@@ -67,6 +67,12 @@ function validateDefaultItem(value: unknown, index: number): ContentsCheckerItem
   if (value.auto !== undefined && typeof value.auto !== 'boolean') {
     throw new Error(`${id}의 auto가 boolean이 아닙니다.`);
   }
+  if (value.autoType !== undefined && value.autoType !== 'semi') {
+    throw new Error(`${id}의 autoType이 유효하지 않습니다.`);
+  }
+  if (value.autoDescription !== undefined && (typeof value.autoDescription !== 'string' || value.autoDescription.trim().length === 0)) {
+    throw new Error(`${id}의 autoDescription이 유효하지 않습니다.`);
+  }
   if (!isPlainObject(resetRule) || (resetRule.type !== 'daily' && resetRule.type !== 'weekly')) {
     throw new Error(`${id}의 resetRule이 유효하지 않습니다.`);
   }
@@ -98,6 +104,8 @@ function validateDefaultItem(value: unknown, index: number): ContentsCheckerItem
     },
     maxCount: value.maxCount as number | undefined,
     auto: value.auto as boolean | undefined,
+    autoType: value.autoType as 'semi' | undefined,
+    autoDescription: value.autoDescription as string | undefined,
     completedState: {}
   };
 }
@@ -237,7 +245,11 @@ const ID_MIGRATION_MAP: Readonly<Record<string, string>> = {
   'daily-eclipse-boss': 'weekly-eclipse-boss',
   'daily-ancient-relic-shinjo': 'weekly-ancient-relic-shinjo',
   'daily-ancient-relic-kishinik': 'weekly-ancient-relic-kishinik',
-  'weekly-eclipse-boss-selfina': 'weekly-eclipse-boss-lokagos'
+  'weekly-eclipse-boss-selfina': 'weekly-eclipse-boss-lokagos',
+  'daily-joy-normal': 'daily-joy',
+  'daily-joy-hard': 'daily-joy',
+  'daily-sorrow-normal': 'daily-sorrow',
+  'daily-sorrow-hard': 'daily-sorrow'
 };
 
 function getStateCount(state: HomeworkCompletedState | undefined, max: number): number {
