@@ -369,6 +369,8 @@
   function setupIncryptPanel(): void {
     const scrollSelect = $('incrypt-scroll-type') as HTMLSelectElement;
     const protectInput = $('incrypt-protect-count') as HTMLInputElement;
+    const currentInput = $('incrypt-current-count') as HTMLInputElement;
+    const targetInput = $('incrypt-target-success') as HTMLInputElement;
 
     function refreshIncryptUI(): void {
       const scrollType = scrollSelect.value;
@@ -380,22 +382,58 @@
       $('incrypt-protect-max-label').textContent = `/ ${maxProtect}장`;
       $('incrypt-protect-box').classList.toggle('opacity-50', maxProtect === 0);
 
+      const currentVal = Math.max(0, Math.min(19, Math.trunc(Number(currentInput.value) || 0)));
       const protects = Number(protectInput.value) || 0;
       const destroyRate = Math.max(0, info.baseDestroyRate - protects * 0.01);
 
-      $('incrypt-scroll-rate-badge').textContent = `기본 성공률 ${(info.successRate * 100).toFixed(2)}%`;
-      $('incrypt-rates-guide').innerHTML = `
-        <span>실패 시 파괴 확률: <b class="${destroyRate > 0 ? 'text-rose-400' : 'text-emerald-400'}">${(destroyRate * 100).toFixed(0)}%</b> (장파보 -${protects}%p)</span>
-        <span>1회 시도당 생존 확률: <b class="text-indigo-300">${((1.0 - (1.0 - info.successRate) * destroyRate) * 100).toFixed(2)}%</b></span>
-      `;
+      if (scrollType === 'vianu') {
+        const index = Math.max(0, Math.min(12, currentVal));
+        const currentRate = api.VIANU_RATES_BY_COUNT[index] ?? 0.0007;
+        $('incrypt-scroll-rate-badge').textContent = `현재 ${currentVal}회차 성공률 ${(currentRate * 100).toFixed(3)}%`;
+        $('incrypt-rates-guide').innerHTML = `
+          <span>비아누 성공률: <b class="text-rose-400">회차별 감소 (0회: 0.070% → 12회+: 0.010%)</b></span>
+          <span>노패널티: <b class="text-emerald-400">실패 시 장비 파괴 없음 (100% 생존)</b></span>
+        `;
+      } else {
+        $('incrypt-scroll-rate-badge').textContent = `기본 성공률 ${(info.successRate * 100).toFixed(2)}%`;
+        $('incrypt-rates-guide').innerHTML = `
+          <span>실패 시 파괴 확률: <b class="${destroyRate > 0 ? 'text-rose-400' : 'text-emerald-400'}">${(destroyRate * 100).toFixed(0)}%</b> (장파보 -${protects}%p)</span>
+          <span>1회 시도당 생존 확률: <b class="text-indigo-300">${((1.0 - (1.0 - info.successRate) * destroyRate) * 100).toFixed(2)}%</b></span>
+        `;
+      }
 
       renderIncryptExpectation();
     }
 
     scrollSelect.addEventListener('change', refreshIncryptUI);
     protectInput.addEventListener('input', refreshIncryptUI);
-    ($('incrypt-target-success') as HTMLInputElement).max = String(api.MAX_INCRYPT_TARGET_SUCCESSES);
-    $('incrypt-target-success').addEventListener('input', renderIncryptExpectation);
+
+    currentInput.addEventListener('input', () => {
+      if (currentInput.value !== '') {
+        const cur = Math.max(0, Math.min(19, Math.trunc(Number(currentInput.value) || 0)));
+        currentInput.value = String(cur);
+        if (targetInput.value !== '') {
+          const tgt = Number(targetInput.value);
+          if (tgt <= cur) {
+            targetInput.value = String(Math.min(api.MAX_INCRYPT_TARGET_SUCCESSES, cur + 1));
+          }
+        }
+      }
+      refreshIncryptUI();
+    });
+
+    targetInput.max = String(api.MAX_INCRYPT_TARGET_SUCCESSES);
+    targetInput.addEventListener('input', () => {
+      if (targetInput.value !== '') {
+        let tgt = api.normalizeIncryptTargetSuccesses(Number(targetInput.value));
+        const cur = Number(currentInput.value) || 0;
+        if (tgt <= cur) {
+          currentInput.value = String(Math.max(0, tgt - 1));
+        }
+      }
+      refreshIncryptUI();
+    });
+
     $('incrypt-currency-type').addEventListener('change', () => {
       const type = ($('incrypt-currency-type') as HTMLSelectElement).value;
       $('incrypt-fee-label').textContent = `1회 수수료 (${type === 'elso' ? '엘소' : 'SEED'})`;
@@ -410,8 +448,11 @@
   }
 
   function getIncryptOptions(): any {
+    const currentInput = $('incrypt-current-count') as HTMLInputElement | null;
+    const currentCount = currentInput ? (Number(currentInput.value) || 0) : 0;
     return {
       scrollType: ($('incrypt-scroll-type') as HTMLSelectElement).value,
+      currentIncryptCount: Math.max(0, Math.min(19, Math.trunc(currentCount))),
       protectionScrollCount: Number(($('incrypt-protect-count') as HTMLInputElement).value) || 0,
       currencyType: ($('incrypt-currency-type') as HTMLSelectElement).value || 'seed',
       costPerAttempt: Number(($('incrypt-price-fee') as HTMLInputElement).value) || 0,
@@ -423,11 +464,26 @@
 
   function renderIncryptExpectation(): void {
     const opts = getIncryptOptions();
+    const currentInput = $('incrypt-current-count') as HTMLInputElement;
     const targetInput = $('incrypt-target-success') as HTMLInputElement;
-    const targetSucc = api.normalizeIncryptTargetSuccesses(Number(targetInput.value));
-    // 빈 입력은 다음 숫자를 입력할 수 있게 두고, 붙여넣은 큰 값은 계산 전에 보정한다.
-    if (targetInput.value !== '') targetInput.value = String(targetSucc);
-    const res = api.calculateIncryptExpectation(opts, targetSucc);
+
+    const currentVal = Number.isFinite(Number(currentInput.value))
+      ? Math.max(0, Math.min(19, Math.trunc(Number(currentInput.value))))
+      : 0;
+
+    let targetVal = Number(targetInput.value);
+    if (targetInput.value !== '') {
+      targetVal = api.normalizeIncryptTargetSuccesses(targetVal);
+      if (targetVal <= currentVal) {
+        targetVal = Math.min(api.MAX_INCRYPT_TARGET_SUCCESSES, currentVal + 1);
+      }
+      targetInput.value = String(targetVal);
+    } else {
+      targetVal = Math.min(api.MAX_INCRYPT_TARGET_SUCCESSES, currentVal + 1);
+    }
+
+    const neededSuccesses = Math.max(1, targetVal - currentVal);
+    const res = api.calculateIncryptExpectation(opts, neededSuccesses);
     const container = $('incrypt-exp-metrics');
 
     const feeText = formatFeeCost(res.currencyType, res.expectedCostPerSuccess.feeCost);
@@ -435,11 +491,42 @@
     const equipLossText = formatSeed(res.expectedCostPerSuccess.equipLossSeed);
 
     container.innerHTML = `
-      <div class="metric"><p class="text-xs text-slate-400">목표 성공당 평균 시도</p><strong class="text-lg text-rose-300">${fmt(res.expectedCostPerSuccess.scrollCount, 1)}회</strong></div>
-      <div class="metric"><p class="text-xs text-slate-400">장비 1개로 ${targetSucc}회 달성 확률</p><strong class="text-lg text-emerald-400">${(res.survivalProbabilityUntilTarget * 100).toFixed(2)}%</strong><div class="text-[11px] text-slate-400">(파괴 없이 완주할 확률)</div></div>
-      <div class="metric"><p class="text-xs text-slate-400">평균 장비 파괴 기댓값</p><strong class="text-lg text-amber-300">${fmt(res.expectedDestroyedEquipsPerSuccess * targetSucc, 2)}개</strong></div>
+      <div class="metric"><p class="text-xs text-slate-400">목표 성공당 평균 시도</p><strong class="text-lg text-rose-300">${fmt(res.expectedCostPerSuccess.scrollCount, 1)}회</strong><div class="text-[11px] text-slate-400">(${currentVal}회 → ${res.targetIncryptCount}회, 총 ${neededSuccesses}회 성공)</div></div>
+      <div class="metric"><p class="text-xs text-slate-400">장비 1개로 ${res.targetIncryptCount}회 달성 확률</p><strong class="text-lg text-emerald-400">${(res.survivalProbabilityUntilTarget * 100).toFixed(2)}%</strong><div class="text-[11px] text-slate-400">${res.scrollType === 'vianu' ? '(노패널티: 파괴 없음)' : '(파괴 없이 완주할 확률)'}</div></div>
+      <div class="metric"><p class="text-xs text-slate-400">평균 장비 파괴 기댓값</p><strong class="text-lg text-amber-300">${fmt(res.expectedDestroyedEquipsPerSuccess * neededSuccesses, 2)}개</strong></div>
       <div class="metric"><p class="text-xs text-slate-400">총 비용 기댓값</p><strong class="text-base text-indigo-300">${feeText}</strong><div class="text-[11px] text-slate-400">재료: ${itemText}<br>장비손실: ${equipLossText}</div></div>
     `;
+
+    // 단계별 상세 breakdown 렌더링
+    const breakdownWrapper = document.getElementById('incrypt-breakdown-wrapper');
+    const breakdownList = document.getElementById('incrypt-breakdown-list');
+    const breakdownSummary = document.getElementById('incrypt-breakdown-summary');
+
+    if (breakdownWrapper && breakdownList && breakdownSummary) {
+      if (res.stageBreakdown && res.stageBreakdown.length > 0) {
+        breakdownWrapper.classList.remove('hidden');
+        breakdownSummary.textContent = `${currentVal}인크 → ${res.targetIncryptCount}인크 (${neededSuccesses}단계 진행)`;
+
+        breakdownList.innerHTML = res.stageBreakdown.map((step: any) => {
+          const ratePct = (step.successRate * 100).toFixed(3);
+          const attFmt = fmt(step.stepExpectedAttempts, 1);
+          return `
+            <div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-700/60 flex flex-col justify-between">
+              <div class="flex items-center justify-between font-bold text-slate-200 mb-1">
+                <span class="text-rose-300 text-xs">${step.fromCount}회 → ${step.toCount}회</span>
+                <span class="text-[11px] text-cyan-300 font-mono">${ratePct}%</span>
+              </div>
+              <div class="text-[11px] text-slate-400 flex items-center justify-between">
+                <span>단계별 기댓값</span>
+                <span class="font-semibold text-slate-200">약 ${attFmt}회</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        breakdownWrapper.classList.add('hidden');
+      }
+    }
   }
 
   // ==========================================

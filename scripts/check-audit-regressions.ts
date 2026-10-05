@@ -846,7 +846,23 @@ async function checkCalculatorDom(): Promise<void> {
       input('incrypt-target-success','1.9');const fractional=document.getElementById('incrypt-target-success').value;
       input('incrypt-target-success','');const empty=document.getElementById('incrypt-target-success').value;
       input('incrypt-target-success','2');
-      return {one,two,vianu,bounded,negative,fractional,empty};
+
+      // 현재 인크립트 횟수 입력(2회 -> 4회) 및 단계별 breakdown 검증
+      input('incrypt-current-count','2');input('incrypt-target-success','4');
+      const vianu2to4=document.querySelector('#incrypt-exp-metrics strong').textContent;
+      const vianuBadge=document.getElementById('incrypt-scroll-rate-badge').textContent;
+      const breakdownText=document.getElementById('incrypt-breakdown-list').textContent;
+      const breakdownSummary=document.getElementById('incrypt-breakdown-summary').textContent;
+
+      // 상호 보정 검증: 현재 횟수를 5로 올리면 목표가 6으로 자동 보정
+      input('incrypt-current-count','5');
+      const adjustedTarget=document.getElementById('incrypt-target-success').value;
+
+      // 목표 횟수를 3으로 내리면 현재 횟수가 2로 자동 보정
+      input('incrypt-target-success','3');
+      const adjustedCurrent=document.getElementById('incrypt-current-count').value;
+
+      return {one,two,vianu,bounded,negative,fractional,empty,vianu2to4,vianuBadge,breakdownText,breakdownSummary,adjustedTarget,adjustedCurrent};
     })()`);
     assert.equal(actual.one, '1.0회');
     assert.ok(!actual.two.includes('2회 성공 시: 약 2.0회'));
@@ -854,6 +870,12 @@ async function checkCalculatorDom(): Promise<void> {
     assert.equal(actual.bounded.value, '20');assert.ok(actual.bounded.text.includes('20회 달성'));
     assert.ok(!/NaN|Infinity/.test(actual.bounded.text));
     assert.equal(actual.negative, '1');assert.equal(actual.fractional, '1');assert.equal(actual.empty, '');
+    assert.equal(Number(actual.vianu2to4.replace(/[^0-9.]/g, '')), 3484.8);
+    assert.ok(actual.vianuBadge.includes('현재 2회차 성공률 0.060%'));
+    assert.ok(actual.breakdownSummary.includes('2인크 → 4인크'));
+    assert.ok(actual.breakdownText.includes('2회 → 3회') && actual.breakdownText.includes('3회 → 4회'));
+    assert.equal(actual.adjustedTarget, '6');
+    assert.equal(actual.adjustedCurrent, '2');
     await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     const screenshot = path.join(root, '.agents', 'reviews', '2026-09-05-audit', 'equipment-fixed.png');
     fs.mkdirSync(path.dirname(screenshot), { recursive: true });

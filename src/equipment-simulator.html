@@ -332,7 +332,7 @@
           <span id="incrypt-scroll-rate-badge" class="text-xs text-rose-300 font-bold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20"></span>
         </div>
 
-        <div class="grid grid-cols-4 gap-3">
+        <div class="grid grid-cols-5 gap-2.5">
           <label class="text-xs font-bold text-slate-400">
             인크립트 종류
             <select id="incrypt-scroll-type" class="field mt-1.5">
@@ -346,16 +346,20 @@
               <option value="nopenalty_001pct">0.01% 노패널티 인크립트</option>
             </select>
           </label>
+          <label class="text-xs font-bold text-slate-400">
+            현재 인크립트 횟수
+            <input type="number" id="incrypt-current-count" class="field mt-1.5" value="0" min="0" max="19">
+          </label>
+          <label class="text-xs font-bold text-slate-400">
+            목표 인크립트 횟수
+            <input type="number" id="incrypt-target-success" class="field mt-1.5" value="1" min="1" max="20">
+          </label>
           <label id="incrypt-protect-box" class="text-xs font-bold text-slate-400">
             장비 파괴 보호 주문서 (장파보)
             <div class="flex items-center gap-2 mt-1.5">
               <input type="number" id="incrypt-protect-count" class="field" value="0" min="0" max="60">
               <span id="incrypt-protect-max-label" class="text-[11px] text-slate-500 shrink-0">/ 60장</span>
             </div>
-          </label>
-          <label class="text-xs font-bold text-slate-400">
-            목표 인크립트 횟수
-            <input type="number" id="incrypt-target-success" class="field mt-1.5" value="1" min="1" max="20">
           </label>
           <label class="text-xs font-bold text-slate-400 flex flex-col justify-between">
             장비 파괴 시 교체 지속
@@ -406,6 +410,17 @@
         </div>
 
         <div id="incrypt-exp-metrics" class="grid grid-cols-4 gap-2.5"></div>
+
+        <!-- 단계별 확률 및 기댓값 상세 분석 영역 -->
+        <div id="incrypt-breakdown-wrapper" class="hidden mt-3 pt-3 border-t border-white/10 space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-rose-300 flex items-center gap-1.5">
+              <i data-lucide="layers" class="w-3.5 h-3.5"></i> 단계별 성공 확률 및 시도 기댓값 상세
+            </span>
+            <span id="incrypt-breakdown-summary" class="text-[11px] text-slate-400"></span>
+          </div>
+          <div id="incrypt-breakdown-list" class="grid grid-cols-3 gap-2 text-xs"></div>
+        </div>
       </section>
     </div>
 

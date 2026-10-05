@@ -891,8 +891,19 @@ interface IncryptSimulationSummary {
   history: IncryptStepResult[];
 }
 
+interface IncryptStageBreakdown {
+  stageIndex: number;
+  fromCount: number;
+  toCount: number;
+  successRate: number;
+  stepExpectedAttempts: number;
+  survivalRate: number;
+}
+
 interface IncryptExpectationResult {
   scrollType: IncryptScrollType;
+  currentIncryptCount: number;
+  targetIncryptCount: number;
   successRate: number;
   effectiveDestroyRateOnFail: number;
   overallDestroyRatePerAttempt: number;
@@ -910,6 +921,7 @@ interface IncryptExpectationResult {
     equipLossSeed: number; // 장비 손실액 (시드)
     totalSeedCostWithEquipLoss: number; // 수수료가 시드일 경우 총 시드 (재료+수수료+장비)
   };
+  stageBreakdown: IncryptStageBreakdown[];
 }
 
 /** 1회 인크립트 시도 */
@@ -1027,16 +1039,15 @@ function calculateIncryptExpectation(
   targetSuccesses: number = 1
 ): IncryptExpectationResult {
   const info = INCRYPT_SCROLLS[options.scrollType] || INCRYPT_SCROLLS.lord;
-  let pSucc = info.successRate;
-
-  if (options.scrollType === 'vianu') {
-    const cnt = Math.max(0, Math.min(12, Math.trunc(options.currentIncryptCount || 0)));
-    pSucc = VIANU_RATES_BY_COUNT[cnt];
-  }
+  const currentCount = Math.max(0, Math.min(19, Math.trunc(options.currentIncryptCount || 0)));
+  const index0 = Math.max(0, Math.min(12, currentCount));
+  let pSucc = options.scrollType === 'vianu' ? VIANU_RATES_BY_COUNT[index0] : info.successRate;
 
   const protects = Math.max(0, Math.min(info.maxProtectionScrolls, Math.trunc(options.protectionScrollCount || 0)));
   const effectiveDestroyRateOnFail = Math.max(0, info.baseDestroyRate - protects * 0.01);
   const target = normalizeIncryptTargetSuccesses(targetSuccesses);
+  const targetCount = Math.min(MAX_INCRYPT_TARGET_SUCCESSES, currentCount + target);
+  const actualTargetDiff = Math.max(1, targetCount - currentCount);
 
   // 단계별 전이 확률 계산
   // q_k: 결판 시 성공 확률 = p_k / (p_k + d_k)
@@ -1047,23 +1058,35 @@ function calculateIncryptExpectation(
   let survivalProbabilityUntilTarget = 1;
   let singleRunExpectedAttempts = 0;
   let probReachStage = 1;
+  const stageBreakdown: IncryptStageBreakdown[] = [];
 
-  for (let success = 0; success < target; success++) {
-    const index = Math.max(0, Math.min(12, Math.trunc(options.currentIncryptCount || 0) + success));
+  for (let success = 0; success < actualTargetDiff; success++) {
+    const fromCount = currentCount + success;
+    const toCount = fromCount + 1;
+    const index = Math.max(0, Math.min(12, fromCount));
     const rate = options.scrollType === 'vianu' ? VIANU_RATES_BY_COUNT[index] : info.successRate;
     const destroyed = (1 - rate) * effectiveDestroyRateOnFail;
     const decisiveRate = rate + destroyed;
 
+    let qStage = 1;
     if (decisiveRate <= 0) {
       // 성공도 파괴도 없는 경우 (이론상 발생하지 않으나 방어)
       singleRunExpectedAttempts += probReachStage * (1 / Math.max(1e-6, rate));
-      continue;
+    } else {
+      qStage = rate / decisiveRate;
+      singleRunExpectedAttempts += probReachStage * (1 / decisiveRate);
+      survivalProbabilityUntilTarget *= qStage;
+      probReachStage *= qStage;
     }
 
-    const qStage = rate / decisiveRate;
-    singleRunExpectedAttempts += probReachStage * (1 / decisiveRate);
-    survivalProbabilityUntilTarget *= qStage;
-    probReachStage *= qStage;
+    stageBreakdown.push({
+      stageIndex: success + 1,
+      fromCount,
+      toCount,
+      successRate: rate,
+      stepExpectedAttempts: 1 / Math.max(1e-6, rate),
+      survivalRate: qStage,
+    });
   }
 
   const totalDestroyedEquips = survivalProbabilityUntilTarget > 0
@@ -1073,8 +1096,8 @@ function calculateIncryptExpectation(
     ? singleRunExpectedAttempts / survivalProbabilityUntilTarget
     : Infinity;
 
-  const expectedAttemptsPerSuccess = scrollCount / target;
-  const expectedDestroyedEquips = totalDestroyedEquips / target;
+  const expectedAttemptsPerSuccess = scrollCount / actualTargetDiff;
+  const expectedDestroyedEquips = totalDestroyedEquips / actualTargetDiff;
 
   const overallDestroyRate = (1.0 - pSucc) * effectiveDestroyRateOnFail;
   const overallSurvivalRate = 1.0 - overallDestroyRate;
@@ -1093,6 +1116,8 @@ function calculateIncryptExpectation(
 
   return {
     scrollType: options.scrollType,
+    currentIncryptCount: currentCount,
+    targetIncryptCount: targetCount,
     successRate: pSucc,
     effectiveDestroyRateOnFail,
     overallDestroyRatePerAttempt: overallDestroyRate,
@@ -1110,6 +1135,7 @@ function calculateIncryptExpectation(
       equipLossSeed,
       totalSeedCostWithEquipLoss,
     },
+    stageBreakdown,
   };
 }
 
