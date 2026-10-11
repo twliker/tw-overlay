@@ -2156,6 +2156,14 @@
     <div class="special-monster-alert-subtitle">맵 어딘가에 특별 몬스터가 나타났습니다.</div>
   </div>
 
+  <!-- 골고다 강력한 적 출현 알림 카드 -->
+  <div id="golgotha-special-monster-alert" class="special-monster-alert-overlay">
+    <i data-lucide="skull" class="special-monster-alert-icon"></i>
+    <div class="alert-crown-label">✦ 골고다의 협곡 ✦</div>
+    <div class="special-monster-alert-title">강력한 적 출현!</div>
+    <div class="special-monster-alert-subtitle">맵 어딘가에 강력한 적이 나타났습니다.</div>
+  </div>
+
   <!-- 경험의 정수 버프 경고 알람 -->
   <div id="essence-alert" class="essence-alert-overlay">
     <div style="display:flex; align-items:center; gap:12px;">
@@ -2973,6 +2981,11 @@
     window.electronAPI.onSpecialMonsterAlert(() => {
       if (currentConfig && currentConfig.specialMonsterAlertEnabled === false) return;
       gameOverlayAlerts.showSpecialMonsterAlert();
+    });
+
+    window.electronAPI.onGolgothaSpecialMonsterAlert?.(() => {
+      if (currentConfig && currentConfig.golgothaAlertEnabled === false) return;
+      gameOverlayAlerts.showGolgothaSpecialMonsterAlert();
     });
 
     window.electronAPI.onAbyssTreasureCompleteAlert(() => {

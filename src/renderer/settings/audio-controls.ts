@@ -8,6 +8,8 @@
     lokagosAlertSound?: string;
     questCompleteAlertSound?: string;
     abyssTreasureAlertSound?: string;
+    specialMonsterAlertSound?: string;
+    golgothaAlertSound?: string;
   }
 
   const defaultConfig = (window.electronAPI as typeof window.electronAPI & {
@@ -22,6 +24,8 @@
     { id: 'lokagos-alert-sound', configKey: 'lokagosAlertSound' },
     { id: 'quest-complete-alert-sound', configKey: 'questCompleteAlertSound' },
     { id: 'abyss-treasure-alert-sound', configKey: 'abyssTreasureAlertSound' },
+    { id: 'special-monster-alert-sound', configKey: 'specialMonsterAlertSound' },
+    { id: 'golgotha-alert-sound', configKey: 'golgothaAlertSound' },
   ] as const);
 
   const previousVolumes: Record<string, number> = {

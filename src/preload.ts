@@ -400,6 +400,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('pitta-alert', callback),
   onSpecialMonsterAlert: (callback: (data: { message: string }) => void) =>
     bindIpcListener('special-monster-alert', callback),
+  onGolgothaSpecialMonsterAlert: (callback: (data: { message: string }) => void) =>
+    bindIpcListener('golgotha-special-monster-alert', callback),
   onAbyssTreasureCompleteAlert: (callback: (data: { message: string }) => void) =>
     bindIpcListener('abyss-treasure-complete-alert', callback),
   onEthosAlert: (callback: (data: { password: string; message: string }) => void) =>
@@ -487,7 +489,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'boss-times-data', 'play-sound', 'trade-posts', 'trade-new-activity', 'contents-collapse-state',
       'trade-connection-status', 'open-settings-tab', 'toolbar-hover', 'reminder-message',
       'incomplete-contents', 'diary-updated', 'xp-update', 'xp-efficiency-alert', 'boss-entry-update', 'shout-history-updated', 'supply-run-update', 'notification-positions-preview',
-      'buff-timer-update', 'buff-timer-warning', 'buff-hud-toggle-feedback', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
+      'buff-timer-update', 'buff-timer-warning', 'buff-hud-toggle-feedback', 'xp-reset-done', 'abandoned-update', 'abandoned-alert', 'abandoned-hide-now', 'digsite-update', 'pitta-alert', 'special-monster-alert', 'golgotha-special-monster-alert', 'abyss-treasure-complete-alert', 'ethos-alert', 'abyss-apostle-alert',
       'scam-alert', 'scam-progress', 'scam-session-update', 'scam-analysis-token', 'scam-analysis-result', 'wave-warning-alert', 'lokagos-alert', 'chat-updated', 'chat-overlay-mode', 'chat-history-cleared',
       'auto-select-equipment', 'auto-select-evolution',
       'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',

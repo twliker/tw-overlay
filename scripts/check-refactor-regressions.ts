@@ -3593,6 +3593,7 @@ function checkPreloadDefaultConfigCompatibility() {
     assert.equal(exposedApi.DEFAULT_CONFIG.shortcuts.toggleTimer, 'CommandOrControl+Shift+S');
     assert.equal(typeof exposedApi.onPlaySound, 'function');
     assert.equal(typeof exposedApi.onSpecialMonsterAlert, 'function');
+    assert.equal(typeof exposedApi.onGolgothaSpecialMonsterAlert, 'function');
     assert.equal(typeof exposedApi.onAbyssTreasureCompleteAlert, 'function');
     const evolutionSelection = { category: 'weapon', part: '', itemName: '인퍼널 대거' };
     exposedApi.sendEquipmentToEvolution(evolutionSelection);
@@ -3632,7 +3633,7 @@ function checkPreloadDefaultConfigCompatibility() {
     'trade-connection-status', 'open-settings-tab', 'highlight-alarm-settings',
     'toolbar-hover', 'reminder-message', 'incomplete-contents', 'diary-updated',
     'xp-update', 'shout-history-updated', 'buff-timer-update', 'buff-timer-warning', 'buff-hud-toggle-feedback',
-    'xp-reset-done', 'essence-alert', 'pitta-alert', 'special-monster-alert', 'abyss-treasure-complete-alert',
+    'xp-reset-done', 'essence-alert', 'pitta-alert', 'special-monster-alert', 'golgotha-special-monster-alert', 'abyss-treasure-complete-alert',
     'ethos-alert', 'abyss-apostle-alert', 'wave-warning-alert', 'lokagos-alert',
     'quest-started', 'quest-update', 'quest-complete', 'quest-cancelled',
     'scam-alert', 'scam-analysis-result', 'scam-progress', 'scam-session-update',
@@ -3688,6 +3689,7 @@ function checkRequestedFeatureContracts() {
     assert.ok(processor.includes(mapping), `숙제 카운팅 매핑 누락: ${mapping}`);
   });
   assert.match(processor, /sendGameOverlayEvent\('special-monster-alert', data\)/);
+  assert.match(processor, /sendGameOverlayEvent\('golgotha-special-monster-alert', data\)/);
   assert.match(processor, /ABYSS_TREASURE_COMPLETE[\s\S]*?sendGameOverlayEvent\('abyss-treasure-complete-alert', data\)/);
   const abyssTreasureKeyBlock = processor.match(
     /ABYSS_TREASURE_CONFIG_KEYS = \[([\s\S]*?)\] as const/,

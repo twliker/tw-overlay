@@ -59,6 +59,7 @@ export interface ChatParserEventMap {
     ETA_WILL_UPGRADE_GAIN: { date: string; timestamp: string; message: string };
     CLUB_POINT_500_GAIN: { date: string; timestamp: string; message: string };
     SPECIAL_MONSTER_SPAWN: { date: string; timestamp: string; message: string };
+    GOLGOTHA_SPECIAL_MONSTER_SPAWN: { date: string; timestamp: string; message: string };
     ETERNAL_FLOOR_CLEAR: { date: string; timestamp: string; message: string };
 
     VESTIGE_CLEAR: { date: string; timestamp: string; message: string };
@@ -607,6 +608,11 @@ export interface AppConfig {
 
     // --- Overlay Alerts Settings ---
     specialMonsterAlertEnabled?: boolean;
+    specialMonsterAlertSound?: string;
+    specialMonsterAlertVolume?: number;
+    golgothaAlertEnabled?: boolean;
+    golgothaAlertSound?: string;
+    golgothaAlertVolume?: number;
     abandonedAlertEnabled?: boolean;
     pittaHillAlertEnabled?: boolean;
     questCompleteAlertEnabled?: boolean;

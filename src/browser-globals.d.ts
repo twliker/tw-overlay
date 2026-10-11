@@ -92,6 +92,7 @@ interface GameOverlayAlerts {
   showEssenceAlert(): void;
   showPittaAlert(): void;
   showSpecialMonsterAlert(): void;
+  showGolgothaSpecialMonsterAlert(): void;
   showQuestComplete(options: {
     questName: string;
     target: number;
@@ -343,6 +344,7 @@ interface Window {
   __twOverlayDevtoolsInitialized?: boolean;
   testEssenceAlert(): void;
   testSpecialMonsterAlert(): void;
+  testGolgothaAlert(): void;
   testLokagos(type?: string, zone?: string): void;
   testEthos(passwordOrDirection?: string): void;
   testAbyssApostle(): void;

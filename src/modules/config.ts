@@ -54,6 +54,8 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'buffTimerWarnSeconds', 'buffTimerAudioAlert', 'buffTimerVisualAlert', 'buffTimerVolume',
   'buffTimerSound', 'buffTimerBuffs', 'buffTimerCenterAlert', 'buffTimerHudPos',
   'essenceAlertEnabled', 'essenceAlertSound', 'essenceAlertVolume', 'specialMonsterAlertEnabled',
+  'specialMonsterAlertSound', 'specialMonsterAlertVolume',
+  'golgothaAlertEnabled', 'golgothaAlertSound', 'golgothaAlertVolume',
   'abandonedAlertEnabled', 'pittaHillAlertEnabled', 'questCompleteAlertEnabled',
   'questCompleteAlertSound', 'questCompleteAlertVolume', 'abyssTreasureAlertEnabled',
   'abyssTreasureAlertSound', 'abyssTreasureAlertVolume',

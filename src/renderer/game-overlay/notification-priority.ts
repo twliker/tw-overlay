@@ -9,7 +9,7 @@
     ['ethos-arrow-container', 3, node => !!node.querySelector('.ethos-arrow-wrapper.show')],
     ['supply-pad-alert', 3, node => !node.classList.contains('hidden')],
     ['wave-warning-alert', 2, node => node.classList.contains('warn')],
-    ...['quest-alert', 'abandoned-alert', 'pitta-alert', 'essence-alert', 'special-monster-alert'].map(id =>
+    ...['quest-alert', 'abandoned-alert', 'pitta-alert', 'essence-alert', 'special-monster-alert', 'golgotha-special-monster-alert'].map(id =>
       [id, 1, (node: HTMLElement) => node.getAnimations().some(animation => animation.playState === 'running')] as [string, number, (node: HTMLElement) => boolean]),
   ];
   const items = definitions.map(([id, priority, active]) => ({ node: document.getElementById(id), priority, active, serial: 0, wasActive: false }));

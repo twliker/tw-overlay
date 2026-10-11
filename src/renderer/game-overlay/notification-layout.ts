@@ -17,7 +17,7 @@ interface Window { notificationLayout: { updateConfig(config: Partial<BrowserApp
 
   const defaults: Positions = { center: 'default', buff: 'default', hunting: 'default', toast: 'default' };
   const selectors: Record<Group, string> = {
-    center: '#abandoned-alert,#pitta-alert,#quest-alert,#special-monster-alert,#essence-alert,#ethos-arrow-container,#abyss-apostle-alert,#wave-warning-alert,#lokagos-alert,#supply-pad-alert',
+    center: '#abandoned-alert,#pitta-alert,#quest-alert,#special-monster-alert,#golgotha-special-monster-alert,#essence-alert,#ethos-arrow-container,#abyss-apostle-alert,#wave-warning-alert,#lokagos-alert,#supply-pad-alert',
     buff: '#buff-alert-container', hunting: '.hunting-assist-panel', toast: '#dock-toast-container',
   };
 

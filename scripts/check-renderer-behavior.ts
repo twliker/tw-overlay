@@ -2115,7 +2115,9 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         abyssEnd: addSelect('abyss-apostle-end-sound', 'end.mp3'),
         lokagos: addSelect('lokagos-alert-sound', 'lokagos.mp3'),
         questComplete: addSelect('quest-complete-alert-sound', 'start.mp3'),
-        abyssTreasure: addSelect('abyss-treasure-alert-sound', 'end.mp3')
+        abyssTreasure: addSelect('abyss-treasure-alert-sound', 'end.mp3'),
+        specialMonster: addSelect('special-monster-alert-sound', 'orb.mp3'),
+        golgotha: addSelect('golgotha-alert-sound', 'orb.mp3')
       };
       addInput('chat-overlay-width-input', '512');
       addInput('chat-overlay-height-input', '400');
@@ -2134,6 +2136,11 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       addInput('wave-warning-enabled', '', true);
       addInput('wave-warning-volume', '65');
       addInput('special-monster-alert-enabled', '', true);
+      addInput('special-monster-alert-sound', 'orb.mp3');
+      addInput('special-monster-alert-volume', '40');
+      addInput('golgotha-alert-enabled', '', true);
+      addInput('golgotha-alert-sound', 'orb.mp3');
+      addInput('golgotha-alert-volume', '40');
       addInput('abandoned-alert-enabled', '', true);
       addInput('pitta-hill-alert-enabled', '', false);
       addInput('quest-complete-alert-enabled', '', true);
@@ -2224,7 +2231,9 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         abyssApostleEndSound: 'end.mp3',
         lokagosAlertSound: 'lokagos.mp3',
         questCompleteAlertSound: 'start.mp3',
-        abyssTreasureAlertSound: 'end.mp3'
+        abyssTreasureAlertSound: 'end.mp3',
+        specialMonsterAlertSound: 'orb.mp3',
+        golgothaAlertSound: 'orb.mp3'
       });
       const configuredAlertSounds = Object.fromEntries(
         Object.entries(alertSoundSelects).map(([key, select]) => [key, select.value])
@@ -2677,6 +2686,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       lokagos: 'lokagos.mp3',
       questComplete: 'start.mp3',
       abyssTreasure: 'end.mp3',
+      specialMonster: 'orb.mp3',
+      golgotha: 'orb.mp3',
     },
     waveOptionLabels: [
       '사용 안 함 (소리 없음)',

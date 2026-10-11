@@ -62,7 +62,16 @@ const TRADE_SHOUT_CONFIG_KEYS = [
   'discordWebhookUrl',
   'discordRules',
 ] as const;
-const SPECIAL_MONSTER_CONFIG_KEYS = ['specialMonsterAlertEnabled'] as const;
+const SPECIAL_MONSTER_CONFIG_KEYS = [
+  'specialMonsterAlertEnabled',
+  'specialMonsterAlertSound',
+  'specialMonsterAlertVolume',
+] as const;
+const GOLGOTHA_ALERT_CONFIG_KEYS = [
+  'golgothaAlertEnabled',
+  'golgothaAlertSound',
+  'golgothaAlertVolume',
+] as const;
 const ABYSS_TREASURE_CONFIG_KEYS = [
   'abyssTreasureAlertEnabled',
   'abyssTreasureAlertSound',
@@ -464,6 +473,28 @@ class ChatLogProcessor {
       if (cfg.specialMonsterAlertEnabled === false) return;
       log(`[CHAT_PROCESSOR] 특별 몬스터 출현 감지: ${data.message}`);
       this.sendGameOverlayEvent('special-monster-alert', data);
+      this.playAlertSound({
+        label: '공허 특별 몬스터 출현',
+        soundFile: cfg.specialMonsterAlertSound || 'orb.mp3',
+        volume: cfg.specialMonsterAlertVolume,
+        defaultVolume: 40,
+        logMessage: `[공허 특별 몬스터 출현] ${data.message}`
+      });
+    });
+
+    // 0-0. 골고다 강력한 적(선봉대 부대장) 출현 알림
+    chatParser.on('GOLGOTHA_SPECIAL_MONSTER_SPAWN', (data) => {
+      const cfg = config.loadFields(GOLGOTHA_ALERT_CONFIG_KEYS);
+      if (cfg.golgothaAlertEnabled === false) return;
+      log(`[CHAT_PROCESSOR] 골고다 강력한 적 출현 감지: ${data.message}`);
+      this.sendGameOverlayEvent('golgotha-special-monster-alert', data);
+      this.playAlertSound({
+        label: '골고다 강력한 적 출현',
+        soundFile: cfg.golgothaAlertSound || 'orb.mp3',
+        volume: cfg.golgothaAlertVolume,
+        defaultVolume: 40,
+        logMessage: `[골고다 강력한 적 출현] ${data.message}`
+      });
     });
 
     // 0-1. 심연의 보물창고 종료 안내 계약

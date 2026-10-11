@@ -31,6 +31,15 @@ declare function showAbyssApostleAlert(onStart: () => void, onEnd: () => void): 
     console.log('✅ 공허 특별 몬스터 출현 알림 테스트 실행');
   };
 
+  window.testGolgothaAlert = function () {
+    if (!document.getElementById('golgotha-special-monster-alert')) {
+      console.error('golgotha-special-monster-alert 엘리먼트를 찾을 수 없습니다.');
+      return;
+    }
+    gameOverlayAlerts.showGolgothaSpecialMonsterAlert();
+    console.log('✅ 골고다 강력한 적 출현 알림 테스트 실행');
+  };
+
   window.testLokagos = function (type: string = 'EXCLUDE', zone: string = '알파'): void {
     const validTypes = ['EXCLUDE', 'TARGET'];
     const validZones = ['알파', '브라보', '찰리', '델타'];
@@ -133,5 +142,7 @@ declare function showAbyssApostleAlert(onStart: () => void, onEnd: () => void): 
   console.log(`testEssenceAlert()`);
   console.log('%c6. 공허 특별 몬스터 출현 알림 테스트:', 'color: #facc15; font-weight: bold;');
   console.log(`testSpecialMonsterAlert()`);
+  console.log('%c7. 골고다 강력한 적 출현 알림 테스트:', 'color: #facc15; font-weight: bold;');
+  console.log(`testGolgothaAlert()`);
   console.log('----------------------------------------------------');
 })();

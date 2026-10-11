@@ -45,6 +45,11 @@
     waveMonsterWarningSound: string;
     waveMonsterWarningVolume: number;
     specialMonsterAlertEnabled: boolean;
+    specialMonsterAlertSound: string;
+    specialMonsterAlertVolume: number;
+    golgothaAlertEnabled: boolean;
+    golgothaAlertSound: string;
+    golgothaAlertVolume: number;
     abandonedAlertEnabled: boolean;
     pittaHillAlertEnabled: boolean;
     questCompleteAlertEnabled: boolean;
@@ -177,6 +182,11 @@
       waveMonsterWarningSound: stringValue('wave-warning-sound', defaultConfig.waveMonsterWarningSound),
       waveMonsterWarningVolume: integerValue('wave-warning-volume', defaultConfig.waveMonsterWarningVolume),
       specialMonsterAlertEnabled: checkedValue('special-monster-alert-enabled', defaultConfig.specialMonsterAlertEnabled),
+      specialMonsterAlertSound: stringValue('special-monster-alert-sound', defaultConfig.specialMonsterAlertSound),
+      specialMonsterAlertVolume: integerValue('special-monster-alert-volume', defaultConfig.specialMonsterAlertVolume),
+      golgothaAlertEnabled: checkedValue('golgotha-alert-enabled', defaultConfig.golgothaAlertEnabled),
+      golgothaAlertSound: stringValue('golgotha-alert-sound', defaultConfig.golgothaAlertSound),
+      golgothaAlertVolume: integerValue('golgotha-alert-volume', defaultConfig.golgothaAlertVolume),
       abandonedAlertEnabled: checkedValue('abandoned-alert-enabled', defaultConfig.abandonedAlertEnabled),
       pittaHillAlertEnabled: checkedValue('pitta-hill-alert-enabled', defaultConfig.pittaHillAlertEnabled),
       questCompleteAlertEnabled: checkedValue('quest-complete-alert-enabled', defaultConfig.questCompleteAlertEnabled),

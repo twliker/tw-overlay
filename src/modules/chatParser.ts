@@ -256,6 +256,21 @@ export class ChatParser extends EventEmitter {
       return;
     }
 
+    /**
+     * 기능 계약 — 골고다 강력한 적(선봉대 부대장) 출현 감지
+     * - 골고다의 협곡에서 사냥 중 젠되는 "맵 어딘가에 강력한 적이 나타났습니다." 시스템 메시지를 감지합니다.
+     * - 이 이벤트는 오버레이 알림 카드([✦ 골고다의 협곡 ✦ 강력한 적 출현!])와 알림음 재생으로 이어집니다.
+     * - 설정 키: golgothaAlertEnabled, golgothaAlertSound, golgothaAlertVolume
+     */
+    if (/맵\s*어딘가에\s*강력한\s*적이\s*(?:나타났|출현하였)습니다\.?/.test(cleanMsg)) {
+      this.emit('GOLGOTHA_SPECIAL_MONSTER_SPAWN', {
+        date: this._currentDate,
+        timestamp,
+        message: cleanMsg
+      });
+      return;
+    }
+
     // 0-1. 이터널 플로어 보상 상자 획득
     if (/\[이터널\s*플로어\s*보상\s*상자\]\s*아이템을\s*획득하였습니다\./.test(cleanMsg)) {
       this.emit('ETERNAL_FLOOR_CLEAR', {

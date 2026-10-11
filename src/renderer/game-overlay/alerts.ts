@@ -29,6 +29,10 @@
     replayAnimation(byId('special-monster-alert'));
   }
 
+  function showGolgothaSpecialMonsterAlert(): void {
+    replayAnimation(byId('golgotha-special-monster-alert'));
+  }
+
   function showQuestComplete({
     questName,
     target,
@@ -82,6 +86,7 @@
     showEssenceAlert,
     showPittaAlert,
     showSpecialMonsterAlert,
+    showGolgothaSpecialMonsterAlert,
     showQuestComplete,
     showContentComplete
   });

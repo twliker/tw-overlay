@@ -28,6 +28,11 @@
     waveMonsterWarningSound?: string;
     waveMonsterWarningVolume?: number;
     specialMonsterAlertEnabled?: boolean;
+    specialMonsterAlertSound?: string;
+    specialMonsterAlertVolume?: number;
+    golgothaAlertEnabled?: boolean;
+    golgothaAlertSound?: string;
+    golgothaAlertVolume?: number;
     abandonedAlertEnabled?: boolean;
     pittaHillAlertEnabled?: boolean;
     questCompleteAlertEnabled?: boolean;
@@ -181,6 +186,22 @@
     );
 
     setChecked('special-monster-alert-enabled', config.specialMonsterAlertEnabled ?? defaults.specialMonsterAlertEnabled ?? true);
+    setValue('special-monster-alert-sound', config.specialMonsterAlertSound || defaults.specialMonsterAlertSound || '');
+    bindRange(
+      'special-monster-alert-volume',
+      'special-monster-alert-volume-val',
+      config.specialMonsterAlertVolume ?? defaults.specialMonsterAlertVolume ?? 40,
+      value => `${value}%`,
+    );
+
+    setChecked('golgotha-alert-enabled', config.golgothaAlertEnabled ?? defaults.golgothaAlertEnabled ?? true);
+    setValue('golgotha-alert-sound', config.golgothaAlertSound || defaults.golgothaAlertSound || '');
+    bindRange(
+      'golgotha-alert-volume',
+      'golgotha-alert-volume-val',
+      config.golgothaAlertVolume ?? defaults.golgothaAlertVolume ?? 40,
+      value => `${value}%`,
+    );
     setChecked('abandoned-alert-enabled', config.abandonedAlertEnabled ?? defaults.abandonedAlertEnabled ?? true);
     setChecked('pitta-hill-alert-enabled', config.pittaHillAlertEnabled ?? defaults.pittaHillAlertEnabled ?? true);
     setChecked('quest-complete-alert-enabled', config.questCompleteAlertEnabled ?? defaults.questCompleteAlertEnabled ?? true);
