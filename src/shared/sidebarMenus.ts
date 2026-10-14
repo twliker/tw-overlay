@@ -18,6 +18,7 @@ export const SIDEBAR_MENU_ACTIONS = [
   'toggleHuntingExpCalculator',
   'toggleRelicCalculator',
   'toggleEquipmentSimulator',
+  'toggleLuminaCorridor',
   'toggleSienaAura',
   'toggleUniformColor',
   'toggleSwordEnhance',

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
+  <title>루미나의 회랑 길잡이</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body {
+      margin: 0;
+      background: #090d16;
+      color: #e2e8f0;
+      overflow: hidden;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      letter-spacing: -0.02em;
+      user-select: none;
+    }
+
+    .drag { -webkit-app-region: drag; }
+    .no-drag { -webkit-app-region: no-drag; }
+
+    /* Glassmorphism Cards */
+    .glass-card {
+      background: rgba(15, 23, 42, 0.7);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+    }
+
+    /* Tab Buttons */
+    .chip-btn {
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(15, 23, 42, 0.5);
+      transition: all 0.15s ease;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .chip-btn:hover {
+      color: #f1f5f9;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .chip-btn.active {
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.35);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+    }
+
+    /* Scrollbar */
+    .custom-scroll::-webkit-scrollbar { width: 5px; }
+    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+  </style>
+</head>
+<body class="h-screen flex flex-col">
+
+  <!-- ── 상단 헤더 & 컨트롤 바 ── -->
+  <header class="drag h-12 bg-slate-900/80 border-b border-white/10 px-3.5 flex items-center justify-between shrink-0 gap-3 whitespace-nowrap">
+    <div class="flex items-center gap-2 shrink-0 whitespace-nowrap">
+      <div class="w-7 h-7 rounded-lg bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+        <i data-lucide="compass" class="w-4 h-4"></i>
+      </div>
+      <div class="shrink-0">
+        <h1 class="text-xs font-black text-slate-100 flex items-center gap-1.5 whitespace-nowrap">
+          루미나의 회랑 길잡이
+          <span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">자동 분석</span>
+        </h1>
+        <p class="text-[10px] text-slate-400 whitespace-nowrap">Ctrl+V 로 스크린샷 붙여넣기</p>
+      </div>
+    </div>
+
+    <!-- 우측: 빠른 샘플 & 윈도우 조작 & 리셋 버튼 -->
+    <div class="no-drag flex items-center gap-1.5 shrink-0 whitespace-nowrap">
+      <button id="btnSample1_drop" class="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-white/10 text-[11px] font-bold transition-all">
+        샘플 1
+      </button>
+      <button id="btnSample2_drop" class="px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-white/10 text-[11px] font-bold transition-all">
+        샘플 2
+      </button>
+      <button id="btnReset" class="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-white/10 text-[11px] font-bold transition-all flex items-center gap-1 shrink-0" title="새 이미지 등록">
+        <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+        초기화
+      </button>
+      <div class="w-px h-3.5 bg-white/10 mx-0.5"></div>
+      <button id="btnMinimize" class="w-7 h-7 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white flex items-center justify-center transition-colors shrink-0">
+        <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+      </button>
+      <button id="btnClose" class="w-7 h-7 rounded-lg hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 flex items-center justify-center transition-colors shrink-0">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── 메인 바디 컨텐츠 ── -->
+  <main class="flex-1 flex min-h-0">
+
+    <!-- ── 좌측: 인터랙티브 뷰어 영역 ── -->
+    <section class="flex-1 min-w-0 bg-slate-950/40 p-4 flex flex-col items-center justify-center relative overflow-hidden">
+      
+      <!-- 이미지 등록 전 드롭존 (Drop Zone) -->
+      <div id="dropZone" class="w-full max-w-lg p-8 glass-card border-dashed border-2 border-slate-700/80 hover:border-sky-500/50 flex flex-col items-center text-center transition-all cursor-pointer">
+        <div class="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 mb-4 shadow-lg shadow-sky-500/5">
+          <i data-lucide="image-plus" class="w-8 h-8"></i>
+        </div>
+        <h2 class="text-base font-black text-slate-100 mb-1">스크린샷을 붙여넣으세요</h2>
+        <p class="text-xs text-slate-400 mb-6 leading-relaxed">
+          게임 화면에서 <span class="font-bold text-sky-300">Win + Shift + S</span> 로 회랑 창을 캡처한 뒤<br>
+          이 창에서 <span class="font-bold text-sky-300">Ctrl + V</span> 를 누르면 자동으로 분석됩니다.
+        </p>
+
+        <div class="flex items-center gap-3">
+          <label class="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-sky-500/20 cursor-pointer flex items-center gap-1.5">
+            <i data-lucide="folder-open" class="w-3.5 h-3.5"></i>
+            파일 선택
+            <input type="file" id="fileInput" accept="image/*" class="hidden">
+          </label>
+          <div class="flex items-center gap-1.5">
+            <button id="btnSample1" class="px-3 py-2 rounded-xl bg-slate-900 border border-white/10 hover:border-white/20 text-slate-300 text-xs font-bold transition-all">
+              샘플 1
+            </button>
+            <button id="btnSample2" class="px-3 py-2 rounded-xl bg-slate-900 border border-white/10 hover:border-white/20 text-slate-300 text-xs font-bold transition-all">
+              샘플 2
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 이미지 뷰어 컨테이너 (분석 완료 시 활성화) -->
+      <div id="viewerContainer" class="hidden relative max-h-full max-w-full flex items-center justify-center rounded-2xl overflow-hidden border border-white/10 bg-slate-950/80 shadow-2xl">
+        <!-- 원본 스크린샷 이미지 -->
+        <img id="sourceImage" class="max-h-[82vh] max-w-full object-contain select-none pointer-events-none opacity-90" alt="루미나의 회랑 캡처">
+
+        <!-- 인터랙티브 SVG 오버레이 -->
+        <svg id="overlaySvg" class="absolute inset-0 w-full h-full pointer-events-auto">
+          <defs>
+            <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="3.5" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+        </svg>
+      </div>
+
+      <!-- 노드 호버 툴팁 -->
+      <div id="nodeTooltip" class="hidden absolute z-50 pointer-events-none glass-card p-3 w-64 shadow-2xl border border-sky-500/30 text-xs transition-opacity duration-150">
+        <div class="flex items-start gap-2.5 mb-2">
+          <img id="tooltipIcon" class="w-8 h-8 rounded-lg bg-slate-900 border border-white/10 object-contain p-0.5 shrink-0" alt="아이콘">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-1 mb-0.5">
+              <span id="tooltipStage" class="text-[10px] font-bold text-sky-400 uppercase tracking-wider"></span>
+              <span id="tooltipTierBadge" class="text-[9px] font-black px-1.5 py-0.5 rounded"></span>
+            </div>
+            <div id="tooltipMission" class="font-black text-slate-100 text-sm leading-tight truncate"></div>
+          </div>
+        </div>
+        <div class="space-y-1.5 py-1.5 border-t border-white/10 text-[11px]">
+          <div class="flex justify-between items-center text-slate-300">
+            <span id="tooltipOrder" class="font-bold text-sky-300"></span>
+            <span id="tooltipScore" class="font-mono font-bold text-amber-300"></span>
+          </div>
+          <div id="tooltipGuide" class="text-[10px] text-slate-300 leading-normal pt-1 bg-slate-950/40 p-1.5 rounded border border-white/5"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ── 우측: 분석 요약 & 보상 정보 패널 ── -->
+    <aside class="w-[395px] shrink-0 bg-slate-900/50 border-l border-white/10 flex flex-col min-h-0">
+
+      <!-- 분석 설정 컨트롤 (난이도, 인원, 모드) -->
+      <div class="p-3 border-b border-white/10 space-y-2 shrink-0 bg-slate-950/40">
+        <!-- 1행: 난이도 & 편성 인원 -->
+        <div class="grid grid-cols-2 gap-2">
+          <!-- 난이도 -->
+          <div class="space-y-1">
+            <span class="text-[10px] font-bold text-slate-400 px-0.5 block">난이도</span>
+            <div class="grid grid-cols-3 gap-0.5 bg-slate-950/80 p-0.5 rounded-xl border border-white/5">
+              <button id="diff-normal" class="chip-btn active text-[11px] py-1 px-0">일반</button>
+              <button id="diff-hard" class="chip-btn text-[11px] py-1 px-0">어려움</button>
+              <button id="diff-hell" class="chip-btn text-[11px] py-1 px-0">지옥</button>
+            </div>
+          </div>
+          <!-- 편성 인원 -->
+          <div class="space-y-1">
+            <span class="text-[10px] font-bold text-slate-400 px-0.5 block">편성 인원</span>
+            <div class="grid grid-cols-4 gap-0.5 bg-slate-950/80 p-0.5 rounded-xl border border-white/5">
+              <button id="party-1" class="chip-btn active text-[11px] py-1 px-0" title="1명 (+0%)">1명</button>
+              <button id="party-2" class="chip-btn text-[11px] py-1 px-0" title="2명 (+4%)">2명</button>
+              <button id="party-3" class="chip-btn text-[11px] py-1 px-0" title="3명 (+7%)">3명</button>
+              <button id="party-4" class="chip-btn text-[11px] py-1 px-0" title="4명 (+10%)">4명</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2행: 탐색 모드 -->
+        <div class="space-y-1">
+          <span class="text-[10px] font-bold text-slate-400 px-0.5 block">탐색 모드</span>
+          <div class="grid grid-cols-3 gap-1 bg-slate-950/80 p-0.5 rounded-xl border border-white/5">
+            <button id="mode-highest_score" class="chip-btn active flex items-center justify-center gap-1 text-[11px] py-1" title="고득점 루트">
+              <i data-lucide="trophy" class="w-3 h-3 text-amber-400"></i>
+              고득점
+            </button>
+            <button id="mode-max_nodes" class="chip-btn flex items-center justify-center gap-1 text-[11px] py-1" title="최다 노드">
+              <i data-lucide="layers" class="w-3 h-3 text-sky-400"></i>
+              최다 노드
+            </button>
+            <button id="mode-shortest" class="chip-btn flex items-center justify-center gap-1 text-[11px] py-1" title="최단 쾌속">
+              <i data-lucide="zap" class="w-3 h-3 text-emerald-400"></i>
+              최단 쾌속
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 상단 요약 카드 -->
+      <div class="p-3 border-b border-white/10 space-y-2 shrink-0">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-black text-slate-400 uppercase tracking-wider">추천 최적 경로</span>
+          <span id="rewardBadge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">-</span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-1.5">
+          <div class="p-2 rounded-xl bg-slate-950/60 border border-white/5">
+            <div class="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-0.5 truncate">
+              <i data-lucide="award" class="w-3 h-3 text-amber-400 shrink-0"></i>
+              예상 점수
+            </div>
+            <div id="totalScoreText" class="text-base font-black text-amber-300 font-mono whitespace-nowrap">0점</div>
+          </div>
+
+          <div class="p-2 rounded-xl bg-slate-950/60 border border-white/5">
+            <div class="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-0.5 truncate">
+              <i data-lucide="map-pin" class="w-3 h-3 text-sky-400 shrink-0"></i>
+              클리어 노드
+            </div>
+            <div id="totalNodesText" class="text-base font-black text-sky-300 font-mono whitespace-nowrap">0개</div>
+          </div>
+
+          <div class="p-2 rounded-xl bg-slate-950/60 border border-white/5">
+            <div class="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-0.5 truncate">
+              <i data-lucide="clock" class="w-3 h-3 text-emerald-400 shrink-0"></i>
+              예상 시간
+            </div>
+            <div id="totalTimeText" class="text-[15px] font-black text-emerald-300 font-mono whitespace-nowrap">0분 0초</div>
+          </div>
+        </div>
+
+        <!-- 대체 추천 경로 선택 탭 -->
+        <div id="altPathTabs" class="flex items-center gap-1.5 pt-1 w-full"></div>
+      </div>
+
+      <!-- 순위별 보상 달성도 섹션 (사용자 제공 기준표 적용) -->
+      <div class="p-3 border-b border-white/10 space-y-2.5 shrink-0 bg-slate-950/30">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-bold text-slate-300 flex items-center gap-1.5">
+            <i data-lucide="gift" class="w-3.5 h-3.5 text-sky-400"></i>
+            순위별 인장 보상 컷
+          </span>
+          <span id="rewardSealText" class="text-[11px] font-black text-amber-400">-</span>
+        </div>
+
+        <!-- 프로그레스 바 -->
+        <div class="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden border border-white/5 p-0.5">
+          <div id="rewardGauge" class="bg-gradient-to-r from-sky-500 via-amber-400 to-emerald-400 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+
+        <div id="rewardStatusText" class="text-[10px] text-slate-400 leading-normal">
+          스크린샷을 업로드하면 보상 기준이 계산됩니다.
+        </div>
+
+        <!-- 보상 기준표 미니 뷰 -->
+        <div class="pt-2 border-t border-white/5 grid grid-cols-2 gap-1 text-[10px] text-slate-400">
+          <div>• 7,250점+ (상위 2%): 2,000개</div>
+          <div>• 3,800점+ (상위 10%): 1,200개</div>
+          <div>• 2,000점+ (상위 35%): 1,000개</div>
+          <div>• 1,200점+ (상위 70%): 600개</div>
+        </div>
+      </div>
+
+      <!-- 공략 팁 카드 -->
+      <div class="p-3 mx-3 my-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-[11px] text-sky-300 leading-relaxed shrink-0 flex items-start gap-2">
+        <i data-lucide="lightbulb" class="w-4 h-4 text-sky-400 shrink-0 mt-0.5"></i>
+        <div>
+          <strong class="font-black text-sky-200">클리어 팁:</strong> 일반 기준 15초마다 1점씩 차감되므로 보스/기믹 미션을 빠르게 클리어할수록 최종 점수가 높아집니다.
+        </div>
+      </div>
+
+      <!-- 경로 상세 단계별 목록 -->
+      <div class="flex-1 min-h-0 flex flex-col p-4 pt-2">
+        <div class="text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+          <span>진행 순서 및 노드 목록</span>
+          <span class="text-[10px] text-slate-500">1단계 → 10단계</span>
+        </div>
+        <div id="pathStepList" class="flex-1 overflow-y-auto custom-scroll space-y-1.5 pr-1"></div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- ── 스크립트 로드 ── -->
+  <script src="shared/luminaCorridor.js"></script>
+  <script src="renderer/lumina-corridor.js"></script>
+  <script>
+    if (window.bindEscapeClose) window.bindEscapeClose();
+  </script>
+</body>
+</html>

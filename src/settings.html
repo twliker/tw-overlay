@@ -2077,25 +2077,64 @@
                       </div>
                     </label>
                   </div>
-                  <!-- 에토스 사운드 설정 영역 -->
+                  <!-- 에토스 상세 설정 영역 -->
                   <div id="ethos-sound-settings" class="pl-8 space-y-3 pt-2 border-t border-white/5">
                     <div class="flex gap-2 items-center">
-                      <span class="text-xs text-slate-400 font-bold w-16">알림음</span>
+                      <span class="text-xs text-slate-400 font-bold w-20">알림음</span>
                       <select id="ethos-alert-sound"
                         class="input-field py-1.5 px-3 bg-black/40 text-xs text-slate-300 rounded-lg flex-1">
                         <!-- 동적으로 로드됨 -->
                       </select>
-                      <button id="btn-ethos-sound-preview" onclick="previewEthosSound()"
+                      <button type="button" id="btn-ethos-sound-preview" onclick="previewEthosSound()"
                         class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-lg text-xs">
                         ▶ 미리듣기
                       </button>
                     </div>
                     <div class="flex gap-2 items-center">
-                      <span class="text-xs text-slate-400 font-bold w-16">볼륨</span>
+                      <span class="text-xs text-slate-400 font-bold w-20">볼륨</span>
                       <input type="range" id="ethos-alert-volume" min="0" max="100"
                         class="flex-1 accent-purple-500 bg-white/10 h-1 rounded-lg cursor-pointer">
                       <span id="ethos-alert-volume-val"
                         class="text-xs text-slate-300 font-bold w-10 text-right">40%</span>
+                    </div>
+
+                    <div class="flex gap-2 items-center">
+                      <span class="text-xs text-slate-400 font-bold w-20">색상 테마</span>
+                      <select id="ethos-alert-color"
+                        class="input-field py-1.5 px-3 bg-black/40 text-xs text-slate-300 rounded-lg flex-1">
+                        <option value="magenta">핫 핑크 / 마젠타 (황토색 맵 최고 대비)</option>
+                        <option value="yellow">네온 옐로우 / 형광 (이펙트 관통)</option>
+                        <option value="cyan">네온 시안 (클래식 블루)</option>
+                        <option value="red">퓨어 레드 (강렬한 경보)</option>
+                      </select>
+                    </div>
+
+                    <div class="flex gap-2 items-center">
+                      <span class="text-xs text-slate-400 font-bold w-20">화살표 크기</span>
+                      <input type="range" id="ethos-alert-size" min="60" max="180" step="5" value="110"
+                        class="flex-1 accent-purple-500 bg-white/10 h-1 rounded-lg cursor-pointer">
+                      <span id="ethos-alert-size-val"
+                        class="text-xs text-slate-300 font-bold w-10 text-right">110px</span>
+                    </div>
+
+                    <div class="flex gap-2 items-center">
+                      <span class="text-xs text-slate-400 font-bold w-20">표시 거리</span>
+                      <input type="range" id="ethos-alert-radius" min="60" max="240" step="5" value="130"
+                        class="flex-1 accent-purple-500 bg-white/10 h-1 rounded-lg cursor-pointer">
+                      <span id="ethos-alert-radius-val"
+                        class="text-xs text-slate-300 font-bold w-10 text-right">130px</span>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-1">
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="ethos-alert-show-text" class="w-4 h-4 accent-indigo-600" checked>
+                        <span class="text-xs text-slate-300 font-bold">12시/3시 등 시계 방향 및 암호 텍스트 함께 표시</span>
+                      </label>
+                      <button type="button" id="btn-ethos-visual-preview" onclick="previewEthosVisual()"
+                        class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow-md shadow-indigo-500/20">
+                        <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                        화면 미리보기
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -3052,7 +3091,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                                class="text-purple-400">3.1.7</span></p>
+                                class="text-purple-400">3.2.0</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -6577,6 +6616,34 @@
 
     function previewEthosSound() {
       window.settingsSoundPreview.previewAlertSound({ soundElementId: 'ethos-alert-sound', volumeElementId: 'ethos-alert-volume', label: '에토스 기믹 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.ethosAlertSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.ethosAlertVolume });
+    }
+
+    async function previewEthosVisual() {
+      const ethosColor = document.getElementById('ethos-alert-color')?.value || 'magenta';
+      const ethosSize = parseInt(document.getElementById('ethos-alert-size')?.value) || 110;
+      const ethosRadius = parseInt(document.getElementById('ethos-alert-radius')?.value) || 130;
+      const ethosShowText = document.getElementById('ethos-alert-show-text')?.checked !== false;
+
+      try {
+        await applySettingsWithDraft({
+          ethosAlertColor: ethosColor,
+          ethosAlertSize: ethosSize,
+          ethosAlertRadius: ethosRadius,
+          ethosAlertShowText: ethosShowText,
+        }, ['ethos-alert-color', 'ethos-alert-size', 'ethos-alert-radius', 'ethos-alert-show-text']);
+      } catch (err) {
+        console.warn('에토스 설정 임시 저장 실패:', err);
+      }
+
+      if (window.electronAPI?.previewEthosAlert) {
+        window.electronAPI.previewEthosAlert({
+          password: '번개',
+          color: ethosColor,
+          size: ethosSize,
+          radius: ethosRadius,
+          showText: ethosShowText,
+        });
+      }
     }
 
     function previewAbyssStartSound() {

@@ -462,7 +462,7 @@ class BuffTimerManager {
         const shouldShowToastOnIndex = !isDock && !showOnOverlay;
         main.webContents.send(channel, {
           ...data,
-          soundFile: data.soundFile, // 사운드는 무조건 재생
+          soundFile: (!data.isPreview && !!cfg.masterMute) ? '' : data.soundFile,
           showToast: shouldShowToastOnIndex
         });
       } else {

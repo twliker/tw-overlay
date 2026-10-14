@@ -2055,6 +2055,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       huntingPathSimulator: ['hunting-path-simulator.html', 860, 800, false],
       huntingExpCalculator: ['hunting-exp-calculator.html', 940, 780, false], relicCalculator: ['relic-calculator.html', 920, 760, false],
       equipmentSimulator: ['equipment-simulator.html', 960, 820, false],
+      luminaCorridor: ['lumina-corridor.html', 850, 750, false],
       stopwatch: ['stopwatch.html', 870, 750, false],
       chatOverlay: ['chat-overlay.html', 450, 400, true], chatOverlaySub: ['chat-overlay.html', 450, 400, true],
       chatOverlaySub2: ['chat-overlay.html', 450, 400, true], dock: ['dock.html', 800, 380, true],

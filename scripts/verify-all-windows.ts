@@ -67,6 +67,7 @@ const targets: TargetWindow[] = [
   { id: '21_thesis_core_calculator', file: 'thesis-core-calculator.html', w: 850, h: 880 },
   { id: '22_sword_enhance', file: 'sword-enhance.html', w: 1300, h: 850 },
   { id: '23_qte_challenge', file: 'qte-challenge.html', w: 980, h: 780 },
+  { id: '23_lumina_corridor', file: 'lumina-corridor.html', w: 850, h: 750 },
 
   // 백과사전류
   { id: '24_buffs', file: 'buffs.html', w: 1080, h: 740 },

@@ -734,6 +734,7 @@ export function register(): void {
     'toggle-chat-overlay': wm.toggleChatOverlayWindow,
     'toggle-focused-chat': wm.toggleFocusedChatWindow,
     'toggle-hunting-path-simulator': wm.toggleHuntingPathSimulatorWindow,
+    'toggle-lumina-corridor': wm.toggleLuminaCorridorWindow,
     'toggle-welcome-guide': wm.toggleWelcomeGuideWindow,
     'toggle-update-notice': wm.toggleUpdateNoticeWindow,
     'toggle-shout-history': wm.toggleShoutHistoryWindow,
@@ -922,6 +923,28 @@ export function register(): void {
       || (volume !== null && !isFiniteInRange(volume, 0, 100))
       || !isLimitedString(bossName, 200)) return;
     wm.sendPlaySound({ label: bossName, soundFile, volume: volume !== null ? volume : undefined, isPreview: true });
+  });
+
+  ipcMain.on('preview-ethos-alert', (_e, payload?: unknown) => {
+    let validPassword = '번개';
+    let extra: Record<string, unknown> = {};
+    if (typeof payload === 'string' && payload.trim()) {
+      validPassword = payload.trim();
+    } else if (payload && typeof payload === 'object') {
+      const obj = payload as Record<string, unknown>;
+      if (typeof obj.password === 'string' && obj.password.trim()) {
+        validPassword = obj.password.trim();
+      }
+      extra = obj;
+    }
+    const overlay = wm.getGameOverlayWindow();
+    if (overlay && !overlay.isDestroyed()) {
+      overlay.webContents.send('ethos-alert', {
+        password: validPassword,
+        message: `암호는 ${validPassword}`,
+        ...extra,
+      });
+    }
   });
 
   ipcMain.on('save-quick-slots', (_e, slots: QuickSlotItem[]) => {

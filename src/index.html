@@ -24,7 +24,7 @@
       justify-content: center;
       width: 100%;
     }
-    
+
     .category-btn {
       width: 38px;
       height: 38px;
@@ -34,11 +34,11 @@
       border-radius: 10px;
       transition: all 0.2s;
     }
-    
+
     .category-btn:hover {
       background: rgba(255, 255, 255, 0.05);
     }
-    
+
     .flyout-submenu {
       display: none;
       position: fixed;
@@ -55,14 +55,14 @@
       pointer-events: auto;
       transition: border-color 0.25s ease, box-shadow 0.25s ease;
     }
-    
+
     /* 사이드바 위치에 따른 플라이아웃 배치 */
     body[data-sidebar-pos="right"] .flyout-submenu {
       left: 44px;
       right: auto;
       flex-direction: column;
     }
-    
+
     body[data-sidebar-pos="left"] .flyout-submenu {
       right: 44px;
       left: auto;
@@ -77,17 +77,17 @@
       bottom: 0;
       background: transparent;
     }
-    
+
     body[data-sidebar-pos="right"] .flyout-submenu::before {
       left: -10px;
       width: 10px;
     }
-    
+
     body[data-sidebar-pos="left"] .flyout-submenu::before {
       right: -10px;
       width: 10px;
     }
-    
+
     /* 서브메뉴 칩 스타일 */
     .submenu-chip {
       display: flex;
@@ -103,7 +103,7 @@
       cursor: pointer;
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    
+
     .submenu-chip:hover {
       background: color-mix(in srgb, var(--theme-color, #ffffff) 18%, transparent) !important;
       color: var(--theme-color, #cbd5e1) !important;
@@ -332,7 +332,7 @@
           const catItem = document.createElement('div');
           catItem.className = 'category-item';
           catItem.id = `cat-${cat.id}`;
-          
+
           const categoryMenus = allMenus.filter(m => m.category === cat.id && !m.isSystem && !m.isComment);
           const subMenus = categoryMenus.filter(menu => !menu.isOneDepth);
           const oneDepthMenus = categoryMenus.filter(menu => menu.isOneDepth);
@@ -341,12 +341,18 @@
           if (cat.id === 'homework') {
             catItem.innerHTML = `
               <button type="button" class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" aria-label="${cat.label}"
-                   onclick="window.electronAPI.toggleContentsChecker()"
+                   id="contents-checker-btn"
                    onmouseenter="showTooltip('${cat.label}', this)"
                    onmouseleave="hideTooltip()">
                 <i data-lucide="${cat.icon}" class="w-4 h-4"></i>
               </button>
             `;
+            const hwBtn = catItem.querySelector('button');
+            if (hwBtn) {
+              const activateHw = () => window.electronAPI.toggleContentsChecker();
+              if (window.sidebarMenuActivation) window.sidebarMenuActivation.bind(hwBtn, activateHw);
+              else hwBtn.onclick = activateHw;
+            }
           } else if (subMenus.length > 0) {
             catItem.innerHTML = `
               <button type="button" class="category-btn cursor-pointer text-slate-400 hover:text-${cat.color}" title="${cat.label}" aria-label="${cat.label}" aria-expanded="false">
@@ -367,13 +373,13 @@
                 flyout.classList.remove('hidden');
                 flyout.style.display = 'flex';
                 catItem.querySelector('.category-btn')?.setAttribute('aria-expanded', 'true');
-                
+
                 const rect = catItem.getBoundingClientRect();
                 const flyoutHeight = flyout.offsetHeight;
                 const targetTop = rect.top + rect.height / 2;
-                
+
                 let flyoutTop = targetTop - flyoutHeight / 2;
-                
+
                 // 화면 위/아래 경계선 침범 보정 (여백 8px)
                 const margin = 8;
                 if (flyoutTop < margin) {
@@ -381,7 +387,7 @@
                 } else if (flyoutTop + flyoutHeight > window.innerHeight - margin) {
                   flyoutTop = window.innerHeight - flyoutHeight - margin;
                 }
-                
+
                 flyout.style.top = `${flyoutTop}px`;
               }
             };
@@ -421,7 +427,7 @@
               chip.className = `submenu-chip`;
               chip.setAttribute('role', 'menuitem');
               chip.id = menu.id;
-              
+
               const colorClass = menu.color ? `color-${menu.color}` : 'color-slate-400';
               chip.classList.add(colorClass);
 
@@ -450,7 +456,7 @@
                   flyoutEl.classList.add(`color-${menu.color}`);
                 }
               };
-              
+
               chip.onmouseleave = () => {
                 const flyoutEl = chip.closest('.flyout-submenu');
                 if (flyoutEl && menu.color) {
@@ -476,9 +482,14 @@
             btn.innerHTML = menu.image
               ? `<img src="${menu.image}" class="w-4 h-4 object-contain" alt="${menu.label}">`
               : `<i data-lucide="${menu.icon}" class="w-4 h-4"></i>`;
-            btn.onclick = () => {
+            const activateOneDepth = () => {
               if (menu.api && window.electronAPI[menu.api]) window.electronAPI[menu.api]();
             };
+            if (window.sidebarMenuActivation) {
+              window.sidebarMenuActivation.bind(btn, activateOneDepth);
+            } else {
+              btn.onclick = activateOneDepth;
+            }
             btn.onmouseenter = () => showTooltip(menu.tooltip, btn);
             btn.onmouseleave = () => hideTooltip();
             dynamicContainer.appendChild(btn);
@@ -499,9 +510,14 @@
           if (menu.id === 'click-through-btn') btn.querySelector('i').id = 'click-through-icon';
           if (menu.id === 'master-mute-btn') btn.querySelector('i').id = 'master-mute-icon';
 
-          btn.onclick = () => {
+          const activateSystem = () => {
             if (menu.api && window.electronAPI[menu.api]) window.electronAPI[menu.api]();
           };
+          if (window.sidebarMenuActivation) {
+            window.sidebarMenuActivation.bind(btn, activateSystem);
+          } else {
+            btn.onclick = activateSystem;
+          }
 
           btn.onmouseenter = () => showTooltip(btn.dataset.tooltip || menu.tooltip, btn);
           btn.onmouseleave = () => hideTooltip();
@@ -724,6 +740,7 @@
       // 사운드 파일 재생 처리 (soundFile이 있을 때만)
       if (soundFile) {
         let shouldPlay = true;
+        if (!isPreview && Boolean(lastConfig && lastConfig.masterMute)) shouldPlay = false;
 
         // 미리보기가 아닌 경우 800ms 이내 동일 사운드 중복 스로틀링
         if (!isPreview && !soundThrottle.shouldPlay(soundFile)) shouldPlay = false;
@@ -897,9 +914,9 @@
     });
 
     initDynamicMenus();
-    window.electronAPI.onGalleryNewActivity(() => { 
+    window.electronAPI.onGalleryNewActivity(() => {
       const badge = document.getElementById('noti-badge');
-      if (badge) badge.classList.remove('hidden'); 
+      if (badge) badge.classList.remove('hidden');
     });
     window.electronAPI.onUpdateStatus((data) => {
       const badge = document.getElementById('update-badge');
@@ -930,7 +947,7 @@
       if (currentWidth !== neededWidth) {
         if (neededWidth === 50) {
           // 좁아질 때는 200ms 지연을 주어 깜박임 방지 (Debounce)
-          if (shrinkTimer) return; 
+          if (shrinkTimer) return;
           shrinkTimer = setTimeout(() => {
             performWidthUpdate(50);
             shrinkTimer = null;
@@ -965,7 +982,6 @@
         updateSidebarWindowWidth(400);
         return;
       }
-      if (isResizing && !force) return;
 
       const wrapperRect = wrapper.getBoundingClientRect();
       const hitPadding = 14;
@@ -973,8 +989,13 @@
         e.clientX >= wrapperRect.left - hitPadding &&
         e.clientX <= wrapperRect.right + hitPadding
       );
+      const isWithinY = (
+        e.clientY >= wrapperRect.top - hitPadding &&
+        e.clientY <= wrapperRect.bottom + hitPadding
+      );
+      const isOverSidebarBody = isWithinX && isWithinY;
 
-      let isOverSidebar = false;
+      let isOverSidebarMenu = false;
       if (isWithinX) {
         const topScrollArea = document.querySelector('.sidebar-scroll-area');
         const toggleBtn = document.querySelector('.toggle-btn');
@@ -994,7 +1015,7 @@
         const bottomBound = systemMenus ? systemMenus.getBoundingClientRect().top : wrapperRect.bottom - 120;
         const isOverBottomGroup = (e.clientY >= bottomBound - hitPadding && e.clientY <= wrapperRect.bottom + hitPadding);
 
-        isOverSidebar = isOverTopGroup || isOverBottomGroup;
+        isOverSidebarMenu = isOverTopGroup || isOverBottomGroup;
       }
 
       let isOverSubmenu = false;
@@ -1004,7 +1025,7 @@
         if (style.display !== 'none') {
           const rect = flyout.getBoundingClientRect();
           const submenuBuffer = 10;
-          if (e.clientX >= rect.left - submenuBuffer && e.clientX <= rect.right + submenuBuffer && 
+          if (e.clientX >= rect.left - submenuBuffer && e.clientX <= rect.right + submenuBuffer &&
               e.clientY >= rect.top - submenuBuffer && e.clientY <= rect.bottom + submenuBuffer) {
             isOverSubmenu = true;
           }
@@ -1015,23 +1036,25 @@
       let isOverToast = false;
       activeToasts.forEach(toast => {
         const rect = toast.getBoundingClientRect();
-        if (e.clientX >= rect.left && e.clientX <= rect.right && 
+        if (e.clientX >= rect.left && e.clientX <= rect.right &&
             e.clientY >= rect.top && e.clientY <= rect.bottom) {
           isOverToast = true;
         }
       });
       const hasToasts = activeToasts.length > 0;
 
-      if (isOverSidebar || isOverSubmenu || isOverToast) {
-        updateIgnoreMouseEvents(false);
-        updateSidebarWindowWidth(400); 
+      // 마우스 투과 판정: 사이드바 본체 바, 서브메뉴, 토스트 영역 위에서는 즉시 마우스 입력을 수신합니다.
+      const shouldAcceptMouse = isOverSidebarBody || isOverSubmenu || isOverToast;
+      updateIgnoreMouseEvents(!shouldAcceptMouse);
+
+      // 리사이징 중일 때는 너비 갱신만 보호하고, 마우스 입력 수신 상태는 항상 최신을 유지합니다.
+      if (isResizing && !force) return;
+
+      // 너비 확장 판정: 메뉴 아이콘, 서브메뉴, 토스트가 있는 경우에만 400px로 확장합니다. (중간 빈 영역은 50px 유지)
+      if (isOverSidebarMenu || isOverSubmenu || isOverToast || hasToasts) {
+        updateSidebarWindowWidth(400);
       } else {
-        updateIgnoreMouseEvents(true);
-        if (!hasToasts) {
-          updateSidebarWindowWidth(50); 
-        } else {
-          updateSidebarWindowWidth(400); 
-        }
+        updateSidebarWindowWidth(50);
       }
     }
     function resetPointerState() {
@@ -1044,6 +1067,7 @@
     }
 
     // 전역 마우스 이동 및 창 이탈/포커스 해제 감시
+    window.addEventListener('mouseenter', checkMouseIgnore);
     window.addEventListener('mousemove', checkMouseIgnore);
     window.addEventListener('mouseleave', resetPointerState);
     window.addEventListener('blur', resetPointerState);

@@ -82,6 +82,7 @@
 | 시에나 능력치·추가 옵션 기댓값 | `src/siena-aura-renderer.ts`의 `updateExpectation`/`extraAllSuccessProbability` | `scripts/check-renderer-behavior.ts --siena-aura`(전체 HTML·무기/방어구·0~10단계·잠금·중복 제외 순열·실제 추첨), `docs/siena-aura.md` |
 | QTE 최종 라운드·도달 스테이지 | `src/qte-challenge-renderer.ts`의 `currentStage`/`beginRound` | `scripts/check-renderer-behavior.ts --qte`(실제 입력·시간초과·10/40라운드 탈락·41라운드 진입·기록·도전과제), `docs/qte-challenge.md` |
 | 제복 색상 외부 화면·창 크기 | `src/modules/windowManager.ts`의 `toggleUniformColorWindow` | `scripts/check-embedded-tools.ts`(실제 창·preload·크기 IPC·native view·CSS·하단 접근), `docs/uniform-color.md` |
+| 루미나의 회랑 경로 분석·노드 매칭·점수 산출 | `src/shared/luminaCorridor.ts`, `src/renderer/lumina-vision.ts` | `src/lumina-corridor.html`, `src/renderer/lumina-corridor.ts`, `scripts/check-lumina-corridor.ts` |
 
 ## 데이터 보호·외부 전송
 

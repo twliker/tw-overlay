@@ -1147,64 +1147,91 @@
 
     @keyframes ethos-pulse-arrow {
       0% {
-        filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.4));
-        transform: scale(1);
+        transform: scale(0.96);
       }
-
       100% {
-        filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.85)) drop-shadow(0 0 4px rgba(255, 255, 255, 0.5));
-        transform: scale(1.1);
+        transform: scale(1.08);
       }
+    }
+
+    /* 테마별 색상 & 강력한 외곽 글로우 */
+    .ethos-theme-magenta svg {
+      fill: #f43f5e;
+      stroke: #ffffff;
+      filter: drop-shadow(0 0 8px rgba(244, 63, 94, 0.95)) drop-shadow(0 0 20px rgba(244, 63, 94, 0.7)) drop-shadow(0 0 3px #ffffff);
+    }
+    .ethos-theme-yellow svg {
+      fill: #facc15;
+      stroke: #ffffff;
+      filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.95)) drop-shadow(0 0 20px rgba(250, 204, 21, 0.7)) drop-shadow(0 0 3px #ffffff);
+    }
+    .ethos-theme-cyan svg {
+      fill: #06b6d4;
+      stroke: #ffffff;
+      filter: drop-shadow(0 0 8px rgba(6, 182, 212, 0.95)) drop-shadow(0 0 20px rgba(6, 182, 212, 0.7)) drop-shadow(0 0 3px #ffffff);
+    }
+    .ethos-theme-red svg {
+      fill: #ef4444;
+      stroke: #ffffff;
+      filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.95)) drop-shadow(0 0 20px rgba(239, 68, 68, 0.7)) drop-shadow(0 0 3px #ffffff);
     }
 
     .ethos-dir-N {
-      transform: translate(-50%, -50%) rotate(0deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(0deg) translateY(-120px);
     }
 
     .ethos-dir-NE {
-      transform: translate(-50%, -50%) rotate(45deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(45deg) translateY(-120px);
     }
 
     .ethos-dir-E {
-      transform: translate(-50%, -50%) rotate(90deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(90deg) translateY(-120px);
     }
 
     .ethos-dir-SE {
-      transform: translate(-50%, -50%) rotate(135deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(135deg) translateY(-120px);
     }
 
     .ethos-dir-S {
-      transform: translate(-50%, -50%) rotate(180deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(180deg) translateY(-120px);
     }
 
     .ethos-dir-SW {
-      transform: translate(-50%, -50%) rotate(225deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(225deg) translateY(-120px);
     }
 
     .ethos-dir-W {
-      transform: translate(-50%, -50%) rotate(270deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(270deg) translateY(-120px);
     }
 
     .ethos-dir-NW {
-      transform: translate(-50%, -50%) rotate(315deg) translateY(-90px);
+      transform: translate(-50%, -50%) rotate(315deg) translateY(-120px);
     }
 
     .ethos-warning-text {
       position: absolute;
-      top: -50px;
+      top: -65px;
       left: 50%;
-      transform: translateX(-50%);
-      color: #ef4444;
+      transform: translateX(-50%) translateY(5px);
+      color: #ffffff;
       font-weight: 900;
-      font-size: 26px;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.9), 0 0 8px rgba(239, 68, 68, 0.6);
+      font-size: 17px;
+      letter-spacing: -0.02em;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1.5px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 0, 0, 0.5);
+      border-radius: 14px;
+      padding: 6px 16px;
       white-space: nowrap;
       opacity: 0;
-      transition: opacity 0.3s ease;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      pointer-events: none;
+      z-index: 106;
     }
 
     .ethos-warning-text.show {
       opacity: 1;
+      transform: translateX(-50%) translateY(0);
     }
 
     /* ── 심연의 제2사도 반사 알림 CSS ── */
@@ -3014,7 +3041,18 @@
       'S': '갈고리', 'SW': '파도 모양 갈고리', 'W': '파도', 'NW': '파도 모양 번개'
     };
 
-    function showEthosAlert(password) {
+    const ETHOS_DIR_INFO = {
+      'N': { deg: 0, clock: '12시', nameKo: '북쪽' },
+      'NE': { deg: 45, clock: '1시', nameKo: '북동쪽' },
+      'E': { deg: 90, clock: '3시', nameKo: '동쪽' },
+      'SE': { deg: 135, clock: '5시', nameKo: '남동쪽' },
+      'S': { deg: 180, clock: '6시', nameKo: '남쪽' },
+      'SW': { deg: 225, clock: '7시', nameKo: '남서쪽' },
+      'W': { deg: 270, clock: '9시', nameKo: '서쪽' },
+      'NW': { deg: 315, clock: '11시', nameKo: '북서쪽' }
+    };
+
+    function showEthosAlert(password, customOptions) {
       const arrowContainer = document.getElementById('ethos-arrow-container');
       const arrowIndicator = document.getElementById('ethos-arrow-indicator');
       const alertText = document.getElementById('ethos-alert-text');
@@ -3024,8 +3062,34 @@
       if (!dir) return null;
       if (ethosTimeout) clearTimeout(ethosTimeout);
 
-      arrowIndicator.className = 'ethos-arrow-wrapper ethos-dir-' + dir;
-      alertText.classList.remove('show');
+      const info = ETHOS_DIR_INFO[dir] || { deg: 0, clock: '12시', nameKo: '북쪽' };
+      const cfg = currentConfig || {};
+      const color = customOptions?.color || cfg.ethosAlertColor || 'magenta';
+      const size = Number(customOptions?.size) || cfg.ethosAlertSize || 110;
+      const radius = Number(customOptions?.radius) || cfg.ethosAlertRadius || 130;
+      const showText = customOptions?.showText !== undefined ? Boolean(customOptions.showText) : (cfg.ethosAlertShowText !== false);
+
+      arrowIndicator.className = 'ethos-arrow-wrapper ethos-theme-' + color + ' ethos-dir-' + dir;
+      arrowIndicator.style.transform = `translate(-50%, -50%) rotate(${info.deg}deg) translateY(-${radius}px)`;
+
+      const svg = arrowIndicator.querySelector('svg');
+      if (svg) {
+        svg.setAttribute('width', String(size));
+        svg.setAttribute('height', String(size));
+      }
+
+      if (showText) {
+        let accentColor = '#f43f5e';
+        if (color === 'yellow') accentColor = '#facc15';
+        else if (color === 'cyan') accentColor = '#06b6d4';
+        else if (color === 'red') accentColor = '#ef4444';
+
+        alertText.innerHTML = `<span style="color:${accentColor}; font-weight:900;">⚡ [${password}]</span> <span style="color:#ffffff;">${info.clock} (${info.nameKo})</span>`;
+        alertText.classList.add('show');
+      } else {
+        alertText.classList.remove('show');
+      }
+
       void arrowIndicator.offsetWidth;
       arrowIndicator.classList.add('show');
 
@@ -3037,7 +3101,7 @@
     }
 
     window.electronAPI.onEthosAlert((data) => {
-      showEthosAlert(data.password);
+      showEthosAlert(data.password, data);
     });
 
     // ── 심연의 제2사도 기믹 알림 ──

@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleXpHud: () => ipcRenderer.send('toggle-xp-hud'),
   toggleSienaAura: () => ipcRenderer.send('toggle-siena-aura'),
   toggleHuntingPathSimulator: () => ipcRenderer.send('toggle-hunting-path-simulator'),
+  toggleLuminaCorridor: () => ipcRenderer.send('toggle-lumina-corridor'),
   toggleWelcomeGuide: () => ipcRenderer.send('toggle-welcome-guide'),
   toggleUpdateNotice: () => ipcRenderer.send('toggle-update-notice'),
   toggleStopwatch: () => ipcRenderer.send('toggle-stopwatch'),
@@ -178,6 +179,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteCustomSound: (filename: string) => ipcRenderer.invoke('delete-custom-sound', filename),
   setChatOverlaySize: (mode: 'main' | 'sub1' | 'sub2', width: number, height: number) => ipcRenderer.send('set-chat-overlay-size', mode, width, height),
   previewBossSound: (soundFile: string, volume: number | null = null, bossName: string = '미리보기') => ipcRenderer.send('preview-boss-sound', soundFile, volume, bossName),
+  previewEthosAlert: (options: string | { password?: string; color?: string; size?: number; radius?: number; showText?: boolean } = '번개') =>
+    ipcRenderer.send('preview-ethos-alert', options),
   checkForUpdates: () => ipcRenderer.send('check-for-updates'),
   startUpdateDownload: () => ipcRenderer.send('start-update-download'),
   openStoreUpdatesPage: () => ipcRenderer.send('open-store-updates-page'),

@@ -50,6 +50,7 @@ const STATIC_WINDOW_DEFINITIONS: readonly StaticWindowDefinition[] = [
   { key: 'huntingExpCalculator', html: 'hunting-exp-calculator.html', width: 940, height: 780 },
   { key: 'relicCalculator', html: 'relic-calculator.html', width: 920, height: 760 },
   { key: 'equipmentSimulator', html: 'equipment-simulator.html', width: 960, height: 820 },
+  { key: 'luminaCorridor', html: 'lumina-corridor.html', width: 850, height: 750 },
   { key: 'stopwatch', html: 'stopwatch.html', width: 870, height: 750 },
   { key: 'chatOverlay', html: 'chat-overlay.html', width: 450, height: 400, skipTaskbar: true },
   { key: 'chatOverlaySub', html: 'chat-overlay.html', width: 450, height: 400, skipTaskbar: true },

@@ -23,6 +23,7 @@ const TRAY_MENU_ACTIONS = {
   toggleHuntingExpCalculator: wm.toggleHuntingExpCalculatorWindow,
   toggleRelicCalculator: wm.toggleRelicCalculatorWindow,
   toggleEquipmentSimulator: wm.toggleEquipmentSimulatorWindow,
+  toggleLuminaCorridor: wm.toggleLuminaCorridorWindow,
   toggleSienaAura: wm.toggleSienaAuraWindow,
   toggleUniformColor: wm.toggleUniformColorWindow,
   toggleSwordEnhance: wm.toggleSwordEnhanceWindow,

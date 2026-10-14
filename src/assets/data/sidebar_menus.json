@@ -217,6 +217,15 @@
     "category": "calculators"
   },
   {
+    "id": "lumina-corridor-btn",
+    "label": "루미나의 회랑",
+    "icon": "compass",
+    "tooltip": "루미나의 회랑 최적 경로 분석기",
+    "color": "sky-400",
+    "api": "toggleLuminaCorridor",
+    "category": "calculators"
+  },
+  {
     "id": "xp-hud-btn",
     "label": "경험치 HUD",
     "icon": "gauge",
@@ -324,4 +333,4 @@
     "api": "toggleWelcomeGuide",
     "isSystem": true
   }
-]
+]

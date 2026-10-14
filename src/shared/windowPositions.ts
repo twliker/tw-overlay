@@ -41,6 +41,7 @@ export const DEFAULT_WINDOW_POSITIONS: Record<WindowPositionKey, WindowPosition>
   huntingExpCalculator: { offsetX: -940, offsetY: 40 },
   relicCalculator: { offsetX: -920, offsetY: 40 },
   equipmentSimulator: { offsetX: -960, offsetY: 40 },
+  luminaCorridor: { offsetX: -850, offsetY: 40 },
   stopwatch: { offsetX: -870, offsetY: 40 },
   chatOverlay: { offsetX: -460, offsetY: 450 },
   chatOverlaySub: { offsetX: -460, offsetY: 240 },

@@ -172,7 +172,7 @@ export type WindowPositionKey =
     | 'customAlert' | 'diary' | 'uniformColor' | 'swordEnhance' | 'qteChallenge' | 'shoutHistory'
     | 'gameOverlay' | 'buffTimer' | 'xpHud' | 'scamDetector' | 'sienaAura' | 'wordAlarm'
     | 'discordAlarm' | 'huntingPathSimulator' | 'stopwatch' | 'chatOverlay'
-    | 'chatOverlaySub' | 'chatOverlaySub2' | 'huntingExpCalculator' | 'relicCalculator' | 'equipmentSimulator' | 'dock';
+    | 'chatOverlaySub' | 'chatOverlaySub2' | 'huntingExpCalculator' | 'relicCalculator' | 'equipmentSimulator' | 'luminaCorridor' | 'dock';
 
 export interface ManagedWindowSize {
     width: number;
@@ -581,6 +581,10 @@ export interface AppConfig {
     waveMonsterWarningVolume?: number;
     ethosAlertSound?: string;
     ethosAlertVolume?: number;
+    ethosAlertColor?: 'magenta' | 'yellow' | 'cyan' | 'red';
+    ethosAlertSize?: number;
+    ethosAlertRadius?: number;
+    ethosAlertShowText?: boolean;
     abyssApostleStartSound?: string;
     abyssApostleEndSound?: string;
     abyssApostleVolume?: number;
@@ -1182,5 +1186,100 @@ export interface ChatLogValidationResult {
     latestFile?: string;
     suggestedPath?: string;
     message: string;
+}
+
+// ── 루미나의 회랑 관련 타입 ──
+export type LuminaDifficulty = 'normal' | 'hard' | 'hell';
+
+export type LuminaMissionId =
+    | 'ancient_weapon'
+    | 'overload'
+    | 'debuff'
+    | 'boss_mutation'
+    | 'attr_counter'
+    | 'attr_zone'
+    | 'attr_tile'
+    | 'two_faced'
+    | 'role_division'
+    | 'wheel_of_fortune'
+    | 'escape_room'
+    | 'scale_of_sin';
+
+export type DifficultyType = LuminaDifficulty;
+export type LuminaSearchMode = 'highScore' | 'maxNodes' | 'fastClear' | 'highest_score' | 'max_nodes' | 'shortest';
+export type RouteMode = 'highScore' | 'maxNodes' | 'fastClear';
+export type PartySize = 1 | 2 | 3 | 4;
+export type MissionTag = '추천' | '보통' | '비추천';
+export type MissionCategory = 'BOSS' | 'TILE' | 'CORE' | 'ESCAPE' | 'OVERLOAD' | 'SURVIVAL';
+
+export interface MissionMetadata {
+    id: string;
+    nameKo: string;
+    category: MissionCategory;
+    defaultTimeBonus: number;     // 1x base time bonus (+1 per 15s remaining)
+    fastTimeBonus: number;        // When user clears boss in <= 14s (4:45+ remaining)
+    expectedClearSec: number;     // Used for '최단 쾌속' (Fastest Clear) mode & tie-breaking
+    tag: MissionTag;              // UI badge: 추천 | 보통 | 비추천
+    iconFileName?: string;
+    guideTip?: string;
+    hellScores?: number[];
+}
+
+export interface EvalOptions {
+    difficulty: DifficultyType;
+    partySize: PartySize;
+    isUltraFastBossClear?: boolean; // Optional toggle: <=14s boss clear (+19 instead of +18)
+    avoidNotRecommended?: boolean;  // Optional toggle: avoid '비추천' missions if possible
+}
+
+export interface StepEvaluation {
+    nodeScore: number;
+    estimatedSec: number;
+    hasConsecutivePenalty: boolean;
+    penaltyAmount: number;
+}
+
+export interface LuminaMissionMeta extends MissionMetadata {
+    tier: 1 | 2 | 3;
+    recommendation: MissionTag;
+}
+
+export interface LuminaNodeCoordinate {
+    row: number; // 0..9 (1단계~10단계)
+    col: number; // 0..4 (1열~5열)
+}
+
+export interface LuminaNodeData extends LuminaNodeCoordinate {
+    missionId?: string;
+    baseScore: number;
+}
+
+export interface LuminaGridConnections {
+    horizontal: boolean[][];       // [row 0..9][col 0..3]: (r, c) <-> (r, c+1)
+    vertical?: boolean[][];        // [row 0..8][col 0..4]: (r, c) -> (r+1, c)
+    diagDownLeft: boolean[][];     // [row 0..8][col 1..4]: (r, c) -> (r+1, c-1)
+    diagDownRight: boolean[][];    // [row 0..8][col 0..3]: (r, c) -> (r+1, c+1)
+}
+
+export interface LuminaRewardCut {
+    rankPercent: string;
+    minScore: number;
+    sealCount: number;
+}
+
+export interface LuminaPathResult {
+    path: LuminaNodeCoordinate[];
+    totalScore: number;            // finalScore (다캐릭 가산점 반영)
+    rawTotalScore?: number;        // 원본 점수
+    finalScore?: number;
+    nodeCount: number;
+    totalTimeSec?: number;
+    notRecommendedCount?: number;
+    stepDetails?: StepEvaluation[];
+    achievedReward?: LuminaRewardCut;
+    nextReward?: {
+        target: LuminaRewardCut;
+        neededScore: number;
+    };
 }
 

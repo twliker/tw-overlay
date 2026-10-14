@@ -1336,6 +1336,7 @@ export function toggleGalleryWindow(): boolean {
   });
 }
 export function toggleHuntingPathSimulatorWindow(): boolean { return createToggleableWindow('huntingPathSimulator'); }
+export function toggleLuminaCorridorWindow(): boolean { return createToggleableWindow('luminaCorridor'); }
 export function toggleAbbreviationWindow(): boolean { return createToggleableWindow('abbreviation'); }
 export function toggleEquipmentDicWindow(): boolean { return createToggleableWindow('equipmentDic'); }
 export function toggleBuffsWindow(): boolean { return createToggleableWindow('buffs'); }
@@ -1817,6 +1818,19 @@ export function setLauncherInteractive(win: BrowserWindow, active: boolean): voi
  */
 export function activateGameBehindAppWindow(focusedAppHwnd: string): boolean {
   if (!getAllWindowHwnds().includes(focusedAppHwnd)) return false;
+  // 상시 노출 런처/오버레이(사이드바, 독, 게임오버레이)는 작업표시줄 창이 아니므로
+  // 사용자가 메뉴를 클릭할 때 게임 창을 동반 활성화하여 포커스를 가로채지 않습니다.
+  const launcherHwnds = [mainWindow, windowRegistry.dock?.ref, gameOverlayWindow]
+    .filter((win): win is BrowserWindow => Boolean(win && !win.isDestroyed()))
+    .map(win => {
+      try {
+        const handle = win.getNativeWindowHandle();
+        return handle.length >= 8 ? handle.readBigUint64LE().toString() : handle.readUInt32LE(0).toString();
+      } catch { return null; }
+    })
+    .filter((handle): handle is string => typeof handle === 'string');
+  if (launcherHwnds.includes(focusedAppHwnd)) return false;
+
   if (!tracker.focusGameForAppActivation(focusedAppHwnd)) return false;
   const refocused = focusController.refocusVisibleWindowByHandle(focusedAppHwnd);
   if (refocused) bringGameAndOverlaysToTop();

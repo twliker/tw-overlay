@@ -418,8 +418,9 @@
         killedActivities.set(content, { id: rowId, removable: true });
 
         // 일지 기록 성공 사운드 재생
+        const isMuted = Boolean(config && config.masterMute);
         const vol = (config && config.volumeCalculators !== undefined ? config.volumeCalculators : 50) / 100;
-        if (vol > 0) {
+        if (!isMuted && vol > 0) {
           const audio = new Audio('assets/sound/max_affection.wav');
           audio.volume = vol;
           audio.play().catch(e => { });

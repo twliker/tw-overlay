@@ -152,6 +152,7 @@ NSIS의 VBS 대상 바로가기는 Electron `shell.writeShortcutLink`로 동기 
 - 런처 메뉴 메타데이터는 `src/assets/data/sidebar_menus.json`을 단일 원본으로 사용하며, `src/shared/sidebarMenus.ts`가 형식과 동작 이름을 검증합니다. 트레이의 실제 동작 연결은 `src/modules/trayMenuActions.ts`에서 타입 완전성을 검사합니다.
 - 사냥 경험치 계산기의 기본 도핑·사냥터와 계산식은 `src/shared/huntingExpCalculator.ts`에서 관리합니다. 사용자 추가·수정 목록, 적용 상태, 사냥터, 시간당 처치 수와 해피아워 여부는 일반 설정에 저장합니다.
 - 렐릭 강화 계산기의 신조·루나리아 단계별 한도·재료·비용과 공식 강화 확률, 시뮬레이션·기댓값 계산은 `src/shared/relicCalculator.ts`에서 관리합니다. `relic-calculator-renderer.ts`는 펜던트·브라이슬릿 능력치 상세 입력과 결과 표시만 담당합니다.
+- 루미나의 회랑 최적 경로 분석기의 노드 점수·소요 시간 모델·파티원 수별 시뮬레이션과 경로 탐색 엔진은 `src/shared/luminaCorridor.ts`에서 관리합니다. 스크린샷 이미지 판독 및 그리드 매칭은 `src/renderer/lumina-vision.ts`가 담당합니다.
 
 ### 데이터와 하위 호환성
 

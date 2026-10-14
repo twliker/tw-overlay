@@ -17,6 +17,10 @@
     ethosAlertEnabled?: boolean;
     ethosAlertSound?: string;
     ethosAlertVolume?: number;
+    ethosAlertColor?: 'magenta' | 'yellow' | 'cyan' | 'red';
+    ethosAlertSize?: number;
+    ethosAlertRadius?: number;
+    ethosAlertShowText?: boolean;
     abyssApostleAlertEnabled?: boolean;
     abyssApostleStartSound?: string;
     abyssApostleEndSound?: string;
@@ -156,6 +160,20 @@
       config.ethosAlertVolume ?? defaults.ethosAlertVolume ?? 40,
       value => `${value}%`,
     );
+    setValue('ethos-alert-color', config.ethosAlertColor || defaults.ethosAlertColor || 'magenta');
+    bindRange(
+      'ethos-alert-size',
+      'ethos-alert-size-val',
+      config.ethosAlertSize ?? defaults.ethosAlertSize ?? 110,
+      value => `${value}px`,
+    );
+    bindRange(
+      'ethos-alert-radius',
+      'ethos-alert-radius-val',
+      config.ethosAlertRadius ?? defaults.ethosAlertRadius ?? 130,
+      value => `${value}px`,
+    );
+    setChecked('ethos-alert-show-text', config.ethosAlertShowText ?? defaults.ethosAlertShowText ?? true);
 
     setChecked('abyss-apostle-alert-enabled', config.abyssApostleAlertEnabled ?? defaults.abyssApostleAlertEnabled ?? false);
     setValue('abyss-apostle-start-sound', config.abyssApostleStartSound || defaults.abyssApostleStartSound || '');

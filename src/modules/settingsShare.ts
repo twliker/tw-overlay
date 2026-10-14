@@ -43,6 +43,7 @@ export const SHARE_FIELDS: Record<ShareGroup, readonly Field[]> = {
     ['abyssTreasureAlertEnabled', '심연 보물 알림'], ['abyssTreasureAlertVolume', '심연 보물 음량'],
     ['waveMonsterWarningEnabled', '웨이브 알림'], ['waveMonsterWarningVolume', '웨이브 음량'],
     ['ethosAlertEnabled', '에토스 알림'], ['ethosAlertVolume', '에토스 음량'],
+    ['ethosAlertColor', '에토스 알림 색상'], ['ethosAlertSize', '에토스 화살표 크기'], ['ethosAlertRadius', '에토스 화살표 거리'], ['ethosAlertShowText', '에토스 텍스트 안내'],
     ['abyssApostleAlertEnabled', '심연의 사도 알림'], ['abyssApostleVolume', '심연의 사도 음량'],
     ['lokagosAlertEnabled', '로카고스 알림'], ['lokagosAlertVolume', '로카고스 음량'], ['showSidebarToastOnOverlay', '게임 화면 토스트'],
   ],

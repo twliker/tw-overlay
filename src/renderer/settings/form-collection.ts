@@ -34,6 +34,10 @@
     ethosAlertEnabled: boolean;
     ethosAlertSound: string;
     ethosAlertVolume: number;
+    ethosAlertColor?: 'magenta' | 'yellow' | 'cyan' | 'red';
+    ethosAlertSize?: number;
+    ethosAlertRadius?: number;
+    ethosAlertShowText?: boolean;
     abyssApostleAlertEnabled: boolean;
     abyssApostleStartSound: string;
     abyssApostleEndSound: string;
@@ -171,6 +175,10 @@
       ethosAlertEnabled: checkedValue('ethos-alert-enabled', defaultConfig.ethosAlertEnabled),
       ethosAlertSound: stringValue('ethos-alert-sound', defaultConfig.ethosAlertSound),
       ethosAlertVolume: integerValue('ethos-alert-volume', defaultConfig.ethosAlertVolume),
+      ethosAlertColor: stringValue('ethos-alert-color', defaultConfig.ethosAlertColor || 'magenta'),
+      ethosAlertSize: integerValue('ethos-alert-size', defaultConfig.ethosAlertSize || 110),
+      ethosAlertRadius: integerValue('ethos-alert-radius', defaultConfig.ethosAlertRadius || 130),
+      ethosAlertShowText: checkedValue('ethos-alert-show-text', defaultConfig.ethosAlertShowText !== false),
       abyssApostleAlertEnabled: checkedValue('abyss-apostle-alert-enabled', defaultConfig.abyssApostleAlertEnabled),
       abyssApostleStartSound: stringValue('abyss-apostle-start-sound', defaultConfig.abyssApostleStartSound),
       abyssApostleEndSound: stringValue('abyss-apostle-end-sound', defaultConfig.abyssApostleEndSound),

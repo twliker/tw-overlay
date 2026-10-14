@@ -338,6 +338,7 @@ interface Window {
   contentsAutoCollapse: { applyConfig(config: BrowserAppConfig): void };
   diaryLogUtils: DiaryLogUtils;
   huntingExpCalculator: HuntingExpCalculatorGlobal;
+  luminaCorridor?: typeof import('./shared/luminaCorridor').luminaCorridor;
   __twEscapeCloseBound?: boolean;
   __twElectronListenerCleanupBound?: boolean;
   __twChatLogStatusWarningBound?: boolean;
