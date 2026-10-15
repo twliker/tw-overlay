@@ -177,6 +177,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   showTodaySummaryHud: true,
   todaySummaryCollapsed: true,
   todaySummaryHudPos: { ...DEFAULT_HUD_POSITIONS.todaySummary },
+  todaySummaryOpacity: 1.0,
   huntingExpDopings: huntingExpDefaults.DEFAULT_DOPINGS.map(item => ({ ...item })),
   huntingExpGrounds: huntingExpDefaults.DEFAULT_GROUNDS.map(item => ({ ...item })),
   huntingExpSelectedGroundId: 'forge',

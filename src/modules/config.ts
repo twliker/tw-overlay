@@ -45,7 +45,7 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'quickSlotsMigratedV2', 'hudHiddenPositionRepairV1', 'shoutKeywords', 'ethosAlertEnabled', 'abyssApostleAlertEnabled',
   'wordAlarmEnabled', 'wordAlarmKeywords', 'wordAlarmSound', 'wordAlarmVolume',
   'wordAlarmHistoryEnabled', 'showXpWidget', 'xpAutoStart', 'ignoreNegativeXp', 'xpWidgetPos',
-  'showTodaySummaryHud', 'todaySummaryCollapsed', 'todaySummaryHudPos', 'huntingExpDopings',
+  'showTodaySummaryHud', 'todaySummaryCollapsed', 'todaySummaryHudPos', 'todaySummaryOpacity', 'huntingExpDopings',
   'huntingExpGrounds', 'huntingExpSelectedGroundId', 'huntingExpKillsPerHour',
   'huntingExpHappyHour', 'waveMonsterWarningEnabled', 'waveMonsterWarningSound',
   'waveMonsterWarningVolume', 'ethosAlertSound', 'ethosAlertVolume',
@@ -153,6 +153,7 @@ const EXTERNAL_NUMBER_RANGES: Partial<Record<keyof AppConfig, [number, number]>>
   chatOverlayOpacity: [0.2, 1],
   chatOverlaySubOpacity: [0.2, 1],
   chatOverlaySub2Opacity: [0.2, 1],
+  todaySummaryOpacity: [0.2, 1],
   chatOverlayFontSize: [8, 72],
   chatOverlaySubFontSize: [0, 72],
   chatOverlaySub2FontSize: [0, 72],
@@ -640,7 +641,7 @@ function applyVersionedMigrations(parsed: Record<string, unknown>): boolean {
     parsed.opacity = 0.2;
     migrated = true;
   }
-  for (const key of ['chatOverlayOpacity', 'chatOverlaySubOpacity', 'chatOverlaySub2Opacity']) {
+  for (const key of ['chatOverlayOpacity', 'chatOverlaySubOpacity', 'chatOverlaySub2Opacity', 'todaySummaryOpacity']) {
     if (typeof parsed[key] === 'number' && (parsed[key] as number) < 0.2) {
       parsed[key] = 0.2;
       migrated = true;

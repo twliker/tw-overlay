@@ -65,6 +65,7 @@
     showTodaySummaryHud: boolean;
     todaySummaryCollapsed: boolean;
     todaySummaryHudPos: { left: number; top?: number; bottom?: number };
+    todaySummaryOpacity: number;
   }
 
   const defaultConfig = (window.electronAPI as typeof window.electronAPI & {
@@ -214,6 +215,7 @@
         left: integerValue('today-summary-pos-left', defaultConfig.todaySummaryHudPos.left),
         top: integerValue('today-summary-pos-top', defaultConfig.todaySummaryHudPos.top ?? 0),
       },
+      todaySummaryOpacity: floatValue('today-summary-opacity-input', defaultConfig.todaySummaryOpacity ?? 1.0),
     };
   }
 

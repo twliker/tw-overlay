@@ -571,6 +571,7 @@ export interface AppConfig {
     showTodaySummaryHud?: boolean;
     todaySummaryCollapsed?: boolean;
     todaySummaryHudPos?: HudPosition;
+    todaySummaryOpacity?: number;
     huntingExpDopings?: HuntingExpDoping[];
     huntingExpGrounds?: HuntingExpGround[];
     huntingExpSelectedGroundId?: string;

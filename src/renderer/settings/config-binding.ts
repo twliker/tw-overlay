@@ -83,6 +83,7 @@
     showTodaySummaryHud?: boolean;
     todaySummaryCollapsed?: boolean;
     todaySummaryHudPos?: { left: number; top?: number; bottom?: number };
+    todaySummaryOpacity?: number;
     showHudShortcuts?: boolean;
     digsiteHudEnabled?: boolean;
     tradeServer?: string;
@@ -129,6 +130,8 @@
       label.innerText = format((event.target as HTMLInputElement).value);
     };
   }
+
+  const opacityLabel = (value: string): string => `${Math.round(parseFloat(value) * 100)}%`;
 
   function applyGeneralSettings(configValue: unknown, defaultConfigValue: unknown): void {
     const config = configValue as SettingsBindingConfig;
@@ -259,7 +262,6 @@
     setValue('chat-overlay-sub2-fontsize-input', config.chatOverlaySub2FontSize ?? 0);
     setValue('chat-overlay-sub2-fontfamily-input', config.chatOverlaySub2FontFamily ?? '');
     requestAnimationFrame(() => window.settingsChatPreview?.refresh());
-    const opacityLabel = (value: string): string => `${Math.round(parseFloat(value) * 100)}%`;
     bindRange('chat-overlay-opacity-input', 'chat-overlay-opacity-val', config.chatOverlayOpacity ?? defaults.chatOverlayOpacity ?? 0.8, opacityLabel);
     bindRange('chat-overlay-sub-opacity-input', 'chat-overlay-sub-opacity-val', config.chatOverlaySubOpacity ?? defaults.chatOverlaySubOpacity ?? 0.8, opacityLabel);
     bindRange('chat-overlay-sub2-opacity-input', 'chat-overlay-sub2-opacity-val', config.chatOverlaySub2Opacity ?? defaults.chatOverlaySub2Opacity ?? 0.8, opacityLabel);
@@ -309,6 +311,7 @@
       || { left: 0, top: 200 };
     setValue('today-summary-pos-left', todaySummaryPosition.left ?? 0);
     setValue('today-summary-pos-top', todaySummaryPosition.top ?? 200);
+    bindRange('today-summary-opacity-input', 'today-summary-opacity-val', config.todaySummaryOpacity ?? defaults.todaySummaryOpacity ?? 1.0, opacityLabel);
   }
 
   function applyRadioSettings(configValue: unknown, defaultConfigValue: unknown): void {

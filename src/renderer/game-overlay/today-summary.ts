@@ -182,6 +182,12 @@
     currentConfig = config;
     const summary = byId('today-summary-hud');
     summary?.classList.toggle('hidden', config.showTodaySummaryHud === false);
+    if (summary) {
+      const opacity = typeof config.todaySummaryOpacity === 'number'
+        ? Math.max(0.2, Math.min(1.0, config.todaySummaryOpacity))
+        : 1.0;
+      summary.style.opacity = String(opacity);
+    }
     applyCollapsedState(config.todaySummaryCollapsed === true);
     positionSummary();
     void refreshSummary();

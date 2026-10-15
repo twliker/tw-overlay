@@ -272,23 +272,33 @@ export function detectLuminaGrid(
     const ySamples = best.matches.map((m: any) => ({ index: m.row, point: m.point }));
     const xFit = linearFit(xSamples, 'x');
     const yFit = linearFit(ySamples, 'y');
-    const stepX = Math.round(xFit.slope || best.spacing);
-    const stepY = Math.round(yFit.slope || best.spacing);
-    const startX = Math.round(xFit.intercept);
-    const startY = Math.round(yFit.intercept);
+    const stepX = xFit.slope || best.spacing;
+    const stepY = yFit.slope || best.spacing;
+    const startX = xFit.intercept;
+    const startY = yFit.intercept;
 
     const hitConfidence = best.matches.length / 50;
     const regularity = 1 - clamp((Math.abs(stepX - stepY) / Math.max(stepX, stepY)) * 3, 0, 1);
     const confidence = clamp(hitConfidence * 0.82 + regularity * 0.18, 0, 1);
 
+    const matchMap = new Map<string, { x: number; y: number }>();
+    for (const m of best.matches) {
+        matchMap.set(`${m.row},${m.column}`, { x: m.point.x, y: m.point.y });
+    }
+
     const nodePoints: Array<Array<{ x: number; y: number }>> = [];
     for (let r = 0; r < LUMINA_ROW_COUNT; r++) {
         const rowPoints: Array<{ x: number; y: number }> = [];
         for (let c = 0; c < LUMINA_COL_COUNT; c++) {
-            rowPoints.push({
-                x: Math.round(startX + c * stepX),
-                y: Math.round(startY + r * stepY)
-            });
+            const matched = matchMap.get(`${r},${c}`);
+            if (matched) {
+                rowPoints.push({ x: matched.x, y: matched.y });
+            } else {
+                rowPoints.push({
+                    x: Math.round(startX + c * stepX),
+                    y: Math.round(startY + r * stepY)
+                });
+            }
         }
         nodePoints.push(rowPoints);
     }
@@ -420,10 +430,20 @@ export function matchLuminaMissions(
     width: number,
     height: number,
     nodePoints: Array<Array<{ x: number; y: number }>>,
-    templates: Map<LuminaMissionId, ImageData>
+    templates: Map<LuminaMissionId, ImageData>,
+    dimmedTemplates?: Map<LuminaMissionId, ImageData>
 ): LuminaNodeData[][] {
     const canvasData = ctx.getImageData(0, 0, width, height).data;
     const grid: LuminaNodeData[][] = [];
+
+    const stepX = nodePoints[0].length > 1
+        ? (nodePoints[0][nodePoints[0].length - 1].x - nodePoints[0][0].x) / (nodePoints[0].length - 1)
+        : 44;
+    const stepY = nodePoints.length > 1
+        ? (nodePoints[nodePoints.length - 1][0].y - nodePoints[0][0].y) / (nodePoints.length - 1)
+        : 44;
+    const step = Math.max(20, Math.min(80, (stepX + stepY) / 2));
+    const diamondRadius = Math.max(5, Math.min(10, Math.round(7 * (step / 44))));
 
     for (let r = 0; r < LUMINA_ROW_COUNT; r++) {
         const rowData: LuminaNodeData[] = [];
@@ -432,36 +452,86 @@ export function matchLuminaMissions(
             let bestMission: LuminaMissionId | undefined;
             let bestDiff = Infinity;
 
-            for (const [mId, tplData] of templates.entries()) {
-                let totalDiff = 0;
-                let count = 0;
+            const evalTemplate = (tplData: ImageData): number => {
                 const tplW = tplData.width;
                 const tplH = tplData.height;
                 const tplCenterX = Math.floor(tplW / 2);
                 const tplCenterY = Math.floor(tplH / 2);
+                const scaleX = tplW / step;
+                const scaleY = tplH / step;
 
-                // 마름모 내부 |dx| + |dy| <= 10 영역 정밀 비교
-                for (let dy = -10; dy <= 10; dy++) {
-                    for (let dx = -10; dx <= 10; dx++) {
-                        if (Math.abs(dx) + Math.abs(dy) > 10) continue;
-                        const imgX = pt.x + dx;
-                        const imgY = pt.y + dy;
-                        if (imgX < 0 || imgX >= width || imgY < 0 || imgY >= height) continue;
+                let minJitterDiff = Infinity;
+                for (let oy = -1; oy <= 1; oy++) {
+                    for (let ox = -1; ox <= 1; ox++) {
+                        let totalDiff = 0;
+                        let weightSum = 0;
 
-                        const imgIdx = (imgY * width + imgX) * 4;
-                        const tplIdx = ((tplCenterY + dy) * tplW + (tplCenterX + dx)) * 4;
+                        for (let dy = -diamondRadius; dy <= diamondRadius; dy++) {
+                            for (let dx = -diamondRadius; dx <= diamondRadius; dx++) {
+                                const dist = Math.abs(dx) + Math.abs(dy);
+                                if (dist > diamondRadius) continue;
+                                const imgX = Math.round(pt.x + ox + dx);
+                                const imgY = Math.round(pt.y + oy + dy);
+                                if (imgX < 0 || imgX >= width || imgY < 0 || imgY >= height) continue;
 
-                        const dr = canvasData[imgIdx] - tplData.data[tplIdx];
-                        const dg = canvasData[imgIdx + 1] - tplData.data[tplIdx + 1];
-                        const db = canvasData[imgIdx + 2] - tplData.data[tplIdx + 2];
-                        totalDiff += Math.sqrt(dr * dr + dg * dg + db * db);
-                        count++;
+                                const tdx = Math.round(dx * scaleX);
+                                const tdy = Math.round(dy * scaleY);
+                                const targetTx = tplCenterX + tdx;
+                                const targetTy = tplCenterY + tdy;
+                                if (targetTx < 0 || targetTx >= tplW || targetTy < 0 || targetTy >= tplH) continue;
+
+                                const imgIdx = (imgY * width + imgX) * 4;
+                                const tplIdx = (targetTy * tplW + targetTx) * 4;
+
+                                const tr = tplData.data[tplIdx];
+                                const tg = tplData.data[tplIdx + 1];
+                                const tb = tplData.data[tplIdx + 2];
+
+                                const cr = canvasData[imgIdx];
+                                const cg = canvasData[imgIdx + 1];
+                                const cb = canvasData[imgIdx + 2];
+
+                                const dr = cr - tr;
+                                const dg = cg - tg;
+                                const db = cb - tb;
+                                // 상대 색조 밸런스: 핑크(R>B) vs 보라(B>R), 하늘색(B>G) vs 청록(G>B) 등 채도/밝기 차이에 강건한 변별력 제공
+                                const drb = ((cr - cb) - (tr - tb)) * 0.4;
+                                const dgb = ((cg - cb) - (tg - tb)) * 0.5;
+                                const diff = Math.sqrt(dr * dr + dg * dg + db * db + drb * drb + dgb * dgb);
+
+                                const wDist = 1.0 - (dist / diamondRadius) * 0.5;
+                                const tChroma = Math.max(tr, tg, tb) - Math.min(tr, tg, tb);
+                                const wChroma = 1.0 + (tChroma / 255.0) * 2.0;
+                                const weight = wDist * wChroma;
+
+                                totalDiff += diff * weight;
+                                weightSum += weight;
+                            }
+                        }
+
+                        const avg = weightSum ? totalDiff / weightSum : Infinity;
+                        if (avg < minJitterDiff) {
+                            minJitterDiff = avg;
+                        }
+                    }
+                }
+                return minJitterDiff;
+            };
+
+            for (const [mId, tplData] of templates.entries()) {
+                let diff = evalTemplate(tplData);
+                if (dimmedTemplates) {
+                    const tplDimmed = dimmedTemplates.get(mId);
+                    if (tplDimmed) {
+                        const diffDim = evalTemplate(tplDimmed);
+                        if (diffDim < diff) {
+                            diff = diffDim;
+                        }
                     }
                 }
 
-                const avgDiff = count ? totalDiff / count : Infinity;
-                if (avgDiff < bestDiff) {
-                    bestDiff = avgDiff;
+                if (diff < bestDiff) {
+                    bestDiff = diff;
                     bestMission = mId;
                 }
             }

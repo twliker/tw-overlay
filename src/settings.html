@@ -1102,6 +1102,19 @@
                 </label>
               </div>
 
+              <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-2">
+                <div class="flex items-center justify-between">
+                  <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                    <i data-lucide="sun-medium" class="w-3.5 h-3.5 text-teal-400"></i> HUD 기본 불투명도
+                  </h4>
+                  <span id="today-summary-opacity-val" class="text-xs font-bold text-teal-400 min-w-[36px] text-right">100%</span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <input type="range" id="today-summary-opacity-input" min="0.2" max="1.0" step="0.05" value="1.0"
+                    class="flex-1 accent-teal-600">
+                </div>
+              </div>
+
               <div class="p-4 bg-black/30 rounded-xl border border-white/5 space-y-3">
                 <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
                   <i data-lucide="move" class="w-3.5 h-3.5 text-teal-400"></i> HUD 표시 위치 (오버레이 기준)
@@ -3091,7 +3104,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                                class="text-purple-400">3.2.0</span></p>
+                                class="text-purple-400">3.2.1</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -4728,8 +4741,8 @@
         groupId: 'game', routeIndex: 0, targetId: 'show-hud-shortcuts-input'
       },
       {
-        title: '오늘 요약 HUD 설정 (표시 및 좌표)',
-        keywords: ['오늘요약', '요약', 'hud', 'today', '일일요약', '숙제요약'],
+        title: '오늘 요약 HUD 설정 (표시, 투명도 및 좌표)',
+        keywords: ['오늘요약', '요약', 'hud', 'today', '일일요약', '숙제요약', '투명도', '불투명도', 'opacity'],
         category: '게임 HUD & 알림 > HUD 위젯 관리',
         groupId: 'game', routeIndex: 0, targetId: 'today-summary-hud-settings-card'
       },
@@ -6235,6 +6248,7 @@
           ...window.settingsFormCollection.collectChatAlertSettings(lootKeywordsList, shoutKeywordsList),
           showTodaySummaryHud: document.getElementById('today-summary-show-input').checked,
           todaySummaryCollapsed: document.getElementById('today-summary-collapsed-input').checked,
+          todaySummaryOpacity: parseFloat(document.getElementById('today-summary-opacity-input')?.value || '1.0'),
           showHudShortcuts: document.getElementById('show-hud-shortcuts-input') ? document.getElementById('show-hud-shortcuts-input').checked : true,
           digsiteHudEnabled: document.getElementById('digsite-hud-enabled-input') ? document.getElementById('digsite-hud-enabled-input').checked : true,
           forgeQuestHudPos: document.getElementById('forge-hud-pos-left') && document.getElementById('forge-hud-pos-bottom')

@@ -62,6 +62,7 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'ignoreNegativeXp',
   'showTodaySummaryHud',
   'todaySummaryCollapsed',
+  'todaySummaryOpacity',
   'buffTimerBuffs',
   'buffTimerWarnSeconds',
   'buffTimerCenterAlert',

@@ -24,6 +24,7 @@ export const SHARE_FIELDS: Record<ShareGroup, readonly Field[]> = {
     ['chatOverlayFontFamily', '메인 채팅 글꼴'], ['chatOverlaySubFontFamily', '보조 1 글꼴'], ['chatOverlaySub2FontFamily', '보조 2 글꼴'],
     ['chatOverlayFontSize', '메인 채팅 글자 크기'], ['chatOverlaySubFontSize', '보조 1 글자 크기'], ['chatOverlaySub2FontSize', '보조 2 글자 크기'],
     ['chatOverlayOpacity', '메인 채팅 불투명도'], ['chatOverlaySubOpacity', '보조 1 불투명도'], ['chatOverlaySub2Opacity', '보조 2 불투명도'],
+    ['todaySummaryOpacity', '오늘의 요약 불투명도'],
     ['chatOverlayColorGeneral', '일반 채팅 색'], ['chatOverlayColorWhisper', '귓속말 색'], ['chatOverlayColorTeam', '팀 채팅 색'],
     ['chatOverlayColorClub', '클럽 채팅 색'], ['chatOverlayColorShout', '외치기 색'],
     ['chatCompactDisplay', '채팅 간단 표시'], ['chatNicknameNotesCompact', '메모 간단 표시'],

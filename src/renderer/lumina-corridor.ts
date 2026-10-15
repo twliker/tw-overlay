@@ -23,8 +23,9 @@
     let currentPaths: any[] = [];
     let selectedPathIndex = 0;
 
-    // 미션 템플릿 캐시
+    // 미션 템플릿 캐시 (밝은 원본 및 옅은 맵 템플릿)
     const missionTemplates = new Map<string, ImageData>();
+    const missionTemplatesDimmed = new Map<string, ImageData>();
 
     // ── 12종 아이콘 템플릿 비동기 로드 ──
     async function loadMissionTemplates() {
@@ -35,6 +36,8 @@
 
         for (const mId of missions) {
             const meta = api.LUMINA_MISSIONS[mId];
+
+            // 1) 밝은 원본 템플릿 로드
             const img = new Image();
             img.src = `assets/lumina/icons/${meta.iconFileName}`;
             await new Promise(resolve => {
@@ -47,6 +50,21 @@
                     resolve(null);
                 };
                 img.onerror = () => resolve(null);
+            });
+
+            // 2) 옅은 맵 템플릿 로드
+            const imgDim = new Image();
+            imgDim.src = `assets/lumina/icons/dimmed/${meta.iconFileName}`;
+            await new Promise(resolve => {
+                imgDim.onload = () => {
+                    tCanvas.width = imgDim.width;
+                    tCanvas.height = imgDim.height;
+                    tCtx.drawImage(imgDim, 0, 0);
+                    const imgData = tCtx.getImageData(0, 0, imgDim.width, imgDim.height);
+                    missionTemplatesDimmed.set(mId, imgData);
+                    resolve(null);
+                };
+                imgDim.onerror = () => resolve(null);
             });
         }
     }
@@ -289,29 +307,40 @@
         let stepX = 50;
         let stepY = 50;
 
+        const matchMap = new Map<string, { x: number; y: number }>();
         if (bestLattice && bestLattice.matches.length >= 20) {
             const xSamples = bestLattice.matches.map((m: any) => ({ index: m.column, point: m.point }));
             const ySamples = bestLattice.matches.map((m: any) => ({ index: m.row, point: m.point }));
             const xFit = linearFit(xSamples, 'x');
             const yFit = linearFit(ySamples, 'y');
-            stepX = Math.round(xFit.slope || bestLattice.spacing);
-            stepY = Math.round(yFit.slope || bestLattice.spacing);
-            startX = Math.round(xFit.intercept);
-            startY = Math.round(yFit.intercept);
+            stepX = xFit.slope || bestLattice.spacing;
+            stepY = yFit.slope || bestLattice.spacing;
+            startX = xFit.intercept;
+            startY = yFit.intercept;
+
+            for (const m of bestLattice.matches) {
+                matchMap.set(`${m.row},${m.column}`, { x: m.point.x, y: m.point.y });
+            }
         }
 
         const nodePoints: Array<Array<{ x: number; y: number }>> = [];
         for (let r = 0; r < api.LUMINA_ROW_COUNT; r++) {
             const rowPoints: Array<{ x: number; y: number }> = [];
-            const y = Math.round(startY + r * stepY);
             for (let c = 0; c < api.LUMINA_COL_COUNT; c++) {
-                const x = Math.round(startX + c * stepX);
-                rowPoints.push({ x, y });
+                const matched = matchMap.get(`${r},${c}`);
+                if (matched) {
+                    rowPoints.push({ x: matched.x, y: matched.y });
+                } else {
+                    rowPoints.push({
+                        x: Math.round(startX + c * stepX),
+                        y: Math.round(startY + r * stepY)
+                    });
+                }
             }
             nodePoints.push(rowPoints);
         }
 
-        console.log(`[LUMINA-VISION] Robust grid detected: startX=${startX}, startY=${startY}, stepX=${stepX}, stepY=${stepY}`);
+        console.log(`[LUMINA-VISION] Robust grid detected: startX=${startX.toFixed(1)}, startY=${startY.toFixed(1)}, stepX=${stepX.toFixed(1)}, stepY=${stepY.toFixed(1)}`);
         return { nodePoints, stepX, stepY };
     }
 
@@ -416,6 +445,15 @@
         const canvasData = ctx.getImageData(0, 0, width, height).data;
         const grid: any[][] = [];
 
+        const stepX = points[0].length > 1
+            ? (points[0][points[0].length - 1].x - points[0][0].x) / (points[0].length - 1)
+            : 44;
+        const stepY = points.length > 1
+            ? (points[points.length - 1][0].y - points[0][0].y) / (points.length - 1)
+            : 44;
+        const step = Math.max(20, Math.min(80, (stepX + stepY) / 2));
+        const diamondRadius = Math.max(5, Math.min(10, Math.round(7 * (step / 44))));
+
         for (let r = 0; r < api.LUMINA_ROW_COUNT; r++) {
             const row: any[] = [];
             for (let c = 0; c < api.LUMINA_COL_COUNT; c++) {
@@ -423,36 +461,83 @@
                 let bestMId: string | undefined;
                 let bestDiff = Infinity;
 
-                for (const [mId, tplData] of missionTemplates.entries()) {
-                    let totalDiff = 0;
-                    let count = 0;
+                const evalTemplate = (tplData: ImageData): number => {
                     const tw = tplData.width;
                     const th = tplData.height;
                     const tcx = Math.floor(tw / 2);
                     const tcy = Math.floor(th / 2);
+                    const scaleX = tw / step;
+                    const scaleY = th / step;
 
-                    // 마름모 내부 |dx| + |dy| <= 10 영역 정밀 비교
-                    for (let dy = -10; dy <= 10; dy++) {
-                        for (let dx = -10; dx <= 10; dx++) {
-                            if (Math.abs(dx) + Math.abs(dy) > 10) continue;
-                            const nx = pt.x + dx;
-                            const ny = pt.y + dy;
-                            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+                    let minJitterDiff = Infinity;
+                    for (let oy = -1; oy <= 1; oy++) {
+                        for (let ox = -1; ox <= 1; ox++) {
+                            let totalDiff = 0;
+                            let weightSum = 0;
 
-                            const nIdx = (ny * width + nx) * 4;
-                            const tIdx = ((tcy + dy) * tw + (tcx + dx)) * 4;
+                            for (let dy = -diamondRadius; dy <= diamondRadius; dy++) {
+                                for (let dx = -diamondRadius; dx <= diamondRadius; dx++) {
+                                    const dist = Math.abs(dx) + Math.abs(dy);
+                                    if (dist > diamondRadius) continue;
+                                    const nx = Math.round(pt.x + ox + dx);
+                                    const ny = Math.round(pt.y + oy + dy);
+                                    if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
 
-                            const dr = canvasData[nIdx] - tplData.data[tIdx];
-                            const dg = canvasData[nIdx + 1] - tplData.data[tIdx + 1];
-                            const db = canvasData[nIdx + 2] - tplData.data[tIdx + 2];
-                            totalDiff += Math.sqrt(dr * dr + dg * dg + db * db);
-                            count++;
+                                    const tdx = Math.round(dx * scaleX);
+                                    const tdy = Math.round(dy * scaleY);
+                                    const targetTx = tcx + tdx;
+                                    const targetTy = tcy + tdy;
+                                    if (targetTx < 0 || targetTx >= tw || targetTy < 0 || targetTy >= th) continue;
+
+                                    const nIdx = (ny * width + nx) * 4;
+                                    const tIdx = (targetTy * tw + targetTx) * 4;
+
+                                    const tr = tplData.data[tIdx];
+                                    const tg = tplData.data[tIdx + 1];
+                                    const tb = tplData.data[tIdx + 2];
+                                    const cr = canvasData[nIdx];
+                                    const cg = canvasData[nIdx + 1];
+                                    const cb = canvasData[nIdx + 2];
+
+                                    const dr = cr - tr;
+                                    const dg = cg - tg;
+                                    const db = cb - tb;
+                                    // 상대 색조 밸런스: 핑크(R>B) vs 보라(B>R), 하늘색(B>G) vs 청록(G>B) 등 채도/밝기 차이에 강건한 변별력 제공
+                                    const drb = ((cr - cb) - (tr - tb)) * 0.4;
+                                    const dgb = ((cg - cb) - (tg - tb)) * 0.5;
+                                    const diff = Math.sqrt(dr * dr + dg * dg + db * db + drb * drb + dgb * dgb);
+
+                                    const wDist = 1.0 - (dist / diamondRadius) * 0.5;
+                                    const tChroma = Math.max(tr, tg, tb) - Math.min(tr, tg, tb);
+                                    const wChroma = 1.0 + (tChroma / 255.0) * 2.0;
+                                    const weight = wDist * wChroma;
+
+                                    totalDiff += diff * weight;
+                                    weightSum += weight;
+                                }
+                            }
+
+                            const avg = weightSum ? totalDiff / weightSum : Infinity;
+                            if (avg < minJitterDiff) {
+                                minJitterDiff = avg;
+                            }
+                        }
+                    }
+                    return minJitterDiff;
+                };
+
+                for (const [mId, tplData] of missionTemplates.entries()) {
+                    let diff = evalTemplate(tplData);
+                    const tplDimmed = missionTemplatesDimmed.get(mId);
+                    if (tplDimmed) {
+                        const diffDim = evalTemplate(tplDimmed);
+                        if (diffDim < diff) {
+                            diff = diffDim;
                         }
                     }
 
-                    const avgDiff = count ? totalDiff / count : Infinity;
-                    if (avgDiff < bestDiff) {
-                        bestDiff = avgDiff;
+                    if (diff < bestDiff) {
+                        bestDiff = diff;
                         bestMId = mId;
                     }
                 }
@@ -499,6 +584,7 @@
 
         (window as any).luminaCorridorPaths = currentPaths;
         (window as any).luminaDebugConnections = currentConnections;
+        (window as any).luminaDebugGridData = currentGridData;
 
         if (selectedPathIndex >= currentPaths.length) {
             selectedPathIndex = 0;
@@ -842,9 +928,26 @@
             $('tooltipIcon').classList.add('hidden');
         }
 
-        const rect = $('viewerContainer').getBoundingClientRect();
-        tooltipEl.style.left = `${e.clientX - rect.left + 16}px`;
-        tooltipEl.style.top = `${e.clientY - rect.top - 20}px`;
+        const parentRect = tooltipEl.parentElement
+            ? tooltipEl.parentElement.getBoundingClientRect()
+            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+
+        let left = e.clientX - parentRect.left + 16;
+        let top = e.clientY - parentRect.top - 20;
+
+        const tooltipW = tooltipEl.offsetWidth || 256;
+        const tooltipH = tooltipEl.offsetHeight || 130;
+
+        if (left + tooltipW > parentRect.width - 12) {
+            left = Math.max(12, e.clientX - parentRect.left - tooltipW - 16);
+        }
+        if (top + tooltipH > parentRect.height - 12) {
+            top = Math.max(12, parentRect.height - tooltipH - 12);
+        }
+        if (top < 12) top = 12;
+
+        tooltipEl.style.left = `${Math.round(left)}px`;
+        tooltipEl.style.top = `${Math.round(top)}px`;
         tooltipEl.classList.remove('hidden');
     }
 
