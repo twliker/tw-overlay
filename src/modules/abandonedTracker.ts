@@ -7,6 +7,10 @@
  *   매칭되지 않은 입장료도 전체 수익에서 즉시 빼고 `unassignedFee`로 보존해 금액을 잃지 않습니다.
  * - 마정석 소실(`MAGIC_STONE_LOSS`) 감지 시 전체 및 해당 지역의 누 조우 횟수(`nuEncounters`)와
  *   등급별 소실량(`stoneLosses`)을 동시에 누적합니다.
+ * - 누(Nu) 마정석 대량 획득 서버 전체 공지(`ABANDONED_NU_ACQUISITION`) 감지 시 마지막 발생 시각
+ *   (`lastNuBroadcastTime`, `lastNuBroadcastText`)을 상태에 기록합니다.
+ *   서버 전체 공지는 개인 던전 플레이 활동이 아니므로 숨김 상태의 HUD를 강제로 띄우지 않고 상태만 보존하며,
+ *   HUD가 이미 활성화된 경우에만 화면을 실시간 갱신합니다. `reset()` 시에도 이 서버 공지 기록은 유지됩니다.
  * - 10회 도달 알림은 설정이 켜졌을 때만 Windows/HUD에 보내며, 통계 상태는 모든 관련 창에
  *   브로드캐스트합니다. 자동 숨김은 통계 수집을 중단하지 않습니다.
  * - 사용자가 직접 숨긴 상태는 활동으로 자동 해제하지 않고 명시적 표시 또는 다음 게임 세션에서만
@@ -183,6 +187,17 @@ class AbandonedTracker {
       this.activateFromActivity();
       log(`[ABANDONED] 마정석 소실: ${gradeKey} x${data.count}, 수익 차감: -${unitValue * data.count}, 누 조우 횟수: ${this._abandonedState.nuEncounters}, 현재 수익: ${this._abandonedState.profit}`);
     });
+
+    // 누(Nu) 마정석 대량 획득 서버 전체 공지 (숨김 상태 HUD를 강제로 열지 않고 상태 보존)
+    chatParser.on('ABANDONED_NU_ACQUISITION', (data) => {
+      const now = Date.now();
+      this._abandonedState.lastNuBroadcastTime = now;
+      this._abandonedState.lastNuBroadcastText = data.timestamp;
+      log(`[ABANDONED] 누 마정석 대량 획득 전체 공지 감지: ${data.timestamp} (${data.grade ?? '마정석'}) - ${data.message}`);
+      if (this._abandonedState.isActive) {
+        this.notifyAbandonedUpdate();
+      }
+    });
   }
 
   private activateFromActivity(): void {
@@ -253,12 +268,16 @@ class AbandonedTracker {
   }
 
   public reset(): void {
+    const lastNuBroadcastTime = this._abandonedState.lastNuBroadcastTime;
+    const lastNuBroadcastText = this._abandonedState.lastNuBroadcastText;
     this._abandonedState = {
       regions: {}, profit: 0, isActive: false,
       isEnabled: this._abandonedState.isEnabled,
       stoneGains: {}, stoneLosses: {}, totalFee: 0, unassignedFee: 0,
       currentRegion: '', regionDetails: {},
       nuEncounters: 0,
+      lastNuBroadcastTime,
+      lastNuBroadcastText,
     };
     this._pendingAbandonedFee = null;
     this._manualVisibilitySuppressed = false;

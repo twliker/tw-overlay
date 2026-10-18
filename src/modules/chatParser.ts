@@ -772,6 +772,23 @@ export class ChatParser extends EventEmitter {
         }
     }
 
+    // 3. 누(Nu) 마정석 대량 획득 서버 전체 공지 (예: "누군가 [ 누 ] 에게서 하급 마정석을 대량으로 획득 하였습니다.")
+    if (cleanMsg.startsWith('누군가')
+      && /\[?\s*누\s*\]?\s*에게서/.test(cleanMsg)
+      && cleanMsg.includes('마정석')
+      && (cleanMsg.includes('대량으로') || cleanMsg.includes('대량의'))
+      && /(?:획득|습득|입수)\s*(?:하였|했)습니다/.test(cleanMsg)) {
+        const gradeMatch = cleanMsg.match(/(하급|중급|상급|최상급)\s*마정석/);
+        const grade = gradeMatch ? gradeMatch[1] : undefined;
+        this.emit('ABANDONED_NU_ACQUISITION', {
+          date: this._currentDate,
+          timestamp,
+          grade,
+          message: cleanMsg,
+        });
+        return;
+    }
+
     // H. 팔색조 언덕 특화 패턴
     // 1. 보스 진입 (예: "현재 남은 에너지는 [15]이고, 보스 퇴치 시 획득 가능한 보상 등급은 [S]입니다.")
     if (cleanMsg.includes('남은 에너지는') && cleanMsg.includes('보상 등급은')) {

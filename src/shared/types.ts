@@ -17,6 +17,7 @@ export interface ChatParserEventMap {
     ABANDONED_ENTRY: { date: string; timestamp: string; region: string; count: number; message: string };
     MAGIC_STONE_GAIN: { date: string; timestamp: string; grade: string; count: number; message: string };
     MAGIC_STONE_LOSS: { date: string; timestamp: string; grade: string; count: number; message: string };
+    ABANDONED_NU_ACQUISITION: { date: string; timestamp: string; grade?: string; message: string };
     ITEM_LOOTED: {
         date: string;
         timestamp: string;
@@ -100,6 +101,8 @@ export interface AbandonedRoadState {
         stoneLosses: Record<string, number>;
         nuEncounters?: number;
     }>;
+    lastNuBroadcastTime?: number;
+    lastNuBroadcastText?: string;
 }
 
 export interface QuickSlotItem {

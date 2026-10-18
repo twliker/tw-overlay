@@ -184,6 +184,10 @@
             <option value="20">20분</option>
           </select>
         </div>
+        <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-700/50 text-[11px]">
+          <span class="text-slate-400 font-bold">누 전체 알림</span>
+          <span id="calc-nu-broadcast-time" class="font-mono font-bold text-slate-500" title="수신된 누 전체 공지 없음">-</span>
+        </div>
         <div class="flex items-center gap-2 mt-2 flex-wrap">
           <button onclick="abandonedForceShow()"
             class="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 rounded-lg text-[11px] font-bold transition-all active:scale-95">
@@ -348,8 +352,54 @@
       return sign + (result.trim() || abs.toLocaleString());
     }
 
+    let lastCalcAbandonedState = null;
+    function updateCalcNuBroadcastUI() {
+      const broadcastEl = document.getElementById('calc-nu-broadcast-time');
+      if (!broadcastEl) return;
+      const broadcastTime = lastCalcAbandonedState?.lastNuBroadcastTime;
+      const broadcastText = lastCalcAbandonedState?.lastNuBroadcastText;
+      if (!broadcastTime) {
+        broadcastEl.innerText = '-';
+        broadcastEl.className = 'font-mono font-bold text-[11px] text-slate-500';
+        broadcastEl.title = '수신된 누 전체 공지 없음';
+        return;
+      }
+
+      const diffMs = Math.max(0, Date.now() - broadcastTime);
+      const diffMin = Math.floor(diffMs / 60000);
+      const diffHour = Math.floor(diffMin / 60);
+
+      let text = '';
+      let colorClass = 'text-slate-300';
+      if (diffMin < 1) {
+        text = '방금 전';
+        colorClass = 'text-rose-400';
+      } else if (diffMin < 10) {
+        text = `${diffMin}분 전`;
+        colorClass = 'text-rose-400';
+      } else if (diffMin < 30) {
+        text = `${diffMin}분 전`;
+        colorClass = 'text-amber-400';
+      } else if (diffHour < 1) {
+        text = `${diffMin}분 전`;
+        colorClass = 'text-emerald-400';
+      } else if (diffHour < 24) {
+        text = `${diffHour}시간 전`;
+        colorClass = 'text-emerald-400';
+      } else {
+        text = '1일 이상';
+        colorClass = 'text-slate-400';
+      }
+
+      broadcastEl.innerText = text;
+      broadcastEl.className = `font-mono font-bold text-[11px] ${colorClass}`;
+      broadcastEl.title = `마지막 공지: ${broadcastText || ''} (${diffMin}분 전)`;
+    }
+
     function updateSessionUI(state) {
       if (!state) return;
+      lastCalcAbandonedState = state;
+      updateCalcNuBroadcastUI();
 
       const gains = state.stoneGains || {};
       const losses = state.stoneLosses || {};
@@ -538,6 +588,7 @@
       if (window.electronAPI.onAbandonedUpdate) {
         window.electronAPI.onAbandonedUpdate((state) => updateSessionUI(state));
       }
+      setInterval(updateCalcNuBroadcastUI, 1000);
     }
 
     // 기능 계약: 사용자가 확정한 계산 결과는 문구와 실제 SEED 금액을 함께

@@ -2102,6 +2102,10 @@
       </div>
     </div>
     <div class="h-px bg-white/10 my-1"></div>
+    <div id="abandoned-nu-broadcast-row" class="flex justify-between items-center text-[9px] mb-0.5">
+      <span class="text-slate-400 font-bold">누 전체 알림</span>
+      <span id="abandoned-nu-broadcast-time" class="font-mono font-bold text-[10px] text-slate-500" title="수신된 누 전체 공지 없음">-</span>
+    </div>
     <div class="flex justify-between items-center">
       <span class="text-[9px] text-slate-400 font-bold">실시간 수익</span>
       <span id="abandoned-profit" class="profit-text text-[11px] text-white">+0</span>
@@ -2511,6 +2515,7 @@
     let currentConfig = null;
     let currentDigsiteState = null;
     let abandonedHudVisible = false;
+    let currentAbandonedState = null;
 
     /**
      * 게임 오버레이 내부 HUD 위치 계약
@@ -2554,16 +2559,20 @@
     window.__isDigsiteActive = () => currentDigsiteState?.isActive === true;
     window.__isQuestActive = () => isQuestActive;
 
-    // 1초마다 경과 시간 실시간 업데이트 (XP 위젯 표시 상태일 때만 연산)
+    // 1초마다 경과 시간 실시간 업데이트 (XP 위젯 및 어벤던 위젯)
     setInterval(() => {
-      if (!showXpWidget) return;
-      const elapsedEl = document.getElementById('xp-elapsed');
-      if (elapsedEl) {
-        let elapsed = sessionAccumulatedTime;
-        if (sessionIsActive) {
-          elapsed += Date.now() - sessionStartTime;
+      if (showXpWidget) {
+        const elapsedEl = document.getElementById('xp-elapsed');
+        if (elapsedEl) {
+          let elapsed = sessionAccumulatedTime;
+          if (sessionIsActive) {
+            elapsed += Date.now() - sessionStartTime;
+          }
+          elapsedEl.innerText = window.formatElapsedTime(elapsed) + (sessionIsActive ? '' : ' ⏸');
         }
-        elapsedEl.innerText = window.formatElapsedTime(elapsed) + (sessionIsActive ? '' : ' ⏸');
+      }
+      if (abandonedHudVisible) {
+        updateAbandonedBroadcastUI();
       }
     }, 1000);
 
@@ -2726,8 +2735,53 @@
       }
     });
 
+    // ── 어벤던로드 누 마정석 서버 공지 경과 시간 업데이트 ──
+    function updateAbandonedBroadcastUI() {
+      const broadcastEl = document.getElementById('abandoned-nu-broadcast-time');
+      if (!broadcastEl) return;
+      const broadcastTime = currentAbandonedState?.lastNuBroadcastTime;
+      const broadcastText = currentAbandonedState?.lastNuBroadcastText;
+      if (!broadcastTime) {
+        broadcastEl.innerText = '-';
+        broadcastEl.className = 'font-mono font-bold text-[10px] text-slate-500';
+        broadcastEl.title = '수신된 누 전체 공지 없음';
+        return;
+      }
+
+      const diffMs = Math.max(0, Date.now() - broadcastTime);
+      const diffMin = Math.floor(diffMs / 60000);
+      const diffHour = Math.floor(diffMin / 60);
+
+      let text = '';
+      let colorClass = 'text-slate-300';
+      if (diffMin < 1) {
+        text = '방금 전';
+        colorClass = 'text-rose-400';
+      } else if (diffMin < 10) {
+        text = `${diffMin}분 전`;
+        colorClass = 'text-rose-400';
+      } else if (diffMin < 30) {
+        text = `${diffMin}분 전`;
+        colorClass = 'text-amber-400';
+      } else if (diffHour < 1) {
+        text = `${diffMin}분 전`;
+        colorClass = 'text-emerald-400';
+      } else if (diffHour < 24) {
+        text = `${diffHour}시간 전`;
+        colorClass = 'text-emerald-400';
+      } else {
+        text = '1일 이상';
+        colorClass = 'text-slate-400';
+      }
+
+      broadcastEl.innerText = text;
+      broadcastEl.className = `font-mono font-bold text-[10px] ${colorClass}`;
+      broadcastEl.title = `마지막 공지: ${broadcastText || ''} (${diffMin}분 전)`;
+    }
+
     // ── 어벤던로드 실시간 업데이트 ──
     function updateAbandonedUI(state) {
+      currentAbandonedState = state;
       abandonedHudVisible = state?.isActive === true;
       const widget = document.getElementById('abandoned-widget');
       if (!widget) return;
@@ -2741,6 +2795,9 @@
       setTimeout(() => {
         if (widget) widget.classList.add('active');
       }, 50);
+
+      // 누 마정석 대량 획득 서버 전체 공지 갱신
+      updateAbandonedBroadcastUI();
 
       // 지역별 횟수 렌더링
       const regionContainer = document.getElementById('abandoned-regions');

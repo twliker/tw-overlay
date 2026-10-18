@@ -6629,6 +6629,14 @@ function checkAbandonedFeeMatchingContracts(): void {
 
   abandonedTracker.reset();
   assert.equal(abandonedTracker.getState().nuEncounters, 0, '리셋 후 nuEncounters가 다시 0이어야 합니다.');
+
+  // 누(Nu) 마정석 대량 획득 서버 공지 계약 검증
+  chatParser.emit('ABANDONED_NU_ACQUISITION', {
+    date: '2099-12-31', timestamp: '23시 59분 20초', grade: '하급', message: '누군가 누에게서 하급 마정석을(를) 대량으로 획득하였습니다.',
+  });
+  assert.equal(abandonedTracker.getState().lastNuBroadcastText, '23시 59분 20초');
+  abandonedTracker.reset();
+  assert.equal(abandonedTracker.getState().lastNuBroadcastText, '23시 59분 20초', '리셋 후에도 lastNuBroadcastText가 유지되어야 합니다.');
 }
 
 function checkDigsiteBoardContracts(): void {

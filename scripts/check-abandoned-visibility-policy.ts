@@ -28,6 +28,8 @@ async function main(): Promise<void> {
         stoneLosses: Record<string, number>;
         totalFee: number;
         nuEncounters?: number;
+        lastNuBroadcastTime?: number;
+        lastNuBroadcastText?: string;
       };
     };
   };
@@ -86,8 +88,33 @@ async function main(): Promise<void> {
   chatParser.emit('MAGIC_STONE_GAIN', {
     date: '2026-08-27', timestamp: '10시 00분 07초', grade: '최상급', count: 1, message: '다음 활동',
   });
-  assert.equal(abandonedTracker.getState().isActive, true, '자동 숨김 뒤 다음 활동에서 HUD가 다시 표시되지 않았습니다.');
   abandonedTracker.reset();
+
+  // 누(Nu) 마정석 대량 획득 서버 전체 공지 수신 및 숨김 유지 정책 검증
+  abandonedTracker.forceVisible(false);
+  assert.equal(abandonedTracker.getState().isActive, false);
+  const parserInstance = chatParser as unknown as { parseLine(line: string): void };
+  parserInstance.parseLine('[ 18시 25분 30초 ] 누군가 누에게서 하급 마정석을(를) 대량으로 획득하였습니다.');
+  const broadcastState = abandonedTracker.getState();
+  assert.equal(broadcastState.isActive, false, '서버 전체 공지 수신 시 숨겨진 HUD가 강제로 표시되면 안 됩니다.');
+  assert.equal(broadcastState.lastNuBroadcastText, '18시 25분 30초', '로그 타임스탬프가 lastNuBroadcastText에 기록되지 않았습니다.');
+  assert.ok(typeof broadcastState.lastNuBroadcastTime === 'number' && broadcastState.lastNuBroadcastTime > 0, 'lastNuBroadcastTime이 기록되지 않았습니다.');
+
+  // 실제 테일즈위버 로그 포맷 ([ 누 ] 내부 공백 및 HTML 태그 포함) 수신 검증
+  parserInstance.parseLine('<font size="2" color="white"> [19시 19분 29초] </font> <font size="2" color="#ff64ff">누군가 [ 누 ] 에게서 하급 마정석을 대량으로 획득 하였습니다.</font></br>');
+  assert.equal(abandonedTracker.getState().lastNuBroadcastText, '19시 19분 29초', '실제 테일즈위버 공지 포맷([ 누 ])이 감지되지 않았습니다.');
+
+  // reset() 시 서버 공지 시각 보존 검증
+  abandonedTracker.reset();
+  assert.equal(abandonedTracker.getState().lastNuBroadcastText, '19시 19분 29초', 'reset() 후에도 서버 전체 공지 시각이 보존되어야 합니다.');
+
+  const overlayHtml = fs.readFileSync(path.join(projectRoot, 'src', 'game-overlay.html'), 'utf8');
+  assert.match(overlayHtml, /id="abandoned-nu-broadcast-time"/, 'game-overlay.html에 누 전체 알림 표시 요소가 없습니다.');
+  assert.match(overlayHtml, /function updateAbandonedBroadcastUI\(\)/, 'game-overlay.html에 updateAbandonedBroadcastUI 함수가 없습니다.');
+
+  const calcHtml = fs.readFileSync(path.join(projectRoot, 'src', 'magic-stone-calculator.html'), 'utf8');
+  assert.match(calcHtml, /id="calc-nu-broadcast-time"/, 'magic-stone-calculator.html에 누 전체 알림 표시 요소가 없습니다.');
+  assert.match(calcHtml, /function updateCalcNuBroadcastUI\(\)/, 'magic-stone-calculator.html에 updateCalcNuBroadcastUI 함수가 없습니다.');
 
   const pollingSource = fs.readFileSync(path.join(projectRoot, 'src', 'modules', 'pollingLoop.ts'), 'utf8');
   const ipcSource = fs.readFileSync(path.join(projectRoot, 'src', 'modules', 'ipcHandlers.ts'), 'utf8');
