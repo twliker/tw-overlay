@@ -152,6 +152,10 @@ export function start(): void {
                 const { digsiteTracker } = await import('./digsiteTracker');
                 abandonedTracker.beginGameSession();
                 digsiteTracker.beginGameSession();
+                const { getSelectorDisplayOptions } = await import('./profileManager');
+                if (getSelectorDisplayOptions().showOnGameLaunch) {
+                    void wm.showProfileSelector();
+                }
             }
             wm.syncOverlay(currentRect as GameRect);
             lastRect = currentRect;

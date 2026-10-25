@@ -51,6 +51,7 @@ import {
   getDiaryRetentionStartDate,
   getSyncTargetLogFiles
 } from './chatLogSyncManager';
+import * as profileManager from './profileManager';
 
 let _registered = false;
 
@@ -222,6 +223,74 @@ function triggerGameOverlayEffect(
 export function register(): void {
   if (_registered) return;
   _registered = true;
+
+  // --- Multi-Profile IPC Handlers ---
+  ipcMain.handle('profile:get-all', async () => {
+    return profileManager.getAllProfileSummaries();
+  });
+
+  ipcMain.handle('profile:get-active', async () => {
+    return profileManager.getActiveProfile();
+  });
+
+  ipcMain.handle('profile:switch', async (_event, profileId: unknown) => {
+    if (typeof profileId !== 'string') return false;
+    return await profileManager.switchProfile(profileId);
+  });
+
+  ipcMain.handle('profile:create', async (_event, options: unknown) => {
+    if (!options || typeof options !== 'object') throw new Error('잘못된 요청입니다.');
+    const opt = options as { name?: string; avatarUrl?: string; copyFromProfileId?: string };
+    if (!opt.name || typeof opt.name !== 'string') throw new Error('프로필 이름이 필요합니다.');
+    return profileManager.createProfile({
+      name: opt.name,
+      avatarUrl: typeof opt.avatarUrl === 'string' ? opt.avatarUrl : undefined,
+      copyFromProfileId: typeof opt.copyFromProfileId === 'string' ? opt.copyFromProfileId : undefined
+    });
+  });
+
+  ipcMain.handle('profile:duplicate', async (_event, sourceId: unknown, customName: unknown) => {
+    if (typeof sourceId !== 'string') return null;
+    return profileManager.duplicateProfile(sourceId, typeof customName === 'string' ? customName : undefined);
+  });
+
+  ipcMain.handle('profile:update', async (_event, id: unknown, updates: unknown) => {
+    if (typeof id !== 'string' || !updates || typeof updates !== 'object') return null;
+    const upd = updates as { name?: string; avatarUrl?: string };
+    return profileManager.updateProfile(id, upd);
+  });
+
+  ipcMain.handle('profile:delete', async (_event, id: unknown) => {
+    if (typeof id !== 'string') return false;
+    return profileManager.deleteProfile(id);
+  });
+
+  ipcMain.handle('profile:upload-avatar', async (_event, fileName: unknown, bufferData: unknown) => {
+    if (typeof fileName !== 'string' || !bufferData) throw new Error('잘못된 아바타 데이터');
+    const buffer = Buffer.isBuffer(bufferData) ? bufferData : Buffer.from(bufferData as ArrayBuffer);
+    return profileManager.saveUploadedAvatar(fileName, buffer);
+  });
+
+  ipcMain.handle('profile:get-default-presets', async () => {
+    return profileManager.DEFAULT_CHARACTER_PRESETS;
+  });
+
+  ipcMain.handle('profile:get-display-options', async () => {
+    return profileManager.getSelectorDisplayOptions();
+  });
+
+  ipcMain.handle('profile:set-display-options', async (_event, options: unknown) => {
+    if (!options || typeof options !== 'object') return;
+    profileManager.setSelectorDisplayOptions(options as any);
+  });
+
+  ipcMain.on('profile:close-selector', () => {
+    wm.closeProfileSelector();
+  });
+
+  ipcMain.on('profile:open-selector', () => {
+    wm.showProfileSelector();
+  });
 
   ipcMain.handle('contents-collapse', (event, collapsed: boolean) => {
     if (!isBoolean(collapsed)) return false;
@@ -1008,9 +1077,9 @@ export function register(): void {
   // --- Diary (Adventure Log) System ---
   const validActivityTypes = ['boss', 'calc', 'memo', 'loot', 'homework'] as const;
 
-  ipcMain.handle('diary-get-by-date', (_e, date: string) => {
+  ipcMain.handle('diary-get-by-date', (_e, date: string, profileId?: string) => {
     if (!isValidDateKey(date)) return { diary: null, homeworkLogs: [], activityLogs: [] };
-    return diaryDb.getDiaryByDate(date, getDiaryLootKeywords());
+    return diaryDb.getDiaryByDate(date, getDiaryLootKeywords(), profileId);
   });
   ipcMain.handle('diary-get-by-month', (_e, yearMonth: string) => {
     if (!isValidYearMonthKey(yearMonth)) return [];
@@ -1066,11 +1135,12 @@ export function register(): void {
     if (!isLimitedString(file, 500, false) || !isFiniteInRange(volume, 0, 100)) return;
     wm.sendPlaySound({ label: '미리보기', soundFile: file, volume, isPreview: true });
   });
-  ipcMain.handle('diary-add-activity', (_e, date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0) => {
+  ipcMain.handle('diary-add-activity', (_e, date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0, profileId?: string) => {
     if (!isValidDateKey(date) || !isLimitedString(time, 16, false)
       || !validActivityTypes.includes(type) || !isLimitedString(content, 20_000)
       || !isFiniteInRange(amount, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)) return null;
-    return diaryDb.addManualActivityLog(date, time, type, content, amount);
+    const finalProfileId = profileId || profileManager.getActiveProfileId();
+    return diaryDb.addManualActivityLog(date, time, type, content, amount, finalProfileId);
   });
   ipcMain.handle('diary-remove-activity', (_e, id: number) => {
     if (!isPositiveInteger(id)) return false;

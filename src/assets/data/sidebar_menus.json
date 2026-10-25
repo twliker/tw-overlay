@@ -126,24 +126,6 @@
     "category": "calculators"
   },
   {
-    "id": "siena-aura-btn",
-    "label": "시에나의 기운",
-    "icon": "sparkles",
-    "tooltip": "시에나의 기운 강화 시뮬레이터",
-    "color": "purple-500",
-    "api": "toggleSienaAura",
-    "category": "calculators"
-  },
-  {
-    "id": "uniform-color-btn",
-    "label": "제복 색상 시뮬레이터",
-    "icon": "palette",
-    "tooltip": "제복 색상 시뮬레이터 (twsnowflower)",
-    "color": "rose-400",
-    "api": "toggleUniformColor",
-    "category": "calculators"
-  },
-  {
     "id": "hunting-exp-calculator-btn",
     "label": "사냥 경험치 계산기",
     "icon": "chart-no-axes-combined",
@@ -169,6 +151,42 @@
     "color": "amber-400",
     "api": "toggleEquipmentSimulator",
     "category": "calculators"
+  },
+  {
+    "id": "siena-aura-btn",
+    "label": "시에나의 기운",
+    "icon": "sparkles",
+    "tooltip": "시에나의 기운 강화 시뮬레이터",
+    "color": "purple-500",
+    "api": "toggleSienaAura",
+    "category": "simulators"
+  },
+  {
+    "id": "uniform-color-btn",
+    "label": "제복 색상 시뮬레이터",
+    "icon": "palette",
+    "tooltip": "제복 색상 시뮬레이터 (twsnowflower)",
+    "color": "rose-400",
+    "api": "toggleUniformColor",
+    "category": "simulators"
+  },
+  {
+    "id": "hunting-path-simulator-btn",
+    "label": "사냥터 동선 시뮬레이션",
+    "icon": "route",
+    "tooltip": "사냥터 동선 시뮬레이션",
+    "color": "emerald-500",
+    "api": "toggleHuntingPathSimulator",
+    "category": "simulators"
+  },
+  {
+    "id": "lumina-corridor-btn",
+    "label": "루미나의 회랑",
+    "icon": "compass",
+    "tooltip": "루미나의 회랑 최적 경로 분석기",
+    "color": "sky-400",
+    "api": "toggleLuminaCorridor",
+    "category": "simulators"
   },
   {
     "id": "sword-enhance-btn",
@@ -206,24 +224,6 @@
     "color": "yellow-400",
     "api": "toggleEtaRanking",
     "category": "information"
-  },
-  {
-    "id": "hunting-path-simulator-btn",
-    "label": "사냥터 동선 시뮬레이션",
-    "icon": "route",
-    "tooltip": "사냥터 동선 시뮬레이션",
-    "color": "emerald-500",
-    "api": "toggleHuntingPathSimulator",
-    "category": "calculators"
-  },
-  {
-    "id": "lumina-corridor-btn",
-    "label": "루미나의 회랑",
-    "icon": "compass",
-    "tooltip": "루미나의 회랑 최적 경로 분석기",
-    "color": "sky-400",
-    "api": "toggleLuminaCorridor",
-    "category": "calculators"
   },
   {
     "id": "xp-hud-btn",

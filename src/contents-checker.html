@@ -252,6 +252,66 @@
             pointer-events: auto !important;
         }
 
+        /* 토스트 알림 */
+        .contents-toast {
+            position: fixed;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-10px);
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(16, 185, 129, 0.5);
+            color: #f1f5f9;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 8px 16px;
+            border-radius: 9999px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 200;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 15px rgba(16, 185, 129, 0.25);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            backdrop-filter: blur(12px);
+            max-width: 90%;
+            white-space: nowrap;
+        }
+
+        .contents-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .contents-toast.info {
+            border-color: rgba(167, 139, 250, 0.5);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 15px rgba(167, 139, 250, 0.25);
+        }
+
+        .contents-toast.warn {
+            border-color: rgba(245, 158, 11, 0.5);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 158, 11, 0.25);
+        }
+
+        /* 추가/수정 항목 하이라이트 */
+        @keyframes highlightRowAnim {
+            0% {
+                background-color: rgba(16, 185, 129, 0.35) !important;
+                box-shadow: inset 0 0 12px rgba(16, 185, 129, 0.4);
+            }
+            50% {
+                background-color: rgba(167, 139, 250, 0.25) !important;
+            }
+            100% {
+                background-color: transparent !important;
+                box-shadow: none;
+            }
+        }
+
+        .added-item-highlight {
+            animation: highlightRowAnim 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        }
+
         /* 폼 및 모달 스타일 */
         .add-form-container {
             background: rgba(15, 23, 42, 0.98);
@@ -464,9 +524,10 @@
             <button id="btn-help" class="win-btn mr-1" title="사용 가이드">
                 <i data-lucide="help-circle" class="w-4 h-4"></i>
             </button>
-            <button id="btn-char-mgmt" class="win-btn btn-mgmt-accent mr-1.5" title="캐릭터 관리">
-                <i data-lucide="users" class="w-4 h-4"></i>
+            <button id="btn-profile-selector" class="win-btn btn-mgmt-accent mr-1.5" title="프로필 선택 / 관리" onclick="if(window.electronAPI && window.electronAPI.openProfileSelector) window.electronAPI.openProfileSelector();">
+                <i data-lucide="user-check" class="w-4 h-4 text-teal-400"></i>
             </button>
+            
             <button id="btn-reset" class="win-btn" title="전체 상태 동기화">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             </button>
@@ -543,38 +604,6 @@
                 class="w-full bg-violet-600 hover:bg-violet-500 text-white text-xs font-black py-3.5 rounded-xl shadow-lg transition-all active:scale-[0.98]">
                 목록에 추가하기
             </button>
-        </div>
-    </div>
-
-    <!-- Character Management Modal -->
-    <div id="char-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-[110] hidden no-drag">
-        <div class="bg-slate-900 border border-violet-500/30 p-6 rounded-2xl w-[360px] shadow-2xl flex flex-col max-h-[80vh]">
-            <div class="flex justify-between items-center mb-6">
-                <span class="text-[11px] font-black text-violet-400 uppercase tracking-widest">캐릭터 관리</span>
-                <button onclick="document.getElementById('char-modal').classList.add('hidden')" class="text-slate-500 hover:text-white transition-colors">
-                    <i data-lucide="x" class="w-4 h-4"></i>
-                </button>
-            </div>
-            
-            <div id="char-list" class="flex-1 overflow-y-auto space-y-2 mb-6 pr-2 custom-scroll">
-                <!-- Rendered by JS -->
-            </div>
-
-            <label class="flex items-start gap-3 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3.5 mb-4 cursor-pointer no-drag">
-                <input id="auto-assign-single-candidate-input" type="checkbox"
-                    class="mt-0.5 w-4 h-4 accent-violet-500 shrink-0">
-                <span class="min-w-0">
-                    <span class="block text-xs font-black text-violet-100">남은 캐릭터가 한 명이면 자동 체크</span>
-                    <span class="block mt-1 text-[10px] leading-relaxed text-slate-400">끄면 한 명만 남아도 캐릭터 선택창을 표시합니다. 차감권을 사용한다면 직접 선택을 권장합니다.</span>
-                </span>
-            </label>
-
-            <div class="pt-4 border-t border-white/10">
-                <div class="flex gap-2">
-                    <input id="new-char-name" type="text" placeholder="새 캐릭터 이름..." class="form-input flex-1">
-                    <button id="btn-add-char-action" class="bg-violet-600 hover:bg-violet-500 text-white px-4 rounded-xl font-bold text-xs">추가</button>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -706,6 +735,9 @@
     <!-- Tooltip Element -->
     <div id="contents-checker-tooltip" class="contents-checker-tooltip"></div>
 
+    <!-- Toast Notification -->
+    <div id="contents-toast" class="contents-toast"></div>
+
   <script src="renderer/contents-checker/audio-feedback.js"></script>
   <script src="renderer/contents-checker/dom-rendering.js"></script>
   <script src="renderer/contents-checker/auto-collapse.js"></script>
@@ -716,6 +748,34 @@
         let collapsedSections = new Set(); // 일일/주간/완료
         let collapsedCategories = new Set(); // 던전/재화 등
         let promptCallback = null;
+        let toastTimer = null;
+        let lastTargetItemId = null;
+        let lastTargetItemName = null;
+
+        function showToast(message, type = 'success', iconName = 'check-circle') {
+            const toast = document.getElementById('contents-toast');
+            if (!toast) return;
+
+            if (toastTimer) {
+                clearTimeout(toastTimer);
+                toastTimer = null;
+            }
+
+            toast.className = `contents-toast ${type} show`;
+            toast.innerHTML = '';
+
+            const iconColor = type === 'info' 
+                ? 'text-violet-400' 
+                : (type === 'warn' ? 'text-amber-400' : 'text-emerald-400');
+            const icon = window.contentsDomRendering.createIcon(iconName, `w-4 h-4 ${iconColor} shrink-0`);
+            const textSpan = window.contentsDomRendering.createElement('span', 'truncate', message);
+            toast.append(icon, textSpan);
+
+            toastTimer = setTimeout(() => {
+                toast.classList.remove('show');
+                toastTimer = null;
+            }, 2500);
+        }
         const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
         const tooltipEl = document.getElementById('contents-checker-tooltip');
@@ -822,9 +882,11 @@
             document.getElementById('new-item-category').value = '';
             document.getElementById('new-item-max-count').value = '1';
             document.getElementById('add-form-title').textContent = '새로운 숙제 추가';
-            document.getElementById('btn-add-item').textContent = '목록에 추가하기';
-            document.getElementById('btn-add-item').classList.replace('bg-blue-600', 'bg-violet-600');
-            document.getElementById('btn-add-item').classList.replace('hover:bg-blue-500', 'hover:bg-violet-500');
+            const addBtn = document.getElementById('btn-add-item');
+            addBtn.disabled = false;
+            addBtn.textContent = '목록에 추가하기';
+            addBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500', 'bg-emerald-600', 'hover:bg-emerald-500');
+            addBtn.classList.add('bg-violet-600', 'hover:bg-violet-500');
         }
 
         function render() {
@@ -834,7 +896,10 @@
             if (!table) return;
             
             const searchQuery = document.getElementById('search-input').value.toLowerCase().trim();
-            const presets = configData.characterPresets || [{ id: 'char-main', name: '본캐' }];
+            const matchedPreset = configData.characterPresets?.find(p => p.id === (configData.activeProfileId || configData.selectedCharacterId)) || configData.characterPresets?.[0];
+            const activeProfileId = configData.activeProfileId || configData.selectedCharacterId || matchedPreset?.id || 'profile-default';
+            let currentProfileName = window._currentActiveProfileName || matchedPreset?.name || '내 프로필';
+            const presets = [{ id: matchedPreset?.id || activeProfileId, name: currentProfileName }];
             const items = configData.contentsCheckerItems;
 
             table.style.setProperty('--char-count', presets.length);
@@ -1082,6 +1147,7 @@
                         const infoCell = document.createElement('div');
                         infoCell.title = fullItemHelp;
                         infoCell.className = `matrix-cell item-info sticky-col ${item.isVisible === false ? 'hidden-row' : ''}`;
+                        infoCell.dataset.itemId = item.id;
 
                         const timeStr = String(item.resetRule.hour || 0).padStart(2, '0') + ':00';
                         const resetInfo = item.resetRule.type === 'daily' ? `매일 ${timeStr}` : `${DAYS[item.resetRule.dayOfWeek || 1]} ${timeStr}`;
@@ -1239,6 +1305,7 @@
                             const max = item.maxCount || 1;
                             const current = state?.currentCount || 0;
                             checkCell.className = `matrix-cell ${item.isVisible === false ? 'hidden-row' : ''}`;
+                            checkCell.dataset.itemId = item.id;
 
                             if (isExcluded) {
                                 const checkbox = document.createElement('div');
@@ -1351,6 +1418,29 @@
             if (progressText) progressText.textContent = `ROSTER PROGRESS: ${totalPercent}% (${totalDone}/${totalPossible})`;
 
             lucide.createIcons();
+
+            // 새로 추가 또는 수정된 숙제 하이라이트 및 자동 스크롤
+            let targetId = lastTargetItemId;
+            if (!targetId && lastTargetItemName) {
+                const matched = items.slice().reverse().find(i => (i.isCustom || i.id.startsWith('custom-')) && i.name === lastTargetItemName);
+                if (matched) targetId = matched.id;
+            }
+
+            if (targetId) {
+                const targetCells = table.querySelectorAll(`[data-item-id="${targetId}"]`);
+                if (targetCells.length > 0) {
+                    targetCells.forEach(cell => cell.classList.add('added-item-highlight'));
+                    const firstCell = targetCells[0];
+                    requestAnimationFrame(() => {
+                        firstCell.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    });
+                    setTimeout(() => {
+                        targetCells.forEach(cell => cell.classList.remove('added-item-highlight'));
+                    }, 2400);
+                }
+                lastTargetItemId = null;
+                lastTargetItemName = null;
+            }
         }
 
         function handleToggle(itemId, charId, currentState, isExcluded) {
@@ -1489,64 +1579,6 @@
             }
         };
 
-        // 캐릭터 관리 모달 렌더링
-        function renderCharList() {
-            const list = document.getElementById('char-list');
-            const presets = configData?.characterPresets || [];
-            const autoAssignInput = document.getElementById('auto-assign-single-candidate-input');
-            autoAssignInput.checked = configData?.contentsAutoAssignSingleCandidate !== false;
-            list.innerHTML = '';
-
-            presets.forEach((char, idx) => {
-                const row = document.createElement('div');
-                row.className = 'char-item-row';
-                row.append(
-                    window.contentsDomRendering.createElement(
-                        'span',
-                        'text-xs font-bold text-slate-300 flex-1 truncate',
-                        `${idx + 1}. ${char.name}`
-                    ),
-                    window.contentsDomRendering.createIconButton({
-                        icon: 'edit-3',
-                        className: 'p-1.5 hover:text-violet-400 transition-colors',
-                        iconClassName: 'w-3.5 h-3.5',
-                        onClick: () => window.renameChar(char.id, char.name)
-                    })
-                );
-                if (char.id !== 'char-main' && presets.length > 1) {
-                    row.appendChild(window.contentsDomRendering.createIconButton({
-                        icon: 'trash-2',
-                        className: 'p-1.5 hover:text-red-400 transition-colors',
-                        iconClassName: 'w-3.5 h-3.5',
-                        onClick: () => window.removeChar(char.id, char.name)
-                    }));
-                }
-                list.appendChild(row);
-            });
-            lucide.createIcons();
-        }
-
-        window.renameChar = (id, oldName) => {
-            showCustomPrompt('캐릭터 이름 변경', oldName, (newName) => {
-                if (newName && newName !== oldName) window.electronAPI.contentsRenameCharacter(id, newName);
-            });
-        };
-
-        window.removeChar = (id, name) => {
-            if (confirm(`'${name}' 캐릭터와 모든 숙제 완료 데이터를 삭제할까요?`)) {
-                window.electronAPI.contentsRemoveCharacter(id);
-            }
-        };
-
-        document.getElementById('btn-char-mgmt').onclick = () => {
-            document.getElementById('char-modal').classList.remove('hidden');
-            renderCharList();
-        };
-
-        document.getElementById('auto-assign-single-candidate-input').onchange = (event) => {
-            window.electronAPI.contentsSetAutoAssignSingleCandidate(event.target.checked);
-        };
-
         document.getElementById('btn-sound-settings').onclick = () => {
             if (window.electronAPI && window.electronAPI.toggleSettings) {
                 window.electronAPI.toggleSettings('sound');
@@ -1557,10 +1589,10 @@
             window.electronAPI.toggleSettings('data:google-sync');
         };
 
-        if (window.electronAPI.onGoogleSyncStatusChanged) {
+        if (window.electronAPI?.onGoogleSyncStatusChanged) {
             window.electronAPI.onGoogleSyncStatusChanged(updateChecklistCloudSyncStatus);
         }
-        if (window.electronAPI.googleSyncGetStatus) {
+        if (window.electronAPI?.googleSyncGetStatus) {
             window.electronAPI.googleSyncGetStatus().then(updateChecklistCloudSyncStatus).catch(() => {});
         }
 
@@ -1568,15 +1600,13 @@
             document.getElementById('help-modal').classList.remove('hidden');
         };
 
-        document.getElementById('btn-add-char-action').onclick = () => {
-            const name = document.getElementById('new-char-name').value.trim();
-            if (!name) return alert('이름을 입력하세요.');
-            window.electronAPI.contentsAddCharacter(name);
-            document.getElementById('new-char-name').value = '';
-        };
-
         function removeItem(id) {
-            if (confirm('이 숙제를 삭제할까요?')) window.electronAPI.contentsRemoveItem(id);
+            const item = configData?.contentsCheckerItems?.find(i => i.id === id);
+            const itemName = item ? item.name : '숙제';
+            if (confirm('이 숙제를 삭제할까요?')) {
+                window.electronAPI.contentsRemoveItem(id);
+                showToast(`'${itemName}' 숙제가 삭제되었습니다.`, 'info', 'trash-2');
+            }
         }
 
         document.getElementById('btn-edit').onclick = toggleEditMode;
@@ -1585,25 +1615,70 @@
         };
 
         document.getElementById('btn-add-item').onclick = () => {
-            const name = document.getElementById('new-item-name').value.trim();
+            const nameInput = document.getElementById('new-item-name');
+            const name = nameInput.value.trim();
             const category = document.getElementById('new-item-category').value.trim() || '기타';
             const type = document.getElementById('new-item-type').value;
             const hour = parseInt(document.getElementById('new-item-hour').value);
             const dayOfWeek = parseInt(document.getElementById('new-item-day').value);
             const maxCount = type === 'weekly' ? (parseInt(document.getElementById('new-item-max-count').value) || 1) : 1;
-            if (!name) return alert('숙제 이름을 입력하세요.');
+            if (!name) {
+                nameInput.focus();
+                showToast('숙제 이름을 입력하세요.', 'warn', 'alert-circle');
+                return alert('숙제 이름을 입력하세요.');
+            }
             
             const rule = { type, hour };
             if (type === 'weekly') rule.dayOfWeek = dayOfWeek;
             
+            const addBtn = document.getElementById('btn-add-item');
+
             if (editingItemId) {
                 // 수정 모드
-                window.electronAPI.contentsUpdateItem(editingItemId, name, category, rule, maxCount);
-                resetForm();
+                const targetId = editingItemId;
+                window.electronAPI.contentsUpdateItem(targetId, name, category, rule, maxCount);
+                lastTargetItemId = targetId;
+                showToast(`'${name}' 숙제 정보가 수정되었습니다.`, 'info', 'check');
+                
+                // 버튼 즉각 피드백
+                addBtn.disabled = true;
+                addBtn.textContent = '✓ 수정 완료!';
+                addBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
+                addBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+                
+                setTimeout(() => {
+                    resetForm();
+                }, 800);
             } else {
                 // 추가 모드
                 window.electronAPI.contentsAddCustom(name, category, rule, maxCount);
-                document.getElementById('new-item-name').value = '';
+                lastTargetItemName = name;
+                showToast(`'${name}' 숙제가 목록에 추가되었습니다.`, 'success', 'check-circle');
+
+                // 버튼 즉각 피드백 (추가 완료! 초록색 전환)
+                const origText = '목록에 추가하기';
+                addBtn.disabled = true;
+                addBtn.textContent = '✓ 추가 완료!';
+                addBtn.classList.remove('bg-violet-600', 'hover:bg-violet-500');
+                addBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
+
+                setTimeout(() => {
+                    if (!editingItemId) {
+                        addBtn.disabled = false;
+                        addBtn.textContent = origText;
+                        addBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
+                        addBtn.classList.add('bg-violet-600', 'hover:bg-violet-500');
+                    }
+                }, 1200);
+
+                // 입력 필드 초기화 및 포커스 유지
+                nameInput.value = '';
+                nameInput.focus();
+
+                // 사운드 피드백 (설정에서 소리 켜져 있을 때)
+                if (window.contentsAudioFeedback?.getVolume(configData) > 0) {
+                    window.contentsAudioFeedback.play(configData, 'assets/sound/item_get.wav');
+                }
             }
         };
 
@@ -1731,9 +1806,17 @@
                 configData = data;
                 window.contentsAutoCollapse.applyConfig(data);
                 render();
-                if (!document.getElementById('char-modal').classList.contains('hidden')) renderCharList();
+                
                 checkAndRenderPendingModal(data);
             });
+            if (window.electronAPI && window.electronAPI.onProfileChanged) {
+                window.electronAPI.onProfileChanged((data) => {
+                    if (data && data.meta) {
+                        window._currentActiveProfileName = data.meta.name;
+                        render();
+                    }
+                });
+            }
         }
 
         window.addEventListener('DOMContentLoaded', () => {
@@ -1756,18 +1839,21 @@
 
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-                e.preventDefault();
                 if (!document.getElementById('custom-prompt').classList.contains('hidden')) {
+                    e.preventDefault();
                     document.getElementById('prompt-cancel').click();
                 } else if (!document.getElementById('pending-modal').classList.contains('hidden')) {
+                    e.preventDefault();
                     document.getElementById('pending-modal').classList.add('hidden');
-                } else if (!document.getElementById('char-modal').classList.contains('hidden')) {
-                    document.getElementById('char-modal').classList.add('hidden');
+
                 } else if (!document.getElementById('help-modal').classList.contains('hidden')) {
+                    e.preventDefault();
                     document.getElementById('help-modal').classList.add('hidden');
                 } else if (isEditMode) {
+                    e.preventDefault();
                     toggleEditMode();
-                } else {
+                } else if (window.electronAPI?.toggleContentsChecker) {
+                    e.preventDefault();
                     window.electronAPI.toggleContentsChecker();
                 }
             }

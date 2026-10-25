@@ -352,6 +352,21 @@ async function runWorker() {
     aggregate.seedsDetected++;
   });
 
+  // 어벤던로드 입장료(SEED 차감) 처리: 과거 로그 재분석 시에도 입장료가 음수 SEED로 복원되도록 처리
+  syncParser.on('ABANDONED_FEE', (evt) => {
+    if (!aggregate) return;
+    const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+    const content = `[자동] ${evt.message} (-${formatKoreanNumber(evt.amount)})`;
+    seeds.push({
+      eventId: nextEventId('seed'),
+      date: evt.date,
+      timeOnly,
+      content,
+      amount: -evt.amount
+    });
+    aggregate.seedsDetected++;
+  });
+
   // 파서 이벤트 리스너 등록
   syncParser.on('ITEM_LOOTED', (evt) => {
     if (!aggregate) return;

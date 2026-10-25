@@ -23,7 +23,7 @@
 
   function protectedState(): boolean {
     return saving || document.getElementById('add-form')?.classList.contains('show') === true
-      || ['pending-modal', 'char-modal', 'custom-prompt', 'help-modal'].some(id => {
+      || ['pending-modal', 'custom-prompt', 'help-modal'].some(id => {
         const element = document.getElementById(id);
         return element && !element.classList.contains('hidden');
       }) || !!document.activeElement?.matches('input,textarea,select,[contenteditable="true"]');
@@ -48,7 +48,7 @@
     finally { updating = false; }
   }
   function activity(): void { lastActivity = Date.now(); }
-  api.onContentsCollapseState(value => {
+  api?.onContentsCollapseState?.(value => {
     showState(value);
     if (!value) { wanted = false; activity(); }
   });
@@ -95,7 +95,7 @@
   }
   document.getElementById('contents-expand')?.addEventListener('click', () => { activity(); void request(false); });
   const observer = new MutationObserver(() => { if (protectedState()) { activity(); void request(false); } });
-  for (const id of ['add-form', 'pending-modal', 'char-modal', 'custom-prompt', 'help-modal']) {
+  for (const id of ['add-form', 'pending-modal', 'custom-prompt', 'help-modal']) {
     const element = document.getElementById(id);
     if (element) observer.observe(element, { attributes: true, attributeFilter: ['class'] });
   }

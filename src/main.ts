@@ -39,6 +39,7 @@ import * as scamMonitor from './modules/scamMonitor';
 import { etaCacheManager } from './modules/etaCacheManager';
 import * as cloudSync from './modules/cloudSyncManager';
 import * as backupManager from './modules/backupManager';
+import * as profileManager from './modules/profileManager';
 import { createShutdownGate, drainShutdownTask } from './modules/shutdownCoordinator';
 
 // ── 에러 트래킹 세팅 ──
@@ -324,6 +325,13 @@ app.whenReady().then(async () => {
 
     // 스플래시 창 닫기 (웰컴 가이드 / 공지 창 연동)
     wm.closeSplashWindow();
+
+    // 프로필 스토어 초기화 및 앱 시작 시 선택창 표시 확인
+    profileManager.initProfileStore();
+    const isProbeRuntime = process.argv.some(arg => arg.includes('probe'));
+    if (!isProbeRuntime && profileManager.getSelectorDisplayOptions().showOnAppLaunch) {
+      void wm.showProfileSelector();
+    }
   }
 
   // 스플래시 화면에서 업데이트 확인 및 자동 업데이트 진행

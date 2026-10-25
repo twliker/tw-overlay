@@ -81,7 +81,8 @@ const KNOWN_CONFIG_KEYS = new Set<string>([
   'chatOverlayNicknameColorClub', 'chatOverlayNicknameColorShout', 'focusedChatSelfNickname',
   'forgeQuestHudPos', 'questHudPos', 'showSidebarToastOnOverlay', 'setupCompleted',
   'chatOverlayCustomTabs', 'googleSyncEnabled', 'googleSyncAutoSync', 'googleSyncLastTime',
-  'googleSyncUserEmail'
+  'googleSyncUserEmail',
+  'activeProfileId', 'profileStore'
 ]);
 for (const key of Object.keys(DEFAULT_CONFIG)) KNOWN_CONFIG_KEYS.add(key);
 // v2 계열에서 저장되었지만 현재 UI/타입에서 제거된 값도 삭제하지 않고 향후 마이그레이션까지 보존한다.
@@ -188,13 +189,13 @@ const OPTIONAL_BOOLEAN_KEYS = new Set([
 ]);
 const OPTIONAL_STRING_KEYS = new Set([
   'selectedCharacterId', 'msgerLogPath', 'scamAlertSound', 'buffTimerSound',
-  'googleSyncUserEmail',
+  'googleSyncUserEmail', 'activeProfileId',
 ]);
 const OPTIONAL_ARRAY_KEYS = new Set([
   'galleryKeywords', 'hiddenMenuIds', 'visibleMenuIds', 'storedPositionKeys',
   'characterPresets', 'pendingHomeworks', 'customAlerts',
 ]);
-const OPTIONAL_OBJECT_KEYS = new Set(['galleryWatched']);
+const OPTIONAL_OBJECT_KEYS = new Set(['galleryWatched', 'profileStore']);
 const OPTIONAL_NUMBER_KEYS = new Set([
   'galleryLastSeen', 'tradeLastSeen', 'chatLogAutoDeleteDays', 'contentsCheckerWidth',
   'contentsCheckerHeight', 'googleSyncLastTime',

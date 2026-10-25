@@ -11,6 +11,7 @@
     if (typeof storedAmount === 'number' && Number.isFinite(storedAmount)) return storedAmount;
     const amountText = content.match(/\(([^)]+)\)/)?.[1];
     if (!amountText) return 0;
+    const isNegative = amountText.trim().startsWith('-');
 
     const unitValues: Array<[RegExp, number]> = [
       [/([\d,]+)\s*조/u, 1_000_000_000_000],
@@ -25,10 +26,10 @@
       amount += parseInt(matched.replace(/,/g, ''), 10) * multiplier;
       matchedUnit = true;
     }
-    if (matchedUnit) return amount;
+    if (matchedUnit) return (isNegative ? -1 : 1) * amount;
 
     const rawNumber = amountText.match(/([\d,]+)/)?.[1];
-    return rawNumber ? parseInt(rawNumber.replace(/,/g, ''), 10) : 0;
+    return rawNumber ? (isNegative ? -1 : 1) * parseInt(rawNumber.replace(/,/g, ''), 10) : 0;
   }
 
   /**

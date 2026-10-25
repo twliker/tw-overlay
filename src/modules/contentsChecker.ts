@@ -1063,6 +1063,7 @@ function syncHomeworkDiary(
       item.category,
       item.resetRule.type,
       state.lastCompletedAt || Date.now(),
+      characterId,
     ));
   } else if (shouldRemove) {
     return runDiaryWriteWithRetry(

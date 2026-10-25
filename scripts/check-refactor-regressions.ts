@@ -2331,7 +2331,7 @@ function checkSidebarMenuRegistryContracts(): void {
   const menuById = (id: string) => registry.SIDEBAR_MENUS.find(menu => menu.id === id);
   assert.deepEqual(
     ['scam-detector-btn', 'eta-ranking-btn', 'hunting-path-simulator-btn'].map(id => menuById(id)?.category),
-    ['monitoring', 'information', 'calculators'],
+    ['monitoring', 'information', 'simulators'],
   );
   assert.deepEqual(
     ['contents-checker-btn', 'sword-enhance-btn', 'qte-challenge-btn'].map(id => ({
@@ -3365,14 +3365,14 @@ function checkSharedConstants() {
   );
   assert.deepEqual(
     Array.from(sidebarCategories, category => category.id),
-    ['records', 'monitoring', 'alarms', 'calculators', 'information', 'homework', 'minigame'],
+    ['records', 'monitoring', 'alarms', 'calculators', 'simulators', 'information', 'homework', 'minigame'],
   );
   assert.deepEqual(
     Array.from([...sidebarCategories].sort((a, b) => a.trayOrder - b.trayOrder), category => category.id),
-    ['records', 'monitoring', 'alarms', 'calculators', 'information', 'homework', 'minigame'],
+    ['records', 'monitoring', 'alarms', 'calculators', 'simulators', 'information', 'homework', 'minigame'],
   );
   assert.deepEqual(
-    Array.from(sidebarCategories.slice(0, 5), category => ({
+    Array.from(sidebarCategories.slice(0, 6), category => ({
       label: category.label,
       icon: category.icon,
       color: category.color,
@@ -3381,7 +3381,8 @@ function checkSharedConstants() {
       { label: '플레이 관리 & 기록', icon: 'clipboard-check', color: 'emerald-400' },
       { label: '커뮤니티 & 채팅', icon: 'messages-square', color: 'sky-400' },
       { label: '알림 설정', icon: 'bell-ring', color: 'pink-400' },
-      { label: '계산기 & 시뮬레이터', icon: 'calculator', color: 'indigo-400' },
+      { label: '계산기', icon: 'calculator', color: 'indigo-400' },
+      { label: '시뮬레이터', icon: 'sparkles', color: 'purple-400' },
       { label: '정보 & 도감', icon: 'book-open', color: 'blue-400' },
     ],
   );
@@ -3644,6 +3645,7 @@ function checkPreloadDefaultConfigCompatibility() {
     'alarm-logs-updated', 'timer-toggle', 'timer-updated',
     'game-overlay-edit-mode', 'game-overlay-edit-state', 'game-overlay-reset-positions',
     'google-sync-status-changed',
+    'profile-changed',
   ]);
 }
 
@@ -5255,6 +5257,44 @@ function checkChatLogSyncManagerContracts() {
     assert.equal(automaticLog?.source, 'automatic');
     assert.equal(diaryDb.removeManualActivityLogById(automaticLog.id), false,
       '자동 감지 기록이 수동 삭제 API로 삭제되었습니다.');
+
+    // 어벤던로드 입장료 자동 기록 및 수동 지출 기록 계약 검증
+    const feeTestDate = '2099-12-25';
+    const initialFeeScore = diaryDb.getDiaryByDate(feeTestDate).diary?.total_score || 0;
+
+    // 1) 자동 감지 입장료 기록
+    const feeContent = '[자동] 입장료 5680만 Seed를 지불 하였습니다. (-56,800,000)';
+    const feeAdded = diaryDb.addActivityLog(feeTestDate, '10:00:00', 'calc', feeContent, -56800000);
+    assert.equal(feeAdded, true, '입장료 자동 기록이 성공해야 합니다.');
+    const feeScore = diaryDb.getDiaryByDate(feeTestDate).diary?.total_score || 0;
+    assert.equal(feeScore, initialFeeScore, '입장료 차감 시 활동 점수가 증가하지 않아야 합니다.');
+
+    // 2) 수동 지출 기록
+    const manualExpenseContent = '💸 지출: 어벤던 추가 입장료 (-5,680만 시드)';
+    const manualExpenseId = diaryDb.addManualActivityLog(feeTestDate, '10:05:00', 'calc', manualExpenseContent, -56800000);
+    assert.ok(Number.isSafeInteger(manualExpenseId), '수동 지출 기록이 성공해야 합니다.');
+    const manualExpenseScore = diaryDb.getDiaryByDate(feeTestDate).diary?.total_score || 0;
+    assert.equal(manualExpenseScore, initialFeeScore, '수동 지출 등록 시 활동 점수가 증가하지 않아야 합니다.');
+
+    // 3) 마정석 교환 수익과의 합산 검증
+    const stoneGainContent = '💰 마정석 교환: 300개 (1억 5000만 시드)';
+    diaryDb.addActivityLog(feeTestDate, '11:00:00', 'calc', stoneGainContent, 150000000);
+    const dayLogs = diaryDb.getDiaryByDate(feeTestDate).activityLogs.filter((l: any) => l.type === 'calc');
+    const daySeedSum = dayLogs.reduce((sum: number, l: any) => sum + (l.amount || 0), 0);
+    assert.equal(daySeedSum, 150000000 - 56800000 - 56800000, '마정석 수익에서 입장료와 지출이 정확히 차감되어 순수익이 산출되어야 합니다.');
+
+    // 4) 수동 지출 삭제 시 점수 불변 검증
+    assert.equal(diaryDb.removeManualActivityLogById(manualExpenseId), true);
+    const afterDeleteScore = diaryDb.getDiaryByDate(feeTestDate).diary?.total_score || 0;
+    assert.equal(afterDeleteScore, initialFeeScore + 10, '마정석 교환 점수(10점)만 유지되고 지출 삭제로 점수가 깎이지 않아야 합니다.');
+    diaryDb.removeActivityLog(feeTestDate, 'calc', feeContent);
+    diaryDb.removeActivityLog(feeTestDate, 'calc', stoneGainContent);
+
+    // 5) parseAutoLogAmount 음수 파싱 검증
+    const { parseAutoLogAmount } = require('../dist/renderer/diary/log-utils');
+    assert.equal(parseAutoLogAmount('[자동] 입장료 5680만 Seed를 지불 하였습니다. (-56,800,000)', -56800000), -56800000);
+    assert.equal(parseAutoLogAmount('[자동] 입장료 5680만 Seed를 지불 하였습니다. (-56,800,000)'), -56800000);
+    assert.equal(parseAutoLogAmount('💸 지출: 어벤던 추가 입장료 (-5,680만 시드)'), -56800000);
 
     assert.equal(diaryDb.addHomeworkLog(testDate, 'test-homework', '이전 이름', '이전 분류', 'daily', 1_000), true);
     assert.equal(diaryDb.addHomeworkLog(testDate, 'test-homework', '최신 이름', '최신 분류', 'weekly', 2_000), true);

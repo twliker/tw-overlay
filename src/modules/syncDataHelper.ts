@@ -15,6 +15,7 @@ import {
   GoogleSyncDataKind,
   GoogleSyncMetaPayload,
   GoogleSyncPayload,
+  ProfileStoreData,
 } from '../shared/types';
 import { log } from './logger';
 import { sanitizeExternalConfigPatch } from './config';
@@ -27,6 +28,7 @@ export const SETTINGS_SYNCABLE_KEYS: Array<keyof AppConfig> = [
   'contentsCheckerEnabled',
   'autoOpenContentsChecker',
   'selectedCharacterId',
+  'activeProfileId',
   'galleryNotify',
   'galleryKeywords',
   'tradeServer',
@@ -362,10 +364,12 @@ export function buildChecklistSyncPayload(
   installationId: string,
   generationId?: string,
   operations: GoogleChecklistSyncOperation[] = [],
+  profileStore?: ProfileStoreData,
 ): GoogleSyncPayload {
   const payload = buildPayload('checklist', extractChecklistSyncData(cfg), installationId, generationId);
   payload.operations = cloneValue(operations.slice(-1_000));
   payload.operationsChecksum = calculateValueChecksum(payload.operations);
+  if (profileStore) payload.profileStore = cloneValue(profileStore);
   if (Buffer.byteLength(JSON.stringify(payload), 'utf-8') > MAX_SYNC_PAYLOAD_BYTES) {
     throw new Error('숙제 동기화 payload가 허용 크기를 초과했습니다.');
   }

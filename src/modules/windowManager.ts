@@ -88,6 +88,7 @@ let swordEnhanceTool: EmbeddedWebTool | null = null;
 let gameOverlayWindow: BrowserWindow | null = null;
 let welcomeGuideWindow: BrowserWindow | null = null;
 let updateNoticeWindow: BrowserWindow | null = null;
+let profileSelectorWindow: BrowserWindow | null = null;
 const userWindowVisibility = new UserWindowVisibility();
 const contentsWindowCollapse = new ContentsWindowCollapse((x, y) => setProgrammaticMove('contentsChecker', x, y));
 // 최초 위치 적용 전의 창만 등록한다. 로딩 중 프리셋/공유 배치는 마지막 요청으로 교체한다.
@@ -738,6 +739,66 @@ export function closeUpdateNoticeWindow(): void {
   if (updateNoticeWindow && !updateNoticeWindow.isDestroyed()) {
     updateNoticeWindow.close();
     updateNoticeWindow = null;
+  }
+}
+
+export async function showProfileSelector(): Promise<void> {
+  if (profileSelectorWindow && !profileSelectorWindow.isDestroyed()) {
+    showWindowUnlessHidden(profileSelectorWindow, true);
+    profileSelectorWindow.focus();
+    return;
+  }
+  const width = 680;
+  const height = 540;
+
+  let x: number;
+  let y: number;
+
+  try {
+    const gr = await tracker.queryGameRect();
+    if (gr && 'x' in gr && gr.width > 200 && gr.height > 200) {
+      x = Math.round(gr.x + (gr.width - width) / 2);
+      y = Math.round(gr.y + (gr.height - height) / 2);
+    } else {
+      const fallback = resolveFallbackWindowPosition(width, height);
+      x = fallback.x;
+      y = fallback.y;
+    }
+  } catch {
+    const fallback = resolveFallbackWindowPosition(width, height);
+    x = fallback.x;
+    y = fallback.y;
+  }
+
+  const customOptions: Electron.BrowserWindowConstructorOptions = {
+    x,
+    y,
+    center: false,
+    resizable: false,
+    alwaysOnTop: true,
+    focusable: true
+  };
+
+  profileSelectorWindow = new BrowserWindow(getStandardOptions(width, height, customOptions));
+  profileSelectorWindow.loadFile(path.join(__dirname, '..', 'profile-selector.html'));
+  focusController.attach(profileSelectorWindow);
+
+  profileSelectorWindow.once('ready-to-show', () => {
+    if (profileSelectorWindow && !profileSelectorWindow.isDestroyed()) {
+      showWindowUnlessHidden(profileSelectorWindow, true);
+      profileSelectorWindow.focus();
+    }
+  });
+
+  profileSelectorWindow.on('closed', () => {
+    profileSelectorWindow = null;
+  });
+}
+
+export function closeProfileSelector(): void {
+  if (profileSelectorWindow && !profileSelectorWindow.isDestroyed()) {
+    profileSelectorWindow.close();
+    profileSelectorWindow = null;
   }
 }
 

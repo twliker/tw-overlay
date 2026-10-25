@@ -33,6 +33,7 @@ import { formatLootDiaryContent, parseItemAcquisition } from './itemAcquisition'
 import { formatLocalDateKey } from '../shared/localDate';
 import { countsTowardLootTotal, isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
 import type { DiaryExportSnapshot, DiaryExportRow } from '../shared/companionFiles';
+import * as profileManager from './profileManager';
 
 let db: Database.Database | null = null;
 
@@ -356,6 +357,7 @@ export function initDb(): void {
         type TEXT NOT NULL,
         completed_at INTEGER NOT NULL,
         source TEXT NOT NULL DEFAULT 'checklist',
+        profile_id TEXT,
         FOREIGN KEY (date) REFERENCES diaries(date)
       );
 
@@ -367,6 +369,7 @@ export function initDb(): void {
         time TEXT NOT NULL,
         amount INTEGER DEFAULT 0,
         source TEXT NOT NULL DEFAULT 'automatic',
+        profile_id TEXT,
         FOREIGN KEY (date) REFERENCES diaries(date)
       );
 
@@ -718,6 +721,34 @@ export function initDb(): void {
         db!.pragma('user_version = 8');
       })();
     }
+    if (userVersion < 9) {
+      db.transaction(() => {
+        const homeworkCols = db!.prepare('PRAGMA table_info(homework_logs)').all() as Array<{ name: string }>;
+        if (!homeworkCols.some(col => col.name === 'profile_id')) {
+          db!.exec('ALTER TABLE homework_logs ADD COLUMN profile_id TEXT');
+        }
+        const activityCols = db!.prepare('PRAGMA table_info(activity_logs)').all() as Array<{ name: string }>;
+        if (!activityCols.some(col => col.name === 'profile_id')) {
+          db!.exec('ALTER TABLE activity_logs ADD COLUMN profile_id TEXT');
+        }
+
+        let targetProfileId = 'profile-default';
+        try {
+          const store = profileManager.initProfileStore();
+          targetProfileId = store.legacyMigrationTargetProfileId || store.activeProfileId || 'profile-default';
+        } catch {}
+
+        db!.prepare('UPDATE homework_logs SET profile_id = ? WHERE profile_id IS NULL').run(targetProfileId);
+        db!.prepare('UPDATE activity_logs SET profile_id = ? WHERE profile_id IS NULL').run(targetProfileId);
+
+        db!.exec(`
+          CREATE INDEX IF NOT EXISTS idx_homework_logs_profile_id ON homework_logs (profile_id);
+          CREATE INDEX IF NOT EXISTS idx_activity_logs_profile_id ON activity_logs (profile_id);
+        `);
+        db!.pragma('user_version = 9');
+      })();
+      log('[DiaryDB] Version 9 migration completed: profile_id assigned for multi-profile system.');
+    }
 
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
@@ -951,14 +982,18 @@ function ensureDiaryExists(date: string): void {
 }
 
 /** 날짜별 일지 데이터를 모두 가져옵니다. (메모리 대기 중인 엘소 포인트도 디스크 I/O 없이 실시간 병합) */
-export function getDiaryByDate(date: string, lootKeywords?: readonly string[]): DiaryData {
+export function getDiaryByDate(date: string, lootKeywords?: readonly string[], profileId?: string): DiaryData {
   if (!db) initDb();
   if (!db) return { diary: null, homeworkLogs: [], activityLogs: [] };
 
   ensureDiaryExists(date);
   const diary = db.prepare('SELECT * FROM diaries WHERE date = ?').get(date) as DiaryEntry;
-  const homeworkLogs = db.prepare('SELECT * FROM homework_logs WHERE date = ? ORDER BY completed_at ASC').all(date) as HomeworkLog[];
-  let activityLogs = db.prepare('SELECT * FROM activity_logs WHERE date = ? ORDER BY time ASC').all(date) as ActivityLog[];
+  const homeworkLogs = profileId && profileId !== 'all'
+    ? db.prepare('SELECT * FROM homework_logs WHERE date = ? AND (profile_id = ? OR profile_id IS NULL) ORDER BY completed_at ASC').all(date, profileId) as HomeworkLog[]
+    : db.prepare('SELECT * FROM homework_logs WHERE date = ? ORDER BY completed_at ASC').all(date) as HomeworkLog[];
+  let activityLogs = profileId && profileId !== 'all'
+    ? db.prepare('SELECT * FROM activity_logs WHERE date = ? AND (profile_id = ? OR profile_id IS NULL) ORDER BY time ASC').all(date, profileId) as ActivityLog[]
+    : db.prepare('SELECT * FROM activity_logs WHERE date = ? ORDER BY time ASC').all(date) as ActivityLog[];
 
   // 메모리에 대기 중인 엘소 포인트가 있다면 디스크 I/O 없이 실시간 합산하여 반환 (오늘의 요약 HUD 초고속 실시간 반영)
   const pending = _pendingElsoByDate.get(date);
@@ -1161,7 +1196,8 @@ export function addActivityLogIfAbsent(
   type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework',
   content: string,
   amount: number = 0,
-  notify: boolean = false
+  notify: boolean = false,
+  targetProfileId?: string
 ): boolean {
   if (!db) initDb();
   if (!db) return false;
@@ -1174,11 +1210,17 @@ export function addActivityLogIfAbsent(
       const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
       if (existing) return;
 
-      const stmt = getStmt("INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, ?, ?, ?, ?, 'automatic')");
-      stmt.run(date, type, content, time, amount);
+      let profileIdToUse = targetProfileId;
+      if (!profileIdToUse) {
+        try { profileIdToUse = profileManager.getActiveProfileId(); } catch {}
+      }
+      const stmt = getStmt("INSERT INTO activity_logs (date, type, content, time, amount, source, profile_id) VALUES (?, ?, ?, ?, ?, 'automatic', ?)");
+      stmt.run(date, type, content, time, amount, profileIdToUse || null);
+
+
 
       if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
-      if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
+      if (type === 'calc' && amount > 0) addScore(date, POINTS.CALC_RECORD);
       inserted = true;
     });
 
@@ -1201,6 +1243,7 @@ function addActivityLogInternal(
   content: string,
   amount: number,
   source: ActivitySource,
+  targetProfileId?: string
 ): number | null {
   if (!db) initDb();
   if (!db) return null;
@@ -1219,13 +1262,17 @@ function addActivityLogInternal(
         }
       }
 
-      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, ?, ?, ?, ?, ?)');
-      const result = stmt.run(date, type, content, time, amount, source);
+      let profileIdToUse = targetProfileId;
+      if (!profileIdToUse) {
+        try { profileIdToUse = profileManager.getActiveProfileId(); } catch {}
+      }
+      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount, source, profile_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      const result = stmt.run(date, type, content, time, amount, source, profileIdToUse || null);
       insertedId = Number(result.lastInsertRowid);
 
       // 포인트 부여
       if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
-      if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
+      if (type === 'calc' && amount > 0) addScore(date, POINTS.CALC_RECORD);
     });
     transaction();
     if (insertedId !== null) throttleNotifyUpdate();
@@ -1237,13 +1284,13 @@ function addActivityLogInternal(
 }
 
 /** 자동 감지/내부 로직에서 활동 기록을 추가합니다. */
-export function addActivityLog(date: string, time: string, type: ActivityWriteType, content: string, amount: number = 0): boolean {
-  return addActivityLogInternal(date, time, type, content, amount, 'automatic') !== null;
+export function addActivityLog(date: string, time: string, type: ActivityWriteType, content: string, amount: number = 0, targetProfileId?: string): boolean {
+  return addActivityLogInternal(date, time, type, content, amount, 'automatic', targetProfileId) !== null;
 }
 
 /** 사용자가 UI에서 직접 등록한 활동을 추가하고 개별 삭제용 row ID를 반환합니다. */
-export function addManualActivityLog(date: string, time: string, type: ActivityWriteType, content: string, amount: number = 0): number | null {
-  return addActivityLogInternal(date, time, type, content, amount, 'manual');
+export function addManualActivityLog(date: string, time: string, type: ActivityWriteType, content: string, amount: number = 0, targetProfileId?: string): number | null {
+  return addActivityLogInternal(date, time, type, content, amount, 'manual', targetProfileId);
 }
 
 /** 수동 등록 행 한 건만 ID로 삭제합니다. */
@@ -1253,13 +1300,13 @@ export function removeManualActivityLogById(id: number): boolean {
   try {
     let removed = false;
     const transaction = db.transaction(() => {
-      const existing = getStmt("SELECT date, type FROM activity_logs WHERE id = ? AND source = 'manual'")
-        .get(id) as { date: string; type: string } | undefined;
+      const existing = getStmt("SELECT date, type, amount FROM activity_logs WHERE id = ? AND source = 'manual'")
+        .get(id) as { date: string; type: string; amount?: number } | undefined;
       if (!existing) return;
       const result = getStmt("DELETE FROM activity_logs WHERE id = ? AND source = 'manual'").run(id);
       if (result.changes !== 1) return;
       if (existing.type === 'boss') subtractScore(existing.date, POINTS.BOSS_KILL);
-      if (existing.type === 'calc') subtractScore(existing.date, POINTS.CALC_RECORD);
+      if (existing.type === 'calc' && (existing.amount || 0) > 0) subtractScore(existing.date, POINTS.CALC_RECORD);
       removed = true;
     });
     transaction();
@@ -1297,7 +1344,7 @@ export function removeActivityLog(date: string, type: string, content: string): 
 }
 
 /** 숙제 완료 기록을 추가합니다. */
-export function addHomeworkLog(date: string, contentId: string, contentName: string, category: string, type: 'daily' | 'weekly', completedAt: number): boolean {
+export function addHomeworkLog(date: string, contentId: string, contentName: string, category: string, type: 'daily' | 'weekly', completedAt: number, targetProfileId?: string): boolean {
   if (!db) initDb();
   if (!db) return false;
 
@@ -1307,20 +1354,24 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
       ensureDiaryExists(date);
 
       // 이미 해당 숙제가 오늘/이번주 기록되어 있는지 확인
-      const existing = getStmt('SELECT id FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { id: number } | undefined;
+      let profileIdToUse = targetProfileId;
+      if (!profileIdToUse) {
+        try { profileIdToUse = profileManager.getActiveProfileId(); } catch {}
+      }
+      const existing = getStmt('SELECT id FROM homework_logs WHERE date = ? AND content_id = ? AND (profile_id = ? OR profile_id IS NULL)').get(date, contentId, profileIdToUse || null) as { id: number } | undefined;
       if (existing) {
         // 사용자가 직접 조작하거나 실시간 감지한 체크리스트 기록이 과거 동기화 기록보다 우선한다.
         getStmt(`
           UPDATE homework_logs
-          SET content_name = ?, category = ?, type = ?, completed_at = ?, source = 'checklist'
+          SET content_name = ?, category = ?, type = ?, completed_at = ?, source = 'checklist', profile_id = ?
           WHERE id = ?
-        `).run(contentName, category, type, completedAt, existing.id);
+        `).run(contentName, category, type, completedAt, profileIdToUse || null, existing.id);
         changed = true;
         return;
       }
 
-      const stmt = getStmt("INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at, source) VALUES (?, ?, ?, ?, ?, ?, 'checklist')");
-      stmt.run(date, contentId, contentName, category, type, completedAt);
+      const stmt = getStmt("INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at, source, profile_id) VALUES (?, ?, ?, ?, ?, ?, 'checklist', ?)");
+      stmt.run(date, contentId, contentName, category, type, completedAt, profileIdToUse || null);
 
       // 포인트 부여
       if (type === 'daily') addScore(date, POINTS.DAILY_HOMEWORK);
@@ -1337,18 +1388,22 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
 }
 
 /** 숙제 체크 해제 시 기록을 삭제합니다. */
-export function removeHomeworkLog(date: string, contentId: string): boolean {
+export function removeHomeworkLog(date: string, contentId: string, targetProfileId?: string): boolean {
   if (!db) initDb();
   if (!db) return false;
 
   try {
     let removed = false;
     const transaction = db.transaction(() => {
-      const existing = getStmt('SELECT type FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { type: string } | undefined;
+      let profileIdToUse = targetProfileId;
+      if (!profileIdToUse) {
+        try { profileIdToUse = profileManager.getActiveProfileId(); } catch {}
+      }
+      const existing = getStmt('SELECT type FROM homework_logs WHERE date = ? AND content_id = ? AND (profile_id = ? OR profile_id IS NULL)').get(date, contentId, profileIdToUse || null) as { type: string } | undefined;
       if (!existing) return;
 
-      const stmt = getStmt('DELETE FROM homework_logs WHERE date = ? AND content_id = ?');
-      stmt.run(date, contentId);
+      const stmt = getStmt('DELETE FROM homework_logs WHERE date = ? AND content_id = ? AND (profile_id = ? OR profile_id IS NULL)');
+      stmt.run(date, contentId, profileIdToUse || null);
 
       // 포인트 차감
       if (existing.type === 'daily') subtractScore(date, POINTS.DAILY_HOMEWORK);

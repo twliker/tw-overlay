@@ -431,6 +431,41 @@ export interface ContentsCheckerItem {
     };
 }
 
+// --- 프로필 시스템 (Multi-Profile System) ---
+export interface UserProfileMeta {
+    id: string;               // 고유 식별자 (예: 'profile-1', 'profile-uuid')
+    name: string;             // 프로필 이름 (예: '본캐-보리스', '부계정1')
+    avatarUrl?: string;       // 업로드된 이미지 파일명 or 프리셋 ID (예: 'custom:avatar_xxx.png', 'preset:boris')
+    createdAt: number;        // 생성 일시
+    updatedAt: number;        // 최근 수정 일시
+    lastPlayedAt?: number;    // 최근 선택/플레이 일시
+}
+
+export interface UserProfileSummary {
+    meta: UserProfileMeta;
+    dailyCompleted: number;
+    dailyTotal: number;
+    weeklyCompleted: number;
+    weeklyTotal: number;
+}
+
+export interface UserProfileData {
+    meta: UserProfileMeta;
+    /** 프로필별 숙제 체크리스트 */
+    contentsCheckerItems?: ContentsCheckerItem[];
+    /** 프로필별 UI/알림/버프/오버레이 설정 */
+    settings: Partial<AppConfig>;
+}
+
+export interface ProfileStoreData {
+    version: 1;
+    activeProfileId: string;
+    profiles: UserProfileData[];
+    showOnGameLaunch: boolean; // 게임 재실행 시 선택창 띄우기 (기본 true)
+    showOnAppLaunch: boolean;  // 앱 시작 시 선택창 띄우기 (기본 true)
+    legacyMigrationTargetProfileId?: string; // 과거 일지가 귀속된 프로필 ID
+}
+
 export interface CharacterPreset {
     id: string;   // 고유 ID (예: 'char-1')
     name: string; // 사용자 지정 이름 (예: '본캐', '티치엘')
@@ -533,6 +568,8 @@ export interface AppConfig {
     gameExitReminderMessage?: string;
     contentsCheckerItems?: ContentsCheckerItem[];
     characterPresets?: CharacterPreset[];
+    activeProfileId?: string;
+    profileStore?: ProfileStoreData;
     selectedCharacterId?: string;
     pendingHomeworks?: PendingHomework[];
     contentsAutoAssignSingleCandidate?: boolean;
@@ -826,6 +863,7 @@ export interface GoogleSyncPayload {
     checksum?: string;
     operations?: GoogleChecklistSyncOperation[];
     operationsChecksum?: string;
+    profileStore?: ProfileStoreData;
     data: Partial<AppConfig>;
 }
 
@@ -1071,6 +1109,7 @@ export interface HomeworkLog {
     type: 'daily' | 'weekly';
     completed_at: number; // Timestamp
     source?: 'checklist' | 'chat-log-sync';
+    profile_id?: string;
 }
 
 export interface ActivityLog {
@@ -1081,6 +1120,7 @@ export interface ActivityLog {
     time: string;         // HH:mm:ss
     amount: number;
     source?: 'manual' | 'automatic' | 'legacy-unknown';
+    profile_id?: string;
 }
 
 export interface DiaryData {

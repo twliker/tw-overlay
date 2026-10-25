@@ -394,6 +394,13 @@
             <button onclick="changeMonth(1)" class="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
               <i data-lucide="chevron-right" class="w-4.5 h-4.5"></i>
             </button>
+            <!-- Profile Filter -->
+            <div class="flex items-center gap-1.5 bg-slate-800/90 border border-slate-700/70 rounded-xl px-2.5 py-1 text-xs ml-2">
+              <i data-lucide="user" class="w-3.5 h-3.5 text-teal-400"></i>
+              <select id="diary-profile-select" onchange="onDiaryProfileChange(this.value)" class="bg-transparent text-slate-200 text-xs font-bold focus:outline-none cursor-pointer pr-1">
+                <option value="all" class="bg-slate-900 text-slate-200">전체 프로필 (모두 보기)</option>
+              </select>
+            </div>
           </div>
           
           <!-- Summary Badges in calendar header -->
@@ -409,6 +416,17 @@
               <span id="monthly-total-seed-badge" class="text-orange-200 font-black">0 Seed</span>
             </div>
           </div>
+        </div>
+
+                <!-- 과거 기록 동기화/귀속 안내 가이드 배너 -->
+        <div id="diary-migration-banner" class="hidden mx-4 mt-3 mb-1 px-3.5 py-2 rounded-xl bg-teal-500/10 border border-teal-500/25 text-xs text-teal-200/90 flex items-center justify-between gap-3 shrink-0">
+          <div class="flex items-center gap-2">
+            <i data-lucide="info" class="w-4 h-4 text-teal-400 shrink-0"></i>
+            <span>과거 모험 기록은 기준 프로필(본 캐릭터)로 안전하게 귀속되었습니다. 채팅로그 특성상 캐릭터 식별이 불가했던 이전 기록이므로, 프로필 필터에서 [전체] 또는 해당 프로필로 조회할 수 있습니다.</span>
+          </div>
+          <button onclick="dismissMigrationBanner()" class="text-slate-400 hover:text-white p-1 rounded-lg transition-colors" title="안내 닫기">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
         </div>
 
         <div class="grid grid-cols-8 gap-2 px-5 py-2.5 text-center text-xs font-black text-slate-500 border-b border-slate-800/40 bg-slate-900/10 shrink-0">
@@ -458,14 +476,20 @@
               </div>
             </div>
             <div class="flex flex-col gap-1.5">
-              <div class="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-orange-400/80">
-                <i data-lucide="gem" class="w-3 h-3 text-orange-400"></i> 수익 기록 (수동)
+              <div class="flex items-center justify-between mb-1">
+                <div class="flex items-center gap-1.5 text-[11px] font-bold" id="manual-seed-title" style="color: rgba(251, 146, 60, 0.9);">
+                  <i data-lucide="gem" id="manual-seed-icon" class="w-3 h-3 text-orange-400"></i> <span id="manual-seed-label">수익 기록 (수동)</span>
+                </div>
+                <div class="inline-flex p-0.5 bg-black/40 border border-slate-700/50 rounded-lg text-[10px] font-bold">
+                  <button type="button" id="btn-mode-income" onclick="setManualSeedMode('income')" class="px-2 py-0.5 rounded-md bg-orange-500/20 text-orange-300 transition-all font-bold">수익 (+)</button>
+                  <button type="button" id="btn-mode-expense" onclick="setManualSeedMode('expense')" class="px-2 py-0.5 rounded-md text-slate-400 hover:text-slate-200 transition-all">지출 (-)</button>
+                </div>
               </div>
               <input type="text" id="manual-seed-desc" class="w-full bg-black/40 border border-slate-700/50 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-orange-500/50 mb-1.5" placeholder="내용 (예: 장사 수익)">
               <div class="flex flex-col gap-1">
                 <div class="flex gap-2">
                   <input type="number" id="manual-seed-amount" class="flex-1 bg-black/40 border border-slate-700/50 rounded-xl px-3 py-1.5 text-xs text-white text-right placeholder-slate-500 focus:outline-none focus:border-orange-500/50" placeholder="금액" oninput="updateSeedPreview(this.value)">
-                  <button onclick="saveManualSeed(this)" class="px-4 py-1.5 bg-slate-800 hover:bg-orange-500 hover:text-black text-slate-300 text-[11px] font-bold rounded-xl transition-all shadow-sm">추가</button>
+                  <button id="manual-seed-submit" onclick="saveManualSeed(this)" class="px-4 py-1.5 bg-slate-800 hover:bg-orange-500 hover:text-black text-slate-300 text-[11px] font-bold rounded-xl transition-all shadow-sm">추가</button>
                 </div>
                 <div id="manual-seed-preview" class="text-right text-xs font-bold text-orange-500/60 min-h-[14px]"></div>
               </div>
@@ -768,6 +792,67 @@
     let lootAnchorDate = new Date();
     let revenueChart = null;
     let allItems = [];
+    let diaryProfiles = [];
+    let profileNameMap = new Map();
+    let selectedProfileFilter = 'all';
+    let currentActiveProfileId = null;
+    let lastDetailData = null;
+
+    async function initDiaryProfiles() {
+      try {
+        if (!window.electronAPI || !window.electronAPI.profileGetAll) return;
+        const summaries = await window.electronAPI.profileGetAll();
+        diaryProfiles = summaries || [];
+        profileNameMap.clear();
+        const select = document.getElementById('diary-profile-select');
+        if (select) {
+          select.innerHTML = '<option value="all" class="bg-slate-900 text-slate-200">전체 프로필 (모두 보기)</option>';
+          diaryProfiles.forEach(p => {
+            profileNameMap.set(p.meta.id, p.meta.name);
+            const opt = document.createElement('option');
+            opt.value = p.meta.id;
+            opt.className = 'bg-slate-900 text-slate-200';
+            opt.textContent = p.meta.name;
+            select.appendChild(opt);
+          });
+        }
+        const active = await window.electronAPI.profileGetActive();
+        if (active && active.meta) {
+          currentActiveProfileId = active.meta.id;
+        }
+
+        // 가이드 배너 표시 검사
+        const bannerDismissed = localStorage.getItem('tw_overlay_diary_guide_dismissed');
+        const banner = document.getElementById('diary-migration-banner');
+        if (banner && !bannerDismissed) {
+          banner.classList.remove('hidden');
+        }
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      } catch (e) {
+        console.error('Failed to init diary profiles:', e);
+      }
+    }
+
+    function dismissMigrationBanner() {
+      const banner = document.getElementById('diary-migration-banner');
+      if (banner) banner.classList.add('hidden');
+      try {
+        localStorage.setItem('tw_overlay_diary_guide_dismissed', '1');
+      } catch {}
+    }
+
+    function onDiaryProfileChange(val) {
+      selectedProfileFilter = val;
+      if (selectedDateStr && lastDetailData) {
+        renderDetail(selectedDateStr, lastDetailData);
+      }
+    }
+
+    function getTargetProfileForSave() {
+      return (selectedProfileFilter && selectedProfileFilter !== 'all')
+        ? selectedProfileFilter
+        : (currentActiveProfileId || undefined);
+    }
     const detailRequests = window.createViewRequestGeneration();
     const monthRequests = window.createViewRequestGeneration();
     const statisticsRequests = window.createViewRequestGeneration();
@@ -898,11 +983,20 @@
           const itemsHtml = log.items.map(it => {
             const t = isWeekly ? it.displayTime.split(' ')[1] : it.time;
             const msg = it.content.split('(')[0].replace('[자동] ', '').trim();
-            const seed = window.formatSeedAmount(parseAutoLogAmount(it.content, it.amount));
-            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${escapeHtml(t)}</span><span class="text-slate-400 truncate flex-1 px-2">${escapeHtml(msg)}</span><span class="text-orange-300/50 font-mono">${escapeHtml(seed)}</span></div>`;
+            const itAmt = parseAutoLogAmount(it.content, it.amount);
+            const seed = window.formatSeedAmount(itAmt);
+            const amtColor = itAmt < 0 ? 'text-rose-400 font-bold' : 'text-orange-300/50';
+            return `<div class="flex justify-between py-1 px-2 text-xs"><span class="text-slate-500">${escapeHtml(t)}</span><span class="text-slate-400 truncate flex-1 px-2">${escapeHtml(msg)}</span><span class="${amtColor} font-mono">${escapeHtml(seed)}</span></div>`;
           }).join('');
 
-          htmls.push(`<div class="timeline-item flex flex-col pr-2"><i data-lucide="gem" class="w-3 h-3 text-orange-400/50 absolute left-0.5 top-[5px]"></i><div onclick="toggleAutoGroup('${gid}')" class="flex items-baseline gap-2 pl-1 pt-[2px] cursor-pointer hover:bg-white/5 rounded px-1 transition-colors"><span class="text-xs font-bold text-slate-600 font-mono ${timeClass} shrink-0">${escapeHtml(timeDisplay)}</span><span class="text-[11px] font-bold text-slate-500 shrink-0">[Auto]</span><span class="text-[11px] font-medium text-slate-400 flex-1">자동 수익 합계 (${log.items.length}건)</span><span class="text-[11px] font-black text-orange-400/70">${escapeHtml(window.formatSeedAmount(log.totalAmount).replace(' 시드', ''))}</span><i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i></div><div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-orange-500/20">${itemsHtml}</div></div>`);
+          const isGroupExpense = log.totalAmount < 0;
+          const groupColorClass = isGroupExpense ? 'text-rose-400' : 'text-orange-400/70';
+          const groupBorderClass = isGroupExpense ? 'border-rose-500/20' : 'border-orange-500/20';
+          const groupIcon = isGroupExpense ? 'trending-down' : 'gem';
+          const groupIconColor = isGroupExpense ? 'text-rose-400/70' : 'text-orange-400/50';
+          const groupLabel = isGroupExpense ? '자동 지출 합계' : '자동 수익 합계';
+
+          htmls.push(`<div class="timeline-item flex flex-col pr-2"><i data-lucide="${groupIcon}" class="w-3 h-3 ${groupIconColor} absolute left-0.5 top-[5px]"></i><div onclick="toggleAutoGroup('${gid}')" class="flex items-baseline gap-2 pl-1 pt-[2px] cursor-pointer hover:bg-white/5 rounded px-1 transition-colors"><span class="text-xs font-bold text-slate-600 font-mono ${timeClass} shrink-0">${escapeHtml(timeDisplay)}</span><span class="text-[11px] font-bold text-slate-500 shrink-0">[Auto]</span><span class="text-[11px] font-medium text-slate-400 flex-1">${groupLabel} (${log.items.length}건)</span><span class="text-[11px] font-black ${groupColorClass}">${escapeHtml(window.formatSeedAmount(log.totalAmount).replace(' 시드', ''))}</span><i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i></div><div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l ${groupBorderClass}">${itemsHtml}</div></div>`);
         } else if (log.isStoneGroup) {
           const gid = isWeekly ? `timeline-stone-week-${gIdx}` : `timeline-stone-${gIdx}`;
           const stoneImg = safeAssetPath(`assets/items/magic_stone/${log.grade}마정석.png`);
@@ -925,8 +1019,9 @@
 
           htmls.push(`<div class="timeline-item flex flex-col pr-2"><img src="${stoneImg}" class="w-3.5 h-3.5 object-contain absolute left-[1px] top-[4px] select-none" onerror="handleLootImageError(this, 'sparkles', 'amber-400')"><div ${hasMultiple ? `onclick="toggleAutoGroup('${gid}')"` : ''} class="flex items-baseline gap-2 pl-1 pt-[2px] ${hasMultiple ? 'cursor-pointer hover:bg-white/5' : ''} rounded px-1 transition-colors"><span class="font-bold text-slate-500 font-mono ${timeClass} shrink-0">${escapeHtml(timeDisplay)}</span><span class="text-[11px] font-bold text-amber-400/80 shrink-0">[마정석]</span><span class="text-[11px] font-medium text-slate-300 flex-1">${escapeHtml(log.grade)} 마정석 ${hasMultiple ? `(${log.items.length}회 획득)` : ''}</span><span class="text-[12px] font-black text-amber-400 font-mono">${Number(log.totalCount).toLocaleString()}개</span>${hasMultiple ? `<i data-lucide="chevron-down" id="${gid}-icon" class="w-2.5 h-2.5 text-slate-600 rotate-icon"></i>` : ''}${singleDelete}</div>${hasMultiple ? `<div id="${gid}" class="auto-group-content ml-6 mt-1 bg-black/20 rounded border-l border-amber-500/20">${itemsHtml}</div>` : ''}</div>`);
         } else {
-          let icon = log.type === 'boss' ? 'sword' : (log.type === 'calc' ? 'gem' : (log.type === 'homework' ? 'check-square' : 'sparkles'));
-          let color = log.type === 'boss' ? 'red-400' : (log.type === 'calc' ? 'orange-400' : (log.type === 'homework' ? 'blue-400' : 'amber-400'));
+          const isExpense = log.type === 'calc' && ((typeof log.amount === 'number' && log.amount < 0) || log.content.includes('지출') || log.content.includes('입장료') || log.content.includes('(-'));
+          let icon = log.type === 'boss' ? 'sword' : (log.type === 'calc' ? (isExpense ? 'trending-down' : 'gem') : (log.type === 'homework' ? 'check-square' : 'sparkles'));
+          let color = log.type === 'boss' ? 'red-400' : (log.type === 'calc' ? (isExpense ? 'rose-400' : 'orange-400') : (log.type === 'homework' ? 'blue-400' : 'amber-400'));
           const isEssence = log.content.includes('경험의 정수');
           const canDelete = !isWeekly && log.source === 'manual' && Number.isSafeInteger(log.id)
             && (log.type === 'calc' || log.type === 'loot') && !isEssence;
@@ -975,13 +1070,19 @@
       }
     }
 
-    function formatTimelineLogContent(log) {
-      const content = formatLogContent(log.content);
-      if (log.type !== 'loot' || /\[?[\d,]+\]?개/u.test(log.content)) return content;
-      const count = resolveLootCount(log.content, log.amount);
-      return count > 1
-        ? `${content} <span class="text-slate-400 font-bold font-mono">${count}개</span>`
-        : content;
+        function formatTimelineLogContent(log) {
+      let content = formatLogContent(log.content);
+      if (log.type === 'loot' && !/\[?[\d,]+\]?개/u.test(log.content)) {
+        const count = resolveLootCount(log.content, log.amount);
+        if (count > 1) {
+          content = `${content} <span class="text-slate-400 font-bold font-mono">${count}개</span>`;
+        }
+      }
+      if (log.profile_id && profileNameMap.has(log.profile_id)) {
+        const pName = profileNameMap.get(log.profile_id);
+        content = `<span class="char-badge">${escapeHtml(pName)}</span> ${content}`;
+      }
+      return content;
     }
 
     /** 득템 이미지 로드 실패 시 폴백 아이콘 처리 */
@@ -1017,9 +1118,14 @@
     }
 
     function formatSeedShort(val) {
-      if (val >= 100000000) return (val / 100000000).toFixed(1) + '억';
-      if (val >= 10000) return (val / 10000).toFixed(0) + '만';
-      return val.toLocaleString();
+      if (val === 0) return '0';
+      const isNegative = val < 0;
+      const abs = Math.abs(val);
+      let formatted = '';
+      if (abs >= 100000000) formatted = (abs / 100000000).toFixed(1) + '억';
+      else if (abs >= 10000) formatted = (abs / 10000).toFixed(0) + '만';
+      else formatted = abs.toLocaleString();
+      return (isNegative ? '-' : '') + formatted;
     }
 
     function switchTab(tabId) {
@@ -1376,12 +1482,22 @@
         manualSeeds.forEach(item => {
           let desc = item.content.replace(/\s*\([^)]+\)/, '').trim();
           if (desc.includes(':')) desc = desc.split(':').pop().trim();
-          seedListEl.innerHTML += `<div class="flex items-baseline justify-between py-2 border-b border-orange-500/5 last:border-0 gap-3"><div class="flex items-baseline gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(item.date.slice(5))}</span><span class="text-[13px] font-bold text-slate-400 truncate">${escapeHtml(desc)}</span></div><span class="text-[13px] font-black text-orange-300 shrink-0 text-right">${escapeHtml(window.formatSeedAmount(parseAutoLogAmount(item.content, item.amount)))}</span></div>`;
+          const amt = parseAutoLogAmount(item.content, item.amount);
+          const isExp = amt < 0;
+          const color = isExp ? 'text-rose-400' : 'text-orange-300';
+          seedListEl.innerHTML += `<div class="flex items-baseline justify-between py-2 border-b border-orange-500/5 last:border-0 gap-3"><div class="flex items-baseline gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(item.date.slice(5))}</span><span class="text-[13px] font-bold text-slate-400 truncate">${escapeHtml(desc)}</span></div><span class="text-[13px] font-black ${color} shrink-0 text-right">${escapeHtml(window.formatSeedAmount(amt))}</span></div>`;
         });
 
-                Object.values(autoGroups).sort((a, b) => b.date.localeCompare(a.date)).forEach((group, idx) => {
+        Object.values(autoGroups).sort((a, b) => b.date.localeCompare(a.date)).forEach((group, idx) => {
           const groupId = `auto-group-${idx}`;
-          seedListEl.innerHTML += `<div class="border-b border-orange-500/5 last:border-0"><div onclick="toggleAutoGroup('${groupId}')" class="auto-group-header flex items-baseline justify-between py-2 gap-3 hover:bg-white/5 transition-colors px-1 rounded-md"><div class="flex items-center gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(group.date.slice(5))}</span><span class="text-[11px] font-black text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded shrink-0">Auto</span><span class="text-[12px] font-bold text-slate-400">자동 수익 요약 (${group.items.length}건)</span></div><div class="flex items-center gap-1.5"><span class="text-[13px] font-black text-orange-300/60 shrink-0">${escapeHtml(window.formatSeedAmount(group.total).replace(' 시드', ''))}</span><i data-lucide="chevron-down" id="${groupId}-icon" class="w-3 h-3 text-slate-600 rotate-icon"></i></div></div><div id="${groupId}" class="auto-group-content bg-black/20 rounded-lg mx-1 mb-1">${group.items.map(it => `<div class="flex justify-between py-1.5 px-3 text-[11px] border-b border-white/5 last:border-0"><span class="text-slate-500">${escapeHtml(it.content.split('(')[0].replace('[자동] ', '').trim())}</span><span class="text-slate-400 font-mono">${escapeHtml(it.amountStr)}</span></div>`).join('')}</div></div>`;
+          const isGroupExp = group.total < 0;
+          const totalColor = isGroupExp ? 'text-rose-400' : 'text-orange-300/60';
+          const label = isGroupExp ? '자동 지출 요약' : '자동 수익 요약';
+          seedListEl.innerHTML += `<div class="border-b border-orange-500/5 last:border-0"><div onclick="toggleAutoGroup('${groupId}')" class="auto-group-header flex items-baseline justify-between py-2 gap-3 hover:bg-white/5 transition-colors px-1 rounded-md"><div class="flex items-center gap-2 min-w-0 flex-1"><span class="text-[13px] font-mono text-slate-500 shrink-0">${escapeHtml(group.date.slice(5))}</span><span class="text-[11px] font-black text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded shrink-0">Auto</span><span class="text-[12px] font-bold text-slate-400">${label} (${group.items.length}건)</span></div><div class="flex items-center gap-1.5"><span class="text-[13px] font-black ${totalColor} shrink-0">${escapeHtml(window.formatSeedAmount(group.total).replace(' 시드', ''))}</span><i data-lucide="chevron-down" id="${groupId}-icon" class="w-3 h-3 text-slate-600 rotate-icon"></i></div></div><div id="${groupId}" class="auto-group-content bg-black/20 rounded-lg mx-1 mb-1">${group.items.map(it => {
+            const itAmt = parseAutoLogAmount(it.content, it.amount);
+            const itColor = itAmt < 0 ? 'text-rose-400' : 'text-slate-400';
+            return `<div class="flex justify-between py-1.5 px-3 text-[11px] border-b border-white/5 last:border-0"><span class="text-slate-500">${escapeHtml(it.content.split('(')[0].replace('[자동] ', '').trim())}</span><span class="${itColor} font-mono">${escapeHtml(it.amountStr)}</span></div>`;
+          }).join('')}</div></div>`;
         });
 
         if (seedListEl.innerHTML === '') seedListEl.innerHTML = '<div class="text-[13px] text-slate-600 italic py-6 text-center">기록 없음</div>';
@@ -1561,7 +1677,7 @@
         <!-- 2row: 2column (각 col-span-3) -->
         <div class="col-span-3 flex flex-col items-center border-r border-slate-800/50 pt-2 border-t border-slate-800/20">
           <span class="text-xs text-slate-500 font-bold">시드 수익</span>
-          <span class="text-sm font-black text-orange-400 mt-0.5">${formatSeedShort(totalWeekSeed)}</span>
+          <span class="text-sm font-black ${totalWeekSeed < 0 ? 'text-rose-400' : 'text-orange-400'} mt-0.5">${formatSeedShort(totalWeekSeed)}</span>
         </div>
         <div class="col-span-3 flex flex-col items-center pt-2 border-t border-slate-800/20">
           <span class="text-xs text-slate-500 font-bold">엘소 획득</span>
@@ -1650,6 +1766,7 @@
     }
 
     function renderDetail(dateStr, data) {
+      lastDetailData = data;
       const diary = data.diary || { total_score: 0, daily_done: 0, daily_total: 0 };
       const level = getLevel(diary.total_score);
       document.getElementById('detail-date').innerText = dateStr;
@@ -1657,13 +1774,21 @@
       document.getElementById('detail-hw').innerText = `숙제 ${diary.daily_done}/${diary.daily_total}`;
       document.getElementById('detail-monster').innerHTML = `<img src="${MONSTERS[level]}" class="w-full h-full object-contain">`;
 
+      let activeHwLogs = data.homeworkLogs || [];
+      let activeActLogs = data.activityLogs || [];
+
+      if (selectedProfileFilter && selectedProfileFilter !== 'all') {
+        activeHwLogs = activeHwLogs.filter(h => !h.profile_id || h.profile_id === selectedProfileFilter);
+        activeActLogs = activeActLogs.filter(a => !a.profile_id || a.profile_id === selectedProfileFilter);
+      }
+
       // 일일 요약 정보 계산
       let dailyBossKills = 0;
       let dailySeed = 0;
       let dailyEssences = 0;
       let dailyElso = 0;
       
-      data.activityLogs.forEach(a => {
+      activeActLogs.forEach(a => {
         if (a.type === 'boss') dailyBossKills++;
         else if (a.type === 'calc') dailySeed += a.amount || 0;
         else if (a.type === 'elso') dailyElso += a.amount || 0;
@@ -1679,8 +1804,8 @@
           <span class="text-sm font-black text-red-400">${dailyBossKills}회</span>
         </div>
         <div class="flex flex-col items-center flex-1 border-r border-slate-800/50">
-          <span class="text-xs text-slate-500 font-bold">획득 시드</span>
-          <span class="text-sm font-black text-orange-400">${formatSeedShort(dailySeed)}</span>
+          <span class="text-xs text-slate-500 font-bold">${dailySeed < 0 ? '순손실' : '획득 시드'}</span>
+          <span class="text-sm font-black ${dailySeed < 0 ? 'text-rose-400' : 'text-orange-400'}">${formatSeedShort(dailySeed)}</span>
         </div>
         <div class="flex flex-col items-center flex-1 border-r border-slate-800/50">
           <span class="text-xs text-slate-500 font-bold">엘소 획득</span>
@@ -1755,13 +1880,7 @@
         return;
       }
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      const rowId = await window.electronAPI.diaryAddActivity(
-        targetDate,
-        t,
-        'loot',
-        count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`,
-        count,
-      );
+      const rowId = await window.electronAPI.diaryAddActivity(targetDate, t, 'loot', count > 1 ? `[득템] ${name} ${count}개` : `[득템] ${name}`, count, getTargetProfileForSave());
       if (!Number.isSafeInteger(rowId)) return;
       nameInput.value = '';
       countInput.value = '1';
@@ -1771,41 +1890,123 @@
       }
     }
 
+    let manualSeedMode = 'income'; // 'income' | 'expense'
+
+    function setManualSeedMode(mode) {
+      manualSeedMode = mode;
+      const isExpense = mode === 'expense';
+      const btnIncome = document.getElementById('btn-mode-income');
+      const btnExpense = document.getElementById('btn-mode-expense');
+      const titleEl = document.getElementById('manual-seed-title');
+      const iconEl = document.getElementById('manual-seed-icon');
+      const labelEl = document.getElementById('manual-seed-label');
+      const descInput = document.getElementById('manual-seed-desc');
+      const amountInput = document.getElementById('manual-seed-amount');
+      const submitBtn = document.getElementById('manual-seed-submit');
+      const previewEl = document.getElementById('manual-seed-preview');
+
+      if (isExpense) {
+        if (btnIncome) btnIncome.className = 'px-2 py-0.5 rounded-md text-slate-400 hover:text-slate-200 transition-all';
+        if (btnExpense) btnExpense.className = 'px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 transition-all font-bold';
+        if (titleEl) titleEl.style.color = 'rgba(251, 113, 133, 0.9)';
+        if (labelEl) labelEl.textContent = '지출 기록 (수동)';
+        if (iconEl) {
+          iconEl.setAttribute('data-lucide', 'trending-down');
+          iconEl.className = 'w-3 h-3 text-rose-400';
+        }
+        if (descInput) {
+          descInput.placeholder = '내용 (예: 어벤던 입장료, 강화 비용)';
+          descInput.classList.remove('focus:border-orange-500/50');
+          descInput.classList.add('focus:border-rose-500/50');
+        }
+        if (amountInput) {
+          amountInput.classList.remove('focus:border-orange-500/50');
+          amountInput.classList.add('focus:border-rose-500/50');
+        }
+        if (submitBtn) {
+          submitBtn.classList.remove('hover:bg-orange-500');
+          submitBtn.classList.add('hover:bg-rose-500');
+        }
+        if (previewEl) {
+          previewEl.className = 'text-right text-xs font-bold text-rose-500/80 min-h-[14px]';
+        }
+      } else {
+        if (btnExpense) btnExpense.className = 'px-2 py-0.5 rounded-md text-slate-400 hover:text-slate-200 transition-all';
+        if (btnIncome) btnIncome.className = 'px-2 py-0.5 rounded-md bg-orange-500/20 text-orange-300 transition-all font-bold';
+        if (titleEl) titleEl.style.color = 'rgba(251, 146, 60, 0.9)';
+        if (labelEl) labelEl.textContent = '수익 기록 (수동)';
+        if (iconEl) {
+          iconEl.setAttribute('data-lucide', 'gem');
+          iconEl.className = 'w-3 h-3 text-orange-400';
+        }
+        if (descInput) {
+          descInput.placeholder = '내용 (예: 장사 수익)';
+          descInput.classList.remove('focus:border-rose-500/50');
+          descInput.classList.add('focus:border-orange-500/50');
+        }
+        if (amountInput) {
+          amountInput.classList.remove('focus:border-rose-500/50');
+          amountInput.classList.add('focus:border-orange-500/50');
+        }
+        if (submitBtn) {
+          submitBtn.classList.remove('hover:bg-rose-500');
+          submitBtn.classList.add('hover:bg-orange-500');
+        }
+        if (previewEl) {
+          previewEl.className = 'text-right text-xs font-bold text-orange-500/60 min-h-[14px]';
+        }
+      }
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      updateSeedPreview(amountInput ? amountInput.value : '');
+    }
+
     async function saveManualSeed(btn) {
       const targetDate = selectedDateStr;
       if (!targetDate) return;
       const dIn = document.getElementById('manual-seed-desc');
       const aIn = document.getElementById('manual-seed-amount');
-      const desc = dIn.value.trim() || '수익';
-      const amount = parseInt(aIn.value) || 0;
-      if (amount <= 0) {
+      const isExpense = manualSeedMode === 'expense';
+      const defaultDesc = isExpense ? '지출' : '수익';
+      const desc = dIn.value.trim() || defaultDesc;
+      const rawAmount = Math.abs(parseInt(aIn.value) || 0);
+      if (rawAmount <= 0) {
         aIn.focus();
         aIn.classList.add('ring-2', 'ring-rose-500');
         setTimeout(() => aIn.classList.remove('ring-2', 'ring-rose-500'), 1500);
         return;
       }
+      const amount = isExpense ? -rawAmount : rawAmount;
       const t = new Date().toLocaleTimeString('ko-KR', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      const content = isExpense
+        ? `💸 지출: ${desc} (${window.formatSeedAmount(amount)})`
+        : `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`;
+
       // calc 행의 content는 타임라인 표시용이고 amount가 일·월 SEED 통계의 실제 원본입니다.
       // 금액을 생략하면 문구만 보이고 통계는 0이 되는 상태가 생기므로 반드시 함께 저장합니다.
-      const rowId = await window.electronAPI.diaryAddActivity(
-        targetDate,
-        t,
-        'calc',
-        `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`,
-        amount,
-      );
+      const rowId = await window.electronAPI.diaryAddActivity(targetDate, t, 'calc', isExpense ? `💸 지출: ${desc} (${window.formatSeedAmount(amount)})` : `💰 수익: ${desc} (${window.formatSeedAmount(amount)})`, amount, getTargetProfileForSave());
       if (!Number.isSafeInteger(rowId)) return;
       dIn.value = ''; aIn.value = ''; document.getElementById('manual-seed-preview').innerText = '';
-      const old = btn.innerHTML; btn.innerText = '추가됨!'; btn.classList.add('bg-orange-500', 'text-black');
+      const old = btn.innerHTML;
+      btn.innerText = '추가됨!';
+      const activeColorClass = isExpense ? 'bg-rose-500' : 'bg-orange-500';
+      btn.classList.add(activeColorClass, 'text-black');
       if (selectedDateStr === targetDate) {
         await selectDate(targetDate);
         await loadMonthData();
       }
-      setTimeout(() => { btn.innerHTML = old; btn.classList.remove('bg-orange-500', 'text-black'); }, 1000);
+      setTimeout(() => { btn.innerHTML = old; btn.classList.remove(activeColorClass, 'text-black'); }, 1000);
     }
 
     function updateSeedPreview(val) {
-      const p = document.getElementById('manual-seed-preview'); if (p) p.innerText = (parseInt(val) || 0) > 0 ? window.formatSeedAmount(parseInt(val)) : '';
+      const p = document.getElementById('manual-seed-preview');
+      if (!p) return;
+      const num = Math.abs(parseInt(val) || 0);
+      if (num > 0) {
+        const isExpense = manualSeedMode === 'expense';
+        p.innerText = (isExpense ? '- ' : '+ ') + window.formatSeedAmount(num);
+      } else {
+        p.innerText = '';
+      }
     }
 
     if (window.electronAPI && window.electronAPI.onDiaryUpdated) {
@@ -1815,7 +2016,14 @@
       });
     }
 
-    loadItemsData().then(() => loadMonthData()).then(() => {
+    if (window.electronAPI && window.electronAPI.onProfileChanged) {
+      window.electronAPI.onProfileChanged((data) => {
+        if (data && data.profileId) currentActiveProfileId = data.profileId;
+        initDiaryProfiles();
+      });
+    }
+
+    loadItemsData().then(() => initDiaryProfiles()).then(() => loadMonthData()).then(() => {
       const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
       const cells = document.querySelectorAll('.calendar-cell');
       for (const cell of cells) { if (cell.classList.contains('today')) { selectDate(today, cell); break; } }

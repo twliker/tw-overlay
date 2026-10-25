@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>프로필 선택 - TW-Overlay</title>
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <style>
+    body {
+      background: rgba(15, 20, 28, 0.96);
+      backdrop-filter: blur(20px);
+      color: #f1f5f9;
+      user-select: none;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", "Segoe UI", Roboto, sans-serif;
+    }
+    .profile-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 0.75rem;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      position: relative;
+    }
+    .profile-card:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(56, 189, 248, 0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+    }
+    .profile-card.active-profile {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.08);
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
+    }
+    .profile-card.selected-card {
+      border-color: #0ea5e9;
+      outline: 2px solid rgba(14, 165, 233, 0.5);
+    }
+    .progress-bar-bg {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.3s ease;
+    }
+    .avatar-circle {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.1rem;
+      color: #38bdf8;
+      overflow: hidden;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      flex-shrink: 0;
+    }
+    .avatar-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .preset-pill {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.15s ease;
+    }
+    .preset-pill:hover, .preset-pill.selected {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.2);
+      color: #38bdf8;
+    }
+    .modal-overlay {
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+  </style>
+</head>
+<body class="w-full h-screen flex flex-col justify-between border border-slate-700/50">
+
+  <!-- 상단 헤더 -->
+  <header class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/40 select-none">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center font-bold text-lg border border-sky-500/30">
+        P
+      </div>
+      <div>
+        <h1 class="text-base font-bold text-slate-100 flex items-center gap-2">
+          프로필 선택
+          <span class="text-xs font-normal text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700" id="profileCountBadge">0개</span>
+        </h1>
+        <p class="text-xs text-slate-400">플레이할 캐릭터(프로필)를 선택하면 숙제 및 설정이 즉시 동기화됩니다.</p>
+      </div>
+    </div>
+    <button id="btnHeaderClose" class="text-slate-400 hover:text-slate-100 hover:bg-slate-800 p-1.5 rounded-lg transition-colors">
+      <i data-lucide="x" class="w-5 h-5"></i>
+    </button>
+  </header>
+
+  <!-- 프로필 카드 그리드 목록 -->
+  <main class="flex-1 overflow-y-auto p-6">
+    <div class="grid grid-cols-2 gap-4" id="profileGridContainer">
+      <!-- 렌더러에서 동적 삽입 -->
+    </div>
+  </main>
+
+  <!-- 하단 툴바 -->
+  <footer class="px-6 py-3 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between">
+    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer select-none">
+      <input type="checkbox" id="chkShowOnGameLaunch" class="w-4 h-4 rounded bg-slate-800 border-slate-600 text-sky-500 focus:ring-0 focus:ring-offset-0">
+      <span>테일즈위버 실행 시 항상 프로필 선택창 띄우기</span>
+    </label>
+    <div class="flex items-center gap-2">
+      <button id="btnAddNewProfile" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center gap-1.5 transition-colors">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+        새 프로필 생성
+      </button>
+      <button id="btnSelectActive" class="px-4 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold transition-all shadow-lg shadow-sky-500/20">
+        선택 완료
+      </button>
+    </div>
+  </footer>
+
+  <!-- 프로필 생성/수정/복제 모달 -->
+  <div id="profileEditModal" class="modal-overlay fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-[460px] max-w-full shadow-2xl overflow-hidden flex flex-col">
+      <div class="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between">
+        <h2 id="modalTitle" class="text-sm font-bold text-slate-100">새 프로필 생성</h2>
+        <button id="btnModalClose" class="text-slate-400 hover:text-slate-200">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="p-5 flex flex-col gap-4 text-xs">
+        <!-- 이름 입력 -->
+        <div>
+          <label class="block text-slate-300 font-medium mb-1.5">프로필 이름</label>
+          <input type="text" id="modalInputName" placeholder="예: 본캐-보리스, 부계정1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-xs focus:outline-none focus:border-sky-500">
+        </div>
+
+        <!-- 대표 이미지 / 아바타 선택 -->
+        <div>
+          <label class="block text-slate-300 font-medium mb-1.5">대표 이미지</label>
+          <div class="flex items-center gap-3 mb-3">
+            <div id="modalAvatarPreview" class="avatar-circle">
+              <!-- 미리보기 -->
+            </div>
+            <div class="flex-1 flex flex-col gap-1.5">
+              <label class="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs cursor-pointer text-center font-medium transition-colors">
+                <span>이미지 파일 업로드...</span>
+                <input type="file" id="modalFileInput" accept="image/png,image/jpeg,image/webp" class="hidden">
+              </label>
+              <span class="text-[10px] text-slate-400">PNG, JPG, WebP 지원 (직접 캡처한 캐릭터 스크린샷 권장)</span>
+            </div>
+          </div>
+
+          <!-- 기본 19종 캐릭터 프리셋 선택 그리드 -->
+          <span class="block text-[11px] text-slate-400 font-medium mb-1">또는 기본 캐릭터 선택:</span>
+          <div class="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto p-1.5 bg-slate-800/50 rounded-lg border border-slate-800" id="presetAvatarContainer">
+            <!-- 프리셋 버튼들 동적 삽입 -->
+          </div>
+        </div>
+
+        <!-- 복제 모드 안내 -->
+        <div id="copyOptionsContainer" class="p-2.5 rounded-lg bg-sky-950/30 border border-sky-800/40 text-[11px] text-sky-300">
+          <p id="copyNoticeText">💡 기존 프로필의 UI 위치, 단축키, 버프 타이머 설정을 그대로 복제합니다.</p>
+        </div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-slate-800 bg-slate-900/50 flex justify-end gap-2">
+        <button id="btnModalCancel" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition-colors">취소</button>
+        <button id="btnModalSubmit" class="px-4 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-xs font-bold transition-colors">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let _profiles = [];
+    let _activeProfileId = null;
+    let _selectedProfileId = null;
+    let _presets = [];
+    let _modalMode = 'create'; // 'create' | 'edit' | 'duplicate'
+    let _editingProfileId = null;
+    let _selectedAvatarUrl = 'preset:boris';
+
+    async function init() {
+      if (window.bindElectronListenerCleanup) window.bindElectronListenerCleanup();
+      if (window.bindEscapeClose) window.bindEscapeClose();
+
+      // UI 닫기 버튼 이벤트
+      document.getElementById('btnHeaderClose').addEventListener('click', () => {
+        window.electronAPI.closeProfileSelector();
+      });
+
+      // 새 프로필 버튼
+      document.getElementById('btnAddNewProfile').addEventListener('click', () => {
+        openEditModal('create');
+      });
+
+      // 선택 완료 버튼
+      document.getElementById('btnSelectActive').addEventListener('click', async () => {
+        if (_selectedProfileId) {
+          await applyProfile(_selectedProfileId);
+        } else if (_activeProfileId) {
+          window.electronAPI.closeProfileSelector();
+        }
+      });
+
+      // 표시 옵션 체크박스
+      const chkShow = document.getElementById('chkShowOnGameLaunch');
+      try {
+        const options = await window.electronAPI.getProfileDisplayOptions();
+        chkShow.checked = options.showOnGameLaunch !== false;
+      } catch {}
+      chkShow.addEventListener('change', async () => {
+        await window.electronAPI.setProfileDisplayOptions({ showOnGameLaunch: chkShow.checked });
+      });
+
+      // 모달 버튼 이벤트
+      document.getElementById('btnModalClose').addEventListener('click', closeEditModal);
+      document.getElementById('btnModalCancel').addEventListener('click', closeEditModal);
+      document.getElementById('btnModalSubmit').addEventListener('click', handleModalSubmit);
+
+      // 파일 업로드 이벤트
+      document.getElementById('modalFileInput').addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        try {
+          const buffer = await file.arrayBuffer();
+          const avatarUrl = await window.electronAPI.uploadAvatar(file.name, new Uint8Array(buffer));
+          _selectedAvatarUrl = avatarUrl;
+          updateModalAvatarPreview();
+        } catch (err) {
+          alert('아바타 이미지 업로드 실패: ' + err.message);
+        }
+      });
+
+      // 프로필 변경 수신
+      if (window.electronAPI.onProfileChanged) {
+        window.electronAPI.onProfileChanged(() => {
+          loadProfiles();
+        });
+      }
+
+      await loadPresets();
+      await loadProfiles();
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    async function loadPresets() {
+      try {
+        _presets = await window.electronAPI.getProfilePresets();
+        renderPresetButtons();
+      } catch (e) {
+        console.error('프리셋 로드 실패', e);
+      }
+    }
+
+    function resolveAvatarUrl(avatarUrl) {
+      if (!avatarUrl) return 'assets/img/characters/boris.png';
+      if (avatarUrl.startsWith('data:') || avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://') || avatarUrl.startsWith('assets/')) {
+        return avatarUrl;
+      }
+      const presetId = avatarUrl.replace('preset:', '');
+      const found = _presets.find(p => p.id === presetId);
+      return found?.avatar || `assets/img/characters/${presetId}.png`;
+    }
+
+    function renderPresetButtons() {
+      const container = document.getElementById('presetAvatarContainer');
+      container.innerHTML = '';
+      for (const preset of _presets) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const isSelected = _selectedAvatarUrl === `preset:${preset.id}` || _selectedAvatarUrl === preset.id;
+        btn.className = `preset-pill flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-slate-300 font-medium truncate ${
+          isSelected ? 'selected' : ''
+        }`;
+        btn.innerHTML = `
+          <img src="${preset.avatar || `assets/img/characters/${preset.id}.png`}" class="w-4 h-4 rounded-full object-cover flex-shrink-0 border border-slate-700/80" alt="${preset.name}">
+          <span class="truncate">${preset.name}</span>
+        `;
+        btn.title = preset.name;
+        btn.addEventListener('click', () => {
+          _selectedAvatarUrl = `preset:${preset.id}`;
+          renderPresetButtons();
+          updateModalAvatarPreview();
+        });
+        container.appendChild(btn);
+      }
+    }
+
+    function updateModalAvatarPreview() {
+      const container = document.getElementById('modalAvatarPreview');
+      container.innerHTML = '';
+      const url = resolveAvatarUrl(_selectedAvatarUrl);
+      const img = document.createElement('img');
+      img.src = url;
+      img.className = 'w-full h-full object-cover';
+      img.onerror = () => { container.textContent = 'P'; };
+      container.appendChild(img);
+    }
+
+    async function loadProfiles() {
+      try {
+        _profiles = await window.electronAPI.getProfiles();
+        const active = await window.electronAPI.getActiveProfile();
+        _activeProfileId = active ? active.meta.id : (_profiles[0] ? _profiles[0].meta.id : null);
+        if (!_selectedProfileId) _selectedProfileId = _activeProfileId;
+
+        document.getElementById('profileCountBadge').textContent = `${_profiles.length}개`;
+        renderProfileGrid();
+      } catch (e) {
+        console.error('프로필 목록 로드 실패', e);
+      }
+    }
+
+    function renderProfileGrid() {
+      const container = document.getElementById('profileGridContainer');
+      container.innerHTML = '';
+
+      for (const summary of _profiles) {
+        const meta = summary.meta;
+        const isActive = meta.id === _activeProfileId;
+        const isSelected = meta.id === _selectedProfileId;
+
+        const card = document.createElement('div');
+        card.className = `profile-card p-4 flex flex-col justify-between ${isActive ? 'active-profile' : ''} ${isSelected ? 'selected-card' : ''}`;
+        card.dataset.id = meta.id;
+
+        const dailyPercent = summary.dailyTotal > 0 ? Math.round((summary.dailyCompleted / summary.dailyTotal) * 100) : 0;
+        const weeklyPercent = summary.weeklyTotal > 0 ? Math.round((summary.weeklyCompleted / summary.weeklyTotal) * 100) : 0;
+
+        // 아바타 렌더링
+        const avatarUrl = resolveAvatarUrl(meta.avatarUrl);
+        const avatarContent = `
+          <div class="avatar-circle">
+            <img src="${avatarUrl}" class="w-full h-full object-cover" alt="${meta.name}" onerror="this.parentElement.textContent='${meta.name[0]}'">
+          </div>
+        `;
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between mb-3">
+            <div class="flex items-center gap-3">
+              ${avatarContent}
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <h3 class="text-sm font-bold text-slate-100 truncate max-w-[140px]" title="${meta.name}">${meta.name}</h3>
+                  ${isActive ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 font-bold border border-sky-500/30">활성</span>' : ''}
+                </div>
+                <p class="text-[11px] text-slate-400 mt-0.5">${meta.lastPlayedAt ? new Date(meta.lastPlayedAt).toLocaleDateString() + ' 플레이' : '기록 없음'}</p>
+              </div>
+            </div>
+
+            <!-- 카드 메뉴 드롭다운 -->
+            <div class="relative">
+              <button class="btn-card-menu p-1 text-slate-400 hover:text-slate-200 rounded hover:bg-slate-700/50 transition-colors" data-id="${meta.id}" title="메뉴">
+                <i data-lucide="more-vertical" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- 오늘의 숙제 대시보드 진행률 -->
+          <div class="space-y-2 mt-2 pt-2 border-t border-slate-800/80 text-[11px]">
+            <div>
+              <div class="flex justify-between items-center mb-1 text-slate-400">
+                <span>일일 숙제</span>
+                <span class="font-medium text-slate-200">${summary.dailyCompleted}/${summary.dailyTotal} (${dailyPercent}%)</span>
+              </div>
+              <div class="progress-bar-bg h-1.5">
+                <div class="progress-bar-fill bg-emerald-500" style="width: ${dailyPercent}%"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between items-center mb-1 text-slate-400">
+                <span>주간 숙제</span>
+                <span class="font-medium text-slate-200">${summary.weeklyCompleted}/${summary.weeklyTotal} (${weeklyPercent}%)</span>
+              </div>
+              <div class="progress-bar-bg h-1.5">
+                <div class="progress-bar-fill bg-amber-500" style="width: ${weeklyPercent}%"></div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // 카드 클릭: 선택
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.btn-card-menu')) return;
+          _selectedProfileId = meta.id;
+          renderProfileGrid();
+        });
+
+        // 카드 더블클릭: 즉시 전환
+        card.addEventListener('dblclick', async (e) => {
+          if (e.target.closest('.btn-card-menu')) return;
+          await applyProfile(meta.id);
+        });
+
+        // 카드 메뉴 버튼 이벤트
+        const btnMenu = card.querySelector('.btn-card-menu');
+        btnMenu.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showCardContextMenu(meta.id, e.clientX, e.clientY);
+        });
+
+        container.appendChild(card);
+      }
+
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function showCardContextMenu(profileId, x, y) {
+      const existing = document.getElementById('cardContextMenu');
+      if (existing) existing.remove();
+
+      const profile = _profiles.find(p => p.meta.id === profileId);
+      if (!profile) return;
+
+      const menu = document.createElement('div');
+      menu.id = 'cardContextMenu';
+      menu.className = 'fixed z-50 bg-slate-800 border border-slate-700 rounded-lg shadow-xl py-1 text-xs text-slate-200 w-36';
+      menu.style.left = `${Math.min(window.innerWidth - 150, x)}px`;
+      menu.style.top = `${Math.min(window.innerHeight - 120, y)}px`;
+
+      menu.innerHTML = `
+        <button class="w-full text-left px-3 py-1.5 hover:bg-slate-700 flex items-center gap-2" id="menuItemDuplicate">
+          <i data-lucide="copy" class="w-3.5 h-3.5 text-sky-400"></i> 프로필 복제
+        </button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-slate-700 flex items-center gap-2" id="menuItemEdit">
+          <i data-lucide="edit" class="w-3.5 h-3.5 text-amber-400"></i> 이름/사진 수정
+        </button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-slate-700 flex items-center gap-2 text-rose-400 hover:text-rose-300" id="menuItemDelete">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 프로필 삭제
+        </button>
+      `;
+
+      document.body.appendChild(menu);
+      if (window.lucide) window.lucide.createIcons();
+
+      // 바깥 클릭 시 메뉴 닫기
+      const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+          menu.remove();
+          document.removeEventListener('click', closeMenu);
+        }
+      };
+      setTimeout(() => document.addEventListener('click', closeMenu), 10);
+
+      // 메뉴 액션
+      menu.querySelector('#menuItemDuplicate').addEventListener('click', () => {
+        menu.remove();
+        openEditModal('duplicate', profileId);
+      });
+      menu.querySelector('#menuItemEdit').addEventListener('click', () => {
+        menu.remove();
+        openEditModal('edit', profileId);
+      });
+      menu.querySelector('#menuItemDelete').addEventListener('click', async () => {
+        menu.remove();
+        if (_profiles.length <= 1) {
+          alert('최소 1개의 프로필은 유지되어야 합니다.');
+          return;
+        }
+        if (confirm(`'${profile.meta.name}' 프로필을 정말 삭제하시겠습니까?`)) {
+          await window.electronAPI.deleteProfile(profileId);
+          await loadProfiles();
+        }
+      });
+    }
+
+    async function applyProfile(profileId) {
+      const btn = document.getElementById('btnSelectActive');
+      btn.textContent = '적용 중...';
+      btn.disabled = true;
+      try {
+        await window.electronAPI.switchProfile(profileId);
+        window.electronAPI.closeProfileSelector();
+      } catch (err) {
+        alert('프로필 전환 실패: ' + err.message);
+      } finally {
+        btn.textContent = '선택 완료';
+        btn.disabled = false;
+      }
+    }
+
+    function openEditModal(mode, profileId = null) {
+      _modalMode = mode;
+      _editingProfileId = profileId;
+
+      const modal = document.getElementById('profileEditModal');
+      const title = document.getElementById('modalTitle');
+      const inputName = document.getElementById('modalInputName');
+      const copyNotice = document.getElementById('copyOptionsContainer');
+
+      if (mode === 'create') {
+        title.textContent = '새 프로필 생성';
+        inputName.value = '';
+        _selectedAvatarUrl = 'preset:boris';
+        copyNotice.classList.add('hidden');
+      } else if (mode === 'duplicate') {
+        const src = _profiles.find(p => p.meta.id === profileId);
+        title.textContent = '프로필 복제 (Duplicate)';
+        inputName.value = src ? `${src.meta.name}의 사본` : '새 프로필';
+        _selectedAvatarUrl = src ? src.meta.avatarUrl : 'preset:boris';
+        copyNotice.classList.remove('hidden');
+      } else if (mode === 'edit') {
+        const target = _profiles.find(p => p.meta.id === profileId);
+        title.textContent = '프로필 정보 수정';
+        inputName.value = target ? target.meta.name : '';
+        _selectedAvatarUrl = target ? target.meta.avatarUrl : 'preset:boris';
+        copyNotice.classList.add('hidden');
+      }
+
+      renderPresetButtons();
+      updateModalAvatarPreview();
+      modal.classList.remove('hidden');
+      inputName.focus();
+    }
+
+    function closeEditModal() {
+      document.getElementById('profileEditModal').classList.add('hidden');
+    }
+
+    async function handleModalSubmit() {
+      const name = document.getElementById('modalInputName').value.trim();
+      if (!name) {
+        alert('프로필 이름을 입력해주세요.');
+        return;
+      }
+
+      try {
+        if (_modalMode === 'create') {
+          await window.electronAPI.createProfile({
+            name,
+            avatarUrl: _selectedAvatarUrl
+          });
+        } else if (_modalMode === 'duplicate') {
+          await window.electronAPI.duplicateProfile(_editingProfileId, name);
+        } else if (_modalMode === 'edit') {
+          await window.electronAPI.updateProfile(_editingProfileId, {
+            name,
+            avatarUrl: _selectedAvatarUrl
+          });
+        }
+        closeEditModal();
+        await loadProfiles();
+      } catch (err) {
+        alert('처리 중 오류 발생: ' + err.message);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

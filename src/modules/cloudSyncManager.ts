@@ -538,6 +538,14 @@ async function receiveKind(
     options.freshBootstrap === true,
   );
   await applyConfigFromCloud(nextConfig, options.createBackup !== false);
+  if (kind === 'checklist' && payload.profileStore) {
+    try {
+      const { importProfilePayload } = await import('./profileManager');
+      importProfilePayload(payload.profileStore);
+    } catch (profileError) {
+      log(`[CloudSyncManager] 프로필 동기화 병합 실패: ${profileError}`);
+    }
+  }
   cloudState.update(next => {
     next.remoteRevisions[kind] = remoteRevision;
     delete next.skippedRestoreFingerprints[kind];
@@ -745,6 +753,7 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
             state.deviceId,
             state.generationId,
             checklistOperations,
+            (await import('./profileManager')).exportProfilePayload(),
           );
         const previousFileId = fileForKind(files, kind)?.id;
         const fileId = await googleDriveSync.uploadJsonPayload(

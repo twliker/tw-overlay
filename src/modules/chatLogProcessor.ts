@@ -22,6 +22,7 @@ import { abandonedTracker } from './abandonedTracker';
 import { digsiteTracker } from './digsiteTracker';
 import { startSupplyTracker } from './supplyTracker';
 import * as contentsChecker from './contentsChecker';
+import * as profileManager from './profileManager';
 import { discordNotifier } from './discordNotifier';
 import { etaCacheManager } from './etaCacheManager';
 import { DEFAULT_CONFIG } from './constants';
@@ -522,7 +523,25 @@ class ChatLogProcessor {
     chatParser.on('SEED_GAINED', (data) => {
       const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       const content = `[자동] ${data.message} (${this.formatNumber(data.amount)})`;
-      diaryDb.addActivityLog(data.date, timeOnly, 'calc', content, data.amount);
+      diaryDb.addActivityLog(data.date, timeOnly, 'calc', content, data.amount, profileManager.getActiveProfileId());
+
+      const chatItem = this.createChatItem({
+        type: 'system',
+        timestamp: data.timestamp,
+        sender: '시스템',
+        message: data.message,
+        color: CHAT_COLORS.system
+      });
+      this.publishChatItem(chatItem, ['Basic', 'System']);
+    });
+
+    // 1-1. 어벤던로드 입장료(SEED 차감) 처리
+    // 기능 계약: 어벤던로드 입장 시 지불된 입장료는 모험일지의 calc(지출)로 음수 저장하여,
+    // 마정석 계산기의 교환 수익과 합산 시 정확한 순수익이 산출되도록 한다.
+    chatParser.on('ABANDONED_FEE', (data) => {
+      const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+      const content = `[자동] ${data.message} (-${this.formatNumber(data.amount)})`;
+      diaryDb.addActivityLog(data.date, timeOnly, 'calc', content, -data.amount, profileManager.getActiveProfileId());
 
       const chatItem = this.createChatItem({
         type: 'system',
@@ -573,6 +592,7 @@ class ChatLogProcessor {
             'loot',
             diaryContent,
             data.count,
+            profileManager.getActiveProfileId(),
           );
           if (!isAlwaysTrackedItem) {
             showSupportedDesktopNotification('아이템 획득 알림', data.message, { itemName: data.itemName, count: data.count });
@@ -613,6 +633,7 @@ class ChatLogProcessor {
           'loot',
           formatLootDiaryContent('경험의 정수'),
           essenceCount,
+          profileManager.getActiveProfileId(),
         );
       }
 

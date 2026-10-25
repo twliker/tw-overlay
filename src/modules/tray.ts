@@ -92,6 +92,12 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
     click: () => { wm.toggleAllWindowsHidden(); },
   });
   menuTemplate.push({
+    label: '프로필 선택/변경',
+    click: () => {
+      void wm.showProfileSelector();
+    }
+  });
+  menuTemplate.push({
     label: '환경 설정',
     click: () => {
       analytics.trackEvent('toggle_settings');
