@@ -486,7 +486,7 @@ function resolveValue<T>(base: T | undefined, local: T | undefined, remote: T | 
 const BLOCKED_MUTATION_PATHS = new Set(['__proto__', 'prototype', 'constructor']);
 
 function checklistEntityId(key: keyof AppConfig, value: any): string | null {
-  if (!value || typeof value !== 'object' || typeof value.id !== 'string') return null;
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id.trim()) return null;
   if (key === 'pendingHomeworks') return `${value.id}:${value.resetCycleKey || 'unknown'}`;
   return value.id;
 }
@@ -790,7 +790,8 @@ function mergeIdArrayThreeWay<T extends { id: string }>(
   return result;
 }
 
-function pendingKey(value: AppConfig['pendingHomeworks'] extends Array<infer T> | undefined ? T : never): string {
+function pendingKey(value: any): string | null {
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string' || !value.id.trim()) return null;
   return `${value.id}:${value.resetCycleKey || 'unknown'}`;
 }
 
@@ -799,13 +800,23 @@ function mergePendingThreeWay(
   localValues: NonNullable<AppConfig['pendingHomeworks']> = [],
   remoteValues: NonNullable<AppConfig['pendingHomeworks']> = [],
 ): NonNullable<AppConfig['pendingHomeworks']> {
-  const base = new Map(baseValues.map(value => [pendingKey(value), value]));
-  const local = new Map(localValues.map(value => [pendingKey(value), value]));
-  const remote = new Map(remoteValues.map(value => [pendingKey(value), value]));
+  const toEntry = (val: any): [string, any] | null => {
+    const key = pendingKey(val);
+    return key ? [key, val] : null;
+  };
+  const baseEntries = baseValues.map(toEntry).filter((e): e is [string, any] => e !== null);
+  const localEntries = localValues.map(toEntry).filter((e): e is [string, any] => e !== null);
+  const remoteEntries = remoteValues.map(toEntry).filter((e): e is [string, any] => e !== null);
+
+  const base = new Map(baseEntries);
+  const local = new Map(localEntries);
+  const remote = new Map(remoteEntries);
   const result: NonNullable<AppConfig['pendingHomeworks']> = [];
   for (const id of new Set([...base.keys(), ...local.keys(), ...remote.keys()])) {
     const resolved = resolveValue(base.get(id), local.get(id), remote.get(id));
-    if (resolved) result.push(resolved);
+    if (resolved && typeof resolved.id === 'string' && resolved.id.trim()) {
+      result.push(resolved);
+    }
   }
   return result;
 }

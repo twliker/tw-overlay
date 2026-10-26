@@ -1746,11 +1746,17 @@
 
                 // 1. 보류 내역 목록 그리기 (공통)
                 itemsList.innerHTML = '';
-                pending.forEach(p => {
+                const validPending = pending.filter(p => p && typeof p.id === 'string' && p.id.trim());
+                if (validPending.length === 0) {
+                    modal.classList.add('hidden');
+                    return;
+                }
+                validPending.forEach(p => {
                     const item = data.contentsCheckerItems?.find(i => i.id === p.id);
-                    const name = item ? item.name : p.id;
-                    const typeLabel = item?.resetRule?.type === 'daily' ? '일일' : '주간';
-                    const typeColor = item?.resetRule?.type === 'daily' ? 'text-blue-400' : 'text-purple-400';
+                    const name = item ? item.name : (p.id || '알 수 없는 숙제');
+                    const isDaily = item?.resetRule?.type === 'daily';
+                    const typeLabel = isDaily ? '일일' : '주간';
+                    const typeColor = isDaily ? 'text-blue-400' : 'text-purple-400';
 
                     const div = document.createElement('div');
                     div.className = 'flex justify-between items-center py-0.5 border-b border-white/5 last:border-0';

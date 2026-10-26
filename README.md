@@ -5,20 +5,20 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Version](https://img.shields.io/badge/version-3.3.0-violet.svg)
+![Version](https://img.shields.io/badge/version-3.3.1-violet.svg)
 
 ## 📸 스크린샷
 
 ![App Screenshot](./screenshot/screen1.png)
 
-## 🚀 최신 버전: v3.3.0 (2026.10.26)
-이번 **v3.3.0 업데이트**는 테일즈위버 19종 전체 캐릭터 아바타 연동과 함께 사용자의 여러 캐릭터/계정을 완벽하게 독립 분리하여 관리할 수 있는 **다중 프로필(Multi-Profile) 시스템**을 구축한 대규모 업데이트입니다.
+## 🚀 최신 버전: v3.3.1 (2026.10.27)
+이번 **v3.3.1 업데이트**는 다중 프로필 시스템과의 숙제 감지 및 귀속·전환 연동을 지원하고, 보류 숙제 대기열의 정제 및 만료 폐기 라이프사이클을 개선한 안정화 업데이트입니다.
 
-- **🎭 다중 프로필(Multi-Profile) 및 19종 캐릭터 아바타 지원:** 본캐 및 여러 부캐의 숙제 체크리스트 완료 상태, 창 위치/크기, 단축키, 버프 타이머 설정을 프로필별로 완전 독립 관리
-- **⚡ 원클릭 프로필 복제 및 실시간 동기화:** 기존 캐릭터 설정을 복제하여 손쉽게 새 프로필을 생성할 수 있으며, 프로필 전환 시 사이드바/독/체크리스트의 아바타와 상태가 즉각 동기화
-- **💸 어벤던로드 입장료 모험일지 자동 지출 반영:** 인게임 입장 시 차감된 입장료를 모험일지 지출(음수 SEED)로 자동 기록하여 마정석 교환 수익과의 정확한 순수익 산출 지원
+- **🎯 다중 프로필 숙제 보류 귀속 및 즉시 전환 연동:** 다른 캐릭터로 이미 완료된 숙제 감지 시 미완료 부캐에게 손쉽게 귀속할 수 있는 보류 모달 제공 및 원클릭 프로필 전환 후 자동 완료 지원
+- **🛡 보류 대기열 라이프사이클 및 타입 가드 안정화:** 비정상 객체 정제(`undefined 143회` 방어) 및 리셋 주기가 지난 과거 보류 숙제 자동 만료 폐기
+- **☁️ 클라우드 동기화 오염 방어:** Google Drive 3-way 동기화 시 손상 객체 배제
 
-자세한 내용은 [v3.3.0 릴리즈 노트](release-note/CHANGELOG-v3.3.0.md)를 확인해 주세요.
+자세한 내용은 [v3.3.1 릴리즈 노트](release-note/CHANGELOG-v3.3.1.md)를 확인해 주세요.
 
 *(이전 버전의 변경 사항은 [release-note](release-note/) 폴더의 릴리즈 노트를 참조해 주세요.)*
 
@@ -77,7 +77,7 @@
 ## 🚀 시작하기 (테일즈위버 오버레이 프로그램 설치 및 다운로드)
 
 ### 설치 방법
-[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-3.3.0.exe` 파일을 다운로드하여 실행하세요.
+[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-3.3.1.exe` 파일을 다운로드하여 실행하세요.
 
 ### 단축키 및 팁
 - **단축키:** 

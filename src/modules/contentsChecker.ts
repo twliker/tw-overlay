@@ -439,6 +439,93 @@ export function isPendingHomeworkExpired(
   return shouldReset(rule, new Date(pending.timestamp), new Date(nowTimestamp));
 }
 
+/**
+ * 보류 숙제 대기열에서 형식 오류(ID 누락 등), 고아 숙제, 리셋 경계를 지난 만료 숙제를 일괄 정제한다.
+ *
+ * [기능 계약]
+ * - pending.id가 유효한 문자열이 아니거나 빈 문자열인 경우 배제한다 (undefined 노출 방지).
+ * - items에 정의되지 않은 숙제는 배제한다.
+ * - pending.count가 0 이하이거나 정수가 아닌 비정상 수치인 경우 배제한다.
+ * - isPendingHomeworkExpired로 현재 시각 기준 리셋 경계를 지났다면 자동 만료 폐기한다.
+ * - 반환 객체는 정제된 목록(sanitized)과 원본 대비 변경 여부(hasChanges)를 포함한다.
+ */
+export function sanitizeAndFilterPendingHomeworks(
+  rawPendingList: unknown,
+  items: ContentsCheckerItem[],
+  nowTimestamp: number = Date.now()
+): { sanitized: PendingHomework[]; hasChanges: boolean } {
+  if (!Array.isArray(rawPendingList)) {
+    return { sanitized: [], hasChanges: rawPendingList !== undefined };
+  }
+
+  let hasChanges = false;
+  const sanitized: PendingHomework[] = [];
+
+  for (const raw of rawPendingList) {
+    if (!raw || typeof raw !== 'object') {
+      hasChanges = true;
+      continue;
+    }
+
+    const pending = raw as Partial<PendingHomework>;
+    if (typeof pending.id !== 'string' || !pending.id.trim()) {
+      log(`[Contents Checker] ID가 유효하지 않은 보류 항목 제거: ${JSON.stringify(raw)}`);
+      hasChanges = true;
+      continue;
+    }
+
+    const item = items.find(candidate => candidate.id === pending.id);
+    if (!item) {
+      log(`[Contents Checker] 정의되지 않은 고아 보류 숙제 제거 - ID: ${pending.id}`);
+      hasChanges = true;
+      continue;
+    }
+
+    const count = Number(pending.count);
+    if (!Number.isFinite(count) || count < 0 || (pending.isIncrement && count <= 0)) {
+      log(`[Contents Checker] 수량이 올바르지 않은 보류 항목 제거 - ID: ${pending.id}, Count: ${String(pending.count)}`);
+      hasChanges = true;
+      continue;
+    }
+
+    const timestamp = Number.isFinite(pending.timestamp) && (pending.timestamp as number) > 0
+      ? (pending.timestamp as number)
+      : nowTimestamp;
+
+    const normalizedPending: PendingHomework = {
+      id: pending.id.trim(),
+      count: Math.floor(pending.count as number),
+      isIncrement: Boolean(pending.isIncrement),
+      timestamp,
+      ...(Array.isArray(pending.sourceEventIds) ? { sourceEventIds: [...pending.sourceEventIds] } : {}),
+      ...(typeof pending.resetCycleKey === 'string' ? { resetCycleKey: pending.resetCycleKey } : {})
+    };
+
+    if (isPendingHomeworkExpired(normalizedPending, item.resetRule, nowTimestamp)) {
+      log(`[Contents Checker] 리셋 경계를 지난 만료 보류 숙제 자동 폐기 - ID: ${normalizedPending.id}`);
+      hasChanges = true;
+      continue;
+    }
+
+    if (
+      pending.id !== normalizedPending.id ||
+      pending.count !== normalizedPending.count ||
+      pending.isIncrement !== normalizedPending.isIncrement ||
+      pending.timestamp !== normalizedPending.timestamp
+    ) {
+      hasChanges = true;
+    }
+
+    sanitized.push(normalizedPending);
+  }
+
+  if (rawPendingList.length !== sanitized.length) {
+    hasChanges = true;
+  }
+
+  return { sanitized, hasChanges };
+}
+
 /** 현재 시각 뒤 가장 먼저 도착할 숙제 리셋 경계를 반환한다. */
 export function getNextHomeworkResetAt(
   items: ContentsCheckerItem[],
@@ -889,6 +976,20 @@ export function init(): boolean {
     }
   });
 
+  // 4. 보류 숙제 대기열 정제 (손상 데이터 및 만료 숙제 자동 정리)
+  const rawPending = cfg.pendingHomeworks;
+  if (Array.isArray(rawPending) && rawPending.length > 0) {
+    const { sanitized: cleanedPending, hasChanges: pendingChanged } = sanitizeAndFilterPendingHomeworks(
+      rawPending,
+      currentItems,
+      Date.now()
+    );
+    if (pendingChanged) {
+      log(`[Contents Checker] 부팅 중 보류 숙제 정제 완료: ${rawPending.length}개 -> ${cleanedPending.length}개`);
+      config.saveImmediate({ pendingHomeworks: cleanedPending });
+    }
+  }
+
   if (changed || !cfg.contentsCheckerItems) {
     const saved = config.saveImmediate({
       contentsCheckerItems: currentItems,
@@ -913,15 +1014,28 @@ export function checkReset(): boolean {
   const nowTs = Date.now();
   const lastCheck = cfg.lastContentsResetCheck || 0;
   const resetResult = resetExpiredHomeworkItems(cfg.contentsCheckerItems, nowTs);
-  const changed = resetResult.resetEntries.length > 0;
+  let changed = resetResult.resetEntries.length > 0;
 
   for (const entry of resetResult.resetEntries) {
     log(`[Contents] 초기화됨: ${entry.itemName} (캐릭터: ${entry.characterId}, ${entry.resetType})`);
   }
 
+  // 리셋 시점에 보류 숙제 대기열도 함께 검사하여 만료된 보류 숙제 폐기
+  const rawPending = cfg.pendingHomeworks;
+  let cleanedPending = rawPending;
+  if (Array.isArray(rawPending) && rawPending.length > 0) {
+    const { sanitized, hasChanges } = sanitizeAndFilterPendingHomeworks(rawPending, resetResult.items, nowTs);
+    if (hasChanges) {
+      cleanedPending = sanitized;
+      changed = true;
+      log(`[Contents] 리셋 경계 통과로 보류 숙제 폐기/정제됨 (남은 건수: ${sanitized.length})`);
+    }
+  }
+
   if (changed || lastCheck === 0) {
     config.saveImmediate({
       contentsCheckerItems: resetResult.items,
+      ...(cleanedPending !== rawPending ? { pendingHomeworks: cleanedPending } : {}),
       lastContentsResetCheck: nowTs
     });
     syncDiaryStats(resetResult.items);
@@ -1589,15 +1703,7 @@ function enqueuePendingHomework(
   cfg: Pick<AppConfig, 'pendingHomeworks'>
 ): PendingHomework[] {
   const resetCycleKey = getHomeworkResetCycleKey(targetItem.resetRule, eventTimestamp);
-  const pendingList = (cfg.pendingHomeworks || []).filter(pending => {
-    const pendingItem = items.find(item => item.id === pending.id);
-    if (!pendingItem) return false;
-    const expired = isPendingHomeworkExpired(pending, pendingItem.resetRule, eventTimestamp);
-    if (expired) {
-      log(`[Contents Checker] 리셋 경계를 지난 보류 내역 폐기 - ID: ${pending.id}`);
-    }
-    return !expired;
-  });
+  const { sanitized: pendingList } = sanitizeAndFilterPendingHomeworks(cfg.pendingHomeworks, items, eventTimestamp);
   const existingIdx = pendingList.findIndex(p => p.id === id);
 
   if (existingIdx !== -1) {
@@ -1810,9 +1916,6 @@ export function setAutoAssignSingleCandidate(enabled: boolean): void {
 /** 보류 대기열의 내역을 특정 캐릭터/프로필에 반영 */
 export function applyPendingHomeworks(characterId: string): void {
   const cfg = config.load();
-  const pendingList = clonePending(cfg.pendingHomeworks);
-  if (pendingList.length === 0) return;
-
   const targetProfile = profileManager.getProfileById(characterId);
   const activeProfileId = profileManager.getActiveProfileId();
   const isInactiveProfile = Boolean(targetProfile && characterId !== activeProfileId);
@@ -1821,6 +1924,18 @@ export function applyPendingHomeworks(characterId: string): void {
     ? cloneItems(targetProfile?.contentsCheckerItems || cfg.contentsCheckerItems)
     : cloneItems(cfg.contentsCheckerItems);
   const now = new Date();
+  const { sanitized: pendingList, hasChanges: pendingSanitized } = sanitizeAndFilterPendingHomeworks(
+    cfg.pendingHomeworks,
+    items,
+    now.getTime()
+  );
+  if (pendingList.length === 0) {
+    if (pendingSanitized) {
+      config.saveImmediate({ pendingHomeworks: [] });
+    }
+    return;
+  }
+
   const appliedPending = new Set<PendingHomework>();
   const expiredPending = new Set<PendingHomework>();
 
@@ -1916,7 +2031,20 @@ export async function applyPendingHomeworksAndSwitch(profileId: string): Promise
 /** 보류 숙제 대상 프로필 후보 목록 및 상태 반환 */
 export function getPendingCandidates(): PendingProfileCandidate[] {
   const cfg = config.loadFields(PENDING_HOMEWORK_CONFIG_KEYS);
-  const pendingList = cfg.pendingHomeworks || [];
+  const items = cfg.contentsCheckerItems || [];
+  const now = Date.now();
+  const { sanitized: pendingList, hasChanges } = sanitizeAndFilterPendingHomeworks(
+    cfg.pendingHomeworks,
+    items,
+    now
+  );
+  if (hasChanges) {
+    config.saveImmediate({ pendingHomeworks: pendingList });
+  }
+
+  if (pendingList.length === 0) {
+    return [];
+  }
   const allProfiles = profileManager.getAllProfiles();
   const activeProfileId = profileManager.getActiveProfileId();
 
@@ -1951,7 +2079,6 @@ export function getPendingCandidates(): PendingProfileCandidate[] {
   }
 
   // 다중 프로필 모드
-  const now = Date.now();
   return allProfiles.map(profile => {
     const isTargetActive = profile.meta.id === activeProfileId;
     const items = isTargetActive ? (cfg.contentsCheckerItems || profile.contentsCheckerItems || []) : (profile.contentsCheckerItems || []);
