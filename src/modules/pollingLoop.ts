@@ -152,8 +152,8 @@ export function start(): void {
                 const { digsiteTracker } = await import('./digsiteTracker');
                 abandonedTracker.beginGameSession();
                 digsiteTracker.beginGameSession();
-                const { getSelectorDisplayOptions } = await import('./profileManager');
-                if (getSelectorDisplayOptions().showOnGameLaunch) {
+                const { shouldShowSelectorAutomatically } = await import('./profileManager');
+                if (shouldShowSelectorAutomatically('game')) {
                     void wm.showProfileSelector();
                 }
             }

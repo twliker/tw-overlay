@@ -495,6 +495,25 @@ export function getSelectorDisplayOptions(): { showOnGameLaunch: boolean; showOn
   };
 }
 
+/**
+ * 시작 시(앱 실행 or 게임 시작) 프로필 선택창을 자동으로 띄워야 하는지 판별합니다.
+ * - 사용자가 자동 표시 옵션을 켰더라도, 등록된 프로필이 1개 이하이면 선택할 대상이 없으므로 자동으로 띄우지 않습니다.
+ * - 프로필이 2개 이상일 때만 설정된 자동 노출 옵션에 따라 표시합니다.
+ */
+export function shouldShowSelectorAutomatically(context: 'app' | 'game'): boolean {
+  const store = initProfileStore();
+  if (!store.profiles || store.profiles.length <= 1) {
+    return false;
+  }
+  if (context === 'game') {
+    return store.showOnGameLaunch ?? true;
+  }
+  if (context === 'app') {
+    return store.showOnAppLaunch ?? true;
+  }
+  return false;
+}
+
 export function setSelectorDisplayOptions(options: { showOnGameLaunch?: boolean; showOnAppLaunch?: boolean }): void {
   const store = initProfileStore();
   if (options.showOnGameLaunch !== undefined) store.showOnGameLaunch = options.showOnGameLaunch;

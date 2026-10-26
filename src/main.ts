@@ -329,7 +329,7 @@ app.whenReady().then(async () => {
     // 프로필 스토어 초기화 및 앱 시작 시 선택창 표시 확인
     profileManager.initProfileStore();
     const isProbeRuntime = process.argv.some(arg => arg.includes('probe'));
-    if (!isProbeRuntime && profileManager.getSelectorDisplayOptions().showOnAppLaunch) {
+    if (!isProbeRuntime && profileManager.shouldShowSelectorAutomatically('app')) {
       void wm.showProfileSelector();
     }
   }
