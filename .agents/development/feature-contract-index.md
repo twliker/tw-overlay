@@ -29,6 +29,7 @@
 |---|---|---|
 | 일일·주간 숙제 | `src/modules/contentsChecker.ts` | `contents-checker.html`, `shared/homeworkResetCycle.ts`, `docs/contents-checker.md` |
 | 다중 프로필 중복 숙제 보류 대기열 정제 및 만료 폐기 | `src/modules/contentsChecker.ts`의 `sanitizeAndFilterPendingHomeworks` | `contents-checker.html`, `syncDataHelper.ts`, `scripts/check-profile-pending-homework.ts`, `docs/contents-checker.md` |
+| 다중 프로필 물리 파일 격리 및 전 프로필 전수 리셋 | `src/modules/profileManager.ts`, `src/shared/homeworkReset.ts` | `profiles/manifest.json`, `profiles/data/{profileId}.json`, `scripts/check-profile-file-separation.ts`, `docs/contents-checker.md` |
 | 숙제창 자동 접기·단일 설정 수신·펼치기 클릭 | `src/modules/contentsWindowCollapse.ts`, `src/renderer/contents-checker/auto-collapse.ts`, `contents-checker.html`의 설정 전달 | `windowManager.ts`, `ipcHandlers.ts`, `scripts/check-window-visibility.ts`의 전체 페이지/포인터 이동 검사, `docs/contents-checker.md` |
 | 설계자의 채굴장 포탈 생성 감지 | `src/modules/chatParser.ts`의 채굴장 완료 계약 | `chatLogProcessor.ts`, `chatLogSyncWorker.ts`, `chatLogSyncManager.ts`, `scripts/fixtures/architect-mine-logs.json`, `scripts/check-refactor-regressions.ts`, `docs/contents-checker.md` |
 | 상위 컨텐츠 5종 숙제 및 감지 (골고다 Semi-Auto, 최후의 결전, 공허 수동, 환희·슬픔) | `src/modules/chatParser.ts`의 상위 컨텐츠 계약, `src/modules/contentsChecker.ts` | `chatLogProcessor.ts`, `chatLogSyncWorker.ts`, `contents-checker.html`, `scripts/check-refactor-regressions.ts`, `docs/contents-checker.md` |

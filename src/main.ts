@@ -295,6 +295,9 @@ app.whenReady().then(async () => {
     etaCacheManager.init();
 
     // 기본 숙제 병합·레거시 마이그레이션을 채팅 자동 감지보다 먼저 한 번 완료한다.
+    // 프로필 스토어 먼저 초기화 (활성 프로필 데이터 및 스코프 설정 마운트)
+    profileManager.initProfileStore();
+
     if (!contentsChecker.init()) {
       log('[BOOT] 숙제 체크리스트 초기화 실패 — 기존 설정을 보존한 채 자동 감지를 계속합니다.');
     }
@@ -326,8 +329,7 @@ app.whenReady().then(async () => {
     // 스플래시 창 닫기 (웰컴 가이드 / 공지 창 연동)
     wm.closeSplashWindow();
 
-    // 프로필 스토어 초기화 및 앱 시작 시 선택창 표시 확인
-    profileManager.initProfileStore();
+    // 앱 시작 시 프로필 선택창 자동 표시 여부 확인
     const isProbeRuntime = process.argv.some(arg => arg.includes('probe'));
     if (!isProbeRuntime && profileManager.shouldShowSelectorAutomatically('app')) {
       void wm.showProfileSelector();

@@ -466,6 +466,23 @@ export interface UserProfileData {
     settings: Partial<AppConfig>;
 }
 
+export interface ProfileManifest {
+    version: 2;
+    activeProfileId: string;
+    profiles: UserProfileMeta[];
+    showOnGameLaunch: boolean;
+    showOnAppLaunch: boolean;
+    legacyMigrationTargetProfileId?: string;
+}
+
+export interface ProfileDataFile {
+    version: 2;
+    id: string;
+    contentsCheckerItems?: ContentsCheckerItem[];
+    settings: Partial<AppConfig>;
+    updatedAt: number;
+}
+
 export interface ProfileStoreData {
     version: 1;
     activeProfileId: string;

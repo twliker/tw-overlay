@@ -34,7 +34,7 @@
     "capture:guide": "npm run build && electron dist-tools/capture-guide-screenshots.js",
     "build:zorder-fixture": "dotnet build scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj --configuration Release --nologo",
     "test:zorder:windows": "npm run build && npm run build:zorder-fixture && electron dist-tools/runtime-zorder-windows-probe.js",
-    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:hunting-assist && npm run test:companion && npm run test:companion-design && npm run test:companion-reading && npm run test:companion-files && npm run test:shared-layout && npm run test:hud-edit-settings && npm run test:npc-chat && npm run test:chat-visibility && npm run test:preset-position && npm run test:window-visibility && npm run test:abandoned-visibility && npm run test:audit && npm run test:autostart && npm run test:stopwatch && npm run test:magic-stone && npm run test:hunting-path && npm run test:embedded-tools && npm run test:lumina-corridor && npm run test:profile-pending",
+    "test": "npm run build && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:hunting-assist && npm run test:companion && npm run test:companion-design && npm run test:companion-reading && npm run test:companion-files && npm run test:shared-layout && npm run test:hud-edit-settings && npm run test:npc-chat && npm run test:chat-visibility && npm run test:preset-position && npm run test:window-visibility && npm run test:abandoned-visibility && npm run test:audit && npm run test:autostart && npm run test:stopwatch && npm run test:magic-stone && npm run test:hunting-path && npm run test:embedded-tools && npm run test:lumina-corridor && npm run test:profile-pending && npm run test:profile-separation",
     "test:companion-reading": "electron dist-tools/check-companion-reading.js",
     "test:companion-files": "electron dist-tools/check-companion-files.js",
     "test:shared-layout": "electron dist-tools/check-shared-layout.js",
@@ -47,7 +47,8 @@
     "test:hunting-path": "electron dist-tools/check-hunting-path.js",
     "test:embedded-tools": "electron dist-tools/check-embedded-tools.js",
     "test:lumina-corridor": "electron dist-tools/check-lumina-corridor.js",
-    "test:profile-pending": "electron dist-tools/check-profile-pending-homework.js"
+    "test:profile-pending": "electron dist-tools/check-profile-pending-homework.js",
+    "test:profile-separation": "electron dist-tools/check-profile-file-separation.js"
   },
   "build": {
     "appId": "com.filbertlab.twoverlay",
