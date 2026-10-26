@@ -57,6 +57,7 @@
 | 채팅 오버레이 탭·스크롤·마우스 투과 | `src/chatOverlayRenderer.ts` | `chat-overlay.html`, `renderer/settings/form-collection.ts`, `scripts/check-renderer-behavior.ts`, `docs/chat-overlay.md` |
 | 집중 대화방 표시 이력·설정 갱신 | `src/focusedChatRenderer.ts`의 `applyAppearanceConfig` | `renderer/nickname-notes.ts`, `scripts/check-renderer-behavior.ts`의 `checkFocusedChatSettings`, `docs/focused-chat.md` |
 | 창 생성·배치·가시성·Escape 닫기 | `src/modules/windowManager.ts`, `src/modules/windowPositionPolicy.ts`, `src/assets/ui-utils.ts` | `managedWindowRegistry.ts`, `embeddedWebTool.ts`, `overlay-view-preload.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
+| 다중 프로필(Multi-Profile) 관리 및 캐릭터 아바타 | `src/modules/profileManager.ts` | `profile-selector.html`, `src/shared/profileScopedKeys.ts`, `src/shared/characterPresets.ts`, `src/modules/ipcHandlers.ts`, `scripts/check-refactor-regressions.ts` |
 | 보조 창 크기 조절·저장 | `src/modules/managedWindowSizing.ts` | `windowManager.ts`, `assets/ui-utils.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
 | 창 드래그·최종 위치 저장 | `src/modules/windowMovePersistence.ts` | `programmaticMoveTracker.ts`, `windowManager.ts`, `scripts/check-window-move-persistence.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
 | 사용자 전체 창 숨김·복원 | `src/modules/userWindowVisibility.ts` | `windowManager.ts`, `tray.ts`, `shortcutManager.ts`, `scripts/check-window-visibility.ts`, `docs/settings.md` |

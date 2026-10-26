@@ -262,7 +262,7 @@ export function register(): void {
 
   ipcMain.handle('profile:delete', async (_event, id: unknown) => {
     if (typeof id !== 'string') return false;
-    return profileManager.deleteProfile(id);
+    return await profileManager.deleteProfile(id);
   });
 
   ipcMain.handle('profile:upload-avatar', async (_event, fileName: unknown, bufferData: unknown) => {
