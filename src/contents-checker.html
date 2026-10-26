@@ -527,7 +527,7 @@
             <button id="btn-profile-selector" class="win-btn btn-mgmt-accent mr-1.5" title="프로필 선택 / 관리" onclick="if(window.electronAPI && window.electronAPI.openProfileSelector) window.electronAPI.openProfileSelector();">
                 <i data-lucide="user-check" class="w-4 h-4 text-teal-400"></i>
             </button>
-            
+
             <button id="btn-reset" class="win-btn" title="전체 상태 동기화">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             </button>
@@ -549,7 +549,7 @@
     <div class="px-6 py-4 no-drag bg-slate-900/50 border-b border-white/5">
         <div class="bg-black/30 border border-white/10 rounded-xl flex items-center px-4 focus-within:border-violet-500/50 transition-colors">
             <i data-lucide="search" class="w-4 h-4 text-slate-400"></i>
-            <input id="search-input" type="text" placeholder="숙제 이름이나 카테고리 검색..." 
+            <input id="search-input" type="text" placeholder="숙제 이름이나 카테고리 검색..."
                 class="bg-transparent border-none text-xs p-2.5 w-full outline-none font-semibold" oninput="render()">
         </div>
     </div>
@@ -619,7 +619,7 @@
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
-            
+
             <div class="flex-1 overflow-y-auto space-y-5 pr-2 custom-scroll">
                 <!-- Guide Item 1 -->
                 <div class="guide-card">
@@ -666,7 +666,7 @@
                 </div>
             </div>
 
-            <button onclick="document.getElementById('help-modal').classList.add('hidden')" 
+            <button onclick="document.getElementById('help-modal').classList.add('hidden')"
                 class="w-full mt-6 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-3 rounded-xl transition-colors">
                 확인했습니다
             </button>
@@ -689,43 +689,51 @@
 
     <!-- Pending Homework Selection Modal -->
     <div id="pending-modal" class="fixed inset-0 bg-black/85 flex items-center justify-center z-[140] hidden no-drag">
-        <div class="bg-slate-900 border border-violet-500/30 p-7 rounded-2xl w-[400px] shadow-2xl flex flex-col max-h-[85vh]">
-            <div class="flex justify-between items-center mb-5">
+        <div class="bg-slate-900 border border-violet-500/30 p-6 rounded-2xl w-[440px] shadow-2xl flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center mb-4">
                 <div class="flex items-center gap-2">
                     <i data-lucide="bell" class="w-5 h-5 text-violet-400"></i>
-                    <span class="text-xs font-black text-white uppercase tracking-widest">완료한 캐릭터 선택</span>
+                    <span class="text-xs font-black text-white uppercase tracking-widest">숙제 반영 대상 선택</span>
                 </div>
                 <button onclick="document.getElementById('pending-modal').classList.add('hidden')" class="text-slate-500 hover:text-white transition-colors">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
-            
-            <p class="text-[11px] text-slate-400 mb-4 leading-relaxed">
-                감지된 숙제를 반영할 캐릭터를 선택하세요.<br>
-                이미 완료한 숙제는 중복 반영되지 않습니다.
+
+            <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">
+                감지된 숙제를 반영할 프로필을 선택하세요.<br>
+                이 프로필에만 반영하거나, 프로필을 전환하여 반영할 수 있습니다.
             </p>
 
             <!-- 보류 중인 숙제 목록 -->
-            <div class="bg-black/30 border border-white/5 rounded-xl p-3.5 mb-4 max-h-[150px] overflow-y-auto custom-scroll">
+            <div class="bg-black/30 border border-white/5 rounded-xl p-3 mb-3 max-h-[140px] overflow-y-auto custom-scroll">
                 <div id="pending-items-list" class="space-y-1.5 text-xs text-slate-300">
                     <!-- JS에 의해 렌더링됨 -->
                 </div>
             </div>
 
-            <!-- 캐릭터 선택 리스트 -->
-            <div class="flex-1 overflow-y-auto space-y-2 mb-6 custom-scroll pr-1">
+            <!-- 프로필 선택 카드 리스트 -->
+            <div class="flex-1 overflow-y-auto space-y-2 mb-4 custom-scroll pr-1 max-h-[280px]">
                 <div id="pending-chars-list" class="space-y-2">
-                    <!-- JS에 의해 버튼들이 렌더링됨 -->
+                    <!-- JS에 의해 카드들이 렌더링됨 -->
                 </div>
             </div>
 
+            <!-- 단일 후보 자동 반영 토글 -->
+            <div class="mb-3 px-1">
+                <label class="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none hover:text-slate-200 transition-colors">
+                    <input type="checkbox" id="chk-auto-assign-single" class="rounded accent-violet-500 w-3.5 h-3.5 cursor-pointer">
+                    <span>미완료 후보가 1개일 때 자동으로 반영하기</span>
+                </label>
+            </div>
+
             <div class="flex gap-2 pt-2 border-t border-white/10">
-                <button id="btn-clear-pending" 
-                    class="flex-1 bg-red-950/40 hover:bg-red-900/60 border border-red-900/50 text-red-400 text-xs font-bold py-3 rounded-xl transition-colors">
+                <button id="btn-clear-pending"
+                    class="flex-1 bg-red-950/40 hover:bg-red-900/60 border border-red-900/50 text-red-400 text-xs font-bold py-2.5 rounded-xl transition-colors">
                     보류 내역 삭제
                 </button>
                 <button onclick="document.getElementById('pending-modal').classList.add('hidden')"
-                    class="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-3 rounded-xl transition-colors">
+                    class="flex-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold py-2.5 rounded-xl transition-colors">
                     나중에 하기
                 </button>
             </div>
@@ -764,8 +772,8 @@
             toast.className = `contents-toast ${type} show`;
             toast.innerHTML = '';
 
-            const iconColor = type === 'info' 
-                ? 'text-violet-400' 
+            const iconColor = type === 'info'
+                ? 'text-violet-400'
                 : (type === 'warn' ? 'text-amber-400' : 'text-emerald-400');
             const icon = window.contentsDomRendering.createIcon(iconName, `w-4 h-4 ${iconColor} shrink-0`);
             const textSpan = window.contentsDomRendering.createElement('span', 'truncate', message);
@@ -859,18 +867,18 @@
             if (item.resetRule.type === 'weekly') {
                 document.getElementById('new-item-day').value = item.resetRule.dayOfWeek || 1;
             }
-            
+
             updateFormVisibility();
-            
+
             // UI 변경
             document.getElementById('add-form-title').textContent = '숙제 정보 수정';
             document.getElementById('btn-add-item').textContent = '수정 완료';
             document.getElementById('btn-add-item').classList.replace('bg-violet-600', 'bg-blue-600');
             document.getElementById('btn-add-item').classList.replace('hover:bg-violet-500', 'hover:bg-blue-500');
-            
+
             // 폼이 닫혀있다면 열기
             if (!isEditMode) toggleEditMode();
-            
+
             // 입력창으로 스크롤
             document.getElementById('new-item-name').focus();
         }
@@ -894,7 +902,7 @@
 
             const table = document.getElementById('matrix-table');
             if (!table) return;
-            
+
             const searchQuery = document.getElementById('search-input').value.toLowerCase().trim();
             const matchedPreset = configData.characterPresets?.find(p => p.id === (configData.activeProfileId || configData.selectedCharacterId)) || configData.characterPresets?.[0];
             const activeProfileId = configData.activeProfileId || configData.selectedCharacterId || matchedPreset?.id || 'profile-default';
@@ -1316,8 +1324,8 @@
                                 checkCell.appendChild(checkbox);
                             } else if (max > 1) {
                                 // 카운트 진행도에 따라 카운트 텍스트 색상 분기 (7/7 완료 시 초록색, 진행 중 하늘색, 0회는 흐리게)
-                                const countColorClass = current === max 
-                                    ? 'text-emerald-400 border-emerald-500/50' 
+                                const countColorClass = current === max
+                                    ? 'text-emerald-400 border-emerald-500/50'
                                     : (current > 0 ? 'text-violet-400 border-violet-500/40' : 'text-slate-400 opacity-60');
                                 const controls = document.createElement('div');
                                 controls.className = 'flex gap-1.5 items-center justify-center';
@@ -1403,11 +1411,11 @@
             let totalPossible = 0;
             let totalDone = 0;
             activeItems.forEach(i => {
-                presets.forEach(p => { 
+                presets.forEach(p => {
                     const state = i.completedState?.[p.id];
                     if (!state?.isExcluded) {
                         totalPossible++;
-                        if (state?.isCompleted) totalDone++; 
+                        if (state?.isCompleted) totalDone++;
                     }
                 });
             });
@@ -1456,12 +1464,12 @@
                 const type = item?.resetRule?.type;
 
                 // 해당 캐릭터의 같은 타입(일일/주간) 숙제들 중 현재 보이고 제외되지 않은 것만 필터링
-                const sameTypeItems = configData.contentsCheckerItems.filter(i => 
+                const sameTypeItems = configData.contentsCheckerItems.filter(i =>
                     i.isVisible !== false && i.resetRule.type === type && !i.completedState?.[charId]?.isExcluded
                 );
 
                 // 현재 해당 캐릭터가 완료한 개수 (클릭 전 기준)
-                const doneCount = sameTypeItems.filter(i => 
+                const doneCount = sameTypeItems.filter(i =>
                     i.completedState?.[charId]?.isCompleted
                 ).length;
 
@@ -1480,7 +1488,7 @@
 
         function handleCountClick(event, itemId, charId, action, isExcluded) {
             event.preventDefault(); // 우클릭 시 컨텍스트 메뉴 방지
-            
+
             if (isEditMode) {
                 // 관리 모드에서는 제외(N/A) 상태 토글
                 window.electronAPI.contentsToggleExclude(itemId, charId);
@@ -1490,11 +1498,11 @@
 
             const item = configData.contentsCheckerItems.find(i => i.id === itemId);
             if (!item) return;
-            
+
             const max = item.maxCount || 1;
             const state = item.completedState?.[charId];
             const current = state?.currentCount || 0;
-            
+
             let targetCount = current;
             if (action === 1) {
                 targetCount = current + 1;
@@ -1533,10 +1541,10 @@
             }
             document.getElementById('mode-badge')?.classList.toggle('hidden', !isEditMode);
             document.getElementById('add-form')?.classList.toggle('show', isEditMode);
-            
+
             // 모드 종료 시 폼 초기화
             if (!isEditMode) resetForm();
-            
+
             lucide.createIcons();
             render();
         }
@@ -1627,10 +1635,10 @@
                 showToast('숙제 이름을 입력하세요.', 'warn', 'alert-circle');
                 return alert('숙제 이름을 입력하세요.');
             }
-            
+
             const rule = { type, hour };
             if (type === 'weekly') rule.dayOfWeek = dayOfWeek;
-            
+
             const addBtn = document.getElementById('btn-add-item');
 
             if (editingItemId) {
@@ -1639,13 +1647,13 @@
                 window.electronAPI.contentsUpdateItem(targetId, name, category, rule, maxCount);
                 lastTargetItemId = targetId;
                 showToast(`'${name}' 숙제 정보가 수정되었습니다.`, 'info', 'check');
-                
+
                 // 버튼 즉각 피드백
                 addBtn.disabled = true;
                 addBtn.textContent = '✓ 수정 완료!';
                 addBtn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
                 addBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-500');
-                
+
                 setTimeout(() => {
                     resetForm();
                 }, 800);
@@ -1682,32 +1690,71 @@
             }
         };
 
+        function resolvePendingAvatarUrl(avatarUrl) {
+            if (!avatarUrl) return 'assets/img/characters/boris.png';
+            if (avatarUrl.startsWith('data:') || avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://') || avatarUrl.startsWith('assets/')) {
+                return avatarUrl;
+            }
+            const presetId = avatarUrl.replace('preset:', '');
+            return `assets/img/characters/${presetId}.png`;
+        }
+
         // 보류 팝업 모달 체크 및 렌더링
-        function checkAndRenderPendingModal(data) {
+        let _isPendingModalFetching = false;
+        async function checkAndRenderPendingModal(data) {
             const modal = document.getElementById('pending-modal');
             const itemsList = document.getElementById('pending-items-list');
             const charsList = document.getElementById('pending-chars-list');
+            const chkAuto = document.getElementById('chk-auto-assign-single');
             if (!modal || !itemsList || !charsList) return;
 
             const pending = data.pendingHomeworks || [];
-            const presets = data.characterPresets || [];
+            if (pending.length === 0) {
+                modal.classList.add('hidden');
+                return;
+            }
 
-            // 캐릭터가 2개 이상이고, 보류 이력이 1개 이상 있을 때 팝업을 표시
-            if (presets.length >= 2 && pending.length > 0) {
-                // 보류 내역 목록 그리기
+            if (chkAuto) {
+                chkAuto.checked = Boolean(data.contentsAutoAssignSingleCandidate);
+                chkAuto.onchange = () => {
+                    if (window.electronAPI?.contentsSetAutoAssignSingleCandidate) {
+                        window.electronAPI.contentsSetAutoAssignSingleCandidate(chkAuto.checked);
+                    }
+                };
+            }
+
+            if (_isPendingModalFetching) return;
+            _isPendingModalFetching = true;
+            try {
+                let candidates = [];
+                if (window.electronAPI?.getPendingCandidates) {
+                    try {
+                        candidates = await window.electronAPI.getPendingCandidates();
+                    } catch (_) {
+                        candidates = [];
+                    }
+                }
+
+                const presets = data.characterPresets || [];
+                const hasMultiProfiles = Array.isArray(candidates) && candidates.length >= 2;
+                const hasLegacyPresets = presets.length >= 2;
+
+                if (!hasMultiProfiles && !hasLegacyPresets) {
+                    modal.classList.add('hidden');
+                    return;
+                }
+
+                // 1. 보류 내역 목록 그리기 (공통)
                 itemsList.innerHTML = '';
                 pending.forEach(p => {
                     const item = data.contentsCheckerItems?.find(i => i.id === p.id);
                     const name = item ? item.name : p.id;
                     const typeLabel = item?.resetRule?.type === 'daily' ? '일일' : '주간';
                     const typeColor = item?.resetRule?.type === 'daily' ? 'text-blue-400' : 'text-purple-400';
-                    
+
                     const div = document.createElement('div');
                     div.className = 'flex justify-between items-center py-0.5 border-b border-white/5 last:border-0';
-                    const nameContainer = window.contentsDomRendering.createElement(
-                        'span',
-                        'truncate pr-2 font-bold'
-                    );
+                    const nameContainer = window.contentsDomRendering.createElement('span', 'truncate pr-2 font-bold');
                     nameContainer.append(
                         document.createTextNode('['),
                         window.contentsDomRendering.createElement('span', typeColor, typeLabel),
@@ -1724,89 +1771,182 @@
                     itemsList.appendChild(div);
                 });
 
-                // 캐릭터 버튼 목록 그리기
                 charsList.innerHTML = '';
-                presets.forEach(char => {
-                    // 실수 방지 검사: 이 캐릭터가 보류 중인 모든 숙제를 이미 완료했는가?
-                    let allCompleted = true;
-                    let activePendingCount = 0; // 해당 캐릭터가 반영받을 수 있는 숙제의 가짓수
 
-                    pending.forEach(p => {
-                        const item = data.contentsCheckerItems?.find(i => i.id === p.id);
-                        if (!item) return;
+                // 2-A. 다중 프로필 시스템 UI 렌더링
+                if (hasMultiProfiles) {
+                    candidates.forEach(cand => {
+                        const card = document.createElement('div');
+                        card.className = 'w-full p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60 flex flex-col gap-2 transition-all';
 
-                        const state = item.completedState?.[char.id];
-                        const max = item.maxCount || 1;
-                        const current = state?.currentCount || 0;
-                        const isExcluded = state?.isExcluded || false;
+                        const topRow = document.createElement('div');
+                        topRow.className = 'flex items-center justify-between';
 
-                        if (!isExcluded) {
-                            activePendingCount++;
-                            const isCompleted = state?.isCompleted || (current === max);
-                            if (!isCompleted) {
-                                allCompleted = false;
-                            }
+                        const leftInfo = document.createElement('div');
+                        leftInfo.className = 'flex items-center gap-2 min-w-0';
+
+                        const avatarImg = document.createElement('img');
+                        avatarImg.className = 'w-7 h-7 rounded-lg object-cover bg-slate-900 border border-white/10 flex-shrink-0';
+                        avatarImg.src = resolvePendingAvatarUrl(cand.avatarUrl);
+                        avatarImg.onerror = () => { avatarImg.src = 'assets/img/characters/boris.png'; };
+
+                        const nameWrapper = document.createElement('div');
+                        nameWrapper.className = 'flex items-center gap-1.5 min-w-0';
+
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'text-xs font-bold text-white truncate';
+                        nameSpan.textContent = cand.name;
+                        nameWrapper.appendChild(nameSpan);
+
+                        if (cand.isActive) {
+                            const activeBadge = document.createElement('span');
+                            activeBadge.className = 'text-[10px] font-extrabold text-violet-300 bg-violet-500/20 border border-violet-500/30 px-1.5 py-0.2 rounded flex-shrink-0';
+                            activeBadge.textContent = '현재';
+                            nameWrapper.appendChild(activeBadge);
                         }
-                    });
 
-                    const btn = document.createElement('button');
-                    btn.className = 'w-full py-3.5 px-4 rounded-xl font-black text-xs flex justify-between items-center transition-all no-drag';
-                    
-                    if (activePendingCount === 0) {
-                        // 모든 보류 숙제에서 제외(N/A)된 캐릭터인 경우
-                        btn.className += ' bg-slate-800/40 border border-slate-700/50 text-slate-500 cursor-not-allowed opacity-50';
-                        window.contentsDomRendering.setStatusButtonContent(
-                            btn,
-                            char.name,
-                            '참여 안함 (N/A)',
-                            'text-xs font-bold text-slate-600 bg-slate-700/30 px-2 py-0.5 rounded'
-                        );
-                        btn.disabled = true;
-                    } else if (allCompleted) {
-                        // 보류 숙제들을 이미 모두 완료한 캐릭터인 경우 (실수 방지 UX)
-                        btn.className += ' bg-emerald-950/20 border border-emerald-900/40 text-emerald-500/70 hover:bg-emerald-900/30 hover:border-emerald-500/30';
-                        window.contentsDomRendering.setStatusButtonContent(
-                            btn,
-                            char.name,
-                            '이미 완료함 (선택가능)',
-                            'text-xs font-bold text-emerald-400/80 bg-emerald-500/10 px-2 py-0.5 rounded'
-                        );
-                        btn.onclick = () => {
-                            if (confirm(`'${char.name}' 캐릭터는 보류 중인 숙제를 이미 모두 완료했습니다. 정말 반영하시겠습니까? (초과 횟수는 무시됩니다)`)) {
+                        leftInfo.append(avatarImg, nameWrapper);
+
+                        const statusBadge = document.createElement('span');
+                        statusBadge.className = 'text-[11px] font-bold px-2 py-0.5 rounded flex-shrink-0 ';
+                        if (cand.status === 'excluded') {
+                            statusBadge.className += 'text-slate-500 bg-slate-700/30';
+                            statusBadge.textContent = '참여 안함 (N/A)';
+                        } else if (cand.status === 'completed') {
+                            statusBadge.className += 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20';
+                            statusBadge.textContent = '이미 완료함';
+                        } else {
+                            statusBadge.className += 'text-violet-300 bg-violet-500/20 border border-violet-500/30';
+                            statusBadge.textContent = `반영 가능 (${cand.activePendingCount}개)`;
+                        }
+
+                        topRow.append(leftInfo, statusBadge);
+                        card.appendChild(topRow);
+
+                        if (cand.status !== 'excluded') {
+                            const btnRow = document.createElement('div');
+                            btnRow.className = 'flex items-center gap-2 pt-1 border-t border-white/5';
+
+                            const applyBtn = document.createElement('button');
+                            applyBtn.className = 'flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 no-drag ';
+                            if (cand.status === 'completed') {
+                                applyBtn.className += 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700';
+                                applyBtn.textContent = '이 프로필에 반영';
+                            } else {
+                                applyBtn.className += 'bg-violet-950/40 hover:bg-violet-600 text-violet-300 hover:text-white border border-violet-500/30 hover:border-violet-400';
+                                applyBtn.textContent = '이 프로필에 반영';
+                            }
+                            applyBtn.onclick = () => {
+                                if (cand.status === 'completed') {
+                                    if (!confirm(`'${cand.name}' 프로필은 보류 중인 숙제를 이미 완료했습니다. 정말 반영하시겠습니까? (초과 횟수는 무시됩니다)`)) return;
+                                }
+                                window.electronAPI?.contentsApplyPending(cand.profileId);
+                                modal.classList.add('hidden');
+                            };
+                            btnRow.appendChild(applyBtn);
+
+                            if (!cand.isActive) {
+                                const switchBtn = document.createElement('button');
+                                switchBtn.className = 'flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 no-drag ';
+                                if (cand.status === 'completed') {
+                                    switchBtn.className += 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700';
+                                    switchBtn.textContent = '전환 후 반영';
+                                } else {
+                                    switchBtn.className += 'bg-emerald-950/40 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/30 hover:border-emerald-400';
+                                    switchBtn.textContent = '전환 후 반영';
+                                }
+                                switchBtn.onclick = () => {
+                                    if (cand.status === 'completed') {
+                                        if (!confirm(`'${cand.name}' 프로필은 보류 중인 숙제를 이미 완료했습니다. 정말 전환 후 반영하시겠습니까?`)) return;
+                                    }
+                                    window.electronAPI?.contentsApplyPendingAndSwitch(cand.profileId);
+                                    modal.classList.add('hidden');
+                                };
+                                btnRow.appendChild(switchBtn);
+                            }
+
+                            card.appendChild(btnRow);
+                        }
+
+                        charsList.appendChild(card);
+                    });
+                } else {
+                    // 2-B. 레거시 characterPresets 버튼 UI 렌더링 (단위 테스트 및 레거시 호환)
+                    presets.forEach(char => {
+                        let allCompleted = true;
+                        let activePendingCount = 0;
+
+                        pending.forEach(p => {
+                            const item = data.contentsCheckerItems?.find(i => i.id === p.id);
+                            if (!item) return;
+
+                            const state = item.completedState?.[char.id];
+                            const max = item.maxCount || 1;
+                            const current = state?.currentCount || 0;
+                            const isExcluded = state?.isExcluded || false;
+
+                            if (!isExcluded) {
+                                activePendingCount++;
+                                const isCompleted = state?.isCompleted || (current === max);
+                                if (!isCompleted) allCompleted = false;
+                            }
+                        });
+
+                        const btn = document.createElement('button');
+                        btn.className = 'w-full py-3.5 px-4 rounded-xl font-black text-xs flex justify-between items-center transition-all no-drag';
+
+                        if (activePendingCount === 0) {
+                            btn.className += ' bg-slate-800/40 border border-slate-700/50 text-slate-500 cursor-not-allowed opacity-50';
+                            window.contentsDomRendering.setStatusButtonContent(
+                                btn,
+                                char.name,
+                                '참여 안함 (N/A)',
+                                'text-xs font-bold text-slate-600 bg-slate-700/30 px-2 py-0.5 rounded'
+                            );
+                            btn.disabled = true;
+                        } else if (allCompleted) {
+                            btn.className += ' bg-emerald-950/20 border border-emerald-900/40 text-emerald-500/70 hover:bg-emerald-900/30 hover:border-emerald-500/30';
+                            window.contentsDomRendering.setStatusButtonContent(
+                                btn,
+                                char.name,
+                                '이미 완료함 (선택가능)',
+                                'text-xs font-bold text-emerald-400/80 bg-emerald-500/10 px-2 py-0.5 rounded'
+                            );
+                            btn.onclick = () => {
+                                if (confirm(`'${char.name}' 캐릭터는 보류 중인 숙제를 이미 모두 완료했습니다. 정말 반영하시겠습니까? (초과 횟수는 무시됩니다)`)) {
+                                    window.electronAPI.contentsApplyPending(char.id);
+                                    modal.classList.add('hidden');
+                                }
+                            };
+                        } else {
+                            btn.className += ' bg-violet-950/30 border border-violet-500/30 text-violet-400 hover:bg-violet-500 hover:text-white hover:shadow-violet-500/20 hover:shadow-lg active:scale-[0.98]';
+                            window.contentsDomRendering.setStatusButtonContent(
+                                btn,
+                                char.name,
+                                '반영 가능',
+                                'text-xs font-bold text-violet-300 bg-violet-500/20 px-2 py-0.5 rounded'
+                            );
+                            btn.onclick = () => {
                                 window.electronAPI.contentsApplyPending(char.id);
                                 modal.classList.add('hidden');
-                            }
-                        };
-                    } else {
-                        // 반영 가능한 숙제가 남은 캐릭터인 경우 (일반적인 선택 상황)
-                        btn.className += ' bg-violet-950/30 border border-violet-500/30 text-violet-400 hover:bg-violet-500 hover:text-white hover:shadow-violet-500/20 hover:shadow-lg active:scale-[0.98]';
-                        window.contentsDomRendering.setStatusButtonContent(
-                            btn,
-                            char.name,
-                            '반영 가능',
-                            'text-xs font-bold text-violet-300 bg-violet-500/20 px-2 py-0.5 rounded'
-                        );
-                        btn.onclick = () => {
-                            window.electronAPI.contentsApplyPending(char.id);
-                            modal.classList.add('hidden');
-                        };
-                    }
-                    charsList.appendChild(btn);
-                });
+                            };
+                        }
+                        charsList.appendChild(btn);
+                    });
+                }
 
                 modal.classList.remove('hidden');
                 lucide.createIcons();
-            } else {
-                modal.classList.add('hidden');
+            } finally {
+                _isPendingModalFetching = false;
             }
         }
-
         if (window.electronAPI?.onConfigData) {
             window.electronAPI.onConfigData((data) => {
                 configData = data;
                 window.contentsAutoCollapse.applyConfig(data);
                 render();
-                
+
                 checkAndRenderPendingModal(data);
             });
             if (window.electronAPI && window.electronAPI.onProfileChanged) {

@@ -441,6 +441,15 @@ export interface UserProfileMeta {
     lastPlayedAt?: number;    // 최근 선택/플레이 일시
 }
 
+export interface PendingProfileCandidate {
+    profileId: string;
+    name: string;
+    avatarUrl: string;
+    isActive: boolean;
+    status: 'available' | 'completed' | 'excluded';
+    activePendingCount: number;
+}
+
 export interface UserProfileSummary {
     meta: UserProfileMeta;
     dailyCompleted: number;

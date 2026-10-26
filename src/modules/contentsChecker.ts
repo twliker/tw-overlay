@@ -21,7 +21,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import * as config from './config';
-import { AppConfig, ContentsCheckerItem, ResetRule, MAIN_CHAR_ID, DEFAULT_CHAR_NAME, PendingHomework, TodaySummaryDetectedHomework } from '../shared/types';
+import { AppConfig, ContentsCheckerItem, ResetRule, MAIN_CHAR_ID, DEFAULT_CHAR_NAME, PendingHomework, TodaySummaryDetectedHomework, PendingProfileCandidate } from '../shared/types';
+import * as profileManager from './profileManager';
 import { log } from './logger';
 import * as diaryDb from './diaryDb';
 import { formatLocalDateKey as getLocalDateKey } from '../shared/localDate';
@@ -184,6 +185,7 @@ const PENDING_HOMEWORK_CONFIG_KEYS = [
   'contentsCheckerItems',
   'pendingHomeworks',
   'contentsAutoAssignSingleCandidate',
+  'selectedCharacterId',
 ] as const;
 const DIARY_WRITE_RETRY_DELAYS_MS = [250, 1000, 4000] as const;
 const RESET_TIMER_MIN_DELAY_MS = 250;
@@ -590,7 +592,7 @@ export function init(): boolean {
   // 0-A. 고대 렐릭의 성소 (신조/키시니크) 단일 항목 병합 마이그레이션
   const relicShinjoIdx = currentItems.findIndex(i => i.id === 'weekly-ancient-relic-shinjo');
   const relicKishinikIdx = currentItems.findIndex(i => i.id === 'weekly-ancient-relic-kishinik');
-  
+
   if (relicShinjoIdx !== -1 || relicKishinikIdx !== -1) {
     log(`[Contents Checker] 고대 렐릭의 성소 병합 마이그레이션 수행`);
     const relicDef = defaultItems.find(d => d.id === 'weekly-ancient-relic');
@@ -603,22 +605,22 @@ export function init(): boolean {
         };
         currentItems.push(relicItem);
       }
-      
+
       const shinjoItem = relicShinjoIdx !== -1 ? currentItems[relicShinjoIdx] : null;
       const kishinikItem = relicKishinikIdx !== -1 ? currentItems[relicKishinikIdx] : null;
-      
+
       relicItem.isVisible = (shinjoItem?.isVisible !== false) || (kishinikItem?.isVisible !== false);
-      
+
       const presets = cfg.characterPresets || [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
       presets.forEach(char => {
         const charId = char.id;
         const sState = shinjoItem?.completedState?.[charId];
         const kState = kishinikItem?.completedState?.[charId];
-        
+
         const sCount = sState?.currentCount || 0;
         const kCount = kState?.currentCount || 0;
         const totalCount = Math.min(relicDef.maxCount || 7, sCount + kCount);
-        
+
         const isExcluded = !!(sState?.isExcluded && kState?.isExcluded);
         const splitState: HomeworkCompletedState = {
           currentCount: totalCount,
@@ -633,7 +635,7 @@ export function init(): boolean {
           relicDef.maxCount || 7
         );
       });
-      
+
       if (relicShinjoIdx !== -1) {
         currentItems = currentItems.filter(i => i.id !== 'weekly-ancient-relic-shinjo');
       }
@@ -691,7 +693,7 @@ export function init(): boolean {
     if (oldItemIdx !== -1) {
       const oldItem = currentItems[oldItemIdx];
       log(`[Contents Checker] 분할 마이그레이션 시작: ${oldId} -> ${newIds.join(', ')}`);
-      
+
       newIds.forEach(newId => {
         const def = defaultItems.find(d => d.id === newId);
         if (!def) return;
@@ -707,7 +709,7 @@ export function init(): boolean {
 
         // 이전 설정 승계
         newItem.isVisible = oldItem.isVisible;
-        
+
         if (oldItem.completedState) {
           Object.keys(oldItem.completedState).forEach(charId => {
             const oldState = oldItem.completedState[charId];
@@ -832,8 +834,8 @@ export function init(): boolean {
   defaultItems.forEach(def => {
     const exists = currentItems.find(item => item.id === def.id);
     if (!exists) {
-      currentItems.push({ 
-        ...def, 
+      currentItems.push({
+        ...def,
         completedState: {}
       });
       changed = true;
@@ -899,7 +901,7 @@ export function init(): boolean {
     }
     import('./windowManager').then(wm => wm.applySettings({}));
   }
-  
+
   checkReset();
   initializationCompleted = true;
   return true;
@@ -918,9 +920,9 @@ export function checkReset(): boolean {
   }
 
   if (changed || lastCheck === 0) {
-    config.saveImmediate({ 
+    config.saveImmediate({
       contentsCheckerItems: resetResult.items,
-      lastContentsResetCheck: nowTs 
+      lastContentsResetCheck: nowTs
     });
     syncDiaryStats(resetResult.items);
     refreshUI();
@@ -997,7 +999,7 @@ export function calculateDiaryHomeworkStats(
       const state = i.completedState?.[charId];
       return i.isVisible !== false && !state?.isExcluded;
     });
-    
+
     dailyTotal += visibleItems.filter(i => i.resetRule.type === 'daily').length;
     weeklyTotal += visibleItems.filter(i => i.resetRule.type === 'weekly').length;
 
@@ -1018,7 +1020,7 @@ function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
   const cfg = config.load();
   const presets = cfg.characterPresets || [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
   const stats = calculateDiaryHomeworkStats(items, presets);
-  
+
   const date = getLocalDateKey();
   return runDiaryWriteWithRetry(`homework-stats:${date}`, () => diaryDb.updateHomeworkStats(
     date,
@@ -1036,7 +1038,7 @@ function refreshUI() {
 }
 
 function syncHomeworkDiary(
-  cfg: AppConfig,
+  cfg: Pick<AppConfig, 'characterPresets'>,
   item: ContentsCheckerItem,
   characterId: string,
   state: ContentsCheckerItem['completedState'][string],
@@ -1047,6 +1049,7 @@ function syncHomeworkDiary(
     ? getLocalDateKey(new Date(previousCompletedAt)) : getLocalDateKey();
   const characterName =
     cfg.characterPresets?.find(preset => preset.id === characterId)?.name
+    || profileManager.getProfileById(characterId)?.meta.name
     || '알수없음';
   const contentId = `${item.id}_${characterId}`;
   const contentName = `[${characterName}] ${item.name}`;
@@ -1127,7 +1130,7 @@ export function toggleExcludeItem(id: string, characterId: string): void {
   const cfg = config.load();
   const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
-  
+
   if (item) {
     if (!item.completedState) item.completedState = {};
     if (!item.completedState[characterId]) {
@@ -1137,13 +1140,13 @@ export function toggleExcludeItem(id: string, characterId: string): void {
     const state = item.completedState[characterId];
     const previousCompletedAt = state.lastCompletedAt;
     state.isExcluded = !state.isExcluded;
-    
+
     // 제외 처리 시 완료 상태는 해제
     if (state.isExcluded) {
       state.isCompleted = false;
       state.currentCount = 0;
       state.lastCompletedAt = undefined;
-      
+
       // 일지에서도 제거
       const diaryContentId = `${item.id}_${characterId}`;
       const diaryDate = previousCompletedAt ? getLocalDateKey(new Date(previousCompletedAt)) : getLocalDateKey();
@@ -1154,10 +1157,10 @@ export function toggleExcludeItem(id: string, characterId: string): void {
     }
 
     config.saveImmediate({ contentsCheckerItems: items });
-    
+
     // 전 캐릭터 통합 다이어리 통계 동기화
     syncDiaryStats(items);
-    
+
     refreshUI();
   }
 }
@@ -1169,8 +1172,8 @@ export function addCharacter(name: string): void {
   // 더 안전한 고유 ID 생성 (시간 기반 36진수 + 랜덤 36진수)
   const newId = `char-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
   presets.push({ id: newId, name });
-  
-  config.saveImmediate({ 
+
+  config.saveImmediate({
     characterPresets: presets,
     selectedCharacterId: newId // 추가하면 바로 선택
   });
@@ -1198,8 +1201,8 @@ export function removeCharacter(id: string): void {
     }
   });
 
-  config.saveImmediate({ 
-    characterPresets: presets, 
+  config.saveImmediate({
+    characterPresets: presets,
     selectedCharacterId: selectedId,
     contentsCheckerItems: items
   });
@@ -1253,11 +1256,11 @@ export function updateItem(id: string, name: string, category: string, rule: Res
     const resetResult = resetExpiredHomeworkItems([item]);
     item.completedState = resetResult.items[0].completedState;
     const resetCharacterIds = new Set(resetResult.resetEntries.map(entry => entry.characterId));
-    
+
     if (rule.type === 'weekly') {
       const newMax = Math.max(1, Math.trunc(maxCount !== undefined ? maxCount : 1));
       item.maxCount = newMax;
-      
+
       // 캐릭터별 완료 횟수가 새로운 maxCount를 초과하는 경우 한도 내로 자동 조정
       if (item.completedState) {
         Object.keys(item.completedState).forEach(charId => {
@@ -1280,7 +1283,7 @@ export function updateItem(id: string, name: string, category: string, rule: Res
         });
       }
     }
-    
+
     // 규칙이 변경되었을 수 있으므로 초기화 체크 수행
     if (!config.saveImmediate({ contentsCheckerItems: items })) return;
     const previousItem = cfg.contentsCheckerItems?.find(candidate => candidate.id === id);
@@ -1289,7 +1292,7 @@ export function updateItem(id: string, name: string, category: string, rule: Res
       const previous = previousItem?.completedState?.[charId];
       syncHomeworkDiary(cfg, item, charId, state, previous?.isCompleted, previous?.lastCompletedAt);
     }
-    checkReset(); 
+    checkReset();
     syncDiaryStats(cloneItems(config.load().contentsCheckerItems));
     refreshUI();
   }
@@ -1332,11 +1335,11 @@ export function addCustomItem(name: string, category: string, rule: ResetRule, m
     resetRule: rule,
     completedState: {}
   };
-  
+
   if (rule.type === 'weekly' && maxCount !== undefined) {
     newItem.maxCount = maxCount;
   }
-  
+
   items.push(newItem);
   config.saveImmediate({ contentsCheckerItems: items });
   syncDiaryStats(items);
@@ -1567,7 +1570,7 @@ export function incrementItemCount(id: string, characterId: string, amount: numb
   const cfg = config.load();
   const items = cloneItems(cfg.contentsCheckerItems);
   const targetCharId = characterId || cfg.selectedCharacterId || MAIN_CHAR_ID;
-  
+
   const item = items.find(i => i.id === id);
   if (item) {
     const current = item.completedState?.[targetCharId]?.currentCount || 0;
@@ -1575,75 +1578,17 @@ export function incrementItemCount(id: string, characterId: string, amount: numb
   }
 }
 
-/** 채팅 로그 감지 시 캐릭터 개수에 따라 즉시 반영 또는 보류 대기열 추가 */
-export function queuePendingHomework(
+function enqueuePendingHomework(
   id: string,
   count: number,
   isIncrement: boolean,
-  sourceEventId?: string,
-  eventTimestamp: number = Date.now()
-): void {
-  const cfg = config.loadFields(PENDING_HOMEWORK_CONFIG_KEYS);
-  const presets = cfg.characterPresets || [];
-
-  log(`[Contents Checker] queuePendingHomework 호출 - ID: ${id}, Count: ${count}, isIncrement: ${isIncrement}`);
-
-  const items = cfg.contentsCheckerItems || [];
-  const targetItem = items.find(i => i.id === id);
-
-  // 1. 해당 숙제가 존재하지 않거나 숨김 처리(isVisible: false)된 경우 감지 및 보류 대기열 추가 무시
-  if (!targetItem || targetItem.isVisible === false) {
-    log(`[Contents Checker] 감지된 숙제(${id})가 숨김 상태이거나 존재하지 않아 적립을 무시합니다.`);
-    return;
-  }
-
-  if (shouldReset(targetItem.resetRule, new Date(eventTimestamp), new Date())) {
-    log(`[Contents Checker] 이전 리셋 주기의 채팅 이벤트 무시 - ID: ${id}`);
-    return;
-  }
-
-  // 2. 등록된 캐릭터 중 해당 숙제에 참여하는(isExcluded: false) 캐릭터 목록 추출
-  const activeCharacters = presets.filter(char => {
-    const state = targetItem.completedState?.[char.id];
-    return !state?.isExcluded;
-  });
-
-  if (activeCharacters.length === 0) {
-    log(`[Contents Checker] 모든 캐릭터가 이 숙제(${id})에 참여하지 않도록 설정되어 있어 적립을 무시합니다.`);
-    return;
-  }
-
-  // 3. 이 숙제에 참여하는 캐릭터가 오직 1명이면 보류 대기열 없이 즉시 해당 캐릭터에 안전하게 반영
-  if (activeCharacters.length === 1) {
-    const targetCharId = activeCharacters[0].id;
-    const maxCount = targetItem.maxCount || 1;
-    const currentState = targetItem.completedState?.[targetCharId];
-    const currentCount = getStateCount(currentState, maxCount);
-    const nextCount = resolvePendingHomeworkCount(currentCount, {
-      id,
-      count,
-      isIncrement,
-      timestamp: eventTimestamp,
-    }, maxCount);
-    const stateBelongsToCurrentCycle = typeof currentState?.lastCompletedAt === 'number'
-      && !shouldReset(targetItem.resetRule, new Date(currentState.lastCompletedAt), new Date());
-    const detectionChanged = rememberDetectedHomework(id, nextCount, eventTimestamp);
-    if (nextCount === currentCount
-      && currentState?.isCompleted === (nextCount === maxCount)
-      && stateBelongsToCurrentCycle) {
-      log(`[Contents Checker] 현재 주기에 이미 같은 횟수가 반영되어 중복 저장을 건너뜁니다. - ID: ${id}`);
-      if (detectionChanged) refreshUI();
-      return;
-    }
-    log(`[Contents Checker] 단일 참여 캐릭터 감지 - '${activeCharacters[0].name}' (${targetCharId})에게 즉시 반영`);
-    updateItemCount(id, targetCharId, nextCount);
-    return;
-  }
-
-  // 4. 참여 가능한 캐릭터가 2개 이상일 때는 사용자가 선택할 수 있도록 보류 대기열에 추가
+  sourceEventId: string | undefined,
+  eventTimestamp: number,
+  targetItem: ContentsCheckerItem,
+  items: ContentsCheckerItem[],
+  cfg: Pick<AppConfig, 'pendingHomeworks'>
+): PendingHomework[] {
   const resetCycleKey = getHomeworkResetCycleKey(targetItem.resetRule, eventTimestamp);
-  // 새 이벤트를 합치기 전에 각 콘텐츠의 리셋 경계를 지난 보류 항목을 제거한다.
-  // 이 순서가 바뀌면 이전 주기의 +N이 새 주기의 절대값/증분에 섞일 수 있다.
   const pendingList = (cfg.pendingHomeworks || []).filter(pending => {
     const pendingItem = items.find(item => item.id === pending.id);
     if (!pendingItem) return false;
@@ -1693,6 +1638,148 @@ export function queuePendingHomework(
     pendingList.sort((a, b) => a.timestamp - b.timestamp);
     log(`[Contents Checker] 비정상적으로 큰 보류 대기열을 최근 ${maxPendingItems}개로 제한했습니다.`);
   }
+  return pendingList;
+}
+/** 채팅 로그 감지 시 캐릭터 개수에 따라 즉시 반영 또는 보류 대기열 추가 */
+export function queuePendingHomework(
+  id: string,
+  count: number,
+  isIncrement: boolean,
+  sourceEventId?: string,
+  eventTimestamp: number = Date.now()
+): void {
+  const cfg = config.loadFields(PENDING_HOMEWORK_CONFIG_KEYS);
+  let presets = cfg.characterPresets || [];
+  if (presets.length === 0) {
+    const active = profileManager.getActiveProfile();
+    presets = active ? [{ id: active.meta.id, name: active.meta.name }] : [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
+  }
+
+  log(`[Contents Checker] queuePendingHomework 호출 - ID: ${id}, Count: ${count}, isIncrement: ${isIncrement}`);
+
+  const items = cfg.contentsCheckerItems || [];
+  const targetItem = items.find(i => i.id === id);
+
+  // 1. 해당 숙제가 존재하지 않거나 숨김 처리(isVisible: false)된 경우 감지 및 보류 대기열 추가 무시
+  if (!targetItem || targetItem.isVisible === false) {
+    log(`[Contents Checker] 감지된 숙제(${id})가 숨김 상태이거나 존재하지 않아 적립을 무시합니다.`);
+    return;
+  }
+
+  if (shouldReset(targetItem.resetRule, new Date(eventTimestamp), new Date())) {
+    log(`[Contents Checker] 이전 리셋 주기의 채팅 이벤트 무시 - ID: ${id}`);
+    return;
+  }
+
+  // 2. 등록된 캐릭터 중 해당 숙제에 참여하는(isExcluded: false) 캐릭터 목록 추출
+  const activeCharacters = presets.filter(char => {
+    const state = targetItem.completedState?.[char.id];
+    return !state?.isExcluded;
+  });
+
+  if (activeCharacters.length === 0) {
+    log(`[Contents Checker] 모든 캐릭터가 이 숙제(${id})에 참여하지 않도록 설정되어 있어 적립을 무시합니다.`);
+    return;
+  }
+
+  // 3. 이 숙제에 참여하는 캐릭터가 오직 1명이면 보류 대기열 없이 즉시 해당 캐릭터에 안전하게 반영
+  if (activeCharacters.length === 1) {
+    const targetCharId = activeCharacters[0].id;
+    const maxCount = targetItem.maxCount || 1;
+    const currentState = targetItem.completedState?.[targetCharId];
+    const currentCount = getStateCount(currentState, maxCount);
+    const nextCount = resolvePendingHomeworkCount(currentCount, {
+      id,
+      count,
+      isIncrement,
+      timestamp: eventTimestamp,
+    }, maxCount);
+    const stateBelongsToCurrentCycle = typeof currentState?.lastCompletedAt === 'number'
+      && !shouldReset(targetItem.resetRule, new Date(currentState.lastCompletedAt), new Date());
+    const detectionChanged = rememberDetectedHomework(id, nextCount, eventTimestamp);
+    if (nextCount === currentCount
+      && currentState?.isCompleted === (nextCount === maxCount)
+      && stateBelongsToCurrentCycle) {
+      // 다중 프로필 환경 검사: 활성 프로필 외에 다른 프로필 중 미완료 후보 프로필 탐색
+      const allProfiles = profileManager.getAllProfiles();
+      const isTargetProfile = allProfiles.some(p => p.meta.id === targetCharId);
+      if (allProfiles.length > 1 && isTargetProfile) {
+        const otherProfiles = allProfiles.filter(p => p.meta.id !== targetCharId);
+        const candidateProfiles = otherProfiles.filter(p => {
+          const pItems = p.contentsCheckerItems || [];
+          const pItem = pItems.find(i => i.id === id);
+          if (!pItem || pItem.isVisible === false) return false;
+          const pState = pItem.completedState?.[p.meta.id];
+          if (pState?.isExcluded) return false;
+          const pMax = pItem.maxCount || 1;
+          const pCurrent = getStateCount(pState, pMax);
+          const pBelongs = typeof pState?.lastCompletedAt === 'number'
+            && !shouldReset(pItem.resetRule, new Date(pState.lastCompletedAt), new Date(eventTimestamp));
+          const isDone = pBelongs && (pState?.isCompleted || pCurrent >= pMax);
+          return !isDone;
+        });
+
+        if (candidateProfiles.length === 0) {
+          log(`[Contents Checker] 현재 프로필 및 모든 등록 프로필에서 이미 완료/제외되어 중복 저장을 건너뜁니다. - ID: ${id}`);
+          if (detectionChanged) refreshUI();
+          return;
+        }
+
+        // 단일 후보 자동 반영 옵션 활성화 시 즉시 해당 프로필에 자동 반영
+        if (candidateProfiles.length === 1 && cfg.contentsAutoAssignSingleCandidate === true) {
+          const candidate = candidateProfiles[0];
+          log(`[Contents Checker] 중복 숙제 단일 후보 자동 반영 - '${candidate.meta.name}' (${candidate.meta.id})에게 즉시 반영`);
+          const pItems = cloneItems(candidate.contentsCheckerItems || items);
+          let pItem = pItems.find(i => i.id === id);
+          if (!pItem) {
+            pItem = { ...targetItem, completedState: {} };
+            pItems.push(pItem);
+          }
+          if (!pItem.completedState) pItem.completedState = {};
+          if (!pItem.completedState[candidate.meta.id]) {
+            pItem.completedState[candidate.meta.id] = { isCompleted: false, currentCount: 0 };
+          }
+          const cState = pItem.completedState[candidate.meta.id];
+          const cMax = pItem.maxCount || 1;
+          const cCurrent = getStateCount(cState, cMax);
+          const cNext = resolvePendingHomeworkCount(cCurrent, {
+            id,
+            count,
+            isIncrement,
+            timestamp: eventTimestamp,
+          }, cMax);
+          const prevCompleted = cState.isCompleted;
+          const prevCompletedAt = cState.lastCompletedAt;
+          cState.currentCount = cNext;
+          cState.isCompleted = (cNext === cMax);
+          cState.lastCompletedAt = cNext > 0 ? Date.now() : undefined;
+
+          profileManager.updateProfileContentsItems(candidate.meta.id, pItems);
+          syncHomeworkDiary(cfg, pItem, candidate.meta.id, cState, prevCompleted, prevCompletedAt);
+          rememberDetectedHomework(id, cNext, eventTimestamp);
+          refreshUI();
+          return;
+        }
+
+        // 복수 후보이거나 자동 반영이 꺼진 경우: 보류 대기열에 추가하고 사용자 선택 팝업 대기
+        log(`[Contents Checker] 중복 숙제 감지 - 다른 프로필에 반영하기 위해 보류 대기열에 추가합니다. (미완료 프로필: ${candidateProfiles.length}개)`);
+        const pendingList = enqueuePendingHomework(id, count, isIncrement, sourceEventId, eventTimestamp, targetItem, items, cfg);
+        config.saveImmediate({ pendingHomeworks: pendingList });
+        refreshUI();
+        return;
+      }
+
+      log(`[Contents Checker] 현재 주기에 이미 같은 횟수가 반영되어 중복 저장을 건너뜁니다. - ID: ${id}`);
+      if (detectionChanged) refreshUI();
+      return;
+    }
+    log(`[Contents Checker] 단일 참여 캐릭터 감지 - '${activeCharacters[0].name}' (${targetCharId})에게 즉시 반영`);
+    updateItemCount(id, targetCharId, nextCount);
+    return;
+  }
+
+  // 4. 참여 가능한 캐릭터가 2개 이상일 때는 사용자가 선택할 수 있도록 보류 대기열에 추가
+  const pendingList = enqueuePendingHomework(id, count, isIncrement, sourceEventId, eventTimestamp, targetItem, items, cfg);
 
   // 완료·제외 캐릭터를 빼고 실제 반영 가능한 캐릭터가 하나뿐인 경우에도
   // 차감권 사용 여부처럼 앱이 알 수 없는 상황이 있으므로 사용자 선택을 따른다.
@@ -1720,13 +1807,19 @@ export function setAutoAssignSingleCandidate(enabled: boolean): void {
   refreshUI();
 }
 
-/** 보류 대기열의 내역을 특정 캐릭터에 반영 */
+/** 보류 대기열의 내역을 특정 캐릭터/프로필에 반영 */
 export function applyPendingHomeworks(characterId: string): void {
   const cfg = config.load();
   const pendingList = clonePending(cfg.pendingHomeworks);
   if (pendingList.length === 0) return;
 
-  const items = cloneItems(cfg.contentsCheckerItems);
+  const targetProfile = profileManager.getProfileById(characterId);
+  const activeProfileId = profileManager.getActiveProfileId();
+  const isInactiveProfile = Boolean(targetProfile && characterId !== activeProfileId);
+
+  const items = isInactiveProfile
+    ? cloneItems(targetProfile?.contentsCheckerItems || cfg.contentsCheckerItems)
+    : cloneItems(cfg.contentsCheckerItems);
   const now = new Date();
   const appliedPending = new Set<PendingHomework>();
   const expiredPending = new Set<PendingHomework>();
@@ -1784,14 +1877,20 @@ export function applyPendingHomeworks(characterId: string): void {
     return !isPendingHomeworkExpired(pending, item.resetRule, now.getTime());
   });
 
-  // 대기열 저장
-  config.saveImmediate({
-    contentsCheckerItems: items,
-    pendingHomeworks: remainingPending
-  });
+  // 대기열 및 숙제 상태 저장
+  if (isInactiveProfile) {
+    profileManager.updateProfileContentsItems(characterId, items);
+    config.saveImmediate({
+      pendingHomeworks: remainingPending
+    });
+  } else {
+    config.saveImmediate({
+      contentsCheckerItems: items,
+      pendingHomeworks: remainingPending
+    });
+    syncDiaryStats(items);
+  }
 
-  // 다이어리 동기화 및 UI 갱신
-  syncDiaryStats(items);
   refreshUI();
   log(`[Contents Checker] 보류 내역 반영 완료 (남은 보류 건수: ${remainingPending.length})`);
 }
@@ -1804,5 +1903,85 @@ export function clearPendingHomeworks(): void {
   }
   config.saveImmediate({ pendingHomeworks: [] });
   refreshUI();
+}
+
+/** 보류 대기열의 내역을 대상 프로필로 전환 후 반영 */
+export async function applyPendingHomeworksAndSwitch(profileId: string): Promise<boolean> {
+  log(`[Contents Checker] 프로필 전환 후 보류 내역 반영 시작: ${profileId}`);
+  const switched = await profileManager.switchProfile(profileId);
+  applyPendingHomeworks(profileId);
+  return switched;
+}
+
+/** 보류 숙제 대상 프로필 후보 목록 및 상태 반환 */
+export function getPendingCandidates(): PendingProfileCandidate[] {
+  const cfg = config.loadFields(PENDING_HOMEWORK_CONFIG_KEYS);
+  const pendingList = cfg.pendingHomeworks || [];
+  const allProfiles = profileManager.getAllProfiles();
+  const activeProfileId = profileManager.getActiveProfileId();
+
+  // 만약 프로필이 1개 이하이고 characterPresets가 2개 이상인 레거시 프리셋 모드인 경우
+  if (allProfiles.length <= 1 && (cfg.characterPresets?.length || 0) > 1) {
+    const presets = cfg.characterPresets || [];
+    const items = cfg.contentsCheckerItems || [];
+    return presets.map(preset => {
+      let allCompleted = true;
+      let activePendingCount = 0;
+      pendingList.forEach(p => {
+        const item = items.find(i => i.id === p.id);
+        if (!item) return;
+        const state = item.completedState?.[preset.id];
+        if (state?.isExcluded) return;
+        activePendingCount++;
+        const max = item.maxCount || 1;
+        const current = getStateCount(state, max);
+        const isDone = state?.isCompleted || (current >= max);
+        if (!isDone) allCompleted = false;
+      });
+      const status = activePendingCount === 0 ? 'excluded' : allCompleted ? 'completed' : 'available';
+      return {
+        profileId: preset.id,
+        name: preset.name,
+        avatarUrl: 'preset:boris',
+        isActive: preset.id === cfg.selectedCharacterId,
+        status,
+        activePendingCount
+      };
+    });
+  }
+
+  // 다중 프로필 모드
+  const now = Date.now();
+  return allProfiles.map(profile => {
+    const isTargetActive = profile.meta.id === activeProfileId;
+    const items = isTargetActive ? (cfg.contentsCheckerItems || profile.contentsCheckerItems || []) : (profile.contentsCheckerItems || []);
+    let allCompleted = true;
+    let activePendingCount = 0;
+
+    pendingList.forEach(p => {
+      const item = items.find(i => i.id === p.id);
+      if (!item) return;
+      const state = item.completedState?.[profile.meta.id];
+      if (state?.isExcluded) return;
+      activePendingCount++;
+      const max = item.maxCount || 1;
+      const current = getStateCount(state, max);
+      const isCycleBelonging = typeof state?.lastCompletedAt === 'number'
+        && !shouldReset(item.resetRule, new Date(state.lastCompletedAt), new Date(now));
+      const isDone = isCycleBelonging && (state?.isCompleted || current >= max);
+      if (!isDone) allCompleted = false;
+    });
+
+    const status = activePendingCount === 0 ? 'excluded' : allCompleted ? 'completed' : 'available';
+
+    return {
+      profileId: profile.meta.id,
+      name: profile.meta.name,
+      avatarUrl: profile.meta.avatarUrl || 'preset:boris',
+      isActive: isTargetActive,
+      status,
+      activePendingCount
+    };
+  });
 }
 

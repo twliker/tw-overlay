@@ -301,6 +301,7 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
   ipcMain.on('contents-apply-pending', onApplyPending);
   ipcMain.on('contents-clear-pending', onClearPending);
   ipcMain.on('contents-set-auto-assign-single-candidate', onSetAutoAssign);
+  ipcMain.handle('contents:get-pending-candidates', async () => []);
 
   const makeConfig = (characterCount: number, hasPending: boolean) => ({
     characterPresets: [
@@ -422,6 +423,7 @@ async function checkPendingHomeworkCloudUi(): Promise<void> {
     ipcMain.removeListener('contents-apply-pending', onApplyPending);
     ipcMain.removeListener('contents-clear-pending', onClearPending);
     ipcMain.removeListener('contents-set-auto-assign-single-candidate', onSetAutoAssign);
+    ipcMain.removeHandler('contents:get-pending-candidates');
     if (!pendingWindow.isDestroyed()) pendingWindow.destroy();
   }
 }
@@ -1053,7 +1055,7 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
         // 1. 사용자 키보드 입력 시뮬레이션
         searchInput.value = '단축키';
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-        
+
         const items = resultsDropdown.querySelectorAll('.search-result-item');
         const hasResults = items.length > 0;
         const dropdownVisible = !resultsDropdown.classList.contains('hidden');
@@ -1110,7 +1112,7 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
         items[0].click();
         const activeSection = Array.from(document.querySelectorAll('.settings-section')).find(s => !s.classList.contains('hidden'))?.id;
         const activeNavGroup = document.querySelector('.nav-item.active')?.getAttribute('data-settings-group');
-        
+
         const card = document.getElementById('xp-feature-settings-card');
         const hasPulse = card?.classList.contains('highlight-pulse-effect');
 
@@ -4003,7 +4005,7 @@ async function checkWelcomeGuideTabs(window: BrowserWindow): Promise<void> {
     (() => {
       const tabLabels = Array.from(document.querySelectorAll('.tab-btn')).map(btn => btn.textContent?.trim());
       const totalPanels = document.querySelectorAll('.content-panel').length;
-      
+
       // Tab 3 (게임 오버레이 HUD) 전환
       switchTab(3);
       const panel3Active = document.getElementById('panel-3')?.classList.contains('active');

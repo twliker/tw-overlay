@@ -264,6 +264,48 @@ function setupConfigChangeListener(): void {
 }
 
 /** 전체 프로필 요약 목록 반환 */
+/** 전체 프로필 데이터 목록 반환 */
+export function getAllProfiles(): UserProfileData[] {
+  const store = initProfileStore();
+  const active = store.profiles.find(p => p.meta.id === store.activeProfileId);
+  if (active) {
+    const currentConfig = config.load();
+    if (currentConfig.contentsCheckerItems && currentConfig.contentsCheckerItems.length > 0) {
+      active.contentsCheckerItems = structuredClone(currentConfig.contentsCheckerItems);
+    }
+  }
+  return store.profiles;
+}
+
+/** ID로 프로필 조회 */
+export function getProfileById(profileId: string): UserProfileData | undefined {
+  const profiles = getAllProfiles();
+  return profiles.find(p => p.meta.id === profileId);
+}
+
+/** 특정 프로필의 숙제 체크리스트 갱신 및 저장 */
+export function updateProfileContentsItems(profileId: string, items: ContentsCheckerItem[]): boolean {
+  const store = initProfileStore();
+  const target = store.profiles.find(p => p.meta.id === profileId);
+  if (!target) return false;
+
+  target.contentsCheckerItems = structuredClone(items);
+  target.meta.updatedAt = Date.now();
+
+  if (store.activeProfileId === profileId) {
+    config.saveImmediate({ contentsCheckerItems: target.contentsCheckerItems });
+  }
+
+  saveStoreInternal();
+  broadcastToAllWindows('profile-changed', {
+    profileId,
+    meta: target.meta,
+    summary: calculateProfileSummary(target)
+  });
+  broadcastToAllWindows('contents-items-updated');
+  return true;
+}
+
 export function getAllProfileSummaries(): UserProfileSummary[] {
   const store = initProfileStore();
   const active = store.profiles.find(p => p.meta.id === store.activeProfileId);

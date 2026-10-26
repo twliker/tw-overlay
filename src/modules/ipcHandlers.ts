@@ -597,7 +597,7 @@ export function register(): void {
     const saveSucceeded = wm.applySettings(sanitizedSettings, excludedSettingsWebContents,
       savedHudPositionKeys.length ? { savedHudPositionKeys } : undefined);
     if (saveSucceeded) applyRuntimeSettings(previousConfig, config.load(), sanitizedPatch);
-    
+
     // 챗로그 상태 변경 여부를 모든 창에 브로드캐스트
     broadcastChatLogStatus();
 
@@ -835,6 +835,14 @@ export function register(): void {
   ipcMain.on('contents-toggle-item', (_e, id: string, characterId?: string) => {
     if (!isSafeId(id) || (characterId !== undefined && !isSafeId(characterId))) return;
     import('./contentsChecker').then(mod => mod.toggleItem(id, characterId));
+  });
+  ipcMain.on('contents-apply-pending-and-switch', (_e, profileId: string) => {
+    if (!isSafeId(profileId)) return;
+    import('./contentsChecker').then(mod => mod.applyPendingHomeworksAndSwitch(profileId));
+  });
+  ipcMain.handle('contents:get-pending-candidates', async () => {
+    const mod = await import('./contentsChecker');
+    return mod.getPendingCandidates();
   });
   ipcMain.on('contents-apply-pending', (_e, characterId: string) => {
     if (!isSafeId(characterId)) return;
@@ -1399,12 +1407,12 @@ export function register(): void {
     const cfg = config.load();
     const chatLogPath = cfg.chatLogPath;
     if (!chatLogPath) return false;
-    
+
     try {
       if (!fs.existsSync(chatLogPath)) return false;
       const stat = fs.statSync(chatLogPath);
       if (!stat.isDirectory()) return false;
-      
+
       const files = fs.readdirSync(chatLogPath);
       const hasChatLog = files.some(file => file.startsWith('TWChatLog_') && file.endsWith('.html'));
       return hasChatLog;
@@ -1664,11 +1672,11 @@ export function register(): void {
     const sourceStat = fs.statSync(srcPath);
     if (!sourceStat.isFile() || sourceStat.size <= 0 || sourceStat.size > 50 * 1024 * 1024) return null;
     const originalName = path.basename(srcPath, originalExt);
-    
+
     // 파일명 인코딩 안전화 (영어, 숫자, 한글, 언더바, 하이픈만 허용)
     const sanitizedName = originalName.replace(/[^a-zA-Z0-9ㄱ-ㅎㅏ-ㅣ가-힣-_]/g, '');
     const filename = `custom_${Date.now()}_${sanitizedName || 'sound'}${originalExt}`;
-    
+
     const customSoundsDir = path.join(app.getPath('userData'), 'custom_sounds');
     if (!fs.existsSync(customSoundsDir)) {
       fs.mkdirSync(customSoundsDir, { recursive: true });
