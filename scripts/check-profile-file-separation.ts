@@ -314,6 +314,58 @@ async function main(): Promise<void> {
     assert.strictEqual(restartPM.getAllProfiles().length, 2, '삭제 후 프로필 개수가 2개여야 합니다.');
     assert.strictEqual(restartPM.getActiveProfileId(), e2eSub.meta.id, '비활성 프로필 삭제 후에도 현재 활성 프로필은 유지되어야 합니다.');
 
+    // E2E 6: 카운트형 숙제(최대 N회 중 M회)의 프로필별 독립 카운트 검증
+    await restartPM.switchProfile(e2eMain.meta.id);
+    restartChecker.updateItemCount('weekly-shinjo-nest', e2eMain.meta.id, 3);
+
+    await restartPM.switchProfile(e2eSub.meta.id);
+    restartChecker.updateItemCount('weekly-shinjo-nest', e2eSub.meta.id, 5);
+
+    const mainAfterCount = restartPM.getProfileById(e2eMain.meta.id);
+    const subAfterCount = restartPM.getProfileById(e2eSub.meta.id);
+    const mainCount = mainAfterCount.contentsCheckerItems.find((i: any) => i.id === 'weekly-shinjo-nest')?.completedState[e2eMain.meta.id]?.currentCount;
+    const subCount = subAfterCount.contentsCheckerItems.find((i: any) => i.id === 'weekly-shinjo-nest')?.completedState[e2eSub.meta.id]?.currentCount;
+    assert.strictEqual(mainCount, 3, '본계정 카운트는 3이어야 합니다.');
+    assert.strictEqual(subCount, 5, '부계정 카운트는 5여야 합니다.');
+
+    // E2E 7: 숙제 제외(N/A) 설정의 프로필별 격리 검증
+    restartChecker.toggleExcludeItem('weekly-mur-sylvan', e2eSub.meta.id);
+    const subAfterExclude = restartPM.getProfileById(e2eSub.meta.id);
+    const mainAfterExclude = restartPM.getProfileById(e2eMain.meta.id);
+    assert.strictEqual(subAfterExclude.contentsCheckerItems.find((i: any) => i.id === 'weekly-mur-sylvan')?.completedState[e2eSub.meta.id]?.isExcluded, true, '부계정에서는 제외 상태여야 합니다.');
+    assert.strictEqual(Boolean(mainAfterExclude.contentsCheckerItems.find((i: any) => i.id === 'weekly-mur-sylvan')?.completedState[e2eMain.meta.id]?.isExcluded), false, '본계정은 제외되지 않아야 합니다.');
+
+    // E2E 8: 일일 숙제 vs 주간 숙제 혼합 리셋에서 일일만 풀리고 주간은 유지되는지 검증
+    const tuesdayMorning = new Date('2026-10-27T10:00:00+09:00').getTime();
+    const wednesdayMorning = new Date('2026-10-28T10:00:00+09:00').getTime();
+
+    const subProfileData = restartPM.getProfileById(e2eSub.meta.id);
+    const dailyItem = subProfileData.contentsCheckerItems.find((i: any) => i.id === 'daily-psiky-illusion');
+    dailyItem.completedState[e2eSub.meta.id] = { isCompleted: true, currentCount: 1, lastCompletedAt: tuesdayMorning };
+    const weeklyItem = subProfileData.contentsCheckerItems.find((i: any) => i.id === 'weekly-shinjo-nest');
+    weeklyItem.completedState[e2eSub.meta.id].lastCompletedAt = tuesdayMorning;
+    restartPM.updateProfileContentsItems(e2eSub.meta.id, subProfileData.contentsCheckerItems);
+
+    await restartPM.switchProfile(e2eMain.meta.id);
+    restartPM.resetAllProfilesExpiredHomeworks(wednesdayMorning);
+
+    const subAfterMixedReset = restartPM.getProfileById(e2eSub.meta.id);
+    const subDaily = subAfterMixedReset.contentsCheckerItems.find((i: any) => i.id === 'daily-psiky-illusion')?.completedState[e2eSub.meta.id];
+    const subWeekly = subAfterMixedReset.contentsCheckerItems.find((i: any) => i.id === 'weekly-shinjo-nest')?.completedState[e2eSub.meta.id];
+    assert.strictEqual(subDaily?.isCompleted, false, '자정이 지난 일일 숙제는 비활성 부계정에서도 리셋되어야 합니다.');
+    assert.strictEqual(subDaily?.currentCount, 0, '일일 숙제 카운트는 0이어야 합니다.');
+    assert.strictEqual(subWeekly?.currentCount, 5, '주간 리셋이 안 지난 주간 숙제는 5회로 유지되어야 합니다.');
+
+    // E2E 9: 3개 이상의 프로필(본캐 + 부캐 2개) 연속 순환 전환 검증
+    const e2eSub2 = restartPM.createProfile({ name: 'E2E 부계정 2' });
+    assert.strictEqual(restartPM.getAllProfiles().length, 3);
+    await restartPM.switchProfile(e2eSub2.meta.id);
+    restartChecker.toggleItem('daily-psiky-illusion');
+
+    assert.strictEqual(restartPM.getProfileById(e2eSub2.meta.id).contentsCheckerItems.find((i: any) => i.id === 'daily-psiky-illusion')?.completedState[e2eSub2.meta.id]?.isCompleted, true, '부계정 2에서 완료 상태여야 합니다.');
+    assert.strictEqual(Boolean(restartPM.getProfileById(e2eMain.meta.id).contentsCheckerItems.find((i: any) => i.id === 'daily-psiky-illusion')?.completedState[e2eMain.meta.id]?.isCompleted), false, '본계정에는 오염이 없어야 합니다.');
+    assert.strictEqual(restartPM.getProfileById(e2eSub.meta.id).contentsCheckerItems.find((i: any) => i.id === 'daily-psiky-illusion')?.completedState[e2eSub.meta.id]?.isCompleted, false, '부계정 1에도 오염이 없어야 합니다.');
+
     try { fs.rmSync(e2eFixture, { recursive: true, force: true }); } catch (_) {}
     console.log('✅ 프로필 물리 파일 분리 및 실기 E2E 전수 검증 ALL PASS!');
   } finally {
