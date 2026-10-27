@@ -745,6 +745,12 @@ export function updateProfile(id: string, updates: { name?: string; avatarUrl?: 
   const data = loadProfileDataFile(id);
 
   if (manifest.activeProfileId === id) {
+    if (updates.name !== undefined) {
+      config.saveConfirmed({
+        characterPresets: [{ id, name: targetMeta.name }]
+      });
+      broadcastToAllWindows('config-data', config.load());
+    }
     broadcastToAllWindows('profile-changed', {
       profileId: id,
       meta: targetMeta,
@@ -774,7 +780,8 @@ export async function deleteProfile(id: string): Promise<boolean> {
   const index = manifest.profiles.findIndex(p => p.id === id);
   if (index === -1) return false;
 
-  if (manifest.activeProfileId === id) {
+  const wasActive = (manifest.activeProfileId === id);
+  if (wasActive) {
     const nextProfile = manifest.profiles.find(p => p.id !== id);
     if (nextProfile) {
       await switchProfile(nextProfile.id);
@@ -796,6 +803,15 @@ export async function deleteProfile(id: string): Promise<boolean> {
     } catch (e) {
       log(`[ProfileManager] 데이터 파일 삭제 중 경고 (${dataPath}): ${e}`);
     }
+  }
+
+  if (!wasActive) {
+    const active = getActiveProfile();
+    broadcastToAllWindows('profile-changed', {
+      profileId: manifest.activeProfileId,
+      meta: active.meta,
+      summary: calculateProfileSummary(active)
+    });
   }
 
   log(`[ProfileManager] 프로필 삭제됨: ${id}`);

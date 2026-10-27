@@ -299,6 +299,21 @@ async function main(): Promise<void> {
     assert.strictEqual(restartSub.contentsCheckerItems.find((i: any) => i.id === testItemId)?.completedState[e2eSub.meta.id]?.isCompleted, true, '재시작 후 부계정의 UI 토글 숙제가 보존되어야 합니다.');
     assert.strictEqual(restartSub.contentsCheckerItems.find((i: any) => i.id === logHwId)?.completedState[e2eSub.meta.id]?.isCompleted, true, '재시작 후 부계정의 게임 로그 숙제가 보존되어야 합니다.');
 
+    // E2E 4: 활성 프로필 이름 변경 시 config 및 프리셋 즉시 동기화 검증
+    const newName = '루시안-최종각성';
+    restartPM.updateProfile(e2eSub.meta.id, { name: newName });
+    const configAfterRename = require(path.join(root, 'dist', 'modules', 'config')).load();
+    assert.strictEqual(configAfterRename.characterPresets?.[0]?.name, newName, '활성 프로필 이름 변경 시 config.characterPresets에 즉시 반영되어야 합니다.');
+    assert.strictEqual(restartPM.getActiveProfile().meta.name, newName, '프로필 매니저의 활성 프로필 이름이 갱신되어야 합니다.');
+
+    // E2E 5: 비활성 프로필 삭제 시 안전성 검증
+    const deleteTarget = restartPM.createProfile({ name: '임시 부계정' });
+    assert.strictEqual(restartPM.getAllProfiles().length, 3);
+    const deleteSuccess = await restartPM.deleteProfile(deleteTarget.meta.id);
+    assert.strictEqual(deleteSuccess, true, '비활성 프로필 삭제가 성공해야 합니다.');
+    assert.strictEqual(restartPM.getAllProfiles().length, 2, '삭제 후 프로필 개수가 2개여야 합니다.');
+    assert.strictEqual(restartPM.getActiveProfileId(), e2eSub.meta.id, '비활성 프로필 삭제 후에도 현재 활성 프로필은 유지되어야 합니다.');
+
     try { fs.rmSync(e2eFixture, { recursive: true, force: true }); } catch (_) {}
     console.log('✅ 프로필 물리 파일 분리 및 실기 E2E 전수 검증 ALL PASS!');
   } finally {
