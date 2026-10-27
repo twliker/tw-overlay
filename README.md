@@ -5,7 +5,7 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Version](https://img.shields.io/badge/version-3.3.1-violet.svg)
+![Version](https://img.shields.io/badge/version-3.3.3-violet.svg)
 
 ## 📸 스크린샷
 
@@ -18,7 +18,7 @@
 - **🛡 보류 대기열 라이프사이클 및 타입 가드 안정화:** 비정상 객체 정제(`undefined 143회` 방어) 및 리셋 주기가 지난 과거 보류 숙제 자동 만료 폐기
 - **☁️ 클라우드 동기화 오염 방어:** Google Drive 3-way 동기화 시 손상 객체 배제
 
-자세한 내용은 [v3.3.1 릴리즈 노트](release-note/CHANGELOG-v3.3.1.md)를 확인해 주세요.
+자세한 내용은 [v3.3.1 릴리즈 노트](release-note/CHANGELOG-v3.3.3.md)를 확인해 주세요.
 
 *(이전 버전의 변경 사항은 [release-note](release-note/) 폴더의 릴리즈 노트를 참조해 주세요.)*
 
@@ -77,7 +77,7 @@
 ## 🚀 시작하기 (테일즈위버 오버레이 프로그램 설치 및 다운로드)
 
 ### 설치 방법
-[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-3.3.1.exe` 파일을 다운로드하여 실행하세요.
+[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 최신 버전의 `twOverlay-Setup-3.3.3.exe` 파일을 다운로드하여 실행하세요.
 
 ### 단축키 및 팁
 - **단축키:** 
