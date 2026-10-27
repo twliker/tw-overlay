@@ -194,6 +194,7 @@ let initializationCompleted = false;
 const MAX_PENDING_SOURCE_EVENT_IDS = 128;
 const MAX_PENDING_HOMEWORK_ITEMS = 256;
 const PENDING_HOMEWORK_CONFIG_KEYS = [
+  'activeProfileId',
   'characterPresets',
   'contentsCheckerItems',
   'pendingHomeworks',
@@ -822,7 +823,7 @@ export function init(): boolean {
     characterPresets = [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
     changed = true;
   }
-  const selectedCharacterId = cfg.selectedCharacterId || characterPresets[0].id;
+  const selectedCharacterId = profileManager.getActiveProfileId() || cfg.selectedCharacterId || characterPresets[0].id;
   if (!cfg.selectedCharacterId) {
     changed = true;
   }
@@ -1111,7 +1112,7 @@ function syncHomeworkDiary(
 function getItemStateContext(id: string, characterId?: string) {
   const cfg = config.load();
   const items = cloneItems(cfg.contentsCheckerItems);
-  const targetCharId = characterId || cfg.selectedCharacterId || MAIN_CHAR_ID;
+  const targetCharId = characterId || profileManager.getActiveProfileId() || cfg.selectedCharacterId || MAIN_CHAR_ID;
   const item = items.find(candidate => candidate.id === id);
   if (!item) return null;
 
@@ -1256,7 +1257,11 @@ export function renameCharacter(id: string, newName: string): void {
 /** 캐릭터 선택 */
 export function selectCharacter(id: string): void {
   config.saveImmediate({ selectedCharacterId: id });
-  refreshUI();
+  if (profileManager.getProfileById(id)) {
+    void profileManager.switchProfile(id);
+  } else {
+    refreshUI();
+  }
 }
 
 /** 가시성 토글 */
@@ -1569,7 +1574,7 @@ export function updateItemCount(id: string, characterId: string, count: number):
  */
 export function mergeHomeworkCountFromSync(id: string, detectedCount: number, characterId?: string): boolean {
   const cfg = config.load();
-  const targetCharId = characterId || MAIN_CHAR_ID;
+  const targetCharId = characterId || profileManager.getActiveProfileId() || MAIN_CHAR_ID;
 
   const context = getItemStateContext(id, targetCharId);
   if (!context) return false;
@@ -1673,9 +1678,17 @@ export function queuePendingHomework(
 ): void {
   const cfg = config.loadFields(PENDING_HOMEWORK_CONFIG_KEYS);
   let presets = cfg.characterPresets || [];
-  if (presets.length === 0) {
-    const active = profileManager.getActiveProfile();
-    presets = active ? [{ id: active.meta.id, name: active.meta.name }] : [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
+  const activeProfileId = cfg.activeProfileId || (presets.length === 0 ? profileManager.getActiveProfileId() : undefined);
+  if (activeProfileId) {
+    const matched = presets.find(p => p.id === activeProfileId);
+    if (matched) {
+      presets = [matched];
+    } else if (presets.length === 0) {
+      const active = profileManager.getActiveProfile();
+      presets = active ? [{ id: active.meta.id, name: active.meta.name }] : [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
+    }
+  } else if (presets.length === 0) {
+    presets = [{ id: MAIN_CHAR_ID, name: DEFAULT_CHAR_NAME }];
   }
 
   log(`[Contents Checker] queuePendingHomework 호출 - ID: ${id}, Count: ${count}, isIncrement: ${isIncrement}`);

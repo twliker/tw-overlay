@@ -236,7 +236,71 @@ async function main(): Promise<void> {
     assert.strictEqual(subMigratedData.contentsCheckerItems[0].completedState['profile-char-main'], undefined, '부계정 파일에서 본계정 오염 키가 제거되어야 합니다.');
     assert.strictEqual(subMigratedData.contentsCheckerItems[0].completedState['profile-aafab344'].isCompleted, false);
 
-    console.log('✅ 프로필 물리 파일 분리 및 전수 리셋 정밀 검증 ALL PASS!');
+    // ── 검증 7: 본계+부계 실기 게임플레이 및 재시작 엔드투엔드(E2E) 시뮬레이션 검증 ──
+    console.log('[7/7] 본계+부계 실기 게임플레이 및 재시작 엔드투엔드(E2E) 검증');
+    const e2eFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-e2e-profile-'));
+    app.setPath('userData', e2eFixture);
+
+    delete require.cache[require.resolve(path.join(root, 'dist', 'modules', 'profileManager'))];
+    delete require.cache[require.resolve(path.join(root, 'dist', 'modules', 'contentsChecker'))];
+    delete require.cache[require.resolve(path.join(root, 'dist', 'modules', 'config'))];
+
+    const e2eConfig = require(path.join(root, 'dist', 'modules', 'config'));
+    const e2ePM = require(path.join(root, 'dist', 'modules', 'profileManager'));
+    const e2eChecker = require(path.join(root, 'dist', 'modules', 'contentsChecker'));
+
+    // 초기화: 본계 생성
+    e2ePM.initProfileStore();
+    e2eChecker.init();
+    const e2eMain = e2ePM.getActiveProfile();
+
+    // 부계 추가
+    const e2eSub = e2ePM.createProfile({ name: 'E2E 부계정' });
+
+    // 부계정으로 전환
+    await e2ePM.switchProfile(e2eSub.meta.id);
+    assert.strictEqual(e2ePM.getActiveProfileId(), e2eSub.meta.id);
+    assert.strictEqual(e2eConfig.load().activeProfileId, e2eSub.meta.id);
+
+    // E2E 1: 부계정 활성 상태에서 UI 클릭으로 숙제 토글 (characterId 파라미터 없이 호출)
+    const testItemId = 'weekly-mur-sylvan';
+    e2eChecker.toggleItem(testItemId);
+
+    // 검증: 부계정에는 완료가 저장되고, 본계정에는 절대 완료가 들어가지 않아야 함
+    const subAfterToggle = e2ePM.getProfileById(e2eSub.meta.id);
+    const mainAfterToggle = e2ePM.getProfileById(e2eMain.meta.id);
+    assert.strictEqual(subAfterToggle.contentsCheckerItems.find((i: any) => i.id === testItemId)?.completedState[e2eSub.meta.id]?.isCompleted, true, '부계정 숙제가 완료 처리되어야 합니다.');
+    assert.strictEqual(Boolean(mainAfterToggle.contentsCheckerItems.find((i: any) => i.id === testItemId)?.completedState[e2eMain.meta.id]?.isCompleted), false, '본계정 숙제는 완료 처리되면 안 됩니다.');
+
+    // E2E 2: 부계정 플레이 중 게임 채팅 로그 실시간 클리어 감지
+    const logHwId = 'weekly-shinjo-nest';
+    e2eChecker.queuePendingHomework(logHwId, 7, false, 'evt-shinjo-clear', Date.now());
+
+    // 검증: 게임 로그 완료가 본계정으로 가지 않고 부계정에 즉시 반영되어야 함
+    const subAfterLog = e2ePM.getProfileById(e2eSub.meta.id);
+    const mainAfterLog = e2ePM.getProfileById(e2eMain.meta.id);
+    assert.strictEqual(subAfterLog.contentsCheckerItems.find((i: any) => i.id === logHwId)?.completedState[e2eSub.meta.id]?.isCompleted, true, '게임 로그가 현재 플레이 중인 부계정에 즉시 반영되어야 합니다.');
+    assert.strictEqual(Boolean(mainAfterLog.contentsCheckerItems.find((i: any) => i.id === logHwId)?.completedState[e2eMain.meta.id]?.isCompleted), false, '본계정으로 게임 로그가 가로채이면 안 됩니다.');
+
+    // E2E 3: 앱 재시작 시뮬레이션
+    delete require.cache[require.resolve(path.join(root, 'dist', 'modules', 'profileManager'))];
+    delete require.cache[require.resolve(path.join(root, 'dist', 'modules', 'contentsChecker'))];
+    delete require.cache[require.resolve(path.join(root, 'dist', 'modules', 'config'))];
+
+    const restartPM = require(path.join(root, 'dist', 'modules', 'profileManager'));
+    const restartChecker = require(path.join(root, 'dist', 'modules', 'contentsChecker'));
+
+    restartPM.initProfileStore();
+    restartChecker.init();
+
+    // 검증: 껐다 켜도 부계정이 여전히 활성 프로필이고, 방금 완료한 숙제들이 그대로 유지되어야 함
+    assert.strictEqual(restartPM.getActiveProfileId(), e2eSub.meta.id, '재시작 후에도 직전 활성 프로필인 부계정이 유지되어야 합니다.');
+    const restartSub = restartPM.getActiveProfile();
+    assert.strictEqual(restartSub.contentsCheckerItems.find((i: any) => i.id === testItemId)?.completedState[e2eSub.meta.id]?.isCompleted, true, '재시작 후 부계정의 UI 토글 숙제가 보존되어야 합니다.');
+    assert.strictEqual(restartSub.contentsCheckerItems.find((i: any) => i.id === logHwId)?.completedState[e2eSub.meta.id]?.isCompleted, true, '재시작 후 부계정의 게임 로그 숙제가 보존되어야 합니다.');
+
+    try { fs.rmSync(e2eFixture, { recursive: true, force: true }); } catch (_) {}
+    console.log('✅ 프로필 물리 파일 분리 및 실기 E2E 전수 검증 ALL PASS!');
   } finally {
     try {
       fs.rmSync(fixture, { recursive: true, force: true });

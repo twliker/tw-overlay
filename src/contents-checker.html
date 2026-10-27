@@ -904,10 +904,10 @@
             if (!table) return;
 
             const searchQuery = document.getElementById('search-input').value.toLowerCase().trim();
-            const matchedPreset = configData.characterPresets?.find(p => p.id === (configData.activeProfileId || configData.selectedCharacterId)) || configData.characterPresets?.[0];
-            const activeProfileId = configData.activeProfileId || configData.selectedCharacterId || matchedPreset?.id || 'profile-default';
+            const activeProfileId = configData.activeProfileId || configData.selectedCharacterId || configData.characterPresets?.[0]?.id || 'profile-default';
+            const matchedPreset = configData.characterPresets?.find(p => p.id === activeProfileId);
             let currentProfileName = window._currentActiveProfileName || matchedPreset?.name || '내 프로필';
-            const presets = [{ id: matchedPreset?.id || activeProfileId, name: currentProfileName }];
+            const presets = [{ id: activeProfileId, name: currentProfileName }];
             const items = configData.contentsCheckerItems;
 
             table.style.setProperty('--char-count', presets.length);
@@ -1957,8 +1957,14 @@
             });
             if (window.electronAPI && window.electronAPI.onProfileChanged) {
                 window.electronAPI.onProfileChanged((data) => {
-                    if (data && data.meta) {
-                        window._currentActiveProfileName = data.meta.name;
+                    if (data && data.profileId) {
+                        if (configData) {
+                            configData.activeProfileId = data.profileId;
+                            configData.selectedCharacterId = data.profileId;
+                        }
+                        if (data.meta) {
+                            window._currentActiveProfileName = data.meta.name;
+                        }
                         render();
                     }
                 });
