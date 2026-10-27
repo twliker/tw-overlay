@@ -873,27 +873,36 @@ export function importProfilePayload(remoteStore: ProfileStoreData): boolean {
     manifestMap.set(p.id, p);
   }
 
+  const activeId = manifest.activeProfileId;
+
   for (const remote of remoteStore.profiles) {
     const localMeta = manifestMap.get(remote.meta.id);
+    const isTargetActive = (remote.meta.id === activeId);
+
     if (!localMeta) {
       manifestMap.set(remote.meta.id, remote.meta);
       saveProfileDataFile({
         version: 2,
         id: remote.meta.id,
-        contentsCheckerItems: remote.contentsCheckerItems,
+        contentsCheckerItems: normalizeContentsCheckerItemsForProfile(remote.contentsCheckerItems || [], remote.meta.id),
         settings: remote.settings,
         updatedAt: remote.meta.updatedAt || Date.now()
       });
     } else {
       if ((remote.meta.updatedAt || 0) >= (localMeta.updatedAt || 0)) {
         manifestMap.set(remote.meta.id, remote.meta);
-        saveProfileDataFile({
-          version: 2,
-          id: remote.meta.id,
-          contentsCheckerItems: remote.contentsCheckerItems,
-          settings: remote.settings,
-          updatedAt: remote.meta.updatedAt || Date.now()
-        });
+        // 활성 프로필의 숙제/설정은 이미 applyConfigFromCloud에서 3-way 머지로 안전하게 반영되었으므로,
+        // 원격 스냅샷으로 덮어쓰지 않고 로컬의 머지 결과를 보존합니다.
+        // 비활성 프로필(부계정들)에 대해서만 원격 데이터 파일로 안전하게 갱신합니다.
+        if (!isTargetActive) {
+          saveProfileDataFile({
+            version: 2,
+            id: remote.meta.id,
+            contentsCheckerItems: normalizeContentsCheckerItemsForProfile(remote.contentsCheckerItems || [], remote.meta.id),
+            settings: remote.settings,
+            updatedAt: remote.meta.updatedAt || Date.now()
+          });
+        }
       }
     }
   }
