@@ -40,7 +40,7 @@ function summarize(state: any): ProbeSummary {
 
 function finish(result: Record<string, unknown>, exitCode: number): void {
   fs.writeFileSync(resultPath, JSON.stringify(result), 'utf8');
-  app.exit(exitCode);
+  process.exit(exitCode);
 }
 
 void app.whenReady().then(() => {

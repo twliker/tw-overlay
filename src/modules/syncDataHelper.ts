@@ -967,11 +967,19 @@ function mergeContentsCheckerItems(
         const localTime = localState.lastCompletedAt || 0;
         const cloudTime = cloudState.lastCompletedAt || 0;
 
-        if (cloudTime > localTime && cloudState.isCompleted) {
-          localItem.completedState[charId] = {
-            ...localState,
-            ...cloudState,
-          };
+        if (cloudTime > localTime) {
+          if (cloudState.isCompleted) {
+            localItem.completedState[charId] = {
+              ...localState,
+              ...cloudState,
+            };
+          } else {
+            localItem.completedState[charId] = {
+              ...localState,
+              ...cloudState,
+              currentCount: Math.max(localState.currentCount || 0, cloudState.currentCount || 0)
+            };
+          }
         } else if (localTime === cloudTime) {
           // 시간이 같을 때 완료 여부, 제외 여부, 누적 횟수 반영
           if (cloudState.isExcluded !== undefined) {
