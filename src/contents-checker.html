@@ -904,11 +904,32 @@
             if (!table) return;
 
             const searchQuery = document.getElementById('search-input').value.toLowerCase().trim();
-            const activeProfileId = configData.activeProfileId || configData.selectedCharacterId || configData.characterPresets?.[0]?.id || 'profile-default';
+            let activeProfileId = configData.activeProfileId || window._currentActiveProfileId || configData.selectedCharacterId || configData.characterPresets?.[0]?.id || 'profile-default';
+            const items = configData.contentsCheckerItems;
+
+            // 프로필 ID 키 보정 방어 가드: completedState에 activeProfileId가 없고 profile- 접두사 차이나 단일 키가 있는 경우 자동 매칭
+            if (items && items.length > 0 && !items[0]?.completedState?.[activeProfileId]) {
+                if (items[0]?.completedState?.['profile-' + activeProfileId]) {
+                    activeProfileId = 'profile-' + activeProfileId;
+                } else {
+                    const sampleItemWithState = items.find(i => i.completedState && Object.keys(i.completedState).length > 0);
+                    if (sampleItemWithState) {
+                        const availableKeys = Object.keys(sampleItemWithState.completedState);
+                        if (availableKeys.length === 1) {
+                            activeProfileId = availableKeys[0];
+                        }
+                    }
+                }
+            }
+
             const matchedPreset = configData.characterPresets?.find(p => p.id === activeProfileId);
             let currentProfileName = window._currentActiveProfileName || matchedPreset?.name || '내 프로필';
             const presets = [{ id: activeProfileId, name: currentProfileName }];
-            const items = configData.contentsCheckerItems;
+
+            const profileBtn = document.getElementById('btn-profile-selector');
+            if (profileBtn) {
+                profileBtn.title = '현재 프로필: ' + currentProfileName + ' (클릭하여 전환/관리)';
+            }
 
             table.style.setProperty('--char-count', presets.length);
             table.innerHTML = '';
@@ -1949,7 +1970,11 @@
         }
         if (window.electronAPI?.onConfigData) {
             window.electronAPI.onConfigData((data) => {
+                const prevActiveProfileId = configData?.activeProfileId || window._currentActiveProfileId;
                 configData = data;
+                if (!configData.activeProfileId && prevActiveProfileId) {
+                    configData.activeProfileId = prevActiveProfileId;
+                }
                 window.contentsAutoCollapse.applyConfig(data);
                 render();
 
@@ -1958,6 +1983,7 @@
             if (window.electronAPI && window.electronAPI.onProfileChanged) {
                 window.electronAPI.onProfileChanged((data) => {
                     if (data && data.profileId) {
+                        window._currentActiveProfileId = data.profileId;
                         if (configData) {
                             configData.activeProfileId = data.profileId;
                             configData.selectedCharacterId = data.profileId;
@@ -1968,6 +1994,18 @@
                         render();
                     }
                 });
+            }
+            if (window.electronAPI.getActiveProfile) {
+                window.electronAPI.getActiveProfile().then((active) => {
+                    if (active && active.meta) {
+                        window._currentActiveProfileId = active.meta.id;
+                        window._currentActiveProfileName = active.meta.name;
+                        if (configData) {
+                            configData.activeProfileId = active.meta.id;
+                        }
+                        render();
+                    }
+                }).catch(() => {});
             }
         }
 

@@ -66,8 +66,15 @@ export function getProfileDataFilePath(profileId: string): string {
   return path.join(getProfileDataDir(), `${profileId}.json`);
 }
 
-function getLegacyStoreFilePath(): string {
-  return path.join(getProfilesDir(), 'profiles.json');
+function findLegacyStoreFilePath(): string | null {
+  const candidates = [
+    path.join(getProfilesDir(), 'profiles.json'),
+    path.join(app.getPath('userData'), 'profiles.json')
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
 }
 
 /** 원자적 JSON 쓰기 (임시 파일 생성 후 rename) */
@@ -202,7 +209,7 @@ function ensureManifestAndDataFiles(): ProfileManifest {
   if (_manifest) return _manifest;
 
   const manifestPath = getManifestFilePath();
-  const legacyStorePath = getLegacyStoreFilePath();
+  const legacyStorePath = findLegacyStoreFilePath();
 
   // 1. 이미 manifest.json이 존재하는 경우
   if (fs.existsSync(manifestPath)) {
@@ -220,36 +227,55 @@ function ensureManifestAndDataFiles(): ProfileManifest {
   }
 
   // 2. manifest.json이 없고 기존 profiles.json(레거시 단일 파일)이 존재하는 경우
-  if (fs.existsSync(legacyStorePath)) {
+  if (legacyStorePath && fs.existsSync(legacyStorePath)) {
     try {
       const content = fs.readFileSync(legacyStorePath, 'utf-8');
-      const legacyStore = JSON.parse(content) as ProfileStoreData;
+      const legacyStore = JSON.parse(content) as any;
       if (legacyStore && Array.isArray(legacyStore.profiles) && legacyStore.profiles.length > 0) {
-        log(`[ProfileManager] 기존 profiles.json에서 개별 파일 구조로 마이그레이션 시작 (${legacyStore.profiles.length}개)`);
+        log(`[ProfileManager] 기존 profiles.json(${legacyStorePath})에서 개별 파일 구조로 마이그레이션 시작 (${legacyStore.profiles.length}개)`);
 
         const manifestProfiles: UserProfileMeta[] = [];
         const now = Date.now();
 
         for (const p of legacyStore.profiles) {
-          manifestProfiles.push(structuredClone(p.meta));
+          const profileId = p.meta?.id || p.id || `profile-${now}`;
+          const profileName = p.meta?.name || p.name || '본계';
+          const avatarUrl = p.meta?.avatarUrl || p.avatarUrl || 'preset:boris';
+          const rawCreated = p.meta?.createdAt ?? p.createdAt;
+          const parsedCreated = typeof rawCreated === 'string' ? Date.parse(rawCreated) : rawCreated;
+          const createdAt = Number.isFinite(parsedCreated) ? parsedCreated : now;
+          const rawUsed = p.meta?.lastPlayedAt ?? p.lastUsedAt;
+          const parsedUsed = typeof rawUsed === 'string' ? Date.parse(rawUsed) : rawUsed;
+          const lastPlayedAt = Number.isFinite(parsedUsed) ? parsedUsed : undefined;
+
+          const meta: UserProfileMeta = {
+            id: profileId,
+            name: profileName,
+            avatarUrl,
+            createdAt,
+            updatedAt: now,
+            lastPlayedAt
+          };
+          manifestProfiles.push(meta);
 
           // 각 프로필별 숙제 아이템 정제 (타 프로필 키 오염 제거, 자기 ID 키만 단독 보존)
-          const cleanedItems = (p.contentsCheckerItems || []).map(item => {
-            const myState = item.completedState?.[p.meta.id];
+          const sourceItems = p.contentsCheckerItems || config.load().contentsCheckerItems || [];
+          const cleanedItems = sourceItems.map((item: any) => {
+            const myState = item.completedState?.[profileId];
             return {
               ...item,
               completedState: myState
-                ? { [p.meta.id]: structuredClone(myState) }
-                : { [p.meta.id]: { isCompleted: false, currentCount: 0 } }
+                ? { [profileId]: structuredClone(myState) }
+                : { [profileId]: { isCompleted: false, currentCount: 0 } }
             };
           });
 
           const profileData: ProfileDataFile = {
             version: 2,
-            id: p.meta.id,
+            id: profileId,
             contentsCheckerItems: cleanedItems,
             settings: structuredClone(p.settings || {}),
-            updatedAt: p.meta.updatedAt || now
+            updatedAt: now
           };
 
           saveProfileDataFile(profileData);
@@ -259,8 +285,8 @@ function ensureManifestAndDataFiles(): ProfileManifest {
           version: 2,
           activeProfileId: legacyStore.activeProfileId || manifestProfiles[0].id,
           profiles: manifestProfiles,
-          showOnGameLaunch: legacyStore.showOnGameLaunch ?? true,
-          showOnAppLaunch: legacyStore.showOnAppLaunch ?? true,
+          showOnGameLaunch: legacyStore.showOnGameLaunch ?? legacyStore.showSelectorOnGameStart ?? true,
+          showOnAppLaunch: legacyStore.showOnAppLaunch ?? legacyStore.showSelectorOnAppStart ?? false,
           legacyMigrationTargetProfileId: legacyStore.legacyMigrationTargetProfileId || manifestProfiles[0].id
         };
 
@@ -368,7 +394,7 @@ function migrateFromLegacyConfig(): ProfileManifest {
     activeProfileId: legacyTargetId,
     profiles: manifestProfiles,
     showOnGameLaunch: true,
-    showOnAppLaunch: true,
+    showOnAppLaunch: false,
     legacyMigrationTargetProfileId: legacyTargetId
   };
 
@@ -845,7 +871,7 @@ export function shouldShowSelectorAutomatically(context: 'app' | 'game'): boolea
     return manifest.showOnGameLaunch ?? true;
   }
   if (context === 'app') {
-    return manifest.showOnAppLaunch ?? true;
+    return manifest.showOnAppLaunch ?? false;
   }
   return false;
 }
@@ -873,7 +899,20 @@ export function importProfilePayload(remoteStore: ProfileStoreData): boolean {
     manifestMap.set(p.id, p);
   }
 
-  const activeId = manifest.activeProfileId;
+  let activeId = manifest.activeProfileId;
+
+  // 원격에서 더 최근에 플레이/수정한 활성 프로필이 있는 경우 원격 활성 프로필로 수렴
+  if (remoteStore.activeProfileId && remoteStore.activeProfileId !== activeId) {
+    const remoteActive = remoteStore.profiles.find(p => p.meta.id === remoteStore.activeProfileId);
+    const localActive = manifest.profiles.find(p => p.id === activeId);
+    const remoteTime = Math.max(remoteActive?.meta.lastPlayedAt || 0, remoteActive?.meta.updatedAt || 0);
+    const localTime = Math.max(localActive?.lastPlayedAt || 0, localActive?.updatedAt || 0);
+    if (remoteTime > localTime) {
+      log(`[ProfileManager] 원격에서 더 최근에 플레이한 프로필(${remoteStore.activeProfileId})로 활성 프로필 자동 수렴 (원격: ${remoteTime}, 로컬: ${localTime})`);
+      activeId = remoteStore.activeProfileId;
+      manifest.activeProfileId = activeId;
+    }
+  }
 
   for (const remote of remoteStore.profiles) {
     const localMeta = manifestMap.get(remote.meta.id);
@@ -891,9 +930,6 @@ export function importProfilePayload(remoteStore: ProfileStoreData): boolean {
     } else {
       if ((remote.meta.updatedAt || 0) >= (localMeta.updatedAt || 0)) {
         manifestMap.set(remote.meta.id, remote.meta);
-        // 활성 프로필의 숙제/설정은 이미 applyConfigFromCloud에서 3-way 머지로 안전하게 반영되었으므로,
-        // 원격 스냅샷으로 덮어쓰지 않고 로컬의 머지 결과를 보존합니다.
-        // 비활성 프로필(부계정들)에 대해서만 원격 데이터 파일로 안전하게 갱신합니다.
         if (!isTargetActive) {
           saveProfileDataFile({
             version: 2,
@@ -902,6 +938,12 @@ export function importProfilePayload(remoteStore: ProfileStoreData): boolean {
             settings: remote.settings,
             updatedAt: remote.meta.updatedAt || Date.now()
           });
+        } else {
+          // 활성 프로필의 경우도 config의 최신 3-way 병합 결과와 타임스탬프를 물리 파일에 확실히 저장
+          const activeData = loadProfileDataFile(remote.meta.id);
+          activeData.contentsCheckerItems = normalizeContentsCheckerItemsForProfile(config.load().contentsCheckerItems || [], remote.meta.id);
+          activeData.updatedAt = Math.max(remote.meta.updatedAt || 0, Date.now());
+          saveProfileDataFile(activeData);
         }
       }
     }
@@ -909,6 +951,12 @@ export function importProfilePayload(remoteStore: ProfileStoreData): boolean {
 
   manifest.profiles = Array.from(manifestMap.values());
   saveManifest();
+
+  // 활성 프로필이 변경된 경우 런타임 스위치 트리거
+  if (manifest.activeProfileId !== activeId) {
+    manifest.activeProfileId = activeId;
+    saveManifest();
+  }
 
   const active = getActiveProfile();
   broadcastToAllWindows('profile-changed', {

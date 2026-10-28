@@ -2333,10 +2333,17 @@ export function applySettings(
     updateViewBounds();
     setTimeout(() => { isApplyingSize = false; }, 300);
   }
+  let activeProfileId: string | undefined;
+  try {
+    const pm = require('./profileManager');
+    activeProfileId = pm.getActiveProfileId();
+  } catch (_) {}
+  const configToSend = activeProfileId ? { ...updated, activeProfileId } : updated;
+
   const sendUpdatedConfig = (win: BrowserWindow | null | undefined): void => {
     if (!win || win.isDestroyed() || win.webContents === excludedWebContents) return;
     // 저장에 실패한 좌표가 사용자 초안을 저장 완료로 처리하지 않도록 성공한 요청만 표시한다.
-    win.webContents.send('config-data', updated, saveSucceeded ? configDataContext : undefined);
+    win.webContents.send('config-data', configToSend, saveSucceeded ? configDataContext : undefined);
   };
   [mainWindow, overlayWindow, gameOverlayWindow].forEach(sendUpdatedConfig);
   Object.values(windowRegistry).forEach(winCfg => {

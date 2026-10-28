@@ -769,11 +769,18 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
         latestAt = Math.max(latestAt, payload.lastSyncedAt);
 
         if (kind === 'checklist') {
-          const verified = await downloadValidated('checklist', files.checklist, state.generationId);
-          const verifiedIds = new Set((verified?.operations || []).map(operation => operation.id));
+          let verified = await downloadValidated('checklist', files.checklist, state.generationId);
+          let verifiedIds = new Set((verified?.operations || []).map(operation => operation.id));
           if (!verified || revisionOf(verified) !== revisionOf(payload)
             || outboxIds.some(operationId => !verifiedIds.has(operationId))) {
-            throw new Error('숙제 업로드 확인에 실패했습니다. outbox를 유지하고 다시 시도합니다.');
+            // 구글 드라이브 API 전파 지연 완화를 위해 짧은 지연 후 1회 재검증
+            await new Promise(resolve => setTimeout(resolve, 350));
+            verified = await downloadValidated('checklist', files.checklist, state.generationId);
+            verifiedIds = new Set((verified?.operations || []).map(operation => operation.id));
+            if (!verified || revisionOf(verified) !== revisionOf(payload)
+              || outboxIds.some(operationId => !verifiedIds.has(operationId))) {
+              throw new Error('숙제 업로드 확인에 실패했습니다. outbox를 유지하고 다시 시도합니다.');
+            }
           }
         }
 
