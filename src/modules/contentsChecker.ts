@@ -140,7 +140,7 @@ function validateResourceMeta(value: unknown): ContentsResourceMeta {
 }
 
 /** 기본 컨텐츠와 동반 메타데이터를 모두 검증한 뒤에만 반환한다. */
-function loadDefaultItems(): ContentsCheckerItem[] | null {
+export function loadDefaultItems(): ContentsCheckerItem[] | null {
   try {
     const dataDirectoryCandidates = [
       path.join(app.getAppPath(), 'dist', 'assets', 'data'),

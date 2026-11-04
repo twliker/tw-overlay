@@ -1,6 +1,6 @@
 {
   "name": "tw-overlay",
-  "version": "3.5.0-beta.3",
+  "version": "3.5.0-beta.4",
   "description": "TalesWeaver Companion Browser",
   "main": "dist/main.js",
   "scripts": {
@@ -18,6 +18,7 @@
     "parse-equipment": "npm run build-tools && node dist-tools/parse-equipment.js",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json --noEmit",
     "test:profile-storage": "electron dist-tools/check-profile-storage.js",
+    "test:profile-homework-defaults": "electron dist-tools/check-profile-homework-defaults.js",
     "test:profile-diary": "electron dist-tools/check-profile-diary.js",
     "test:profile-backup": "electron dist-tools/check-profile-backup.js",
     "test:profile-recording": "electron dist-tools/check-profile-recording.js",
@@ -41,7 +42,7 @@
     "capture:guide": "npm run build && electron dist-tools/capture-guide-screenshots.js",
     "build:zorder-fixture": "dotnet build scripts/fixtures/FakeTalesWeaver/FakeTalesWeaver.csproj --configuration Release --nologo",
     "test:zorder:windows": "npm run build && npm run build:zorder-fixture && electron dist-tools/runtime-zorder-windows-probe.js",
-    "test": "npm run build && npm run test:profile-storage && npm run test:profile-diary && npm run test:profile-backup && npm run test:profile-recording && npm run test:profile-tools && npm run test:profile-settings && npm run test:profile-settings-pages && npm run test:profile-log-restore && npm run test:profile-lifecycle && npm run test:profile-checklist && npm run test:profile-stopwatch && npm run test:diary-profiles-ui && npm run test:profiles-ui && npm run test:profile-cloud-pause && npm run test:profile-sync-model && npm run test:profile-sync-drive && npm run test:profile-sync && npm run test:profile-sync-concurrency && npm run test:profile-sync-ui && npm run test:profile-sync-import-ui && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:hunting-assist && npm run test:companion && npm run test:companion-design && npm run test:companion-reading && npm run test:companion-files && npm run test:shared-layout && npm run test:hud-edit-settings && npm run test:npc-chat && npm run test:chat-visibility && npm run test:preset-position && npm run test:window-visibility && npm run test:abandoned-visibility && npm run test:audit && npm run test:autostart && npm run test:stopwatch && npm run test:magic-stone && npm run test:hunting-path && npm run test:embedded-tools && npm run test:lumina-corridor",
+    "test": "npm run build && npm run test:profile-storage && npm run test:profile-homework-defaults && npm run test:profile-diary && npm run test:profile-backup && npm run test:profile-recording && npm run test:profile-tools && npm run test:profile-settings && npm run test:profile-settings-pages && npm run test:profile-log-restore && npm run test:profile-lifecycle && npm run test:profile-checklist && npm run test:profile-stopwatch && npm run test:diary-profiles-ui && npm run test:profiles-ui && npm run test:profile-cloud-pause && npm run test:profile-sync-model && npm run test:profile-sync-drive && npm run test:profile-sync && npm run test:profile-sync-concurrency && npm run test:profile-sync-ui && npm run test:profile-sync-import-ui && electron dist-tools/check-refactor-regressions.js && npm run test:renderer && npm run test:guide && npm run test:diary-calendar && npm run test:buffs && npm run test:eta-ranking && npm run test:xp-policy && npm run test:hunting-assist && npm run test:companion && npm run test:companion-design && npm run test:companion-reading && npm run test:companion-files && npm run test:shared-layout && npm run test:hud-edit-settings && npm run test:npc-chat && npm run test:chat-visibility && npm run test:preset-position && npm run test:window-visibility && npm run test:abandoned-visibility && npm run test:audit && npm run test:autostart && npm run test:stopwatch && npm run test:magic-stone && npm run test:hunting-path && npm run test:embedded-tools && npm run test:lumina-corridor",
     "test:companion-reading": "electron dist-tools/check-companion-reading.js",
     "test:companion-files": "electron dist-tools/check-companion-files.js",
     "test:shared-layout": "electron dist-tools/check-shared-layout.js",

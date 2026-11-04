@@ -20,6 +20,9 @@ async function main():Promise<void> {
   const config=built('modules/config'),diary=built('modules/diaryDb'),defaults=built('modules/constants').DEFAULT_CONFIG;
   const items=Array.from({length:24},(_,index) => ({id:`custom-fixture-${index}`,name:`확인 숙제 ${index}`,category:'확인',isCustom:true,isVisible:true,
     resetRule:index===1 ? {type:'weekly',dayOfWeek:0,hour:0} : {type:'daily',hour:0},...(index===1 ? {maxCount:3} : {}),completedState:{}}));
+  const defaultsList=JSON.parse(fs.readFileSync(path.join(root,'dist/assets/data/contents.json'),'utf8')) as {id:string;resetRule:{type:string};isVisible?:boolean}[];
+  const initialCount=items.length+defaultsList.length;
+  const initialDailyCount=[...items,...defaultsList].filter(item=>item.resetRule.type==='daily' && item.isVisible!==false).length;
   assert.equal(config.saveConfirmed({...structuredClone(defaults),userServer:7,analyticsEnabled:false,volumeContentsChecker:0,
     characterPresets:[{id:'A',name:'사냥 <A>'},{id:'B',name:'다른 프로필 B'}],selectedCharacterId:'A',contentsCheckerItems:items}),true);
   const clock=new (built('modules/profileClock').ProfileClock)(async () => {throw new Error('offline');});
@@ -63,7 +66,7 @@ async function main():Promise<void> {
     await js(win,`document.getElementById('btn-char-mgmt').click()`);await pause();assert.equal(managed,1);
     assert.equal(await js(win,`document.getElementById('char-modal').classList.contains('hidden')`),true);
     await js(win,`electronAPI.contentsAddCharacter('생성 금지');electronAPI.contentsRenameCharacter(${JSON.stringify(a.id)},'덮어쓰기 금지');electronAPI.contentsSelectCharacter(${JSON.stringify(b.id)});electronAPI.contentsAddCustom('레거시 저장 금지','확인',{type:'daily',hour:0})`);await pause(60);
-    assert.equal(store.list().length,2);assert.equal(store.list()[0].name,a.name);assert.equal(rows(a.id).length,24);
+    assert.equal(store.list().length,2);assert.equal(store.list()[0].name,a.name);assert.equal(rows(a.id).length,initialCount);
     assert.equal((await direct('toggleItem',[items[0].id,b.id])).success,false);
     assert.equal((await direct('updateItemCount',[items[1].id,a.id,10001])).success,false);
     assert.equal((await direct('addCustomItem',['잘못된 규칙','확인',{type:'weekly',dayOfWeek:7,hour:0}])).success,false);
@@ -84,7 +87,7 @@ async function main():Promise<void> {
     assert.equal((await js(win,`electronAPI.mutateProfileChecklist(${JSON.stringify({...request,kind:'checkReset',args:[]})})`)).success,false);
     assert.equal((await direct('toggleExcludeItem',[items[0].id,a.id])).success,true);
     assert.equal(rows(a.id)[0].completedState[a.id].isExcluded,true);assert.equal(count(a.id),0);
-    assert.equal(store.database.prepare('SELECT daily_done,daily_total FROM diary_profile_days WHERE profile_id=?').get(a.id).daily_total,22);
+    assert.equal(store.database.prepare('SELECT daily_done,daily_total FROM diary_profile_days WHERE profile_id=?').get(a.id).daily_total,initialDailyCount-1);
     assert.equal((await direct('toggleExcludeItem',[items[0].id,a.id])).success,true);
     assert.equal((await direct('toggleVisibility',[items[3].id])).success,true);assert.equal(rows(b.id)[3].isVisible,true);
     assert.equal((await direct('reorderItem',[items[3].id,items[0].id,'before'])).success,true);assert.equal(rows(a.id)[0].id,items[3].id);assert.equal(rows(b.id)[0].id,items[0].id);
@@ -103,16 +106,16 @@ async function main():Promise<void> {
     assert.equal((await service.select(a.id,replay)).success,true);assert.equal(questions,q);
     assert.equal((await service.select(b.id,replay)).success,false);await ready(a.id);assert.equal(await name(),'A 편집 초안');
     response=1;cancelAfterPrepare=true;assert.equal((await service.select(b.id,replay)).success,false);await ready(a.id);assert.equal(await name(),'A 편집 초안');
-    cancelAfterPrepare=false;assert.equal((await service.select(b.id,replay)).success,true);await ready(b.id);assert.equal(await name(),'');assert.equal(rows(a.id).length,24);
+    cancelAfterPrepare=false;assert.equal((await service.select(b.id,replay)).success,true);await ready(b.id);assert.equal(await name(),'');assert.equal(rows(a.id).length,initialCount);
     assert.match(await js(win,`document.getElementById('checklist-profile-target').textContent`),/네냐플/);
     assert.equal((await direct('checkReset',[],a.id)).success,false,'늦은 이전 프로필 요청 거부');
     assert.equal((await service.select(a.id,replay)).success,true);await ready(a.id);
     await form('실패 뒤 재시도');response=0;
     store.database.exec("CREATE TRIGGER fail_checklist_config BEFORE INSERT ON profile_homework BEGIN SELECT RAISE(ABORT,'manual checklist failure');END");
-    assert.equal((await service.select(b.id,replay)).success,false);await ready(a.id);assert.equal(await name(),'실패 뒤 재시도');assert.equal(rows(a.id).length,24);
+    assert.equal((await service.select(b.id,replay)).success,false);await ready(a.id);assert.equal(await name(),'실패 뒤 재시도');assert.equal(rows(a.id).length,initialCount);
     store.database.exec('DROP TRIGGER fail_checklist_config');
     assert.equal((await service.select(b.id,replay)).success,true);await ready(b.id);
-    assert.equal(rows(a.id).filter((row:any) => row.name==='실패 뒤 재시도').length,1);assert.equal(rows(b.id).length,24);
+    assert.equal(rows(a.id).filter((row:any) => row.name==='실패 뒤 재시도').length,1);assert.equal(rows(b.id).length,initialCount);
 
     // 저장 중 다음 입력을 보존하고, 완료를 확인하기 전에는 프로필을 바꾸지 않는다.
     assert.equal((await service.select(a.id,replay)).success,true);await ready(a.id);await form('원래 저장');
@@ -165,6 +168,14 @@ async function main():Promise<void> {
     assert.equal(await js(win,`(()=>{const row=Array.from(document.querySelectorAll('[data-item-id]')).find(node=>node.dataset.itemId===${JSON.stringify(lastId)});const r=row.getBoundingClientRect();return document.elementFromPoint(r.left+10,r.top+r.height/2)?.closest('[data-item-id]')?.dataset.itemId===${JSON.stringify(lastId)}})()`),true,'작은 창에서도 추가 행이 고정 헤더/폼에 가리지 않는다');
     assert.equal(await js(win,`(()=>{const r=document.getElementById('checklist-profile-target').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && getComputedStyle(document.getElementById('checklist-profile-target')).fontSize==='14px'})()`),true);
     assert.equal(await js(win,`document.getElementById('pending-modal').classList.contains('hidden')`),true);
+    // 임의 숙제 fixture만으로 통과시키지 않는다. 실제 새 프로필의 배포 기본 목록을 화면까지 확인한다.
+    const seeded=service.create('신규 기본 목록',16);assert.equal(seeded.success,true,seeded.error);
+    assert.equal((await service.select(seeded.profileId,replay)).success,true);await ready(seeded.profileId);
+    const displayed=await js(win,`(()=>{document.getElementById('search-input').value='';if(isEditMode)toggleEditMode();render();document.querySelector('.matrix-wrapper').scrollTop=0;return Array.from(document.querySelectorAll('[data-item-id]')).map(row=>row.dataset.itemId)})()`);
+    assert.deepEqual(displayed.sort(),defaultsList.filter(item=>item.isVisible!==false).map(item=>item.id).sort(),'새 프로필의 실제 숙제 화면에 기본 목록 전체가 표시되어야 합니다.');
+    await until(win,`!isEditMode && getComputedStyle(document.getElementById('add-form')).display==='none' && document.querySelector('.matrix-wrapper').scrollTop===0`);
+    await js(win,`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);await pause(100);
+    fs.writeFileSync(path.join(output,'checklist-defaults-800.png'),(await win.webContents.capturePage()).toPNG());
     console.log('Profile checklist: actual profile UI, atomic checklist/diary/ACK, failures/retries, pending edits, Save/Discard/Cancel, frozen owner, legacy guards, Sunday, search/scroll and minimum-size UI passed.');
   } finally {
     dialog.showMessageBox=originalMessage;release();built('modules/contentsChecker').cancelPendingDiaryWriteRetries();

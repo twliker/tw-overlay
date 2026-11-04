@@ -4,6 +4,8 @@
 
 향후 검토할 작업은 [향후 할 일](./development/future-tasks.md)에 기록합니다.
 
+프로필 숙제 기본값은 `profileStartup`이 `contentsChecker.loadDefaultItems()`로 검증한 실제 배포 목록을 주입합니다. `DEFAULT_CONFIG.contentsCheckerItems`는 빈 초기값이므로 새 프로필 기본 목록으로 직접 사용하지 않습니다. `ApplicationData`는 시작·백업 재연결·Google 수신 시 누락 기본 항목만 원자적으로 보충하고 기존 정의·상태·순서와 명시적 삭제를 보존합니다. 실제 목록/부팅/별도 재시작 검사는 `test:profile-homework-defaults`, 실제 화면 검사는 `test:profile-checklist`입니다.
+
 로컬 프로필의 기능 완료 판정은 [프로필 자동 검증 기준](../docs/development/profile-acceptance-matrix.md)을 따릅니다. `npm run test:profiles:acceptance`가 관련 검사·강제 종료 복구·12개 실제 Windows 창 조합·현재 패키지 검사를 실행하고 소스/패키지 해시를 기록합니다. `test:profiles:proof`로 현재 결과인지 확인합니다. 일상 변경은 기존처럼 작업 관련 검사만 선택하며 배포 실기 게이트는 별도입니다.
 
 ## 프로젝트 개요

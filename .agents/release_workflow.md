@@ -50,7 +50,7 @@ Google 재개발 목표의 자동 검증은 `npm run test:profile-sync:acceptanc
 
 ### 3.1 일반 자동 게이트
 
-두 PC 동시 전송의 개별 회귀 명령은 `npm run test:profile-sync-concurrency`입니다. 독립 프로세스 2개와 운영 HTTP transport/coordinator에서 요청 겹침·응답 역순·전송/수신 중 저장·부분 실패·연결 해제·삭제 경합을 검사하며 전체 `npm test`와 Google 완료 acceptance에도 포함됩니다. 현재 Google 완료 묶음은 이 검사를 추가한 23개 게이트입니다. 일상 수정에는 이 개별 검사와 직접 영향받는 검사만 실행하며 이전 22개 완료 기록을 23개 통과로 소급해서 표시하지 않습니다.
+두 PC 동시 전송의 개별 회귀 명령은 `npm run test:profile-sync-concurrency`입니다. 독립 프로세스 2개와 운영 HTTP transport/coordinator에서 요청 겹침·응답 역순·전송/수신 중 저장·부분 실패·연결 해제·삭제 경합을 검사하며 전체 `npm test`와 Google 완료 acceptance에도 포함됩니다. 현재 Google 완료 묶음은 실제 배포 기본 숙제의 부팅/복구 검사 `test:profile-homework-defaults`를 포함한 24개 게이트입니다. 일상 수정에는 해당 개별 검사와 직접 영향받는 검사만 실행하며 이전 22/23개 완료 기록을 24개 통과로 소급해서 표시하지 않습니다.
 
 PowerShell에서는 아래 명령을 각각 한 줄씩 순서대로 실행합니다. 버전·문서 갱신을 모두 반영한 최종 릴리즈 후보 커밋에서 다시 실행해야 합니다.
 

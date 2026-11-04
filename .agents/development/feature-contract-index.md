@@ -1,5 +1,7 @@
 # 기능 계약 주석 인덱스
 
+프로필 기본 숙제: `profileStartup.initializePlayProfileStorage`는 검증된 배포 `contents.json`을 생성 기본값으로 전달합니다. `ApplicationData.fillMissingDefaultHomework`는 기존 행을 수정하지 않고 누락 기본 항목만 보충하며 명시적 삭제/동기화 삭제 표식을 존중합니다. 시작·백업 재연결·Google 수신의 복구와 전송 대기를 같은 transaction으로 확정합니다. 검사: `test:profile-homework-defaults`(실제 기본 목록·부팅·신규/설정 복사/마지막 삭제·빈/일부 누락 복구·실패 rollback·별도 재시작), `test:profile-checklist`(실제 새 프로필 DOM 기본 목록 전체), 직접 영향의 저장/백업/수명/동기화 검사. 합성 기본 목록만으로 실제 기본값 연결을 검증한 것으로 표시하지 않습니다.
+
 새 Google 프로필 동기화: `ApplicationData.syncTransaction`/`profileSyncModel.ts`가 원본과 압축 journal을 함께 저장하고 `profileSyncCoordinator.ts`가 PC별 파일/활동·휴식 예약/ACK/오프라인·복원·계정 경계를 조립한다. `profileSyncDrive.ts`는 appData 변경 feed·gzip·읽은 version+명시 ETag를 사용하고 옛 파일은 전송하지 않는다. `profileCloudSync.ts`/`profileSyncIpc.ts`/`renderer/settings/profile-cloud-sync.ts`는 첫 연결/ZIP/초안/활성 소유자 확인/측정 중 삭제 보호를 맡는다. 기존 Google 중지 검사는 **구형 경로**를 계속 검증한다. 현행 계약: `google-drive-sync-contract.md`, 관련 완료 게이트: `test:profile-sync:acceptance`, 실서비스는 별도 사용자 로그인 `test:profile-sync:live`.
 
 프로필 기능 완료 검사는 `npm run test:profiles:acceptance`를 사용하며 요구사항별 연결은 `docs/development/profile-acceptance-matrix.md`를 따른다. 프로필 관련 검사와 12개 Windows 시작/런처/창모드 조합, 현재 패키지 및 3.2.2 이전을 한 묶음으로 확인한다. `test:profile-crash`는 실제 SIGKILL 이후 WAL·미배정 원본·확정 기록·이전 세션 배정 및 재분석 중복을 확인한다. `profileRecording`의 선택 후 만료 초기화는 상태/일지 집계를 함께 확정하며 실패 시 기존 선택을 유지한다. 일상 변경은 해당 계약의 회귀 검사만 선택하고 기능 완료 시 이 묶음을 실행한다. 배포 실기 게이트를 대신하지 않는다.

@@ -103,6 +103,7 @@ export class ProfileCloudSync {
             const remaining=new Set(store.list().map(p=>p.id));
             for(const p of previousProfiles) if(!remaining.has(p.id)) assertStopwatchProfileDeletable(p.id);
             store.ensureEmptyProfile();
+            store.ensureDefaultHomework();
             if (!store.list().some(p=>p.id===requested.activePlayProfileId)) {requested.activePlayProfileId=store.list()[0].id;requested.profileSelectionRequired=true;}
           },{externalProjection:true});
           config.acceptPersistentCommit(value);committed=true;

@@ -8,6 +8,7 @@ import {getPlayProfileDeviceId} from './profileBackupRestore';
 import {pauseForPlayProfiles} from './cloudSyncManager';
 import {readRendererStorage} from './rendererStorageBackup';
 import {PROFILE_TOOL_KEYS} from '../shared/profileTools';
+import {loadDefaultItems} from './contentsChecker';
 
 export interface PreparedPlayProfileStorage {store:ApplicationData;clock:ProfileClock;stopClock():void}
 let initialization:Promise<PreparedPlayProfileStorage> | null=null;
@@ -24,6 +25,10 @@ export function initializePlayProfileStorage(clock=new ProfileClock(),options?:{
     await pauseForPlayProfiles();
     if (!config.flushPending()) throw new Error('프로필 이전 전 설정을 저장하지 못했습니다.');
     const legacy=config.load(),directory=app.getPath('userData');
+    // DEFAULT_CONFIG의 숙제 배열은 빈 초기값이다. 프로필 생성/복구에는 검증한 배포 목록을 사용한다.
+    const defaultItems=loadDefaultItems();
+    if (!defaultItems) throw new Error('프로필 기본 숙제 목록을 불러오지 못했습니다. 기존 데이터를 보존했습니다.');
+    const defaults={...DEFAULT_CONFIG,contentsCheckerItems:defaultItems};
     if (options?.freshInstall) {legacy.characterPresets=[];legacy.selectedCharacterId=undefined;}
     const deviceId=getPlayProfileDeviceId(directory,legacy.profileDeviceId);
     if (!diary.closeDb()) throw new Error('프로필 이전 전 일지 기록을 저장하지 못했습니다.');
@@ -31,7 +36,7 @@ export function initializePlayProfileStorage(clock=new ProfileClock(),options?:{
     const reload=config.beginExternalRestore();
     let store:ApplicationData | undefined;
     try {
-      store=await ApplicationData.initialize({directory,deviceId,defaults:DEFAULT_CONFIG,clock:() => clock.now()},legacy,{value:config.getLegacyUserServer()});
+      store=await ApplicationData.initialize({directory,deviceId,defaults,clock:() => clock.now()},legacy,{value:config.getLegacyUserServer()});
       reload();
       diary.connectApplicationData(store);
       config.installPersistence({read:value => store!.readConfiguration(value),commit:(value,previous) => store!.commitConfiguration(value,previous)});

@@ -68,7 +68,7 @@ async function run():Promise<void> {
     await step('build',process.execPath,[npm,'run','build']);
     const suite=[
       ['window-visibility','check-window-visibility'],
-      ['storage','check-profile-storage'],['diary','check-profile-diary'],['backup','check-profile-backup'],
+      ['storage','check-profile-storage'],['homework-defaults','check-profile-homework-defaults'],['diary','check-profile-diary'],['backup','check-profile-backup'],
       ['recording','check-profile-recording'],['tools','check-profile-tools'],['settings','check-profile-settings'],
       ['settings-pages','check-profile-settings-pages'],['log-restore','check-profile-log-restore'],['lifecycle','check-profile-lifecycle'],
       ['checklist','check-profile-checklist'],['stopwatch','check-profile-stopwatch'],['diary-ui','check-diary-profiles-ui'],

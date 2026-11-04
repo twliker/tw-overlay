@@ -19,7 +19,7 @@ const save=()=>{fs.writeFileSync(path.join(directory,'report.json'),JSON.stringi
 const npm=process.env.npm_execpath || path.join(path.dirname(process.execPath),'node_modules/npm/bin/npm-cli.js');
 const electron=require('electron') as string;
 const gates=[['typecheck',process.execPath,[npm,'run','typecheck']],['build',process.execPath,[npm,'run','build']],
-  ...['profile-sync-model','profile-sync-drive','profile-sync','profile-sync-concurrency','profile-sync-ui','profile-storage','profile-recording','profile-backup',
+  ...['profile-sync-model','profile-sync-drive','profile-sync','profile-sync-concurrency','profile-sync-ui','profile-storage','profile-homework-defaults','profile-recording','profile-backup',
     'profile-settings','profile-settings-pages','profile-tools','profile-checklist','profile-stopwatch','profile-lifecycle','profile-cloud-pause',
     'refactor-regressions','profile-windows','profile-upgrade','profile-crash','profile-sync-budget'].map(name=>[name,electron,[path.join(root,'dist-tools',`check-${name}.js`)]]),
   ['profile-sync-import-ui',electron,[path.join(root,'dist-tools/check-profile-sync-ui.js'),'--remote-import']],

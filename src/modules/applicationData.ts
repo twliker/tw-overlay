@@ -106,7 +106,8 @@ export class ApplicationData {
       prepareProfileSyncSchema(this.database);
       this.database.transaction(() => {
         new ProfileSyncModel(this.database,this.options.deviceId,this.clock);
-        captureProfileSyncChanges(this.database,this.options.deviceId,this.clock());
+        const repaired=this.fillMissingDefaultHomework();
+        captureProfileSyncChanges(this.database,this.options.deviceId,this.clock(),repaired>0);
       })();
     } catch (error) {
       if (this.database.open) this.database.close();
@@ -375,6 +376,38 @@ export class ApplicationData {
 
   get syncDeviceId():string {return this.options.deviceId;}
   syncClock():ProfileClockStamp {return this.clock();}
+
+  /** 배포 기본 숙제의 누락만 보충한다. 기존 정의/상태/정렬·커스텀 숙제는 수정하지 않는다.
+   * 빈 기본값으로 만든 과거 프로필과 백업/다른 PC에서 온 빈 목록을 복구한다.
+   * 명시적 삭제 이력과 영구 동기화 삭제 표식은 존중해 삭제 항목을 부활시키지 않는다.
+   * 원본과 복구 전송 대기는 같은 transaction으로 확정한다.
+   * 회귀: check-profile-homework-defaults.ts (실제 contents.json/부팅/별도 프로세스 재시작). */
+  ensureDefaultHomework():number {
+    return this.withAutomaticSyncChange(()=>this.syncTransaction(()=>this.fillMissingDefaultHomework())());
+  }
+  private fillMissingDefaultHomework():number {
+    const defaults=this.options.defaults.contentsCheckerItems || [];if (!defaults.length)return 0;
+    const deleted=new Map<string,Set<string>>();
+    const remember=(profile:string,item:string)=>{if(!deleted.has(profile))deleted.set(profile,new Set());deleted.get(profile)!.add(item);};
+    for(const row of this.database.prepare("SELECT profile_id,field FROM profile_change_log WHERE scope='homework' AND operation='delete'").all() as {profile_id:string;field:string}[])remember(row.profile_id,row.field);
+    const ids=new Map((this.database.prepare('SELECT local_id,remote_id FROM profile_sync_ids').all() as {local_id:string;remote_id:string}[]).map(row=>[row.remote_id,row.local_id]));
+    for(const row of this.database.prepare('SELECT key FROM profile_sync_tombstones').all() as {key:string}[]) {
+      const parts=JSON.parse(row.key) as string[],local=ids.get(parts[1]);
+      if(local && parts[0]==='homework' && parts[3]==='deleted')remember(local,parts[2]);
+    }
+    const insert=this.database.prepare('INSERT INTO profile_homework VALUES(?,?,?,?,?)');let count=0;
+    for(const profile of this.list()) {
+      const rows=this.database.prepare('SELECT item_id,position FROM profile_homework WHERE profile_id=?').all(profile.id) as {item_id:string;position:number}[];
+      const present=new Set(rows.map(row=>row.item_id));let position=rows.reduce((max,row)=>Math.max(max,row.position),-1)+1;
+      for(const item of defaults) {
+        if(present.has(item.id) || deleted.get(profile.id)?.has(item.id))continue;
+        const {completedState:_state,...definition}=item;
+        insert.run(profile.id,item.id,json(definition),'{}',position++);
+        this.change(profile.id,'homework',item.id,'create',{...definition,completedState:{[profile.id]:{}}});count++;
+      }
+    }
+    return count;
+  }
 
   ensureEmptyProfile():void {
     if (this.list().length) return;
