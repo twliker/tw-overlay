@@ -5,6 +5,8 @@
   <meta charset="UTF-8">
   <title>커스텀 알림</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-settings.css">
+  <script src="renderer/profile-settings-page.js"></script>
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
@@ -254,7 +256,11 @@
     let _soundReady = false;
 
     window.onload = async () => {
-      soundFiles = await window.loadSoundList();
+      window.bindEscapeClose();window.refreshIcons();
+      const isCurrent=window.profileSettingsPage?.guard() || (()=>true);
+      const sounds=await window.loadSoundList();
+      if (!isCurrent()) return;
+      soundFiles=sounds;
       const sel = document.getElementById('form-sound');
       if (sel) {
         sel.innerHTML = '';
@@ -267,15 +273,18 @@
       _soundReady = true;
       if (config) render(); // 설정 데이터가 이미 와 있다면 즉시 렌더링
       
-      window.bindEscapeClose();
       window.refreshIcons();
     };
 
-    window.electronAPI.onConfigData(async (data) => { 
+    let alertConfigGeneration=0;
+    async function applyAlertConfig(data,isCurrent=()=>true) {
+      const revision=++alertConfigGeneration;
       config = data; 
       if (window.loadSoundList) {
         try {
-          soundFiles = await window.loadSoundList();
+          const sounds=await window.loadSoundList();
+          if (revision!==alertConfigGeneration || !isCurrent()) return;
+          soundFiles=sounds;
           const sel = document.getElementById('form-sound');
           if (sel) {
             const prevVal = sel.value;
@@ -291,9 +300,21 @@
           console.error('Failed to reload sound list:', e);
         }
       }
+      if (revision!==alertConfigGeneration || !isCurrent()) return;
       _soundReady = true;
       render(); 
-    });
+    }
+    function writeAlertSettings(patch) {
+      if (window.profileSettingsPage?.enabled()) {Object.assign(config,patch);render();return window.profileSettingsPage.write(patch);}
+      window.electronAPI.applySettings(patch);return Promise.resolve(true);
+    }
+    function alertFormDraft() {
+      return JSON.stringify([currentFormType,...Array.from(document.querySelectorAll('#add-form input,#add-form select')).map(el=>[el.id,el.type==='checkbox' ? el.checked : el.value])]);
+    }
+    if (window.profileSettingsPage) window.profileSettingsPage.init({capture:()=>({customAlerts:config?.customAlerts || []}),apply:applyAlertConfig,
+      extra:()=>!document.getElementById('add-form').classList.contains('hidden'),reset:cancelAddForm,
+      save:()=>document.getElementById('add-form').classList.contains('hidden') ? writeAlertSettings({customAlerts:config.customAlerts || []}) : saveNewAlert()});
+    else window.electronAPI.onConfigData(applyAlertConfig);
 
     // --- 타입 탭 전환 ---
     function setFormType(type) {
@@ -450,9 +471,11 @@
     }
 
     function cancelAddForm() {
+      if (alertFormSaving) return;
       document.getElementById('add-form').classList.add('hidden');
       document.getElementById('add-btn').classList.remove('hidden');
       resetForm();
+      window.profileSettingsPage?.report('');
     }
 
     function resetForm() {
@@ -466,39 +489,54 @@
       document.getElementById('form-volume-val').innerText = '80%';
     }
 
+    let alertFormSaving=false;
+    function invalidAlertForm(message) {
+      if (window.profileSettingsPage?.enabled()) window.profileSettingsPage.report(message);else alert(message);
+      return false;
+    }
     function saveNewAlert() {
+      if (alertFormSaving) return false;
       const editId = document.getElementById('form-id').value;
       const offsets = [...document.querySelectorAll('.form-offset:checked')].map(cb => parseInt(cb.value));
       const soundFile = document.getElementById('form-sound').value || 'orb.mp3';
       const volume = parseInt(document.getElementById('form-volume').value);
 
-      if (offsets.length === 0) { alert('알림 시점을 하나 이상 선택해주세요.'); return; }
+      if (offsets.length === 0) return invalidAlertForm('알림 시점을 하나 이상 선택해주세요.');
       
       const message = document.getElementById('form-message').value.trim();
-      if (!message) { alert('알림 메시지를 입력해주세요.'); return; }
+      if (!message) return invalidAlertForm('알림 메시지를 입력해주세요.');
 
       let alertData;
       if (currentFormType === 'hourly') {
         const minute = parseInt(document.getElementById('form-minute').value);
-        if (isNaN(minute) || minute < 0 || minute > 59) { alert('0~59 사이의 분을 입력해주세요.'); return; }
+        if (isNaN(minute) || minute < 0 || minute > 59) return invalidAlertForm('0~59 사이의 분을 입력해주세요.');
         alertData = { type: 'hourly', minute, offsets, message, soundFile, volume };
       } else {
         const time = document.getElementById('form-time').value;
-        if (!time) { alert('시각을 입력해주세요.'); return; }
+        if (!time) return invalidAlertForm('시각을 입력해주세요.');
         alertData = { type: 'daily', time, offsets, message, soundFile, volume };
       }
 
       let alerts = config.customAlerts || [];
-      if (editId) {
+      if (editId && alerts.some(a=>a.id===editId)) {
         // Update existing
         alerts = alerts.map(a => a.id === editId ? { ...a, ...alertData } : a);
       } else {
         // Add new
-        alerts = [...alerts, { id: String(Date.now()), enabled: true, ...alertData }];
+        alerts = [...alerts, { id: editId || String(Date.now()), enabled: true, ...alertData }];
       }
 
-      window.electronAPI.applySettings({ customAlerts: alerts });
-      cancelAddForm();
+      if (window.profileSettingsPage?.enabled()) {
+        if (!editId) document.getElementById('form-id').value=alerts[alerts.length-1].id;
+        const submitted=alertFormDraft();
+        alertFormSaving=true;document.getElementById('save-btn').disabled=true;document.getElementById('alert-list').inert=true;
+        return window.profileSettingsPage.write({customAlerts:alerts}).then(saved=>{
+          alertFormSaving=false;document.getElementById('save-btn').disabled=false;document.getElementById('alert-list').inert=false;
+          if (saved) {config.customAlerts=alerts;render();if (submitted===alertFormDraft()) cancelAddForm();}
+          window.profileSettingsPage.refresh();return saved;
+        });
+      }
+      window.electronAPI.applySettings({ customAlerts: alerts });cancelAddForm();return true;
     }
 
     function previewFormSound() {
@@ -511,23 +549,23 @@
     // --- Alert Actions ---
     function toggleAlert(id, enabled) {
       const alerts = (config.customAlerts || []).map(a => a.id === id ? { ...a, enabled } : a);
-      window.electronAPI.applySettings({ customAlerts: alerts });
+      return writeAlertSettings({ customAlerts: alerts });
     }
 
     function removeAlert(id) {
       if (!confirm('해당 알림을 삭제하시겠습니까?')) return;
       const alerts = (config.customAlerts || []).filter(a => a.id !== id);
-      window.electronAPI.applySettings({ customAlerts: alerts });
+      return writeAlertSettings({ customAlerts: alerts });
     }
 
     function changeAlertSound(id, soundFile) {
       const alerts = (config.customAlerts || []).map(a => a.id === id ? { ...a, soundFile } : a);
-      window.electronAPI.applySettings({ customAlerts: alerts });
+      return writeAlertSettings({ customAlerts: alerts });
     }
 
     function changeAlertVolume(id, volume) {
       const alerts = (config.customAlerts || []).map(a => a.id === id ? { ...a, volume: parseInt(volume) } : a);
-      window.electronAPI.applySettings({ customAlerts: alerts });
+      return writeAlertSettings({ customAlerts: alerts });
     }
 </script>
 </body>

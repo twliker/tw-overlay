@@ -38,6 +38,7 @@ async function main(): Promise<void> {
   });
   ipcMain.on('get-default-config-sync', event => { event.returnValue = defaults; });
   ipcMain.handle('get-config', () => config.load());
+  ipcMain.handle('diary-profiles-get', () => ({enabled:false,profiles:[],activeProfileId:null,selectionRequired:true,busy:false}));
   ipcMain.handle('check-chat-log-status', () => ({ isValid: true, isMonitoring: true }));
   ipcMain.handle('diary-get-by-date', (_e, date) => db.getDiaryByDate(date, config.load().lootKeywords));
   ipcMain.handle('diary-get-by-month', (_e, month) => db.getDiariesByMonth(month));

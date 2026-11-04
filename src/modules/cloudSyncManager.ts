@@ -36,6 +36,7 @@ import * as googleDriveSync from './googleDriveSync';
 import * as syncDataHelper from './syncDataHelper';
 import { log } from './logger';
 import { broadcastToAllWindows } from './windowMessaging';
+import {getProfileCloudSync} from './profileCloudSync';
 
 type SyncKind = 'settings' | 'checklist';
 type SyncActivity = NonNullable<GoogleSyncStatus['syncActivity']>;
@@ -59,6 +60,25 @@ let localRestoreSuspended = false;
 const uploadFailureCount: Record<SyncKind, number> = { settings: 0, checklist: 0 };
 const uploadLastError: Partial<Record<SyncKind, string>> = {};
 let pullFailureCount = 0;
+let profilePauseReason:string | undefined;
+
+function requireLegacySyncAvailable():void {
+  if (profilePauseReason) throw new Error(profilePauseReason);
+}
+
+/** 프로필 저장소를 연결하기 전에 호출하고 완료를 기다린다. 기존 인증/원격 파일/outbox는 보존한다.
+ * 이미 시작한 전송도 배출한 뒤에만 이전을 시작하므로 늦은 응답이 새 프로필 projection을 덮지 않는다.
+ * 새 Google 동기화 구현 전까지 이 실행 중에는 재개 API를 제공하지 않는다.
+ */
+export async function pauseForPlayProfiles():Promise<void> {
+  if (profilePauseReason) {await transferTail;return;}
+  profilePauseReason='프로필에 맞춘 동기화 개선 전까지 Google 동기화를 일시 중지합니다. 이 PC의 데이터는 정상적으로 저장됩니다.';
+  stopBackgroundSync();
+  settingsTimer=clearTimer(settingsTimer);checklistTimer=clearTimer(checklistTimer);
+  googleAuth.cancelLogin();googleDriveSync.cancelPendingRequests();
+  await transferTail;
+  broadcastStatus();
+}
 
 interface SyncFiles {
   settings?: googleDriveSync.DriveFileMeta;
@@ -80,7 +100,7 @@ function fileNameForKind(kind: SyncKind): string {
 }
 
 function canAutoSync(): boolean {
-  if (localRestoreSuspended) return false;
+  if (localRestoreSuspended || profilePauseReason) return false;
   const cfg = config.load();
   return cfg.googleSyncEnabled === true
     && cfg.googleSyncAutoSync !== false
@@ -106,6 +126,7 @@ function getStatusFileName(): string {
 
 /** 현재 구글 동기화 상태 반환 */
 export function getSyncStatus(): GoogleSyncStatus {
+  if (getProfileCloudSync()) return getProfileCloudSync()!.status();
   const isLinked = googleAuth.isLoggedIn();
   const profile = googleAuth.loadStoredProfile();
   const cfg = config.load();
@@ -122,9 +143,10 @@ export function getSyncStatus(): GoogleSyncStatus {
     lastError: uploadLastError[kind],
   }));
   return {
+    pausedReason:profilePauseReason,
     isLinked,
     // 명시적 로그아웃은 googleSyncEnabled를 끄지만 인증 만료는 사용자의 동기화 의도를 보존한다.
-    reauthRequired: !isLinked
+    reauthRequired: !profilePauseReason && !isLinked
       && cfg.googleSyncEnabled === true
       && Boolean(profile?.email || cfg.googleSyncUserEmail),
     email: profile?.email || cfg.googleSyncUserEmail,
@@ -132,7 +154,7 @@ export function getSyncStatus(): GoogleSyncStatus {
     fileName: getStatusFileName(),
     isSyncing: activeTransfers > 0,
     syncActivity: activeSyncActivity,
-    autoSync: cfg.googleSyncAutoSync !== false,
+    autoSync: !profilePauseReason && cfg.googleSyncAutoSync !== false,
     profileState: state.profileState,
     restoreResults: state.restoreResults,
     restorePartial: state.restorePartial,
@@ -179,6 +201,7 @@ function broadcastStatus(): void {
 
 function enqueueTransfer<T>(label: string, activity: SyncActivity, task: () => Promise<T>): Promise<T> {
   const run = async (): Promise<T> => {
+    requireLegacySyncAvailable();
     if (localRestoreSuspended) throw new Error('로컬 백업 복원 중에는 동기화할 수 없습니다.');
     activeTransfers++;
     activeSyncActivity = activity;
@@ -233,7 +256,9 @@ function isValidMetaPayload(value: unknown): value is GoogleSyncMetaPayload {
 }
 
 async function discoverFiles(): Promise<SyncFiles> {
+  requireLegacySyncAvailable();
   const all = await googleDriveSync.listSyncFiles();
+  requireLegacySyncAvailable();
   const candidates = {
     settings: selectNewestCandidates(all, googleDriveSync.SETTINGS_SYNC_FILE_NAME),
     checklist: selectNewestCandidates(all, googleDriveSync.CHECKLIST_SYNC_FILE_NAME),
@@ -251,6 +276,7 @@ async function discoverFiles(): Promise<SyncFiles> {
     for (const metaFile of candidates.meta) {
       try {
         const rawMeta = await googleDriveSync.downloadJsonPayload<unknown>(metaFile.id);
+        requireLegacySyncAvailable();
         if (isValidMetaPayload(rawMeta)) {
           const meta = rawMeta;
           const settingsId = meta.files.settings?.id;
@@ -271,6 +297,7 @@ async function discoverFiles(): Promise<SyncFiles> {
           break;
         }
       } catch (error) {
+        requireLegacySyncAvailable();
         log(`[CloudSyncManager] 메타 후보를 읽지 못해 다음 후보를 확인합니다: ${error}`);
       }
     }
@@ -291,12 +318,14 @@ async function downloadValidated(
   file: googleDriveSync.DriveFileMeta | undefined,
   expectedGenerationId?: string,
 ): Promise<GoogleSyncPayload | null> {
+  requireLegacySyncAvailable();
   if (!file) return null;
   const declaredSize = Number(file.size || 0);
   if (Number.isFinite(declaredSize) && declaredSize > 5 * 1024 * 1024) {
     throw new Error(`${file.name} 파일이 허용 크기를 초과했습니다.`);
   }
   const value = await googleDriveSync.downloadJsonPayload<unknown>(file.id);
+  requireLegacySyncAvailable();
   const compatibilityIssue = syncDataHelper.getSyncPayloadCompatibilityIssue(value, kind);
   if (compatibilityIssue) {
     const details: Record<typeof compatibilityIssue, string> = {
@@ -423,6 +452,7 @@ function buildRestoreFailure(
 }
 
 async function applyConfigFromCloud(nextConfig: AppConfig, createBackup = true): Promise<void> {
+  requireLegacySyncAvailable();
   const previous = config.load();
   if (createBackup && !syncDataHelper.createLocalBackupBeforeSync(config.load())) {
     throw new Error('클라우드 데이터를 적용하기 전 로컬 백업을 생성하지 못했습니다.');
@@ -570,6 +600,7 @@ async function receiveKind(
 }
 
 async function uploadMeta(files: SyncFiles): Promise<void> {
+  requireLegacySyncAvailable();
   if (!files.settings?.id && !files.checklist?.id) return;
   const state = cloudState.load();
   const payload = syncDataHelper.buildSyncMetaPayload(state.generationId, Date.now(), {
@@ -585,11 +616,13 @@ async function uploadMeta(files: SyncFiles): Promise<void> {
     payload,
     files.meta?.id,
   );
+  requireLegacySyncAvailable();
   files.meta = { id: metaId, name: googleDriveSync.META_SYNC_FILE_NAME };
   cloudState.update(next => { next.fileIds.meta = metaId; });
 }
 
 function markSettingsDirty(keys: string[]): void {
+  if (profilePauseReason) return;
   if (keys.length === 0) return;
   settingsChangeSerial++;
   cloudState.update(state => {
@@ -604,6 +637,7 @@ function markSettingsDirty(keys: string[]): void {
 }
 
 function markChecklistDirty(keys: string[]): void {
+  if (profilePauseReason) return;
   if (keys.length === 0) return;
   cloudState.update(state => {
     if (state.skippedRestoreFingerprints.checklist
@@ -698,6 +732,7 @@ async function reconcileRemoteBeforeUpload(kind: SyncKind, files: SyncFiles): Pr
 }
 
 async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promise<GoogleSyncResult> {
+  requireLegacySyncAvailable();
   if (!googleAuth.isLoggedIn()) return { success: false, error: 'Google 로그인이 필요합니다.' };
   if (config.hasPending() && !config.saveImmediate()) {
     return { success: false, error: '로컬 설정 저장이 완료되지 않아 클라우드 업로드를 보류했습니다.' };
@@ -747,12 +782,14 @@ async function uploadKinds(kinds: SyncKind[], forceLocalSettings = false): Promi
             checklistOperations,
           );
         const previousFileId = fileForKind(files, kind)?.id;
+        requireLegacySyncAvailable();
         const fileId = await googleDriveSync.uploadJsonPayload(
           fileNameForKind(kind),
           payload,
           fileForKind(files, kind)?.id,
           existingFile?.etag,
         );
+        requireLegacySyncAvailable();
         const meta: googleDriveSync.DriveFileMeta = { id: fileId, name: fileNameForKind(kind) };
         if (kind === 'settings') files.settings = meta;
         else files.checklist = meta;
@@ -1112,8 +1149,11 @@ function scheduleNextPull(): void {
 
 /** 로그인 및 최초 pull. 기존 파일이 없을 때만 이 PC의 로컬 상태를 최초 업로드한다. */
 export async function loginAndInit(): Promise<{ success: boolean; status: GoogleSyncStatus; error?: string }> {
+  if (getProfileCloudSync()) return getProfileCloudSync()!.login();
+  if (profilePauseReason) return {success:false,status:getSyncStatus(),error:profilePauseReason};
   try {
     const loginResult = await googleAuth.startLogin();
+    requireLegacySyncAvailable();
     if (!loginResult.success || !loginResult.profile) {
       return { success: false, status: getSyncStatus(), error: loginResult.error || '로그인에 실패했습니다.' };
     }
@@ -1141,6 +1181,8 @@ export function isLoggingIn(): boolean {
 }
 
 export function logout(): GoogleSyncStatus {
+  if (getProfileCloudSync()) return getProfileCloudSync()!.logout();
+  if (profilePauseReason) return getSyncStatus();
   stopBackgroundSync();
   settingsTimer = clearTimer(settingsTimer);
   checklistTimer = clearTimer(checklistTimer);
@@ -1158,6 +1200,8 @@ export function logout(): GoogleSyncStatus {
 
 /** 수동 백업: 설정과 숙제의 현재 로컬 상태를 모두 명시적 변경으로 업로드한다. */
 export async function syncToCloud(_manual = false): Promise<GoogleSyncResult> {
+  if (getProfileCloudSync()) return getProfileCloudSync()!.sync();
+  if (profilePauseReason) return {success:false,error:profilePauseReason};
   markSettingsDirty(syncDataHelper.SETTINGS_SYNCABLE_KEYS.map(String));
   markChecklistDirty(syncDataHelper.CHECKLIST_SYNCABLE_KEYS.map(String));
   return enqueueTransfer('수동 백업', 'upload', () => uploadKinds(['settings', 'checklist'], true));
@@ -1168,6 +1212,8 @@ export async function syncFromCloud(
   manual = false,
   selectedKinds: GoogleSyncDataKind[] = ['settings', 'checklist'],
 ): Promise<GoogleSyncResult> {
+  if (getProfileCloudSync()) return getProfileCloudSync()!.sync();
+  if (profilePauseReason) return {success:false,error:profilePauseReason};
   try {
     const state = cloudState.load();
     if (!manual && state.profileState === 'needs-confirmation') {
@@ -1219,6 +1265,7 @@ export async function syncFromCloud(
 
 /** 마지막 클라우드 복원 직전 로컬 config로 되돌린다. 정상 저장 이벤트를 통해 필요한 재동기화를 예약한다. */
 export async function rollbackLastRestore(): Promise<GoogleSyncResult> {
+  if (getProfileCloudSync()) return {success:false,error:'데이터 관리의 로컬 백업 불러오기로 적용 전 ZIP을 복원할 수 있습니다.'};
   try {
     return await enqueueTransfer('복원 되돌리기', 'rollback', async () => {
       const backup = syncDataHelper.loadLocalSyncBackup();
@@ -1250,6 +1297,7 @@ export async function getCloudDataPreview(selectedKind?: GoogleSyncDataKind): Pr
   partial?: boolean;
   error?: string;
 }> {
+  if (profilePauseReason) return {success:false,error:profilePauseReason};
   if (!googleAuth.isLoggedIn()) return { success: false, error: 'Google 로그인이 필요합니다.' };
   try {
     return await enqueueTransfer('미리보기', 'preview', async () => {
@@ -1329,23 +1377,29 @@ export async function getCloudDataPreview(selectedKind?: GoogleSyncDataKind): Pr
 
 /** 이전 호출부 호환: 이미 dirty로 분류된 파일의 업로드를 짧게 예약한다. */
 export function requestDebouncedSync(): void {
+  if (getProfileCloudSync()) return;
+  if (profilePauseReason) return;
   const state = cloudState.load();
   if (hasUploadablePendingChanges('settings', state)) scheduleUpload('settings');
   if (hasUploadablePendingChanges('checklist', state)) scheduleUpload('checklist');
 }
 
 export function startBackgroundSync(): void {
+  if (getProfileCloudSync()) {getProfileCloudSync()!.start();return;}
+  if (profilePauseReason) return;
   backgroundStarted = true;
   scheduleNextPull();
 }
 
 export function stopBackgroundSync(): void {
+  getProfileCloudSync()?.stop();
   backgroundStarted = false;
   pullTimer = clearTimer(pullTimer);
 }
 
 /** 새 전송을 막고 기존 전송을 취소·배출한 다음에만 로컬 파일 교체를 허용한다. */
 export async function suspendForLocalRestore(): Promise<() => void> {
+  if (getProfileCloudSync()) return getProfileCloudSync()!.coordinator.suspend();
   if (localRestoreSuspended) throw new Error('로컬 백업 복원이 이미 진행 중입니다.');
   const resumeBackground = backgroundStarted;
   localRestoreSuspended = true;
@@ -1363,6 +1417,7 @@ export async function suspendForLocalRestore(): Promise<() => void> {
 
 /** 절전 복귀·네트워크 복구·게임 시작 시 호출하는 즉시 pull 경계. */
 export function requestImmediatePull(reason: string): void {
+  if (getProfileCloudSync()) {getProfileCloudSync()!.request();return;}
   if (!canAutoSync()) return;
   log(`[CloudSyncManager] 즉시 원격 확인 요청: ${reason}`);
   pullTimer = clearTimer(pullTimer);
@@ -1370,12 +1425,15 @@ export function requestImmediatePull(reason: string): void {
 }
 
 export function refreshBackgroundSchedule(): void {
+  if (getProfileCloudSync()) {getProfileCloudSync()!.start();getProfileCloudSync()!.request();return;}
   if (canAutoSync()) startBackgroundSync();
   else stopBackgroundSync();
 }
 
 /** 종료 직전 dirty/outbox의 확인 기준을 원자 저장한다. 성공 여부가 불명확하면 다음 실행까지 유지한다. */
 export function prepareShutdownRecovery(): boolean {
+  if (getProfileCloudSync()) return true;
+  if (profilePauseReason) return true;
   const state = cloudState.load();
   const current = config.load();
   const hasSettings = state.settingsDirtyKeys.length > 0;
@@ -1412,6 +1470,8 @@ export function prepareShutdownRecovery(): boolean {
 
 /** 검증된 upload/pull이 recovery 당시 dirty key와 operation을 처리했을 때만 marker를 제거한다. */
 export function reconcileShutdownRecovery(): boolean {
+  if (getProfileCloudSync()) return true;
+  if (profilePauseReason) return true;
   const snapshot = cloudState.load();
   if (!snapshot.shutdownRecovery) return true;
   const next = cloudState.update(state => {
@@ -1432,11 +1492,14 @@ export function reconcileShutdownRecovery(): boolean {
 }
 
 export function cancelPendingShutdownRequests(): void {
+  getProfileCloudSync()?.cancel();
   googleDriveSync.cancelPendingRequests();
 }
 
 /** 종료 전 현재 큐를 비운다. main의 3초 제한이 이 Promise 바깥에서 적용된다. */
 export async function flushPendingSync(): Promise<void> {
+  if (getProfileCloudSync()) {if (getProfileCloudSync()!.coordinator.model.pending()) await getProfileCloudSync()!.coordinator.sync();return;}
+  if (profilePauseReason) {await transferTail;return;}
   settingsTimer = clearTimer(settingsTimer);
   checklistTimer = clearTimer(checklistTimer);
   const state = cloudState.load();
@@ -1459,7 +1522,7 @@ googleAuth.setOnAuthInvalidated(() => {
 });
 
 config.addConfigChangeListener(changed => {
-  if (applyingCloud) return;
+  if (applyingCloud || profilePauseReason) return;
   const keys = Object.keys(changed);
   const settingsKeys = keys.filter(key => syncDataHelper.SETTINGS_SYNCABLE_KEYS.includes(key as keyof AppConfig));
   const checklistKeys = keys.filter(key => syncDataHelper.CHECKLIST_SYNCABLE_KEYS.includes(key as keyof AppConfig));

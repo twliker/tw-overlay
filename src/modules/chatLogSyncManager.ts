@@ -11,8 +11,14 @@
  *   snapshot이 바뀌지 않은 경우에만 교체합니다. 오늘 파일은 실시간 tail을 완전한 줄 경계에서 잠시 멈춘
  *   뒤 snapshot까지 원자 교체하고, 그동안 append된 구간을 파일 queue에서 따라잡은 후 감시를 재개합니다.
  *   수동 일지·메모·알람은 두 경로 모두 보존하며 실패한 날짜는 기존 기록을 유지합니다.
- * - 과거 로그에는 수행 캐릭터 식별 정보가 없으므로 복원된 현재 주기 숙제는 선택 캐릭터나 프리셋 순서가
- *   아니라 항상 메인 캐릭터(`char-main`)에 병합합니다. 실시간 감지는 기존 캐릭터 선택 대기 정책을 따릅니다.
+ * - 기존 모드의 현재 주기 숙제는 메인 캐릭터(`char-main`)에 병합합니다. 프로필 모드는 시작할 때
+ *   명시한 프로필 ID/이름/서버/설정과 플레이 세션을 고정하고 기록·숙제를 같은 대상에 반영합니다.
+ * - 프로필 복원 위치·원본 구간·구형 미배정 일 합계 기준은 로컬 DB에 보존하며 Google 대상이 아닙니다.
+ *   기록/원본 구간/offset을 한 transaction으로 저장한 뒤 ACK합니다. 다른 프로필/미배정 구간은
+ *   원래 귀속을 유지하고 같은 파일의 나중 추가분만 새 선택으로 가져올 수 있습니다. 외치기는 공통입니다.
+ * - 복원 중 전환/삭제와 프로필 설정·숙제 편집을 막고 자동 이벤트는 durable 대기로 보존합니다.
+ *   성공/실패 모두 시작한 세션의 대기를 재생하며, 새 미선택 게임 세션은 임의 배정하지 않습니다.
+ *   프로필 기능 활성화 전에는 기존 JSON 진행 상태와 char-main 정책을 그대로 사용합니다.
  * - 실시간 `chatLogManager`와 같은 로그를 볼 수 있으므로 결과 의미는 `chatLogProcessor`와 일치해야 합니다.
  *   경험의 정수 직접 획득·100억 감소 교환처럼 키워드 독립 정책을 두 경로 중 한쪽에만 적용하지 않습니다.
  * - 취소·worker 오류·앱 종료 시 마지막 ACK 지점까지 재개할 수 있어야 하며, 진행률 완료를 데이터 저장
@@ -34,6 +40,7 @@ import { normalizeNotificationKeywords } from '../shared/keywordSanitizer';
 import { getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
 import { findLastCompleteChatLogOffset } from './chatLogFileReader';
 import { chatLogManager, type ChatLogSyncPauseToken } from './chatLogManager';
+import {beginProfileLogRestore} from './profileLogRestore';
 import {
   createChatLogSyncJobId,
   type ChatLogFileAggregate,
@@ -167,6 +174,7 @@ function formatKoreanNumber(val: number): string {
 }
 
 interface ChatLogSyncOptions {
+  profileId?:string;
   startDate?: Date;
   endDate?: Date;
   onProgress?: (info: SyncProgressInfo) => void;
@@ -191,6 +199,7 @@ export function buildSyncedHomeworkLogs(
   states: Array<Pick<WorkerSyncTargetFile['aggregate'], 'homeworkByCycle'> & { dateStr: string }>,
   definitions: Record<string, HomeworkSyncDefinition>,
   mainCharacterName: string,
+  characterId:string=MAIN_CHAR_ID,
 ): SyncedHomeworkLogInput[] {
   const progressByCycleAndId = new Map<string, { count: number; isIncrement: boolean }>();
   const completions = new Map<string, SyncedHomeworkLogInput>();
@@ -215,7 +224,7 @@ export function buildSyncedHomeworkLogs(
         const completedDate = formatDateString(new Date(completedAt));
         completions.set(aggregateKey, {
           date: completedDate,
-          contentId: `${id}_${MAIN_CHAR_ID}`,
+          contentId: `${id}_${characterId}`,
           contentName: `[${mainCharacterName}] ${definition.name}`,
           category: definition.category,
           type: definition.rule.type,
@@ -228,20 +237,41 @@ export function buildSyncedHomeworkLogs(
 }
 
 let activeChatLogSyncPromise: Promise<SyncResultReport> | null = null;
+let activeSyncProfileId:string | undefined;
+let stoppingHistoricalSync=false;
+let cancelActiveSync:(()=>void) | undefined;
+
+/** 종료 뒤 새 worker를 시작하거나 닫힌 DB에 늦은 배치를 반영하지 않는다. */
+export async function stopHistoricalChatLogSync():Promise<void> {
+  stoppingHistoricalSync=true;cancelActiveSync?.();
+  try {await activeChatLogSyncPromise;} catch { /* 확정 배치와 대기 원본은 DB에 보존됨 */ }
+}
 
 /** 같은 DB·상태 파일을 쓰는 과거 로그 복원은 항상 single-flight로 실행한다. */
 export function syncWeeklyChatLogs(options?: ChatLogSyncOptions): Promise<SyncResultReport> {
-  if (activeChatLogSyncPromise) return activeChatLogSyncPromise;
-  const running = runChatLogSync(options).finally(() => {
-    if (activeChatLogSyncPromise === running) activeChatLogSyncPromise = null;
+  if (stoppingHistoricalSync) return Promise.reject(new Error('앱을 종료하고 있어 과거 로그를 복원하지 않았습니다.'));
+  if (activeChatLogSyncPromise) return options?.profileId===activeSyncProfileId ? activeChatLogSyncPromise : Promise.reject(new Error('다른 프로필의 과거 로그를 복원 중입니다. 완료 후 다시 시도해 주세요.'));
+  activeSyncProfileId=options?.profileId;
+  const running = runProfileAwareSync(options).finally(() => {
+    if (activeChatLogSyncPromise === running) {activeChatLogSyncPromise = null;activeSyncProfileId=undefined;cancelActiveSync=undefined;}
   });
   activeChatLogSyncPromise = running;
   return running;
 }
 
+async function runProfileAwareSync(options?:ChatLogSyncOptions):Promise<SyncResultReport> {
+  const owner=beginProfileLogRestore(options?.profileId);
+  let result:SyncResultReport | undefined;
+  try {result=await runChatLogSync(options,owner);return result;}
+  finally {
+    const warning=owner?.finish();
+    if (result && owner) {result.profileId=owner.profileId;result.profileName=owner.config.characterPresets?.[0]?.name || '기본 프로필';if (warning) result.pendingReplayWarning=warning;}
+  }
+}
+
 /** 모험일지 보관 기간 안의 채팅 로그를 독립 워커에서 안전하게 동기화합니다. */
-async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultReport> {
-  const cfg = config.load();
+async function runChatLogSync(options?: ChatLogSyncOptions,owner:ReturnType<typeof beginProfileLogRestore>=null): Promise<SyncResultReport> {
+  const cfg = owner?.config || config.load();
   const chatLogPath = cfg.chatLogPath;
 
   const startDate = options?.startDate || getDiaryRetentionStartDate(cfg.diaryKeepDays ?? 180);
@@ -274,6 +304,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
   }
 
   let targetFiles = await getSyncTargetLogFiles(chatLogPath, startDate, endDate);
+  if (stoppingHistoricalSync) throw new Error('앱 종료로 과거 로그 복원을 중단했습니다.');
   if (targetFiles.length === 0) {
     return {
       success: true,
@@ -302,6 +333,16 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
   let liveLogResumed = false;
   let liveResumeOffset = 0;
   let todayCatchUpBytes = 0;
+  let liveFingerprint:string | undefined;
+  const resumeLiveLogs=(encoding:ChatLogSyncPauseToken['encoding']) => {
+    const apply=()=>{
+      const result=chatLogManager.resumeAfterHistoricalSync(livePauseToken!,liveResumeOffset,encoding);
+      liveLogResumed=true;
+      todayCatchUpBytes=Math.max(todayCatchUpBytes,result.processedBytes);
+      return result;
+    };
+    return owner ? owner.catchUp(liveFingerprint,apply) : apply();
+  };
 
   if (todayTarget) {
     livePauseToken = await chatLogManager.pauseForHistoricalSync(todayTarget.filePath);
@@ -349,11 +390,12 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
       homeworkDiaryPolicy: 1,
       // 조각 획득으로 집계한 이전 파일 누적치를 포탈 생성 기준으로 다시 분석한다.
       architectMineDetectionPolicy: 1,
+      abandonedFeeDiaryPolicy: 1,
       shoutKindPolicy: 1,
     }))
     .digest('hex');
   const workerScriptPath = path.join(__dirname, 'chatLogSyncWorker.js');
-  const syncState = loadChatLogSyncState();
+  const syncState = owner ? owner.load() : loadChatLogSyncState();
   const retainedStateKeys = new Set(targetFiles.map(target => getChatLogSyncStateKey(target.filePath)));
   for (const stateKey of Object.keys(syncState.files)) {
     if (!retainedStateKeys.has(stateKey)) delete syncState.files[stateKey];
@@ -366,7 +408,9 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
     const previous = syncState.files[stateKey];
     let inspection: Awaited<ReturnType<typeof inspectChatLogFileAsyncWithRetry>>;
     try {
-      inspection = await inspectChatLogFileAsyncWithRetry(target.filePath, target.dateStr, previous);
+      inspection = await inspectChatLogFileAsyncWithRetry(target.filePath, target.dateStr, owner ? owner.probe(stateKey) : previous);
+      if (stoppingHistoricalSync) throw new Error('앱 종료로 과거 로그 복원을 중단했습니다.');
+      if (target.dateStr===todayStr) liveFingerprint=inspection.fingerprint;
       if (livePauseToken && target.dateStr === todayStr) {
         inspection = {
           ...inspection,
@@ -398,7 +442,11 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
       broadcastToAllWindows('chat-log-sync-progress', progressInfo);
       continue;
     }
-    const replaceAutomaticDateOnComplete = reanalyzeCompletedLogs || target.dateStr === todayStr;
+    const excludedRanges=owner?.exclusions(stateKey,inspection),legacyAggregateDeductions=owner?.deductions(target.dateStr,inspection.fingerprint);
+    // 출처 위치가 없는 구형 일 합계는 첫 전체 분석이 성공해야 귀속 구간/차액을 확정한다.
+    const legacyBaselineRequiresSnapshot=!!legacyAggregateDeductions && (!previous || previous.confirmedOffset===0)
+      && legacyAggregateDeductions.gold+legacyAggregateDeductions.elso+Object.values(legacyAggregateDeductions.stones).reduce((sum,value)=>sum+value,0)>0;
+    const replaceAutomaticDateOnComplete = reanalyzeCompletedLogs || target.dateStr === todayStr || legacyBaselineRequiresSnapshot;
     const canResume = !replaceAutomaticDateOnComplete
       && canResumeChatLogFile(previous, inspection, target.dateStr, policyFingerprint);
     const durable = canResume ? {
@@ -448,6 +496,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
       },
       replaceAutomaticDateOnComplete,
       catchUpAfterReplace: !!livePauseToken && target.dateStr === todayStr,
+      ...(owner ? {excludedRanges,aggregateOwnerKey:owner.profileId,legacyAggregateDeductions} : {}),
     });
     const progressInfo: SyncProgressInfo = {
       currentFile: target.fileName,
@@ -467,7 +516,8 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
     if (options?.onProgress) options.onProgress(progressInfo);
     broadcastToAllWindows('chat-log-sync-progress', progressInfo);
   }
-  await saveChatLogSyncStateAsync(syncState);
+  if (owner) owner.save(syncState);else await saveChatLogSyncStateAsync(syncState);
+  if (stoppingHistoricalSync) throw new Error('앱 종료로 과거 로그 복원을 중단했습니다.');
   const jobId = createChatLogSyncJobId();
 
   const committed = {
@@ -502,6 +552,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
         reject(error);
         void worker.terminate();
       };
+      cancelActiveSync=()=>rejectOnce(new Error('앱 종료로 과거 로그 복원을 중단했습니다.'));
 
       worker.on('message', async (msg: ChatLogSyncWorkerMessage) => {
         if (msg.type === 'progress') {
@@ -525,6 +576,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
           };
           try {
             if (batch.jobId !== jobId) throw new Error('채팅 로그 배치 작업 ID가 일치하지 않습니다.');
+            if (stoppingHistoricalSync) throw new Error('앱 종료로 과거 로그 복원을 중단했습니다.');
             const expected = workerTargets.find(target => target.filePath === batch.filePath);
             if (!expected || expected.fingerprint !== batch.fingerprint
               || expected.policyFingerprint !== batch.policyFingerprint) {
@@ -558,16 +610,8 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
                 log(`[SYNC] 로그 최종 상태 확인 실패로 자동 기록 전체 교체를 보류합니다: ${batch.fileName} (${error})`);
               }
             }
-            const batchResult = diaryDb.batchInsertSyncResults(effectiveBatch);
-            if (!batchResult.success) {
-              throw new Error(batchResult.error || '채팅 로그 DB 배치 반영 실패');
-            }
-            if (expected.catchUpAfterReplace && effectiveBatch.replaceAutomaticDate === todayStr) {
-              liveResumeOffset = batch.confirmedOffset;
-            }
-
             const stateKey = getChatLogSyncStateKey(batch.filePath);
-            syncState.files[stateKey] = {
+            const nextState = {
               ...batch.aggregate,
               filePath: batch.filePath,
               fileName: batch.fileName,
@@ -579,7 +623,15 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
               snapshotSize: batch.snapshotSize,
               updatedAt: Date.now(),
             };
-            await saveChatLogSyncStateAsync(syncState);
+            const apply=() => {
+              const value=diaryDb.batchInsertSyncResults(effectiveBatch);
+              if (!value.success) throw new Error(value.error || '채팅 로그 DB 배치 반영 실패');
+              return value;
+            };
+            const batchResult=owner ? owner.commit(stateKey,nextState,syncState.files[stateKey]?.confirmedOffset || 0,apply) : apply();
+            syncState.files[stateKey]=nextState;
+            if (!owner) await saveChatLogSyncStateAsync(syncState);
+            if (expected.catchUpAfterReplace && effectiveBatch.replaceAutomaticDate === todayStr) liveResumeOffset = batch.confirmedOffset;
             if (
               expected.catchUpAfterReplace
               && effectiveBatch.replaceAutomaticDate === todayStr
@@ -603,13 +655,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
               };
               if (options?.onProgress) options.onProgress(catchUpProgress);
               broadcastToAllWindows('chat-log-sync-progress', catchUpProgress);
-              const caughtUp = chatLogManager.resumeAfterHistoricalSync(
-                livePauseToken,
-                liveResumeOffset,
-                expected.encoding,
-              );
-              todayCatchUpBytes = caughtUp.processedBytes;
-              liveLogResumed = true;
+              resumeLiveLogs(expected.encoding);
             }
             committed.lootsAdded += batchResult.lootsAdded;
             committed.essencesAdded += batchResult.essencesAdded;
@@ -736,26 +782,27 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
   if (options?.onProgress) options.onProgress(finalizingProgress);
   broadcastToAllWindows('chat-log-sync-progress', finalizingProgress);
 
-  const mainCharacterName = cfg.characterPresets?.find(character => character.id === MAIN_CHAR_ID)?.name
+  const targetCharacterId=owner?.profileId || MAIN_CHAR_ID;
+  const mainCharacterName = cfg.characterPresets?.find(character => character.id === targetCharacterId)?.name
     || '메인 캐릭터';
   const syncedHomeworkLogs = buildSyncedHomeworkLogs(
     currentFileStates,
     homeworkCycleKeys,
     mainCharacterName,
+    targetCharacterId,
   );
-  const homeworkLogResult = diaryDb.upsertSyncedHomeworkLogs(
-    syncedHomeworkLogs,
-    [...automaticRebuiltDateSet],
-  );
-  if (!homeworkLogResult.success) {
-    throw new Error(`과거 숙제 모험일지 반영 실패: ${homeworkLogResult.error || '알 수 없는 오류'}`);
-  }
-
-  for (const [hwId, detected] of Object.entries(accumulatedHomework)) {
-    // 과거 로그에는 캐릭터명이 없으므로 모든 복원 숙제를 메인 캐릭터에만 병합한다.
-    const updated = contentsChecker.mergeHomeworkCountFromSync(hwId, detected.count, MAIN_CHAR_ID);
-    if (updated) homeworkUpdated++;
-  }
+  const finishHomework=() => {
+    if (stoppingHistoricalSync) throw new Error('앱 종료로 과거 로그 복원을 중단했습니다.');
+    const homeworkLogResult = diaryDb.upsertSyncedHomeworkLogs(syncedHomeworkLogs,[...automaticRebuiltDateSet]);
+    if (!homeworkLogResult.success) throw new Error(`과거 숙제 모험일지 반영 실패: ${homeworkLogResult.error || '알 수 없는 오류'}`);
+    for (const [hwId, detected] of Object.entries(accumulatedHomework)) {
+      // 프로필 모드는 고정 프로필에, 기존 모드는 메인 캐릭터에만 병합한다.
+      const updated = contentsChecker.mergeHomeworkCountFromSync(hwId, detected.count, targetCharacterId);
+      if (updated) homeworkUpdated++;
+    }
+  };
+  // 바깥 DB commit 자체가 실패해도 메모리 설정을 이전 값으로 되돌려 재시도할 수 있어야 한다.
+  if (owner) config.withConfirmedWrites(()=>owner.withRecords(finishHomework));else finishHomework();
 
   // 동기화 완료 후 다이어리 및 외치기 창에 갱신 브로드캐스트
   broadcastToAllWindows('diary-updated');
@@ -796,15 +843,9 @@ async function runChatLogSync(options?: ChatLogSyncOptions): Promise<SyncResultR
     failedFiles,
   };
   } finally {
-    if (livePauseToken && !liveLogResumed) {
+    if (livePauseToken && !liveLogResumed && !stoppingHistoricalSync) {
       // 분석/DB 반영이 실패해도 중지 직전 확정 위치부터 파일 queue를 재생해 실시간 기능을 복구합니다.
-      const caughtUp = chatLogManager.resumeAfterHistoricalSync(
-        livePauseToken,
-        liveResumeOffset,
-        livePauseToken.encoding,
-      );
-      todayCatchUpBytes = Math.max(todayCatchUpBytes, caughtUp.processedBytes);
-      liveLogResumed = true;
+      resumeLiveLogs(livePauseToken.encoding);
     }
   }
 }

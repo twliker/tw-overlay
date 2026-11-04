@@ -11,6 +11,11 @@ const stopwatchStatNames: Record<string, string[]> = {
 const activeDetailIds = new Set<number>();
 let timerIsRunningLocal = false;
 let stopwatchRevision = -1;
+let stopwatchContext: import('./shared/types').StopwatchState | null=null;
+let recordFilter='current',recordGeneration=0,controlPending=false,filterChosen=false;
+let activeTitleEdit: {id:number;input:HTMLInputElement;done:boolean;saving:boolean} | null=null;
+const recordTitles=new Map<number,string>();
+const profileFilter=document.getElementById('stopwatch-record-filter') as HTMLSelectElement;
 
 // 엘리먼트 참조
 const btnToggleTimer = document.getElementById('btn-toggle-timer') as HTMLButtonElement;
@@ -29,6 +34,8 @@ const recordCount = document.getElementById('record-count') as HTMLElement;
 async function initStopwatch() {
   // 이벤트 바인딩
   btnToggleTimer?.addEventListener('click', handleToggleTimerClick);
+  document.getElementById('btn-select-profile')?.addEventListener('click',() => window.electronAPI.toggleProfiles());
+  profileFilter?.addEventListener('change',() => {recordFilter=profileFilter.value;filterChosen=true;fetchRecords();});
   btnOpenCalc?.addEventListener('click', () => {
     if ((window as any).electronAPI && (window as any).electronAPI.toggleCoefficientCalculator) {
       (window as any).electronAPI.toggleCoefficientCalculator();
@@ -49,24 +56,33 @@ async function initStopwatch() {
   }
 
   // 초기 기록 조회
-  fetchRecords();
+  if (!window.electronAPI?.timerGetState) fetchRecords();
   if ((window as any).lucide) (window as any).lucide.createIcons();
 }
 
 // 기록 조회 및 렌더링
 function fetchRecords() {
   if (!(window as any).electronAPI || !(window as any).electronAPI.timerGetRecords) return;
-  
-  (window as any).electronAPI.timerGetRecords().then((records: TimerRecord[]) => {
+  if (!stopwatchContext && window.electronAPI.timerGetState || activeTitleEdit) return;
+  const generation=++recordGeneration;
+  let request;
+  if (!stopwatchContext?.profileMode) request=window.electronAPI.timerGetRecords();
+  else {
+    const filter=recordFilter==='all' ? {kind:'all'} : recordFilter==='unassigned' ? {kind:'unassigned'} : {kind:'profile',profileId:recordFilter==='current' ? stopwatchContext.profileId : recordFilter};
+    request=filter.kind==='profile' && !filter.profileId ? Promise.resolve([]) : window.electronAPI.timerGetRecords(filter);
+  }
+  request.then((records: TimerRecord[]) => {
+    if (generation!==recordGeneration || activeTitleEdit) return;
     renderTable(records);
   }).catch((err: any) => {
-    console.error('Failed to fetch timer records:', err);
+    if (generation===recordGeneration) showStopwatchError(err,'기록을 불러오지 못했습니다. 기록 보기를 다시 선택해 주세요.');
   });
 }
 
 function renderTable(records: TimerRecord[]) {
   if (!recordTbody) return;
   recordTbody.innerHTML = '';
+  recordTitles.clear();
   
   if (recordCount) {
     recordCount.innerText = `총 ${records.length}건`;
@@ -82,6 +98,7 @@ function renderTable(records: TimerRecord[]) {
   }
 
   records.forEach(rec => {
+    recordTitles.set(rec.id,rec.title || '');
     const tr = document.createElement('tr');
     tr.className = 'border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors group';
     
@@ -113,7 +130,7 @@ function renderTable(records: TimerRecord[]) {
     const isExpanded = activeDetailIds.has(rec.id!);
 
     tr.innerHTML = `
-      <td class="py-3 px-3 text-slate-400 font-mono whitespace-nowrap">${rec.date}</td>
+      <td class="py-3 px-3 text-slate-400 font-mono whitespace-nowrap"><span>${window.escapeHtml(rec.date)}</span>${stopwatchContext?.profileMode ? `<span class="block truncate text-xs text-indigo-300" title="${window.escapeHtml(recordOwnerLabel(rec))}">${window.escapeHtml(recordOwnerLabel(rec))}</span>` : ''}</td>
       <td class="py-3 px-2 font-black text-indigo-300 font-mono">${formattedDuration}</td>
       <td class="py-3 px-2">
         <div class="flex items-center gap-1.5 no-drag w-full overflow-hidden">
@@ -218,27 +235,38 @@ function attachTableEvents() {
   titleSpans.forEach(span => {
     const parent = span.parentElement;
     const triggerEdit = () => {
+      if (activeTitleEdit) {activeTitleEdit.input.focus();return;}
       const id = Number(span.getAttribute('data-id'));
-      const oldTitle = span.textContent || '';
+      const oldTitle = recordTitles.get(id) || '';
       
       const input = document.createElement('input');
       input.type = 'text';
       input.className = 'bg-slate-900 border border-indigo-500/50 text-white rounded px-1 py-0.5 text-xs w-full focus:outline-none';
-      input.value = oldTitle === '제목 없음' ? '' : oldTitle;
-      let editFinished = false;
-      
-      const saveTitle = () => {
-        if (editFinished) return;
-        editFinished = true;
+      input.value = oldTitle;
+      input.maxLength=300;input.setAttribute('aria-label','기록 제목');
+      const edit={id,input,done:false,saving:false};activeTitleEdit=edit;
+      ++recordGeneration;if (profileFilter) profileFilter.disabled=true;
+      const finish=() => {
+        edit.done=true;
+        if (activeTitleEdit===edit) activeTitleEdit=null;
+        if (profileFilter) profileFilter.disabled=false;
+        fetchRecords();
+      };
+      const saveTitle = async () => {
+        if (edit.done || edit.saving) return;
         const newTitle = input.value.trim();
-        if (newTitle !== oldTitle) {
-          if ((window as any).electronAPI && (window as any).electronAPI.timerUpdateTitle) {
-            (window as any).electronAPI.timerUpdateTitle(id, newTitle);
-          }
-        } else {
-          // 값 변경이 없으면 원래 복구
-          fetchRecords();
-        }
+        if (newTitle===oldTitle) {finish();return;}
+        edit.saving=true;input.readOnly=true;
+        try {
+          if (stopwatchContext?.profileMode) {
+            const result=await window.electronAPI.timerMutateRecord({kind:'title',id,title:newTitle});
+            if (!result.success) throw new Error(result.error || '기록 제목을 저장하지 못했습니다.');
+          } else window.electronAPI.timerUpdateTitle(id,newTitle);
+          clearStopwatchError();finish();
+        } catch (error) {
+          showStopwatchError(error,'기록 제목을 저장하지 못했습니다. 입력은 유지됩니다. 다시 저장해 주세요.');
+          input.readOnly=false;input.focus();
+        } finally {edit.saving=false;}
       };
 
       input.addEventListener('keydown', (e) => {
@@ -250,8 +278,7 @@ function attachTableEvents() {
           e.preventDefault();
           e.stopPropagation();
           // 실제 포커스 창에서는 재렌더로 입력란이 제거될 때 blur가 발생할 수 있다.
-          editFinished = true;
-          fetchRecords();
+          if (!edit.saving) {clearStopwatchError();finish();}
         }
       });
       input.addEventListener('blur', saveTitle);
@@ -298,9 +325,8 @@ function attachTableEvents() {
     btn.addEventListener('click', () => {
       const id = Number(btn.getAttribute('data-id'));
       if (confirm('이 측정 기록을 삭제하시겠습니까?')) {
-        if ((window as any).electronAPI && (window as any).electronAPI.timerDeleteRecord) {
-          (window as any).electronAPI.timerDeleteRecord(id);
-        }
+        if (stopwatchContext?.profileMode) void saveRecordChange({kind:'delete',id});
+        else window.electronAPI.timerDeleteRecord(id);
       }
     });
   });
@@ -326,27 +352,73 @@ function attachTableEvents() {
 
 // 재계산도 기록에 보관된 시작 시점의 프로필을 사용한다.
 function updateRecordSeriesAndCore(id: number, series: string | null, core: string | null) {
-  window.electronAPI.timerUpdateSeriesCore(id, series, core);
+  if (stopwatchContext?.profileMode) void saveRecordChange({kind:'recalculate',id,series,core});
+  else window.electronAPI.timerUpdateSeriesCore(id, series, core);
+}
+
+async function saveRecordChange(change:import('./shared/types').StopwatchRecordMutation) {
+  try {
+    const result=await window.electronAPI.timerMutateRecord(change);
+    if (!result.success) throw new Error(result.error || '측정 기록을 저장하지 못했습니다.');
+    clearStopwatchError();
+  } catch (error) {showStopwatchError(error,'측정 기록을 저장하지 못했습니다. 다시 시도해 주세요.');}
+  finally {fetchRecords();}
+}
+
+function recordOwnerLabel(record:TimerRecord):string {
+  if (!record.profile_id) return '미배정 기록';
+  const owner=stopwatchContext?.profiles?.find(profile => profile.id===record.profile_id);
+  return `${owner?.name || '기본 프로필'}${owner?.deletedAt ? ' (삭제됨)' : ''}`;
+}
+
+function updateRecordFilter() {
+  if (!profileFilter) return;
+  const choices=[['current','현재 프로필'],['all','모든 프로필'],['unassigned','미배정 기록'],
+    ...(stopwatchContext?.profiles || []).map(profile => [profile.id,`${profile.name || '기본 프로필'} · ${profile.userServer===7 ? '하이아칸' : profile.userServer===16 ? '네냐플' : '서버 미설정'}${profile.deletedAt ? ' (삭제됨)' : ''}`])];
+  profileFilter.replaceChildren(...choices.map(([value,label]) => {const option=document.createElement('option');option.value=value;option.textContent=label;return option;}));
+  profileFilter.value=recordFilter;profileFilter.disabled=!!activeTitleEdit;
 }
 
 function applyStopwatchState(state: import('./shared/types').StopwatchState) {
   if (state.revision <= stopwatchRevision) return;
+  const previous=stopwatchContext;
   stopwatchRevision = state.revision;
+  // 현재 프로필을 따라 보다가 A 제목을 편집했다면 전환 중에도 A 기록을 유지한다.
+  if (activeTitleEdit && recordFilter==='current' && previous?.profileId && previous.profileId!==state.profileId) {recordFilter=previous.profileId;filterChosen=true;}
+  if (!previous && state.profileMode && !state.profileId) recordFilter='all';
+  if (state.profileId && !previous?.profileId && !filterChosen) recordFilter='current';
+  stopwatchContext=state;
   if (state.running) startTimerLocal();
   else stopTimerLocal();
+  document.getElementById('stopwatch-profile-bar')?.classList.toggle('hidden',!state.profileMode);
+  document.getElementById('stopwatch-filter-bar')?.classList.toggle('hidden',!state.profileMode);
+  document.getElementById('stopwatch-profile-guide')?.classList.toggle('hidden',!state.profileMode);
+  const label=document.getElementById('stopwatch-profile-name');
+  if (label) {label.textContent=state.profileId ? `측정 프로필 · ${state.profileName}` : '측정할 프로필을 선택해 주세요';label.title=label.textContent;}
+  if (state.selectionRequired && statusText) statusText.innerText='프로필 선택 대기';
+  updateControlAvailability();updateRecordFilter();
+  if (!previous || previous.profileId!==state.profileId || JSON.stringify(previous.profiles)!==JSON.stringify(state.profiles)) {
+    ++recordGeneration;fetchRecords();
+  }
 }
 
-function showStopwatchError() {
-  if (statusText) statusText.innerText = '측정 상태를 변경하지 못했습니다. 다시 시도해 주세요.';
+function showStopwatchError(error?:unknown,fallback='측정 상태를 변경하지 못했습니다. 다시 시도해 주세요.') {
+  const el=document.getElementById('stopwatch-error');
+  if (el) {el.textContent=error instanceof Error && !error.message.startsWith('Error invoking remote method') ? error.message : fallback;el.classList.remove('hidden');}
+}
+function clearStopwatchError() {document.getElementById('stopwatch-error')?.classList.add('hidden');}
+function updateControlAvailability() {
+  if (btnToggleTimer) btnToggleTimer.disabled=controlPending || !!(stopwatchContext?.profileMode && (!stopwatchContext.profileId || stopwatchContext.selectionRequired || stopwatchContext.busy));
 }
 
 async function handleToggleTimerClick() {
   if (btnToggleTimer.disabled) return;
-  btnToggleTimer.disabled = true;
+  controlPending=true;updateControlAvailability();clearStopwatchError();
   try {
-    applyStopwatchState(await window.electronAPI.timerToggleSession(timerIsRunningLocal ? 'stop' : 'start'));
-  } catch { showStopwatchError(); }
-  finally { btnToggleTimer.disabled = false; }
+    const command=timerIsRunningLocal ? 'stop' : 'start';
+    applyStopwatchState(await (stopwatchContext?.profileMode ? window.electronAPI.timerToggleSession(command,stopwatchContext.profileId) : window.electronAPI.timerToggleSession(command)));
+  } catch (error) {showStopwatchError(error);}
+  finally {controlPending=false;updateControlAvailability();}
 }
 
 // 로컬 시작 처리

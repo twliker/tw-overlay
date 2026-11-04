@@ -73,6 +73,10 @@ export interface WorkerSyncTargetFile {
   replaceAutomaticDateOnComplete?: boolean;
   /** 실시간 tail이 멈춘 오늘 파일은 snapshot 이후 증가분을 메인 프로세스가 이어서 처리한다. */
   catchUpAfterReplace?: boolean;
+  /** 다른 프로필/기존 미배정에 이미 귀속된 구간. 외치기는 공통이므로 계속 분석한다. */
+  excludedRanges?:Array<{start:number;end:number}>;
+  aggregateOwnerKey?:string;
+  legacyAggregateDeductions?:{stones:Record<string,number>;elso:number;gold:number};
 }
 
 export interface ParsedLootEvent {
@@ -100,12 +104,14 @@ export interface ParsedSeedEvent {
 }
 
 export interface ParsedElsoEvent {
+  eventId?:string;
   date: string;
   timeOnly: string;
   amount: number;
 }
 
 export interface ParsedGoldPouchSeedEvent {
+  eventId?:string;
   date: string;
   timeOnly: string;
   amount: number;

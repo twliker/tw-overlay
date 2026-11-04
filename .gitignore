@@ -69,6 +69,13 @@ test-pitta.js
 .agents/plan
 *.db
 .agents/reviews
-.agents/development
+.agents/development/*
+!.agents/development/feature-contract-index.md
+!.agents/development/local-profiles-plan.md
+!.agents/development/profile-storage-design.md
+!.agents/development/profile-sync-lifecycle.md
+!.agents/development/future-tasks.md
+!.agents/development/google-drive-sync-contract.md
+!.agents/development/google-sync-rebuild.md
 ga-dashboard
 .agents/reviews

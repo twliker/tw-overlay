@@ -1,0 +1,133 @@
+/** 실제 제품 HTML/preload/IPC/SQLite로 프로필 관리 UX를 검사한다. 사용자 폴더를 열지 않는다. */
+import assert = require('node:assert/strict');
+import fs = require('node:fs');
+import os = require('node:os');
+import path = require('node:path');
+import { app, BrowserWindow, ipcMain } from 'electron';
+
+const fixture=fs.mkdtempSync(path.join(os.tmpdir(),'tw-profiles-ui-'));
+app.setPath('userData',fixture);
+const root=path.resolve(__dirname,'..');
+const {ApplicationData}=require(path.join(root,'dist/modules/applicationData.js'));
+const {ProfileService}=require(path.join(root,'dist/modules/profileService.js'));
+const {registerProfileIpc}=require(path.join(root,'dist/modules/profileIpc.js'));
+const {DEFAULT_CONFIG}=require(path.join(root,'dist/modules/constants.js'));
+const config=require(path.join(root,'dist/modules/config.js'));
+
+async function run():Promise<void> {
+  await app.whenReady();
+  const legacy={...structuredClone(DEFAULT_CONFIG),userServer:7,pinnedNoteText:'설정 복사 확인',
+    characterPresets:[{id:'A',name:'기존 캐릭터'},{id:'B',name:'두 번째 캐릭터'}],selectedCharacterId:'A'};
+  assert.equal(config.saveConfirmed(legacy),true);
+  const store=await ApplicationData.initialize({directory:fixture,deviceId:'ui-fixture',defaults:DEFAULT_CONFIG},legacy);
+  config.installPersistence({read:(value:any) => store.readConfiguration(value),commit:(value:any,previous:any) => store.commitConfiguration(value,previous)});
+  let page:BrowserWindow | null=null;
+  let closeRequests=0;
+  let nicknameQueries=0;
+  const service=new ProfileService(store,config,{changed:(state:any) => page?.webContents.send('play-profiles-changed',state)});
+  const replay=(payload:any) => store.database.prepare('INSERT INTO ui_applied VALUES(?)').run(payload.value);
+  store.database.exec('CREATE TABLE ui_applied(value INTEGER)');
+  service.beginSession('fixture-game');
+  store.enqueue('old-session',{value:1},1,'old-record');
+  store.enqueue(service.status().sessionId,{value:2},2,'current-record');
+  let ready=true;
+  registerProfileIpc({getRuntime:() => ready ? {service,replay} : null,close:() => {++closeRequests;}});
+  ipcMain.on('get-default-config-sync',event => {event.returnValue=DEFAULT_CONFIG;});
+  ipcMain.handle('nickname-info-get',() => {++nicknameQueries;throw new Error('프로필 이름으로 캐릭터를 조회하면 안 됩니다.');});
+  const errors:string[]=[];
+  const createPage=() => {
+    const win=new BrowserWindow({show:false,width:820,height:680,webPreferences:{preload:path.join(root,'dist/preload.js'),backgroundThrottling:false}});
+    win.webContents.on('console-message',event => {if (event.level==='error') errors.push(event.message);});
+    return win;
+  };
+  page=createPage();
+  const js=(source:string):Promise<any> => page!.webContents.executeJavaScript(source);
+  const wait=async (expression:string,label:string):Promise<void> => {
+    const until=Date.now()+6000;
+    while (Date.now()<until) {if (await js(`Boolean(${expression})`)) return;await new Promise(resolve => setTimeout(resolve,25));}
+    throw new Error(`${label}: ${await js('document.getElementById("profile-status").textContent')}`);
+  };
+  const click=async (id:string) => js(`document.getElementById(${JSON.stringify(id)}).click()`);
+  const fill=async (name:string,server:string) => js(`document.getElementById('profile-name').value=${JSON.stringify(name)};document.getElementById('profile-name').dispatchEvent(new Event('input'));document.getElementById('profile-server').value=${JSON.stringify(server)};document.getElementById('profile-server').dispatchEvent(new Event('change'));`);
+  const confirm=async () => {await wait("document.getElementById('profile-confirm').open",'확인창');await js("document.getElementById('confirm-accept').click()");};
+  try {
+    await page.loadFile(path.join(root,'dist/profiles.html'));
+    await wait("document.querySelectorAll('.profile-row').length===2",'기존 프로필 로드');
+    assert.equal(await js("document.getElementById('profile-name').value"),'기존 캐릭터');
+    assert.equal(await js("document.querySelector('label[for=profile-name]').textContent"),'프로필 이름');
+    assert.equal(await js("document.getElementById('profile-eta')"),null,'프로필 이름으로 에타 조회 UI 없음');
+    assert.match(await js("document.getElementById('selection-notice').textContent"),/선택 전 자동 기록/);
+    assert.equal(await js("document.querySelectorAll('.pending-row').length"),1,'현재 세션은 별도 배정 없이 선택 시 반영');
+    await click('new-profile');
+    await fill('사냥용','');
+    await click('save-profile');
+    assert.equal(store.list().length,2,'서버 미선택은 브라우저와 메인 모두 거부');
+    assert.equal((await js("window.electronAPI.createPlayProfile('서버누락',999)")).success,false);
+    await fill('사냥용','16');
+    const initialId=service.status().activeProfileId;
+    await js(`document.getElementById('profile-copy').value=${JSON.stringify(initialId)};`);
+    await click('save-profile');
+    await wait("document.querySelectorAll('.profile-row').length===3 && !document.getElementById('save-profile').disabled",'생성 저장');
+    const created=store.list().find((p:any) => p.name==='사냥용');
+    assert.ok(created);
+    assert.equal(store.setting(created.id,'pinnedNoteText'),'설정 복사 확인');
+    assert.equal(service.status().activeProfileId,initialId,'저장만 하면 자동 전환하지 않음');
+    assert.equal(closeRequests,0);
+    await fill('작성 중인 긴 이름','16');
+    page.webContents.send('play-profiles-changed',service.status());
+    await wait("document.getElementById('profile-name').value==='작성 중인 긴 이름'",'상태 알림 중 초안 보존');
+    await click('new-profile');
+    await wait("document.getElementById('profile-confirm').open",'미저장 확인');
+    await js("document.querySelector('#profile-confirm button[value=cancel]').click()");
+    assert.equal(await js("document.getElementById('profile-name').value"),'작성 중인 긴 이름');
+    await js("window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))");
+    await wait("document.getElementById('profile-confirm').open",'Escape도 미저장 입력 보호');
+    await js("document.querySelector('#profile-confirm button[value=cancel]').click()");
+    assert.equal(closeRequests,0,'Escape 확인 취소는 창을 닫지 않음');
+    assert.equal(await js("document.getElementById('profile-name').value"),'작성 중인 긴 이름');
+    store.database.exec("CREATE TRIGGER reject_ui_save BEFORE INSERT ON profile_change_log BEGIN SELECT RAISE(ABORT,'검사 저장 실패'); END;");
+    await click('save-profile');
+    await wait("document.getElementById('profile-status').dataset.error==='true' && !document.getElementById('save-profile').disabled",'저장 실패 안내');
+    assert.equal(store.list().find((p:any) => p.id===created.id).name,'사냥용','저장 실패는 원본 보존');
+    assert.equal(await js("document.getElementById('profile-name').value"),'작성 중인 긴 이름','재시도용 입력 보존');
+    store.database.exec('DROP TRIGGER reject_ui_save');
+    await click('save-profile');
+    await wait("document.getElementById('profile-status').textContent==='프로필을 저장했습니다.'",'저장 재시도');
+    await click('save-use-profile');
+    await wait("document.getElementById('selection-notice').textContent.includes('사용하고') && !document.getElementById('save-profile').disabled",'선택 성공');
+    assert.equal(service.status().activeProfileId,created.id);
+    assert.equal(closeRequests,1,'성공한 사용만 닫기 요청');
+    assert.deepEqual(store.database.prepare('SELECT value FROM ui_applied').all(),[{value:2}]);
+    await js("document.querySelector('.pending-row button').click()");await confirm();
+    await wait("document.getElementById('pending-section').hidden",'이전 세션 명시 배정');
+    assert.deepEqual(store.database.prepare('SELECT value FROM ui_applied ORDER BY value').all(),[{value:1},{value:2}]);
+    await page.setSize(800,600);
+    assert.equal(await js('document.documentElement.scrollWidth>window.innerWidth'),false,'최소 창 가로 넘침 없음');
+    const image=await page.webContents.capturePage();
+    fs.writeFileSync(path.join(fixture,'profiles-800x600.png'),image.toPNG());
+    const other=createPage();
+    await other.loadFile(path.join(root,'dist/storage-bridge.html'));
+    assert.equal((await other.webContents.executeJavaScript("window.electronAPI.createPlayProfile('허용안됨',7)")).success,false,'다른 제품/외부 페이지에서 프로필 변경 불허');
+    other.destroy();
+    const remainingIds=store.list().filter((p:any) => p.id!==created.id).map((p:any) => p.id);
+    for (const id of remainingIds) assert.equal((await service.remove(id)).success,true);
+    await wait("document.querySelectorAll('.profile-row').length===1 && !document.getElementById('delete-profile').disabled",'삭제 상태 알림 반영');
+    await click('delete-profile');await confirm();
+    await wait("document.querySelectorAll('.profile-row').length===1 && document.getElementById('profile-server').value.length===0 && !document.getElementById('save-profile').disabled",'마지막 삭제 후 빈 기본');
+    assert.equal(service.status().profiles.length,1);
+    assert.equal(service.status().selectionRequired,true);
+    assert.equal(service.status().profiles[0].userServer,null);
+    ready=false;
+    await page.reload();
+    await wait("!document.getElementById('retry-profiles').hidden",'준비 전 오류 안내');
+    assert.equal(await js("document.getElementById('save-profile').disabled"),true);
+    ready=true;
+    await click('retry-profiles');
+    await wait("document.querySelectorAll('.profile-row').length===1",'조회 재시도');
+    assert.deepEqual(errors,[],'제품 렌더러 오류 없음');
+    assert.equal(nicknameQueries,0,'프로필 표시 이름은 에타 조회에 사용하지 않음');
+    console.log(`PASS profiles UI: real preload/IPC/SQLite, validation, draft, failure/retry, selection, pending, deletion; screenshot ${path.join(fixture,'profiles-800x600.png')}`);
+  } finally {page?.destroy();store.close();}
+}
+
+run().then(() => app.exit(0)).catch(error => {console.error(error);app.exit(1);});

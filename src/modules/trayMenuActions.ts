@@ -34,6 +34,7 @@ const TRAY_MENU_ACTIONS = {
   toggleXpHud: wm.toggleXpHudWindow,
   toggleContentsChecker: wm.toggleContentsCheckerWindow,
   toggleDiary: wm.toggleDiaryWindow,
+  toggleProfiles: wm.toggleProfilesWindow,
   toggleStopwatch: wm.toggleStopwatchWindow,
   toggleBossSettings: wm.toggleBossSettingsWindow,
   toggleBuffTimer: wm.toggleBuffTimerWindow,

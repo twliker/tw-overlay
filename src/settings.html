@@ -373,19 +373,14 @@
     </div>
 
     <div class="content-area custom-scroll">
+      <div id="settings-profile-context" class="ui-inset mb-6" hidden>
+        <p id="settings-profile-target" class="text-sm font-bold text-slate-200"></p>
+        <p class="ui-description">프로필별 설정은 이 프로필에, 창 배치·음량 등 공통 설정은 모든 프로필에 적용합니다.</p>
+        <p id="settings-profile-status" class="text-sm text-slate-200" role="status" aria-live="polite"></p>
+      </div>
       <div id="settings-context-tabs" class="settings-context-tabs" aria-label="세부 설정"></div>
       <!-- 0. 일반 설정 (앱 동작 & 사이드바) -->
       <div id="section-general" class="settings-section space-y-8">
-        <section id="activity-presets-card" class="settings-group" data-settings-view="general-app">
-          <h2 class="ui-section-heading"><i data-lucide="layout-template"></i>활동 프리셋</h2>
-          <div class="ui-card ui-stack">
-            <p class="ui-description">사냥·보스·거래 상황에 맞는 창 배치와 알림 설정을 저장해 한 번에 전환합니다.</p>
-            <div class="ui-actions"><input id="activity-preset-name" list="activity-preset-suggestions" maxlength="32" class="ui-input flex-1 min-w-0" placeholder="프리셋 이름 (예: 사냥)" aria-label="새 활동 프리셋 이름"><datalist id="activity-preset-suggestions"><option value="사냥"><option value="보스"><option value="거래"></datalist><button id="activity-preset-save" class="ui-button ui-button-primary"><i data-lucide="save"></i>현재 상태 저장</button></div>
-            <div id="activity-preset-list" class="ui-stack"></div>
-            <p class="ui-description">미저장 설정은 먼저 저장해 주세요. 캐릭터 기록과 메모 내용은 전환해도 유지됩니다.</p>
-            <p id="activity-preset-status" class="ui-status" role="status"></p>
-          </div>
-        </section>
         <div class="settings-group">
           <h2 class="text-lg font-bold mb-6 flex items-center gap-2"><i data-lucide="settings-2"
               class="w-5 h-5 text-purple-500"></i><span id="general-section-title">앱 동작 설정</span></h2>
@@ -1230,7 +1225,7 @@
                 <i data-lucide="key" class="w-4 h-4 text-emerald-400"></i> 거래 게시판 알림 키워드 등록
               </label>
               <div class="flex gap-2 mb-4">
-                <input type="text" id="trade-keyword-input" class="input-field flex-1 py-3 px-4 bg-black/40"
+                <input type="text" id="trade-keyword-input" data-settings-draft-only class="input-field flex-1 py-3 px-4 bg-black/40"
                   placeholder="예: 득템, 업데이트, 점검..." onkeypress="if(event.key==='Enter')addTradeKeyword()">
                 <button onclick="addTradeKeyword()"
                   class="btn-primary !bg-emerald-600 hover:!bg-emerald-500 px-6 font-black shadow-lg shadow-emerald-900/20">추가</button>
@@ -1252,7 +1247,7 @@
                 <i data-lucide="bell" class="w-4 h-4 text-purple-400"></i> 테일즈위버 갤러리 알림 키워드 등록
               </label>
               <div class="flex gap-2 mb-4">
-                <input type="text" id="keyword-input" class="input-field flex-1 py-3 px-4 bg-black/40"
+                <input type="text" id="keyword-input" data-settings-draft-only class="input-field flex-1 py-3 px-4 bg-black/40"
                   placeholder="예: 득템, 업데이트, 점검..." onkeypress="if(event.key==='Enter')addKeyword()">
                 <button onclick="addKeyword()"
                   class="btn-primary px-6 font-black shadow-lg shadow-purple-900/20">추가</button>
@@ -1319,6 +1314,11 @@
                   <i data-lucide="sparkles" class="w-4 h-4"></i> 과거 로그 동기화
                 </button>
               </div>
+              <div id="profile-log-restore-notice" class="hidden p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl text-sm text-slate-200 leading-relaxed" role="status">
+                <p id="profile-log-restore-target" class="font-bold mb-2"></p>
+                <p>채팅 로그에는 접속한 캐릭터 정보가 포함되어 있지 않아 프로필을 자동으로 구분할 수 없습니다. 선택한 프로필로 모든 기록을 복원합니다.</p>
+                <p class="text-xs text-slate-300 mt-2">이미 복원한 구간과 기존 미배정 기록은 원래 귀속을 유지합니다. 복원 중에는 프로필을 전환하거나 삭제할 수 없습니다.</p>
+              </div>
               <label class="flex items-start gap-3 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl cursor-pointer">
                 <input type="checkbox" id="reanalyze-completed-chat-logs"
                   class="w-5 h-5 mt-0.5 accent-purple-600 shrink-0">
@@ -1329,7 +1329,7 @@
                   </span>
                 </span>
               </label>
-              <div class="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-xs text-amber-200 flex items-start gap-2">
+              <div id="legacy-log-restore-character-notice" class="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-xs text-amber-200 flex items-start gap-2">
                 <i data-lucide="triangle-alert" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>
                 <span>과거 채팅 로그에는 수행 캐릭터 정보가 없으므로, 감지된 숙제는 모두 <strong class="text-amber-100">메인 캐릭터</strong>에 반영됩니다.</span>
               </div>
@@ -1401,11 +1401,12 @@
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <div class="grid grid-cols-3 gap-4 items-center">
                     <div class="col-span-1">
-                      <h4 class="text-xs font-bold text-slate-400">주 사용 캐릭터 서버</h4>
+                      <h4 id="settings-user-server-label" class="text-xs font-bold text-slate-400">주 사용 캐릭터 서버</h4>
                       <p class="text-xs text-slate-500 mt-1">에타 랭커 배지 매칭 기준</p>
                     </div>
                     <div class="col-span-2">
                       <select id="chat-overlay-user-server-input" class="input-field w-full py-2 px-3 bg-black/60">
+                        <option value="">서버를 선택해 주세요 (필수)</option>
                         <option value="16">네냐플</option>
                         <option value="7" selected>하이아칸</option>
                       </select>
@@ -1737,7 +1738,7 @@
                   <!-- 탭 추가 입력 폼 -->
                   <div class="p-3.5 bg-black/30 rounded-xl border border-white/5 space-y-3">
                     <div class="flex items-center gap-2">
-                      <input type="text" id="custom-tab-name-input" maxlength="10" placeholder="새 탭 이름 입력 (예: 거래+귓, 사냥용)..."
+                      <input type="text" id="custom-tab-name-input" data-settings-draft-only maxlength="10" placeholder="새 탭 이름 입력 (예: 거래+귓, 사냥용)..."
                         class="input-field flex-1 py-1.5 px-3 bg-black/50 text-xs text-slate-200">
                       <button type="button" onclick="addCustomChatTab()"
                         class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1 shrink-0 shadow-sm">
@@ -1934,7 +1935,7 @@
                   </div>
 
                   <div class="flex gap-2">
-                    <input type="text" id="chat-overlay-filter-input"
+                    <input type="text" id="chat-overlay-filter-input" data-settings-draft-only
                       class="input-field flex-1 py-2 px-3 bg-black/40 text-xs text-slate-200"
                       placeholder="제외할 문구(5자 이상) 또는 정규식(/패턴/i) 입력..." onkeypress="if(event.key==='Enter')addChatOverlayFilter()">
                     <button type="button" onclick="addChatOverlayFilter()"
@@ -2043,7 +2044,7 @@
                 <i data-lucide="message-square-more" class="w-4 h-4 text-purple-400"></i> 인게임 외치기(Shout) 알림 키워드
               </label>
               <div class="flex gap-2 mb-4">
-                <input type="text" id="shout-keyword-input" class="input-field flex-1 py-3 px-4 bg-black/40"
+                <input type="text" id="shout-keyword-input" data-settings-draft-only class="input-field flex-1 py-3 px-4 bg-black/40"
                   placeholder="예: 급처, 훈장, 수영석..." onkeypress="if(event.key==='Enter')addShoutKeyword()">
                 <button onclick="addShoutKeyword()"
                   class="btn-primary px-6 font-black shadow-lg shadow-purple-900/20">추가</button>
@@ -2872,7 +2873,7 @@
                 <div>
                   <h3 class="text-sm font-bold text-slate-200">클라우드 동기화</h3>
                   <div class="flex items-center gap-2 mt-0.5">
-                    <p class="text-xs text-slate-400">설정과 숙제를 다른 PC에서도 그대로 이어서 사용합니다.</p>
+                    <p id="google-sync-description" class="text-xs text-slate-400">설정과 숙제를 다른 PC에서도 그대로 이어서 사용합니다.</p>
                     <span class="text-slate-600">|</span>
                     <a href="#" onclick="window.electronAPI.openExternal('https://twliker.github.io/tw-overlay/privacy/')" class="text-xs text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-1 font-semibold">
                       <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> 개인정보처리방침
@@ -2885,6 +2886,7 @@
               </div>
             </div>
 
+            <div id="google-sync-profile-paused" class="ui-inset space-y-2" hidden role="status"><p id="google-sync-profile-paused-text"></p><p id="google-sync-profile-paused-account" class="ui-description"></p></div>
             <!-- 미연동 상태 -->
             <div id="google-sync-unlinked-view" class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between gap-4">
               <div class="flex flex-col gap-1 min-w-0 flex-1">
@@ -3104,7 +3106,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                                class="text-purple-400">3.2.2</span></p>
+                                class="text-purple-400">3.5.0-beta.1</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -3237,6 +3239,8 @@
   <script src="shared/sidebarCategories.js"></script>
   <script src="shared/chatChannels.js"></script>
   <script src="renderer/settings/sound-preview.js"></script>
+  <script src="renderer/settings/profile-cloud-sync.js"></script>
+  <script src="renderer/settings/profile-cloud-pause.js"></script>
   <script src="renderer/settings/list-rendering.js"></script>
   <script src="renderer/settings/form-collection.js"></script>
   <script src="renderer/settings/shortcuts.js"></script>
@@ -3246,7 +3250,6 @@
   <script src="renderer/settings/chat-preview.js"></script>
   <script src="renderer/nickname-notes.js"></script>
   <script src="renderer/settings/companion-controls.js"></script>
-  <script src="renderer/settings/activity-presets.js"></script>
   <script src="renderer/settings/sharing.js"></script>
   <script src="renderer/settings/notification-layout.js"></script>
   <script src="renderer/settings/config-binding.js"></script>
@@ -3409,6 +3412,16 @@
 
     let manualChatLogSyncRunning = false;
 
+    function updateProfileLogRestoreNotice() {
+      const value=window.lastConfig,notice=document.getElementById('profile-log-restore-notice');
+      if (!notice) return;
+      notice.classList.toggle('hidden',!value?.activePlayProfileId);
+      document.getElementById('legacy-log-restore-character-notice')?.classList.toggle('hidden',!!value?.activePlayProfileId);
+      const name=value?.characterPresets?.[0]?.name || '기본 프로필';
+      const server=value?.userServer===7 ? '하이아칸' : value?.userServer===16 ? '네냐플' : '서버 선택 필요';
+      document.getElementById('profile-log-restore-target').textContent=value?.profileSelectionRequired ? '복원할 프로필을 먼저 선택해 주세요.' : `복원할 프로필: ${name} · ${server}`;
+    }
+
     function renderManualChatLogSyncProgress(info) {
       if (!manualChatLogSyncRunning || !info) return;
       const box = document.getElementById('settings-sync-status-box');
@@ -3433,6 +3446,8 @@
     }
 
     async function triggerManualSync() {
+      if (manualChatLogSyncRunning) return;
+      const restoreProfileId=window.lastConfig?.activePlayProfileId;
       const btn = document.getElementById('btn-manual-sync');
       const reanalyzeInput = document.getElementById('reanalyze-completed-chat-logs');
       const includeCompletedLogs = reanalyzeInput?.checked === true;
@@ -3456,13 +3471,14 @@
 
       try {
         if (window.electronAPI && window.electronAPI.startChatLogSync) {
-          const res = await window.electronAPI.startChatLogSync(includeCompletedLogs);
+          const res = await window.electronAPI.startChatLogSync(includeCompletedLogs,restoreProfileId);
           if (res && res.success) {
             if (txt) {
               const failedNames = (res.failedFiles || []).map(file => file.fileName).join(', ');
+              const targetNote=res.profileName ? ` · ${res.profileName}` : '';
               const prefix = res.partial
                 ? `⚠️ 일부 복원 완료 (실패: ${failedNames})`
-                : '✅ 과거 로그 복원 완료!';
+                : `✅ 과거 로그 복원 완료!${targetNote}`;
               const todayNote = res.todayRebuildDeferred
                 ? ' · 오늘 로그는 분석 중 새 기록이 생겨 기존 기록을 보존하며 병합했습니다.'
                 : (res.todayCatchUpProcessed
@@ -3476,9 +3492,10 @@
                 ? ` · 파일 변경으로 기존 기록 보존: ${deferredFiles.join(', ')}`
                 : '';
               txt.textContent = `${prefix}${rebuiltNote}${todayNote}${deferredNote} (파일 ${res.totalFiles - (res.failedFiles?.length || 0)}/${res.totalFiles}개 | 반영 결과: 득템 ${res.lootsAdded}건, 숙제 일지 ${res.homeworkLogsDetected || 0}건, 현재 주기 체크 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 현재 주기 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
+              if (res.pendingReplayWarning) txt.textContent+=` · ${res.pendingReplayWarning}`;
             }
           } else {
-            if (txt) txt.textContent = `동기화 완료: ${res?.error || '로그 파일 없음'}`;
+            if (txt) txt.textContent = `복원하지 못했습니다: ${res?.error || '로그 파일 없음'}`;
           }
         }
       } catch (err) {
@@ -3829,6 +3846,9 @@
     }
 
     function getSettingsApplyErrorMessage(result) {
+      if (result?.error === 'profile-storage-busy') return '데이터 복구 중입니다. 완료 후 다시 저장해 주세요. 입력은 유지됩니다.';
+      if (result?.error === 'profile-restore-busy') return '과거 로그 복원 중입니다. 완료 후 다시 저장해 주세요. 입력은 유지됩니다.';
+      if (result?.error === 'profile-changed') return '입력 중인 프로필과 현재 프로필이 달라 저장하지 않았습니다. 프로필을 확인한 뒤 다시 저장해 주세요.';
       if (result && result.error === 'save-failed') {
         return '설정 파일을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
       }
@@ -4102,6 +4122,7 @@
 
     function updateGoogleSyncUI(status) {
       if (!status) return;
+      if (window.settingsProfileCloudPause?.render(status)) return;
       const unlinkedView = document.getElementById('google-sync-unlinked-view');
       const linkedView = document.getElementById('google-sync-linked-view');
       const badge = document.getElementById('google-sync-badge');
@@ -4659,7 +4680,6 @@
     const SETTINGS_SEARCH_INDEX = [
       { title: '채팅 간단 표시', keywords: ['시간', '시각', '배지', '간단', '읽기'], category: '채팅 > 채팅 오버레이', groupId: 'chat', routeIndex: 1, targetId: 'chat-reading-settings' },
       { title: '선택한 설정 공유', keywords: ['공유', '내보내기', '가져오기', '배치', '외관'], category: '시스템 & 관리 > 데이터 관리', groupId: 'system', routeIndex: 1, targetId: 'settings-share-card' },
-      { title: '활동 프리셋', keywords: ['사냥', '보스', '거래', '프리셋', '창 배치'], category: '앱 & 런처 > 앱 동작', groupId: 'app', routeIndex: 0, targetId: 'activity-presets-card' },
       { title: '알림 마우스 드래그 위치 설정', keywords: ['알림', '위치', '드래그', '배치'], category: '게임 플레이 > HUD 위젯 관리', groupId: 'game', routeIndex: 0, targetId: 'notification-position-settings-card' },
       { title: '화면 고정 메모', keywords: ['메모', '고정', '목표'], category: '게임 플레이 > HUD 위젯 관리', groupId: 'game', routeIndex: 0, targetId: 'pinned-note-enabled' },
       { title: '보급품 발판 안내', keywords: ['보급품', '탈환', '발판', '색상', '암호'], category: '게임 플레이 > 게임 진행 알림', groupId: 'game', routeIndex: 1, targetId: 'supply-helper-enabled' },
@@ -5562,6 +5582,7 @@
     }
 
     window.electronAPI.onConfigData((config, context) => {
+      window.settingsDraft.setOwner(config.activePlayProfileId || null);
       window.nicknameNotes?.updateConfig(config);
       const hudPositionFields = {
         todaySummaryHudPos: ['today-summary-pos-left', 'today-summary-pos-top'],
@@ -5573,7 +5594,6 @@
       window.lastConfig = config;
       window.settingsConfigBinding.applyGeneralSettings(config, window.electronAPI.DEFAULT_CONFIG);
       window.settingsCompanion?.bind(config);
-      window.settingsActivityPresets?.bind(config);
       window.settingsNotificationLayout?.bind(config);
 
       // 체크박스 상태 적용 시도
@@ -5669,6 +5689,7 @@
 
       // config 로드 완료 (즉시 로딩 오버레이 닫고 ETA 캐시는 백그라운드 확인)
       _configReady = true;
+      window.settingsProfileTransition?.refreshLabel();
       hideLoading();
       void updateEtaCacheStatusText();
     });
@@ -6174,7 +6195,8 @@
       content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
     }
 
-    async function saveSettings() {
+    async function saveSettings(keepOpen = false) {
+      const expectedProfileId = lastConfig?.activePlayProfileId;
       // HUD 편집 중 일반 설정을 먼저 적용하면 비활성 HUD가 display:none으로 돌아가 위치를
       // 잃을 수 있다. 사용자가 전용 완료/취소 동작을 선택하기 전에는 전체 저장을 실행하지 않는다.
       if (isHudEditing) {
@@ -6182,8 +6204,17 @@
         card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         card?.classList.add('highlight-pulse-effect');
         setTimeout(() => card?.classList.remove('highlight-pulse-effect'), 1600);
-        return;
+        return false;
       }
+      const pendingEntry = ['keyword-input', 'trade-keyword-input', 'shout-keyword-input', 'chat-overlay-filter-input']
+        .some(id => document.getElementById(id)?.value.trim());
+      if (pendingEntry || hasPendingCustomChatTabDraft()) {
+        const message = '작성 중인 키워드나 탭을 먼저 추가하거나 입력을 지운 뒤 저장해 주세요. 작성 내용은 유지됩니다.';
+        if (keepOpen) window.settingsProfileTransition?.report(message); else alert(message);
+        return false;
+      }
+      const release = window.settingsProfileTransition?.beginSave();
+      if (release === false) return false;
       try {
         try {
           const latestConfig = await window.electronAPI.getConfig();
@@ -6258,20 +6289,34 @@
             }
             : { ...window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos }
         };
-        const result = await window.electronAPI.applySettingsConfirmed(settings);
+        const savedDraft = window.settingsDraft.beforeSave(window.settingsDraft.fieldIds(), collectSettingsDraftExtras(), collectSettingsDraftExtras);
+        const result = await window.electronAPI.applySettingsConfirmed(settings, expectedProfileId);
         if (!result?.success) throw new Error('설정을 저장하지 못했습니다. 입력을 유지했습니다. 다시 저장해 주세요.');
-        window.close();
-      } catch (e) { console.error(e); alert(e instanceof Error ? e.message : '설정을 저장하지 못했습니다. 다시 저장해 주세요.'); }
+        savedDraft.commit();
+        if (!keepOpen) window.close();
+        return true;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : '설정을 저장하지 못했습니다. 다시 저장해 주세요.';
+        if (keepOpen) window.settingsProfileTransition?.report(message); else {console.error(e);alert(message);}
+        return false;
+      } finally {release?.();}
     }
 
-    async function applySettingsWithDraft(settings, fieldIds = [], extras = {}) {
+    async function applySettingsWithDraft(settings, fieldIds = [], extras = {}, expectedProfileId = lastConfig?.activePlayProfileId) {
+      const release = window.settingsProfileTransition?.beginSave();
+      if (release === false) return { success: false, error: 'profile-changed' };
       const savedDraft = window.settingsDraft.beforeSave(fieldIds, extras, collectSettingsDraftExtras);
-      const result = await window.electronAPI.applySettingsConfirmed(settings);
-      if (result?.success) savedDraft.commit();
-      return result;
+      try {
+        const result = await window.electronAPI.applySettingsConfirmed(settings, expectedProfileId);
+        if (result?.success) {savedDraft.commit();window.settingsProfileTransition?.report('');}
+        return result;
+      } finally {release?.();}
     }
 
     async function applyChatOverlaySettingsOnly() {
+      const expectedProfileId = lastConfig?.activePlayProfileId;
+      const release = window.settingsProfileTransition?.beginSave();
+      if (release === false) return;
       const btn = document.querySelector('button[onclick="applyChatOverlaySettingsOnly()"]');
       const origHtml = btn ? btn.innerHTML : '';
       try {
@@ -6294,7 +6339,7 @@
         const result = await applySettingsWithDraft(chatSettings, fieldIds, {
           chatOverlayFilterList, customTabsList, lootKeywordsList, shoutKeywordsList,
           colors: collectSettingsDraftExtras().colors,
-        });
+        }, expectedProfileId);
         if (!result || !result.success) {
           if (btn) {
             btn.innerHTML = `<i data-lucide="circle-alert" class="w-4 h-4 text-rose-400"></i> <span class="text-rose-400">적용하지 못했습니다</span>`;
@@ -6320,6 +6365,7 @@
         }
         alert('채팅 오버레이 설정을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       } finally {
+        release?.();
         if (btn) {
           btn.disabled = false;
           if (btn.innerHTML.includes('적용하지 못했습니다')) {
@@ -6465,6 +6511,7 @@
     }
 
     let isNotifEditing = false;
+    function isProfileSettingsEditing() { return isHudEditing || isNotifEditing; }
     let notifSavedTimer = null;
 
     function updateNotifEditSaveUi(editing) {
@@ -6762,6 +6809,7 @@
       });
     })();
   </script>
+  <script src="renderer/settings/profile-transition.js"></script>
 </body>
 
 </html>

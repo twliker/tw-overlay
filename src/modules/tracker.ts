@@ -12,6 +12,9 @@
  *   또는 Win32 z-order 호출을 바꿀 때는 관리자 PowerShell의 실제 fixture 검증을 먼저 통과해야 합니다.
  * - Koffi 콜백과 native handle은 앱 종료까지 수명이 유지되어야 하며, 재시작 시 이전 hook/handle을
  *   해제해 중복 콜백과 메모리 누수를 만들지 않습니다.
+ * - 창 닫힘 뒤 지연된 자동 포커스 복구는 실행 직전에도 최소화/숨김 여부를 확인합니다.
+ *   사용자가 감춘 게임은 펼치지 않습니다. 명시적인 HUD 편집의 focusGameWindow와 구분합니다.
+ *   회귀: check-profile-windows.ts, check-refactor-regressions.ts의 창 포커스 계약.
  */
 import { GAME_PROCESS_NAME, GameQueryResult, TITLE_BUFFER_LENGTH } from './constants';
 import { log } from './logger';
@@ -481,9 +484,12 @@ export function isGameOrAppForeground(): boolean {
     return false;
 }
 
-/** 자동 포커스 복구가 외부 프로그램의 포커스를 빼앗지 않는 상태인지 확인한다. */
+/** 지연된 자동 복구가 사용자의 최소화/숨김 또는 외부 프로그램의 포커스를 되돌리지 않게 한다. */
 export function canAutomaticallyRestoreGameFocus(): boolean {
     try {
+        if (!cachedHwnd || !isHwndValid(cachedHwnd)) return false;
+        if (win32.IsIconic && win32.IsIconic(cachedHwnd)) return false;
+        if (win32.IsWindowVisible && !win32.IsWindowVisible(cachedHwnd)) return false;
         if (!win32.GetForegroundWindow) return false;
         const fgHwnd = parseHwnd(win32.GetForegroundWindow());
         // 창 닫힘 직후 Windows가 잠시 foreground를 비운 과도기는 복구를 허용하되,

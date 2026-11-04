@@ -16,6 +16,13 @@
  * - 최대 횟수에서 다시 누르는 등 횟수·완료 상태가 그대로인 입력은 완료 일시나 일지를 갱신하지 않습니다.
  * - 초기화 규칙 수정은 원래 수행 시각으로 만료 여부를 먼저 판정하고 유효한 횟수만 최대값에 맞춥니다.
  *   주기 만료는 과거 완료 일지를 취소하거나 오늘 완료로 다시 기록하지 않습니다.
+ * - 프로필 모드의 수동 조작은 profileChecklistIpc에서 원래 프로필·설정/일지/요약/ACK를 함께 확정합니다.
+ *   실패한 편집값은 화면에 남기고 응답 유실 재확인은 같은 요청 ID를 사용합니다. 기존 내부 일지 재시도도
+ *   프로필별 키/당시 귀속을 유지합니다. check-profile-checklist.ts, check-renderer-behavior.ts --checklist,
+ *   check-window-visibility.ts, check-audit-regressions.ts를 함께 확인합니다.
+ * - 프로필 이전 전 deferRuntime 준비는 설정의 정규화/만료 처리만 수행합니다. 기존 diary.db를
+ *   열거나 일지 집계·창 갱신·리셋 타이머를 시작하지 않습니다. 새 DB 연결 뒤 일반 검사를 시작합니다.
+ *   실제 구버전 패키지 이전 회귀: check-profile-upgrade.ts.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,9 +30,11 @@ import { app } from 'electron';
 import * as config from './config';
 import { AppConfig, ContentsCheckerItem, ResetRule, MAIN_CHAR_ID, DEFAULT_CHAR_NAME, PendingHomework, TodaySummaryDetectedHomework } from '../shared/types';
 import { log } from './logger';
+import {deferRecordEffect,isCollectingRecordEffects} from './recordEffects';
 import * as diaryDb from './diaryDb';
 import { formatLocalDateKey as getLocalDateKey } from '../shared/localDate';
 import { getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
+import {getProfileRuntime} from './profileRuntime';
 
 export { getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
 
@@ -199,12 +208,14 @@ let resetCheckTimer: NodeJS.Timeout | null = null;
  * - check-companion-features.ts, check-renderer-behavior.ts와 docs/contents-checker.md를 함께 확인한다.
  */
 let latestDetectedHomework: { id: string; count: number; timestamp: number } | null = null;
+export const captureDetectedHomework=() => structuredClone(latestDetectedHomework);
+export function restoreDetectedHomework(value:ReturnType<typeof captureDetectedHomework>):void {latestDetectedHomework=structuredClone(value);refreshUI();}
 
 function rememberDetectedHomework(id: string, count: number, timestamp: number): boolean {
   if (latestDetectedHomework && (timestamp < latestDetectedHomework.timestamp
     || (id === latestDetectedHomework.id && count === latestDetectedHomework.count
       && timestamp === latestDetectedHomework.timestamp))) return false;
-  latestDetectedHomework = { id, count, timestamp };
+  deferRecordEffect(() => {if (!latestDetectedHomework || latestDetectedHomework.timestamp<=timestamp) latestDetectedHomework = {id,count,timestamp};});
   return true;
 }
 
@@ -260,6 +271,19 @@ function getStateCount(state: HomeworkCompletedState | undefined, max: number): 
 
 /** 일시적인 DB 쓰기 실패는 최신 작업만 제한적으로 재시도한다. */
 function runDiaryWriteWithRetry(key: string, write: () => boolean): boolean {
+  const runtime=getProfileRuntime(),owner=runtime ? config.load().activePlayProfileId || null : null;
+  const session=runtime?.service.store.getRecordContext().sessionId || null;
+  const originalWrite=write;
+  if (runtime) {
+    key=`${owner}:${key}`;
+    write=() => {
+      // 이전 프로필의 재시도는 현재 선택으로 재배정하지 않는다. 복원/삭제로 원본이 없으면 쓰지 않는다.
+      try {
+        if (!runtime.service.store.database.open || owner && !runtime.service.store.list().some(profile => profile.id===owner)) return false;
+        return runtime.service.store.withRecordContext(owner,session,originalWrite);
+      } catch {return false;}
+    };
+  }
   const previous = pendingDiaryWriteRetries.get(key);
   if (previous?.timer) clearTimeout(previous.timer);
   const state: DiaryWriteRetryState = { generation: (previous?.generation || 0) + 1 };
@@ -271,6 +295,7 @@ function runDiaryWriteWithRetry(key: string, write: () => boolean): boolean {
       pendingDiaryWriteRetries.delete(key);
       return true;
     }
+    if (isCollectingRecordEffects()) {pendingDiaryWriteRetries.delete(key);throw new Error('숙제 일지 기록을 저장하지 못했습니다.');}
     if (retryIndex >= DIARY_WRITE_RETRY_DELAYS_MS.length) {
       pendingDiaryWriteRetries.delete(key);
       log(`[Contents Checker] 일지 DB 쓰기 재시도 소진 - ${key}`);
@@ -519,8 +544,10 @@ function scheduleNextResetCheck(items: ContentsCheckerItem[] = config.load().con
   resetCheckTimer.unref?.();
 }
 
+export function stopResetChecks():void {if (resetCheckTimer) clearTimeout(resetCheckTimer);resetCheckTimer=null;}
+
 /** 초기화 및 병합 (앱 시작 시 호출) */
-export function init(): boolean {
+export function init(options:{deferRuntime?:boolean}={}): boolean {
   if (initializationCompleted) {
     log('[Contents Checker] 초기화가 이미 완료되어 중복 실행을 건너뜁니다.');
     return true;
@@ -897,16 +924,17 @@ export function init(): boolean {
       log('[Contents Checker] 초기화 결과 저장 실패로 완료 처리하지 않습니다.');
       return false;
     }
-    import('./windowManager').then(wm => wm.applySettings({}));
+    if (!options.deferRuntime) import('./windowManager').then(wm => wm.applySettings({}));
   }
   
-  checkReset();
+  if (options.deferRuntime) config.withConfirmedWrites(() => checkReset(options));
+  else checkReset();
   initializationCompleted = true;
   return true;
 }
 
 /** 초기화 로직 (정기적으로 또는 수동 호출) */
-export function checkReset(): boolean {
+export function checkReset(options:{deferRuntime?:boolean}={}): boolean {
   const cfg = config.load();
   const nowTs = Date.now();
   const lastCheck = cfg.lastContentsResetCheck || 0;
@@ -922,11 +950,13 @@ export function checkReset(): boolean {
       contentsCheckerItems: resetResult.items,
       lastContentsResetCheck: nowTs 
     });
-    syncDiaryStats(resetResult.items);
-    refreshUI();
+    if (!options.deferRuntime) {
+      syncDiaryStats(resetResult.items);
+      refreshUI();
+    }
   }
 
-  scheduleNextResetCheck(resetResult.items);
+  if (!options.deferRuntime) deferRecordEffect(() => scheduleNextResetCheck(resetResult.items));
 
   return changed;
 }
@@ -1031,8 +1061,10 @@ function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
 
 /** 화면 갱신 알림 유틸리티 */
 function refreshUI() {
-  scheduleNextResetCheck();
-  import('./windowManager').then(wm => wm.applySettings({}));
+  deferRecordEffect(() => {
+    scheduleNextResetCheck();
+    import('./windowManager').then(wm => wm.applySettings({}));
+  });
 }
 
 function syncHomeworkDiary(
@@ -1319,11 +1351,11 @@ export function updateName(id: string, newName: string): void {
 }
 
 /** 커스텀 항목 추가 */
-export function addCustomItem(name: string, category: string, rule: ResetRule, maxCount?: number): void {
+export function addCustomItem(name: string, category: string, rule: ResetRule, maxCount?: number, requestItemId?:string): void {
   const cfg = config.load();
   const items = cloneItems(cfg.contentsCheckerItems);
   const newItem: ContentsCheckerItem = {
-    id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
+    id: requestItemId || `custom-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
     name,
     category,
     isVisible: true,

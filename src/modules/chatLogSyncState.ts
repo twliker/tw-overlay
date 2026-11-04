@@ -127,10 +127,9 @@ export function getChatLogSyncStateKey(filePath: string): string {
   return path.resolve(filePath).replace(/\\/g, '/').toLowerCase();
 }
 
-export function loadChatLogSyncStateAtPath(userDataPath: string): ChatLogSyncLocalState {
-  const statePath = path.join(userDataPath, STATE_FILE_NAME);
+export function normalizeChatLogSyncState(value:unknown):ChatLogSyncLocalState {
   try {
-    const parsed = JSON.parse(fs.readFileSync(statePath, 'utf8')) as Partial<ChatLogSyncLocalState>;
+    const parsed = value as Partial<ChatLogSyncLocalState>;
     if (parsed.schemaVersion !== STATE_SCHEMA_VERSION || !parsed.files || typeof parsed.files !== 'object') {
       throw new Error('unsupported state');
     }
@@ -160,6 +159,11 @@ export function loadChatLogSyncStateAtPath(userDataPath: string): ChatLogSyncLoc
   } catch {
     return { schemaVersion: STATE_SCHEMA_VERSION, files: {} };
   }
+}
+
+export function loadChatLogSyncStateAtPath(userDataPath:string):ChatLogSyncLocalState {
+  try {return normalizeChatLogSyncState(JSON.parse(fs.readFileSync(path.join(userDataPath,STATE_FILE_NAME),'utf8')));}
+  catch {return normalizeChatLogSyncState(null);}
 }
 
 export function saveChatLogSyncStateAtPath(userDataPath: string, state: ChatLogSyncLocalState): void {

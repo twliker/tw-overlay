@@ -5,9 +5,13 @@
   <meta charset="UTF-8">
   <title>필드보스 알림 설정</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-settings.css">
+  <script src="renderer/profile-settings-page.js"></script>
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
+  <link rel="stylesheet" href="assets/diary-profiles.css">
+  <script src="renderer/diary-profiles.js"></script>
   <style>
     body {
       background: transparent;
@@ -196,6 +200,7 @@
     </div>
 
     <!-- 가이드 배너 -->
+    <div id="boss-record-profile" hidden></div>
     <div class="px-4 py-3 bg-slate-900/60 border border-white/5 rounded-2xl flex items-center gap-3 mb-6">
       <div class="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
         <i data-lucide="info" class="w-4 h-4 text-blue-400"></i>
@@ -220,18 +225,25 @@
     let bossTimes = {};
     let soundFiles = [];
     const killedActivities = new Map();
+    let bossReadRevision = 0, bossLoading = true, bossSaving = false;
+    const bossRecordProfile = window.diaryProfiles.target(document.getElementById('boss-record-profile'), {compact:true,onChange:() => {void reloadRecordedBosses();}});
     const ALLOWED_BOSSES = ['골론', '파멸의 기원', '스페르첸드', '골모답', '아칸', '혼란한 대지'];
 
     // 레이스 컨디션 예방을 위해 최상단에서 리스너를 동기식으로 먼저 등록합니다.
-    window.electronAPI.onConfigData(async (data) => {
+    let bossConfigGeneration=0;
+    async function applyBossConfig(data,isCurrent=()=>true) {
+      const revision=++bossConfigGeneration;
       config = data;
       if (window.loadSoundList) {
         try {
-          soundFiles = await window.loadSoundList();
+          const sounds=await window.loadSoundList();
+          if (revision!==bossConfigGeneration || !isCurrent()) return;
+          soundFiles=sounds;
         } catch (e) {
           console.error('Failed to reload sound list:', e);
         }
       }
+      if (revision!==bossConfigGeneration || !isCurrent()) return;
       // 공통 설정 로드
       const enabledCheck = document.getElementById('boss-enabled-check');
       if (enabledCheck) enabledCheck.checked = config.fieldBossNotifyEnabled !== false;
@@ -245,7 +257,20 @@
       if (volInput) volInput.value = vol;
       if (volVal) volVal.textContent = vol + '%';
       render();
-    });
+    }
+    function writeBossSettings(patch) {
+      if (window.profileSettingsPage?.enabled()) {Object.assign(config,patch);return window.profileSettingsPage.write(patch);}
+      window.electronAPI.applySettings(patch);return Promise.resolve(true);
+    }
+    function captureBossSettings() {
+      return {fieldBossSettings:{...(config?.fieldBossSettings || {})},bossEntryCountdownBosses:[...(config?.bossEntryCountdownBosses || [])],
+        fieldBossNotifyEnabled:document.getElementById('boss-enabled-check').checked,
+        fieldBossNotifyOffsets:[...document.querySelectorAll('.boss-offset-check:checked')].map(cb=>Number(cb.value)),
+        fieldBossNotifyVolume:Number(document.getElementById('boss-volume-input').value)};
+    }
+    if (window.profileSettingsPage) window.profileSettingsPage.init({capture:captureBossSettings,apply:applyBossConfig,
+      commonNotice:'전체 알림 음량은 모든 프로필에 공통입니다.'});
+    else window.electronAPI.onConfigData(applyBossConfig);
 
     window.electronAPI.onBossTimesData((times) => {
       bossTimes = times;
@@ -268,10 +293,22 @@
         console.error('Failed to init utils:', e);
       }
 
-      // 오늘 잡은 보스 기록 불러오기 (API가 존재하는지 안전하게 체크)
+      await reloadRecordedBosses();
+    };
+
+    // 기록 대상의 완료 표시만 읽는다. 늦게 도착한 이전 대상의 응답은 폐기한다.
+    async function reloadRecordedBosses() {
+      const request = ++bossReadRevision;
+      bossLoading = true;
+      killedActivities.clear();
+      render();
       try {
+        await window.diaryProfiles.ready;
+        if (request !== bossReadRevision) return;
+        if (window.diaryProfiles.state().enabled && !bossRecordProfile.value()) return;
         if (window.electronAPI && window.electronAPI.diaryGetByDate) {
-          const todayData = await window.electronAPI.diaryGetByDate(getTodayDateStr());
+          const todayData = await window.electronAPI.diaryGetByDate(getTodayDateStr(), bossRecordProfile.filter());
+          if (request !== bossReadRevision) return;
           if (todayData && todayData.activityLogs) {
             todayData.activityLogs.forEach(log => {
               if (log.type === 'boss') {
@@ -285,10 +322,11 @@
         }
       } catch (e) {
         console.error('Failed to load diary:', e);
+        if (request === bossReadRevision) bossRecordProfile.error('처치 기록을 불러오지 못했습니다. 프로필을 다시 선택해 주세요.');
+      } finally {
+        if (request === bossReadRevision) {bossLoading = false;render();}
       }
-
-      render();
-    };
+    }
 
     function render() {
       if (!config || Object.keys(bossTimes).length === 0 || soundFiles.length === 0) return;
@@ -320,7 +358,7 @@
           const content = `[${name}] ${t} 스폰 처치 완료`;
           const killedState = killedActivities.get(content);
           const isKilled = Boolean(killedState);
-          const isPast = t < currentHHmm;
+          const isPast = t <= currentHHmm;
 
           let icon = '';
           let tooltip = '';
@@ -341,11 +379,11 @@
           }
 
           return `
-            <span class="time-tag ${stateClass}" 
-                  onclick="recordBossKillByTime('${name}', '${t}')" 
+            <button type="button" class="time-tag ${stateClass}" ${bossLoading || bossSaving || !isPast ? 'disabled' : ''}
+                  onclick="recordBossKillByTime('${name}', '${t}')"
                   title="${tooltip}">
               ${icon} ${t}
-            </span>`;
+            </button>`;
         }).join('')}
               </div>
             </div>
@@ -384,17 +422,18 @@
     function toggleBoss(name, enabled) {
       const settings = { ...config.fieldBossSettings };
       settings[name] = { ...settings[name], name, enabled };
-      window.electronAPI.applySettings({ fieldBossSettings: settings });
+      writeBossSettings({ fieldBossSettings: settings });
     }
 
     function toggleBossEntry(name, enabled) {
       const selected = new Set(config.bossEntryCountdownBosses || []);
       if (enabled) selected.add(name); else selected.delete(name);
       config.bossEntryCountdownBosses = [...selected];
-      window.electronAPI.applySettings({ bossEntryCountdownBosses: [...selected] });
+      writeBossSettings({ bossEntryCountdownBosses: [...selected] });
     }
 
     async function recordBossKillByTime(name, timeStr) {
+      if (bossSaving || bossLoading) return;
       const now = new Date();
       const currentHHmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
@@ -405,36 +444,48 @@
       const content = `[${name}] ${timeStr} 스폰 처치 완료`;
 
       const killedState = killedActivities.get(content);
-      if (killedState) {
-        if (!killedState.removable || !Number.isSafeInteger(killedState.id)) return;
-        // 이미 기록된 상태면 토글 해제 (삭제)
-        const removed = await window.electronAPI.diaryRemoveActivity(killedState.id);
-        if (!removed) return;
-        killedActivities.delete(content);
-      } else {
-        // 새로 기록
-        const rowId = await window.electronAPI.diaryAddActivity(date, timeStr + ':00', 'boss', content);
-        if (!Number.isSafeInteger(rowId)) return;
-        killedActivities.set(content, { id: rowId, removable: true });
-
-        // 일지 기록 성공 사운드 재생
-        const isMuted = Boolean(config && config.masterMute);
-        const vol = (config && config.volumeCalculators !== undefined ? config.volumeCalculators : 50) / 100;
-        if (!isMuted && vol > 0) {
-          const audio = new Audio('assets/sound/max_affection.wav');
-          audio.volume = vol;
-          audio.play().catch(e => { });
-        }
-      }
-
-      // UI 즉시 반영
+      bossSaving = true;
+      const target = bossRecordProfile.capture();
+      bossRecordProfile.lock(true);
       render();
+      try {
+        const profileId = await target;
+        if (killedState) {
+          if (!killedState.removable || !Number.isSafeInteger(killedState.id)) return;
+          // 이미 기록된 상태면 토글 해제 (삭제)
+          const removed = await window.electronAPI.diaryRemoveActivity(killedState.id);
+          if (!removed) throw new Error('Delete failed');
+          killedActivities.delete(content);
+        } else {
+          // 새로 기록
+          const rowId = await window.electronAPI.diaryAddActivity(date, timeStr + ':00', 'boss', content, undefined, profileId);
+          if (!Number.isSafeInteger(rowId)) throw new Error('Save failed');
+          killedActivities.set(content, { id: rowId, removable: true });
+
+          // 일지 기록 성공 사운드 재생
+          const isMuted = Boolean(config && config.masterMute);
+          const vol = (config && config.volumeCalculators !== undefined ? config.volumeCalculators : 50) / 100;
+          if (!isMuted && vol > 0) {
+            const audio = new Audio('assets/sound/max_affection.wav');
+            audio.volume = vol;
+            audio.play().catch(e => { });
+          }
+        }
+
+        bossRecordProfile.error('');
+      } catch {
+        bossRecordProfile.error('기록을 변경하지 못했습니다. 다시 시도해 주세요.');
+      } finally {
+        bossSaving = false;
+        bossRecordProfile.lock(false);
+        await reloadRecordedBosses();
+      }
     }
 
     function changeSound(name, file) {
       const settings = { ...config.fieldBossSettings };
       settings[name] = { ...settings[name], name, soundFile: file };
-      window.electronAPI.applySettings({ fieldBossSettings: settings });
+      writeBossSettings({ fieldBossSettings: settings });
     }
 
     function saveBossGlobal() {
@@ -442,7 +493,7 @@
       // 기능 계약: 0%는 무음 선택이다. 저장·다른 전역 옵션 변경·재개방에서 기본 음량으로 바꾸지 않는다.
       // 전체 페이지와 실제 preload 경계는 check-renderer-behavior.ts의 checkAlarmVolumeBoundaries로 확인한다.
       const volume = Number.parseInt(document.getElementById('boss-volume-input').value, 10);
-      window.electronAPI.applySettings({
+      writeBossSettings({
         fieldBossNotifyEnabled: document.getElementById('boss-enabled-check').checked,
         fieldBossNotifyOffsets: offsets,
         fieldBossNotifyVolume: Number.isFinite(volume) ? volume : 50

@@ -3,6 +3,7 @@
 
 interface Equipment { name: string; series: string; part?: string; stab?: number; hack?: number; def?: number; mag_atk?: number; mag_def?: number; hit?: number; }
 interface ProfileData { id: string; name: string; data: any; }
+const coefficientStorage=window.profileToolStorage || window.localStorage;
 
 let gearData: any = { armors: {}, weapons: {}, defense: {}, wrists: {}, artifacts: {} };
 let activeBuffs: any[] = [];
@@ -119,6 +120,7 @@ let isGlobalClickRegistered = false;
 
 async function init() {
   try {
+    await window.profileToolStorage?.ready;
     const [eqDic, buffs] = await Promise.all([
       fetch('./assets/data/equipment_dic.json').then(r => r.json()),
       fetch('./assets/data/buffs.json').then(r => r.json())
@@ -187,6 +189,11 @@ async function init() {
     initProfiles();
     updateLabels();
     calculate();
+    window.profileToolStorage?.setFlusher(() => {
+      const modal=document.getElementById('modal-overlay');
+      if (modal && !modal.classList.contains('hidden')) return '계수 계산기의 이름 입력을 완료하거나 취소한 뒤 프로필을 전환해 주세요.';
+      saveCurrentProfile();return true;
+    });
     if ((window as any).lucide) (window as any).lucide.createIcons();
   } catch (e) { console.error('Data Load Failed', e); }
 
@@ -215,7 +222,7 @@ async function init() {
     updateBuffTooltipIcon();
     updateBuffTooltipVisibility();
   });
-  document.getElementById('btn-add-profile')?.addEventListener('click', async () => { const n = await showPrompt('새 프로필', '이름 입력:'); if (n?.trim()) addProfile(n.trim()); });
+  document.getElementById('btn-add-profile')?.addEventListener('click', async () => { const n = await showPrompt('새 계산 프리셋', '이름 입력:'); if (n?.trim()) addProfile(n.trim()); });
   document.getElementById('btn-rename-profile')?.addEventListener('click', async () => { const p = profiles[currentProfileId]; if (p) { const n = await showPrompt('이름 변경', '새 이름:', p.name); if (n?.trim() && n !== p.name) renameProfile(currentProfileId, n.trim()); } });
   document.getElementById('btn-delete-profile')?.addEventListener('click', async () => { if (Object.keys(profiles).length > 1 && await showConfirm('삭제', '정말 삭제할까요?')) deleteProfile(currentProfileId); else if (Object.keys(profiles).length <= 1) showAlert('알림', '최소 1개는 유지해야 합니다.'); });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { const m = document.getElementById('modal-overlay'); if (m && !m.classList.contains('hidden')) document.getElementById('modal-cancel')?.click(); else window.close(); } });
@@ -243,7 +250,7 @@ function initBuffPresets(): boolean {
   const selectedId = select.value || 'none';
   const options = [new Option('없음', 'none'), new Option('기본 도핑 세트', 'standard')];
   const seen = new Set(['none', 'standard']);
-  const savedPresets = localStorage.getItem('buff_presets');
+  const savedPresets = coefficientStorage.getItem('buff_presets');
   if (savedPresets) {
     try {
       const presets = JSON.parse(savedPresets);
@@ -283,7 +290,7 @@ function calculate() {
     let buffIds: string[] = [];
     if (presetId === 'standard') buffIds = (window as any).buffConstants.STANDARD_BUFFS;
     else if (presetId !== 'none') {
-      const savedPresets = localStorage.getItem('buff_presets');
+      const savedPresets = coefficientStorage.getItem('buff_presets');
       if (savedPresets) {
         try {
           const presets = JSON.parse(savedPresets);
@@ -598,7 +605,7 @@ const showAlert = (t: string, m: string) => { const ca = document.getElementById
 
 function initProfiles() {
   try {
-    const s = localStorage.getItem(PROFILES_KEY), last = localStorage.getItem(PROFILES_KEY + '_last');
+    const s = coefficientStorage.getItem(PROFILES_KEY), last = coefficientStorage.getItem(PROFILES_KEY + '_last');
     let loaded = false;
     if (s) {
       try {
@@ -610,7 +617,7 @@ function initProfiles() {
       }
     }
     if (!loaded) {
-      const d = localStorage.getItem(SAVE_KEY);
+      const d = coefficientStorage.getItem(SAVE_KEY);
       let parsedData = null;
       if (d) {
         try {
@@ -619,7 +626,7 @@ function initProfiles() {
           console.error('Failed to parse legacy save data', e);
         }
       }
-      profiles = { 'default': { id: 'default', name: '기본 프로필', data: parsedData } };
+      profiles = { 'default': { id: 'default', name: '기본 계산 프리셋', data: parsedData } };
       currentProfileId = 'default';
     }
     renderProfileSelect(); 
@@ -643,9 +650,9 @@ function renderProfileSelect(): void {
 function addProfile(n: string) { const id = 'p' + Date.now(); profiles[id] = { id, name: n, data: captureCurrentData() }; saveProfilesToStorage(); switchProfile(id); }
 function renameProfile(id: string, n: string) { if (profiles[id]) { profiles[id].name = n; saveProfilesToStorage(); renderProfileSelect(); } }
 function deleteProfile(id: string) { delete profiles[id]; saveProfilesToStorage(); switchProfile(Object.keys(profiles)[0]); }
-function switchProfile(id: string) { if (!profiles[id]) return; saveCurrentProfile(); currentProfileId = id; localStorage.setItem(PROFILES_KEY + '_last', id); loadProfileData(id); renderProfileSelect(); calculate(); }
+function switchProfile(id: string) { if (!profiles[id]) return; saveCurrentProfile(); currentProfileId = id; coefficientStorage.setItem(PROFILES_KEY + '_last', id); loadProfileData(id); renderProfileSelect(); calculate(); }
 function saveCurrentProfile() { if (profiles[currentProfileId]) { profiles[currentProfileId].data = captureCurrentData(); saveProfilesToStorage(); } }
-function saveProfilesToStorage() { localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)); localStorage.setItem(PROFILES_KEY + '_last', currentProfileId); }
+function saveProfilesToStorage() { coefficientStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)); coefficientStorage.setItem(PROFILES_KEY + '_last', currentProfileId); }
 
 function captureCurrentData() {
   const d: any = { 

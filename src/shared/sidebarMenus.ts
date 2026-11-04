@@ -29,6 +29,7 @@ export const SIDEBAR_MENU_ACTIONS = [
   'toggleXpHud',
   'toggleContentsChecker',
   'toggleDiary',
+  'toggleProfiles',
   'toggleStopwatch',
   'toggleBossSettings',
   'toggleBuffTimer',

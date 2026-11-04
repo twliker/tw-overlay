@@ -19,6 +19,7 @@ import { log } from './logger';
 import * as tracker from './tracker';
 import * as wm from './windowManager';
 import * as config from './config';
+import { observeProfileGameState } from './profileRuntime';
 
 let pollingTimer: NodeJS.Timeout | null = null;
 let gameWasEverFound = false;
@@ -83,6 +84,8 @@ export function start(): void {
                 pollingTimer = setTimeout(poll, POLLING_FAST_MS);
                 return;
             }
+            try {observeProfileGameState('not-running');}
+            catch (error) {log(`[PROFILE] 게임 종료 상태 저장 실패: ${error}`);}
             if (_currentStatus !== 'not-running') {
                 log('[OVERLAY_VISIBILITY] game=not-running action=hide reason=game-window-not-detected');
                 tracker.releaseGameZOrder();
@@ -119,6 +122,9 @@ export function start(): void {
                 _currentStatus = 'minimized';
                 lastRect = null;
             }
+            // 이미 최소화된 게임과 함께 앱을 켠 경우, 숨김 처리가 새 선택창을 닫지 않게 한다.
+            try {observeProfileGameState('minimized');}
+            catch (error) {log(`[PROFILE] 프로필 선택 준비 실패: ${error}`);}
             stableCount = 0;
             pollingTimer = setTimeout(poll, POLLING_MINIMIZED_MS);
             return;
@@ -128,6 +134,8 @@ export function start(): void {
         consecutiveNotRunning = 0;
         consecutiveMinimized = 0;
         const isNewGameSession = !gameWasEverFound;
+        try {observeProfileGameState('running');}
+        catch (error) {log(`[PROFILE] 프로필 선택 준비 실패: ${error}`);}
         gameWasEverFound = true;
 
         // 창모드 전환 안정화 시간 동안에는 rect가 더 이상 바뀌지 않아도 한 번 더 동기화해야

@@ -35,13 +35,18 @@ const CORE_ENTRIES = [
   'diary.db',
   'diary.db-wal',
   'diary.db-shm',
+  'app-data.db',
+  'app-data.db-wal',
+  'app-data.db-shm',
+  'app-data-config-write.json',
   'custom_sounds',
   'custom_fonts'
 ];
 
 const CREDENTIAL_ENTRIES = ['google_auth.enc', 'google_user.json'];
 const CACHE_ENTRIES = ['eta_ranking_cache.json', 'analytics.json'];
-const RESTORABLE_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm', RENDERER_STORAGE_FILE]);
+const RESTORABLE_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm',
+  'app-data.db','app-data.db-wal','app-data.db-shm','app-data-config-write.json',RENDERER_STORAGE_FILE]);
 
 function ensureRelativePath(relativePath: string): string {
   const normalized = path.normalize(relativePath);
@@ -169,8 +174,9 @@ export function createUserDataSnapshot(
   }
   fs.mkdirSync(resolvedDestination, { recursive: true });
 
+  const hasProfiles=fs.existsSync(path.join(resolvedSource,'app-data.db'));
   const requestedEntries = [
-    ...CORE_ENTRIES,
+    ...CORE_ENTRIES.filter(entry => !hasProfiles || !entry.startsWith('diary.db')),
     ...(options.includeCredentials ? CREDENTIAL_ENTRIES : []),
     ...(options.includeCaches ? CACHE_ENTRIES : [])
   ];

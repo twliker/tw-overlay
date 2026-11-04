@@ -4,7 +4,9 @@
  * 선택지가 아직 없는 select는 초기화 전이며 기준에서 제외한다. 저장 중 수신해 이미 깨끗해진 값은
  * 늦은 성공 응답으로 되돌리지 않는다. 색상·단축키 같은 객체는 변경한 하위 항목만 저장 승인한다.
  * HUD 편집에서 저장 성공한 좌표는 이전 초안보다 우선한다. 나머지 필드와 저장 실패·취소는 보존한다.
- * 회귀: scripts/check-audit-regressions.ts의 실제 설정 수신·즉시 저장 경로.
+ * 프로필 ID가 바뀐 config를 받은 때만 이전 초안을 버리며, 이전 소유자의 늦은 성공 ACK는 무시한다.
+ * 미등록 이름/키워드/채널은 저장 수신으로 승인하지 않는다. 검색/조회 필터는 전환 확인 대상에서 제외한다.
+ * 회귀: check-profile-settings.ts, check-audit-regressions.ts의 실제 설정 수신·즉시 저장 경로.
  */
 (() => {
   type Extras = Record<string, any>;
@@ -13,10 +15,17 @@
   let baselineExtras: Extras = {};
   let saveSerial = 0;
   let refreshSerial = 0;
+  let owner: string | null | undefined;
+  let ownerRevision = 0;
   const savedFieldSerials = new Map<string, number>();
   const savedExtraSerials = new Map<string, number>();
+  const viewFields = new Set(['settings-quick-search','alarm-log-filter','item-search-input','icon-search','google-restore-settings','google-restore-checklist']);
   const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
   const object = (value: unknown): value is Extras => !!value && typeof value === 'object' && !Array.isArray(value);
+  const isDraftOnly = (id: string) => {
+    const field=document.getElementById(id);
+    return field?.hasAttribute('data-settings-draft-only') || field?.classList.contains('custom-tab-ch-check');
+  };
   function merge(base: any, local: any, remote: any): any {
     if (equal(base, local)) return structuredClone(remote);
     if (object(base) && object(local) && object(remote)) {
@@ -62,7 +71,46 @@
     });
     return values;
   }
+  function restoreFields(values: Map<string, Field>): void {
+    for (const [id, value] of values) {
+      if (viewFields.has(id)) continue;
+      if (id.startsWith('radio:')) {
+        document.querySelectorAll<HTMLInputElement>('input[type="radio"][name]').forEach(radio => {
+          if (radio.name === id.slice(6)) radio.checked = radio.value === value.value;
+        });
+      } else if (id.startsWith('menu:')) {
+        document.querySelectorAll<HTMLInputElement>('.menu-visible-check').forEach(check => {
+          if (check.value === id.slice(5)) check.checked = value.checked === true;
+        });
+      } else {
+        const field = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+        if (!field) continue;
+        field.value = value.value;
+        if (field instanceof HTMLInputElement && value.checked !== undefined) field.checked = value.checked;
+        if (value.labelId) {const label=document.getElementById(value.labelId);if (label) label.textContent=value.label || '';}
+        delete field.dataset.userEditedSinceLoad;
+      }
+    }
+  }
   window.settingsDraft = {
+    setOwner(profileId: string | null) {
+      if (owner !== undefined && owner !== profileId) {
+        // 버리기는 전환 commit 뒤에만 수행한다. 실패/취소는 이 경로에 들어오지 않는다.
+        if (baseline) restoreFields(baseline);
+        baseline=undefined;baselineExtras={};savedFieldSerials.clear();savedExtraSerials.clear();
+        ++ownerRevision;++refreshSerial;
+      }
+      owner=profileId;
+    },
+    fieldIds: () => [...fields().keys()],
+    hasChanges(extras: Extras) {
+      if (!baseline) return false;
+      for (const [id,value] of fields()) {
+        const before=baseline.get(id);
+        if (before && !viewFields.has(id) && (before.value!==value.value || before.checked!==value.checked)) return true;
+      }
+      return !equal(baselineExtras,extras);
+    },
     initializeNewFields() {
       if (!baseline) return;
       for (const [id, value] of fields()) {
@@ -72,6 +120,7 @@
     beforeSave(fieldIds: string[], extras: Extras = {}, readExtras: () => Extras = () => extras) {
       const serial = ++saveSerial;
       const submittedRefresh = refreshSerial;
+      const submittedOwner = ownerRevision;
       const submitted = new Map([...fields()].filter(([id]) => fieldIds.includes(id)));
       const submittedExtras = structuredClone(extras);
       const currentExtras = readExtras();
@@ -79,6 +128,7 @@
       const deferredExtras = new Set(Object.keys(extras).filter(key => !equal(extras[key], currentExtras[key])));
       return {
         commit() {
+          if (submittedOwner!==ownerRevision) return;
           baseline ||= new Map();
           const current = fields();
           const refreshed = refreshSerial !== submittedRefresh;
@@ -103,6 +153,7 @@
       };
     },
     beforeRefresh(extras: Extras, savedFieldIds: string[] = []) {
+      const previousFields=baseline;
       const current = fields();
       const changes = new Map([...current].filter(([id, value]) => !savedFieldIds.includes(id)
         && baseline?.has(id) && !equal(baseline.get(id), value)));
@@ -115,6 +166,8 @@
         restore(freshExtras: Extras): Extras {
           refreshSerial++;
           baseline = fields();
+          // 목록에 추가하기 전의 이름/키워드는 설정 수신으로 저장된 값이 아니다.
+          for (const [id] of changes) if (isDraftOnly(id) && previousFields?.has(id)) baseline.set(id,previousFields.get(id)!);
           baselineExtras = structuredClone(freshExtras);
           for (const [id, value] of changes) {
             if (id.startsWith('radio:')) {

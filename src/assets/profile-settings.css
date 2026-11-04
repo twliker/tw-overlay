@@ -1,0 +1,6 @@
+.profile-settings-context {flex-shrink:0; padding:8px 16px; border-bottom:1px solid var(--ui-border); color:var(--ui-secondary); font-size:14px; -webkit-app-region:no-drag;}
+.profile-settings-context[hidden] {display:none;}
+.profile-settings-context-row {display:flex; align-items:center; justify-content:space-between; gap:12px;}
+.profile-settings-context p {margin:4px 0 0;}
+.profile-settings-shell {display:flex; flex-direction:column;}
+.profile-settings-shell .workspace {height:auto; flex:1;}

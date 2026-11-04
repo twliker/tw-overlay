@@ -1608,6 +1608,14 @@ export function toggleSwordEnhanceWindow(): void {
 
 export function toggleShoutHistoryWindow(): boolean { return createToggleableWindow('shoutHistory'); }
 export function toggleDiaryWindow(): boolean { return createToggleableWindow('diary'); }
+export function toggleProfilesWindow(): boolean { return createToggleableWindow('profiles'); }
+export function openProfilesWindow(reason:'user-open' | 'game-resync'='user-open'): void {
+  const win=windowRegistry.profiles.ref;
+  if (reason==='user-open' && reopenUserHiddenWindow(win)) return;
+  if (win && !win.isDestroyed()) {showWindowUnlessHidden(win,reason==='user-open');return;}
+  createToggleableWindow('profiles',undefined,reason);
+}
+export function closeProfilesWindow(): void { windowRegistry.profiles.ref?.close(); }
 export function openScamDetectorWindow(): boolean {
   // 새 대화의 자동 열기는 전체 숨김을 해제하지 않는다. 세션 기록은 계속된다.
   if (areAllWindowsHidden()) return false;
@@ -2462,6 +2470,8 @@ export function hideAll(options: { preserveForResume?: boolean } = {}): void {
   // 최소화 때 자동 복원 대상은 숨겨 재사용하고, 나머지는 기존 계약대로 닫습니다.
   Object.entries(windowRegistry).forEach(([key, winCfg]) => {
     if (winCfg.ref && !winCfg.ref.isDestroyed()) {
+      // 프로필 선택/편집은 게임 최소화·종료 중에도 이어간다. 사용자의 전체 숨김은 존중한다.
+      if (key==='profiles' && !areAllWindowsHidden()) return;
       const shouldPreserve = userWindowVisibility.preserves(winCfg.ref) || preserveForResume && (
         (key === 'chatOverlay' && isChatOverlayVisible)
         || (key === 'chatOverlaySub' && isChatOverlayVisible && isChatOverlaySubVisible)

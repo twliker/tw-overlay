@@ -225,6 +225,7 @@ window.normalizeChatDisplayText = function (value: unknown): string {
 
 window.formatSeedAmount = function (seed: number): string {
   if (seed === 0) return '0 시드';
+  if (seed < 0) return '-' + window.formatSeedAmount(Math.abs(seed));
   const units = [
     { label: '조', value: 1000000000000 },
     { label: '억', value: 100000000 },

@@ -119,7 +119,8 @@ function buildTestHtml(): string {
     window.confirm = () => true;
     window.fetch = async () => ({ ok: true, json: async () => ${JSON.stringify(fixtureBuffs)} });
   </script>`;
-  return html.replace('<head>', `<head>${bootstrap}`);
+  const profileStorage = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'profile-tool-storage.js'), 'utf8');
+  return html.replace('<head>', `<head>${bootstrap}<script>${profileStorage}</script>`);
 }
 
 async function main(): Promise<void> {

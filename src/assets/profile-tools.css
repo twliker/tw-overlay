@@ -1,0 +1,2 @@
+.profile-tool-context { flex-shrink:0; padding:8px 20px; border-bottom:1px solid var(--ui-border); color:var(--ui-secondary); font-size:14px; overflow-wrap:anywhere; -webkit-app-region:no-drag; }
+.profile-tool-context[hidden] { display:none; }

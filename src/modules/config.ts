@@ -20,8 +20,9 @@ import type { WindowPositionKey } from '../shared/types';
 import { repairLegacyHiddenHudPositions } from '../shared/windowPositions';
 import { isTradeSearchState } from '../shared/tradeSearchState';
 import { isNicknameNotes } from '../shared/nicknameNotes';
-import { isActivityPresets } from '../shared/activityPresets';
 import { isNotificationPositions } from '../shared/notificationLayout';
+import {deviceConfigOnly} from '../shared/playProfiles';
+import {deferRecordEffect} from './recordEffects';
 
 const CONFIG_QUARANTINE_FILENAME = 'config.quarantine.json';
 const WRITE_RETRY_DELAYS_MS = [0, 25, 75, 150];
@@ -31,6 +32,7 @@ const EXTERNAL_PATCH_MAX_BYTES = 2 * 1024 * 1024;
 
 /** AppConfig의 알려진 최상위 키. DEFAULT_CONFIG에 아직 없는 optional 키도 포함한다. */
 const KNOWN_CONFIG_KEYS = new Set<string>([
+  'activePlayProfileId', 'profileDeviceId', 'profileSessionId', 'profileSelectionRequired',
   'width', 'height', 'opacity', 'url', 'homeUrl', 'quickSlots',
   'galleryLastSeen', 'galleryWatched', 'galleryNotify', 'overlayVisible', 'autoLaunch',
   'autoOpenContentsChecker', 'contentsCheckerEnabled', 'autoUpdateEnabled', 'hasSeenWelcomeGuide',
@@ -101,6 +103,66 @@ let _loadWarning: string | null = null;
 let _lastSaveError: string | null = null;
 let _saveRetryIndex = 0;
 let _externalRestoreActive = false;
+export interface ConfigPersistence {
+  read(deviceConfig: AppConfig): AppConfig;
+  commit(value: AppConfig, previous: AppConfig): AppConfig;
+}
+let _persistence: ConfigPersistence | null = null;
+let _committedProjection: AppConfig | null = null;
+let _writeFailures=0;
+let _legacyServerEvidence:{value:unknown} | undefined;
+/** 기본값/자동 정규화 저장을 서버 선택의 증거로 삼지 않는다. */
+export function getLegacyUserServer():unknown {if (!_legacyServerEvidence) load();return _legacyServerEvidence?.value;}
+
+/** 자동 기록 transaction에서 실패한 설정을 다른 프로필의 재시도 타이머로 남기지 않는다. */
+export function withConfirmedWrites<T>(work:() => T):T {
+  const before={cached:_cachedConfig,pending:_pendingConfig,committed:_committedProjection,failures:_writeFailures};
+  try {
+    const result=work();
+    if (_writeFailures!==before.failures || _pendingConfig) throw new Error(_lastSaveError || '자동 기록의 설정 저장을 완료하지 못했습니다.');
+    return result;
+  } catch (error) {
+    if (_saveTimer) clearTimeout(_saveTimer);_saveTimer=null;
+    _cachedConfig=before.cached;_pendingConfig=before.pending;_committedProjection=before.committed;
+    throw error;
+  }
+}
+
+/** 프로필 저장 계층은 부팅 시 한 번 연결한다. 일반 설정 API는 메모리 projection만 제공한다. */
+export function installPersistence(persistence: ConfigPersistence): void {
+  if (!flushPending()) throw new Error('프로필 저장 계층 연결 전 설정 저장 실패');
+  const previous = load();
+  const projected = persistence.read(previous);
+  _persistence = persistence;
+  _cachedConfig = deepClone(projected);
+  _committedProjection = deepClone(projected);
+}
+
+/** 프로필 메타데이터 변경 뒤 저장 원본에서 projection만 갱신한다. 미저장 설정을 버리지 않는다. */
+export function refreshFromPersistence(): void {
+  if (!_persistence) return;
+  if (_pendingConfig) throw new Error('대기 중인 설정을 먼저 저장하세요.');
+  const value = _persistence.read(load());
+  _cachedConfig = deepClone(value);
+  _committedProjection = deepClone(value);
+}
+
+/** 저장 계층이 JSON+DB를 함께 확정한 삭제 등 내부 명령의 결과만 채택한다. */
+export function acceptPersistentCommit(value:AppConfig): void {
+  if (!_persistence || _pendingConfig) throw new Error('저장 계층 상태가 올바르지 않습니다.');
+  _cachedConfig=deepClone(value);
+  _committedProjection=deepClone(value);
+}
+
+function persistConfig(value: AppConfig, previous: AppConfig, tempPath?: string): AppConfig {
+  if (_persistence) {
+    const committed = _persistence.commit(value,_committedProjection || previous);
+    _committedProjection = deepClone(committed);
+    return committed;
+  }
+  writeJsonAtomicSync(get_CONFIG_PATH(),value,tempPath);
+  return value;
+}
 const _storedPositionKeys = new Set<WindowPositionKey>();
 
 type ConfigChangeListener = (changedConfig: Partial<AppConfig>) => void;
@@ -182,11 +244,13 @@ const EXTERNAL_NUMBER_RANGES: Partial<Record<keyof AppConfig, [number, number]>>
 };
 
 const OPTIONAL_BOOLEAN_KEYS = new Set([
+  'profileSelectionRequired',
   'autoLaunch', 'hasSeenWelcomeGuide', 'lootKeywordsMigratedV2', 'hudHiddenPositionRepairV1', 'scamDetectorEnabled',
   'scamLlmDisabled', 'followGameWindow', 'setupCompleted', 'googleSyncEnabled',
   'googleSyncAutoSync', 'masterMute',
 ]);
 const OPTIONAL_STRING_KEYS = new Set([
+  'activePlayProfileId', 'profileDeviceId', 'profileSessionId',
   'selectedCharacterId', 'msgerLogPath', 'scamAlertSound', 'buffTimerSound',
   'googleSyncUserEmail',
 ]);
@@ -320,6 +384,7 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
 
   const result: Record<string, unknown> = {};
   for (const [key, fieldValue] of Object.entries(value)) {
+    if (['activePlayProfileId','profileDeviceId','profileSessionId','profileSelectionRequired'].includes(key)) return null;
     if (!KNOWN_CONFIG_KEYS.has(key)) return null;
     const defaultValue = (DEFAULT_CONFIG as unknown as Record<string, unknown>)[key];
     if (defaultValue !== undefined) {
@@ -340,8 +405,7 @@ export function sanitizeExternalConfigPatch(value: unknown): Partial<AppConfig> 
     if (key === 'tradeSearchState' && !isTradeSearchState(fieldValue)) return null;
     if (key === 'nicknameNotes' && !isNicknameNotes(fieldValue)) return null;
     if (key === 'notificationPositions' && !isNotificationPositions(fieldValue)) return null;
-    if (key === 'activityPresets' && (!isActivityPresets(fieldValue)
-      || fieldValue.some(preset => !sanitizeExternalConfigPatch(preset.settings)))) return null;
+    if (key === 'activityPresets') return null; // 제거한 활동 전환을 외부 요청으로 다시 적용하지 않는다.
     if (key === 'pinnedNoteText' && (typeof fieldValue !== 'string' || fieldValue.length > 1000)) return null;
     if (key === 'pinnedNoteFontSize' && (!Number.isInteger(fieldValue) || (fieldValue as number) < 12 || (fieldValue as number) > 28)) return null;
     if (key === 'pinnedNoteColor' && (typeof fieldValue !== 'string' || !/^#[0-9a-f]{6}$/i.test(fieldValue))) return null;
@@ -492,6 +556,14 @@ function mergeAndValidateConfig(parsed: Record<string, unknown>): {
   return { config: result as unknown as AppConfig, quarantined };
 }
 
+/** 격리된 백업의 설정을 현재 로드와 같은 규칙으로 해석한다. 파일·캐시에는 쓰지 않는다. */
+export function readBackupConfiguration(value:unknown):AppConfig {
+  if (!value || typeof value!=='object' || Array.isArray(value)) throw new Error('백업 설정 형식이 올바르지 않습니다.');
+  const parsed=deepClone(value) as Record<string,unknown>;
+  applyVersionedMigrations(parsed);
+  return mergeAndValidateConfig(parsed).config;
+}
+
 function waitSync(ms: number): void {
   if (ms <= 0) return;
   const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
@@ -587,6 +659,9 @@ export function addConfigChangeListener(listener: ConfigChangeListener): () => v
 }
 
 function notifyConfigChange(changedConfig: Partial<AppConfig>): void {
+  deferRecordEffect(() => notifyCommittedConfigChange(changedConfig));
+}
+function notifyCommittedConfigChange(changedConfig: Partial<AppConfig>): void {
   for (const listener of _changeListeners) {
     try {
       listener(deepClone(changedConfig));
@@ -721,6 +796,7 @@ export function load(): AppConfig {
   const configPath = get_CONFIG_PATH();
   try {
     const selected = selectConfigCandidate(configPath);
+    _legacyServerEvidence ||= {value:selected?.value.userServer};
     if (selected) {
       const parsed = selected.value;
       const restoredQuarantine = restoreKnownQuarantineFields(configPath, parsed);
@@ -740,11 +816,12 @@ export function load(): AppConfig {
           .map(([key]) => key as WindowPositionKey);
       storedPositionKeys.forEach(key => _storedPositionKeys.add(key));
       config.storedPositionKeys = [..._storedPositionKeys];
-      _cachedConfig = deepClone(config);
+      _cachedConfig = _persistence ? _persistence.read(config) : deepClone(config);
+      if (_persistence) _committedProjection=deepClone(_cachedConfig);
 
       if (selected.sourcePath !== configPath || migrated || Object.keys(quarantined).length > 0) {
         try {
-          writeJsonAtomicSync(configPath, _cachedConfig);
+          writeJsonAtomicSync(configPath, _persistence ? deviceConfigOnly(_cachedConfig) : _cachedConfig);
           if (selected.sourcePath !== configPath) log('[CONFIG] 중단된 임시 설정 파일을 복구했습니다.');
           if (migrated) log('[CONFIG] 설정 마이그레이션 적용');
         } catch (error) {
@@ -780,12 +857,14 @@ export function load(): AppConfig {
       _loadWarning = '유효한 설정 파일을 찾지 못해 기본 설정으로 시작했습니다. 손상된 원본은 별도 파일로 보존했습니다.';
     }
   } catch (error) {
+    if (_persistence) throw error; // 공유 DB 재연결 실패를 기본 프로필 설정으로 숨기지 않는다.
     const message = error instanceof Error ? error.message : String(error);
     _loadWarning = '설정 파일을 읽지 못해 기본 설정으로 시작했습니다.';
     log(`[CONFIG] 설정 로드 실패: ${message}`);
   }
 
-  _cachedConfig = deepClone(DEFAULT_CONFIG);
+  _cachedConfig = _persistence ? _persistence.read(deepClone(DEFAULT_CONFIG)) : deepClone(DEFAULT_CONFIG);
+  if (_persistence) _committedProjection=deepClone(_cachedConfig);
   return deepClone(_cachedConfig);
 }
 
@@ -816,8 +895,7 @@ export function flushPending(): boolean {
   if (_externalRestoreActive) return !_pendingConfig;
   if (!_pendingConfig) return true;
   try {
-    writeJsonAtomicSync(get_CONFIG_PATH(), _pendingConfig);
-    _cachedConfig = deepClone(_pendingConfig);
+    _cachedConfig = deepClone(persistConfig(_pendingConfig,load()));
     _pendingConfig = null;
     _lastSaveError = null;
     _saveRetryIndex = 0;
@@ -825,6 +903,7 @@ export function flushPending(): boolean {
   } catch (error) {
     _lastSaveError = error instanceof Error ? error.message : String(error);
     log(`[CONFIG] 설정 원자 저장 실패, pending 유지: ${_lastSaveError}`);
+    _writeFailures++;
     schedulePendingRetry();
     return false;
   }
@@ -857,6 +936,7 @@ export function save(newConfig: Partial<AppConfig>): void {
 export function saveImmediate(newConfig: Partial<AppConfig> = {}): boolean {
   if (_externalRestoreActive) {
     _lastSaveError = '백업 복원 중에는 설정을 변경할 수 없습니다.';
+    _writeFailures++;
     return false;
   }
   try {
@@ -872,6 +952,7 @@ export function saveImmediate(newConfig: Partial<AppConfig> = {}): boolean {
   } catch (error) {
     _lastSaveError = error instanceof Error ? error.message : String(error);
     log(`[CONFIG] 즉시 저장 실패, pending 유지: ${_lastSaveError}`);
+    _writeFailures++;
     return false;
   }
 }
@@ -886,19 +967,22 @@ export function saveImmediate(newConfig: Partial<AppConfig> = {}): boolean {
 export function saveConfirmed(newConfig: Partial<AppConfig>): boolean {
   if (_externalRestoreActive) {
     _lastSaveError = '백업 복원 중에는 설정을 변경할 수 없습니다.';
+    _writeFailures++;
     return false;
   }
   const configPath = get_CONFIG_PATH();
   const tempPath = `${configPath}.confirmed.tmp`;
   try {
     const changed = deepClone(newConfig);
-    const next = mergeConfigPatch(_pendingConfig || load(), changed) as AppConfig;
+    const previous = _pendingConfig || load();
+    let next = mergeConfigPatch(previous, changed) as AppConfig;
     next.storedPositionKeys = [..._storedPositionKeys];
-    writeJsonAtomicSync(configPath, next, tempPath);
+    next = persistConfig(next,previous,tempPath);
     if (_saveTimer) clearTimeout(_saveTimer);
     _saveTimer = null;
     _pendingConfig = null;
     _cachedConfig = deepClone(next);
+    if (!_persistence && Object.prototype.hasOwnProperty.call(newConfig,'userServer')) _legacyServerEvidence={value:newConfig.userServer};
     _lastSaveError = null;
     _saveRetryIndex = 0;
     notifyConfigChange(changed);
@@ -906,6 +990,7 @@ export function saveConfirmed(newConfig: Partial<AppConfig>): boolean {
   } catch (error) {
     _lastSaveError = error instanceof Error ? error.message : String(error);
     log(`[CONFIG] 설정 적용 취소, 기존 설정 유지: ${_lastSaveError}`);
+    _writeFailures++;
     try { fs.rmSync(tempPath, { force: true }); } catch { /* 복구 후보가 아니므로 남아도 적용되지 않는다. */ }
     return false;
   }

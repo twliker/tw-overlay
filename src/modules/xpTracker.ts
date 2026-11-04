@@ -20,7 +20,8 @@
  * - 경험치 UI 전송은 150ms로 묶어 고빈도 로그에서 renderer를 압박하지 않되, 중지·리셋 전에는 pending
  *   값을 flush해 마지막 획득량을 잃지 않습니다. `start()`는 리스너/타이머를 중복 등록하지 않습니다.
  */
-import { chatParser } from './chatParser';
+import {onProfileProgress} from './profileParserEvents';
+import {recordEventTime,transientEffectsAllowed} from './recordEffects';
 import * as config from './config';
 import { log } from './logger';
 import * as wm from './windowManager';
@@ -47,6 +48,11 @@ export function shouldAutoStartXpSession(configValue: Pick<AppConfig, 'xpAutoSta
 /**
  * XP 추적 모듈 — 경험치 세션 통계, 분당 히스토리, 경험의 정수 알림, 팔색조 언덕 추적
  */
+export interface XpProfileState {
+  version:1;total:number;kills:number;elapsedMs:number;active:boolean;autoPaused:boolean;
+  history:number[];currentMinute:number;minuteIndex:number;warningXp:number;essences:number;
+  quest:{type:'forge' | 'golgotha' | 'void';startKills:number;startTime:number} | null;
+}
 class XpTracker {
   private _started = false;
   private _sessionXP = 0;
@@ -134,7 +140,7 @@ class XpTracker {
     }, 1000);
 
     // 도전과제 매크로 감지
-    chatParser.on('NORMAL_CHAT', (data) => {
+    onProfileProgress('NORMAL_CHAT', (data) => {
       if (data.message.includes('[twOverlay] 대장간 도전과제 시작')) {
         this.startQuest('forge');
       } else if (data.message.includes('[twOverlay] 골고다 도전과제 시작')) {
@@ -145,7 +151,7 @@ class XpTracker {
     });
 
     // 경험치 변동
-    chatParser.on('XP_CHANGED', (data) => {
+    onProfileProgress('XP_CHANGED', (data) => {
       if (!Number.isFinite(data.amount)) return;
       this.checkInactivity();
       // 경고용 누적은 세션 통계보다 먼저, 세션 활성 여부와 무관하게 처리합니다.
@@ -284,12 +290,14 @@ class XpTracker {
   }
 
   private startQuest(type: 'forge' | 'golgotha' | 'void'): void {
+    const startedAt=recordEventTime(),remaining=startedAt+1200000-Date.now();
+    if (remaining<=0 || this._questActive && startedAt<this._questStartTime) return;
     if (this._questTimer) clearTimeout(this._questTimer);
     
     this._questActive = true;
     this._questType = type;
     this._questStartKills = this._sessionKills;
-    this._questStartTime = Date.now();
+    this._questStartTime = startedAt;
     
     const questName = QUEST_DEFINITIONS[type].name;
     const targetKills = QUEST_DEFINITIONS[type].target;
@@ -299,7 +307,7 @@ class XpTracker {
     this._questTimer = setTimeout(() => {
       log(`[XP_TRACKER] ${questName} 도전과제 시간 초과 (20분 경과) - 취소 처리`);
       this.cancelQuest();
-    }, 1200000);
+    }, remaining);
 
     this.sendToWindow('game-overlay.html', 'quest-started', {
       questType: type,
@@ -334,6 +342,7 @@ class XpTracker {
     this._questActive = false;
     this._questType = null;
     log(`[XP_TRACKER] ${questName} 도전과제 추적 완료! (${targetKills}마리 처치 달성)`);
+    if (!transientEffectsAllowed()) return;
 
     this.sendToWindow('game-overlay.html', 'quest-complete', { questType: type });
 
@@ -386,6 +395,36 @@ class XpTracker {
       this.checkMinuteRollover();
     }
     return this.buildXpPayload(this._lastGainForThrottledUpdate);
+  }
+
+  public captureProfileState():XpProfileState {
+    return {version:1,total:this._sessionXP,kills:this._sessionKills,elapsedMs:this.getElapsedMs(),active:this._isActive,
+      autoPaused:this._autoPaused,history:[...this._minuteHistory],currentMinute:this._currentMinuteXP,minuteIndex:this._lastMinuteTimestamp,
+      warningXp:this._essenceWarningXp,essences:this._sessionEssenceCount,
+      quest:this._questActive && this._questType ? {type:this._questType,startKills:this._questStartKills,startTime:this._questStartTime} : null};
+  }
+
+  /** 프로필에 없는 시간은 측정 시간에 더하지 않고, 도전과제의 실제 마감 시각은 유지한다. */
+  public restoreProfileState(state:XpProfileState | null,selected=true):void {
+    if (this._xpUpdateTimer) clearTimeout(this._xpUpdateTimer);this._xpUpdateTimer=null;
+    if (this._questTimer) clearTimeout(this._questTimer);this._questTimer=null;
+    this._sessionXP=state?.total || 0;this._sessionKills=state?.kills || 0;
+    this._accumulatedTime=state?.elapsedMs || 0;this._startTime=Date.now();
+    this._isActive=selected && (state ? state.active : shouldAutoStartXpSession(config.load()));
+    this._autoPaused=state?.autoPaused || false;this._lastActivityAt=this._isActive ? Date.now() : null;
+    this._minuteHistory=[...(state?.history || [])];this._currentMinuteXP=state?.currentMinute || 0;
+    this._lastMinuteTimestamp=state?.minuteIndex || 0;this._historyBeforeIdle=null;
+    this._essenceWarningXp=state?.warningXp || 0;this._sessionEssenceCount=state?.essences || 0;
+    this._lastGainForThrottledUpdate=0;this._efficiency.reset();this._efficiencySettingsKey='';
+    this._questActive=false;this._questType=null;
+    this.sendToWindow('game-overlay.html','quest-cancelled');
+    const quest=state?.quest,remaining=quest ? quest.startTime+1200000-Date.now() : 0;
+    if (selected && quest && remaining>0 && QUEST_DEFINITIONS[quest.type]) {
+      this._questActive=true;this._questType=quest.type;this._questStartTime=quest.startTime;this._questStartKills=quest.startKills;
+      this._questTimer=setTimeout(() => this.cancelQuest(),remaining);
+      this.sendToWindow('game-overlay.html','quest-started',{questType:quest.type,startTime:quest.startTime,duration:1200000,startKills:quest.startKills,targetKills:QUEST_DEFINITIONS[quest.type].target});
+    }
+    this.broadcastUpdate();
   }
 
   public startSession(): void {
@@ -487,6 +526,7 @@ class XpTracker {
   }
 
   private _fireEssenceAlert(): void {
+    if (!transientEffectsAllowed()) return;
     const cfg = config.load();
     if (cfg.essenceAlertEnabled === false) return;
 

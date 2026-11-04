@@ -48,6 +48,7 @@
     masterMute?: boolean;
     notifyWhenGameClosed?: boolean;
     userServer?: number;
+    activePlayProfileId?: string;
     chatOverlayFontSize?: number;
     chatNicknameNotesCompact?: boolean;
     chatCompactDisplay?: boolean;
@@ -251,7 +252,7 @@
     setChecked('chat-compact-display', config.chatCompactDisplay === true);
     setChecked('chat-eta-colors-enabled', config.chatEtaColorsEnabled === true);
     (config.chatEtaColors || defaults.chatEtaColors || []).forEach((color, index) => setValue(`chat-eta-color-${index}`, color));
-    setValue('chat-overlay-user-server-input', config.userServer ?? defaults.userServer ?? 7);
+    setValue('chat-overlay-user-server-input', config.activePlayProfileId && config.userServer === undefined ? '' : config.userServer ?? defaults.userServer ?? 7);
     bindRange('chat-overlay-fontsize-input', 'chat-overlay-fontsize-val', config.chatOverlayFontSize ?? defaults.chatOverlayFontSize ?? 14, value => `${value}px`);
     for (const [id, value] of [['chat-overlay-fontfamily-input', config.chatOverlayFontFamily], ['chat-overlay-sub-fontfamily-input', config.chatOverlaySubFontFamily], ['chat-overlay-sub2-fontfamily-input', config.chatOverlaySub2FontFamily]]) {
       window.customChatFonts?.ensureOption(document.getElementById(id!) as HTMLSelectElement | null, value || '');

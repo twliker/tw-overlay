@@ -41,16 +41,22 @@ async function main(): Promise<void> {
   const soundEvents: any[] = [];
   let fixtureWindowCount = 0;
   let nativeNextWindow = false;
+  const visibilityTrace:Array<{page?:string;action:string;stack?:string}>=[];
   // Native BrowserWindow and the complete production windowManager run unchanged. Only external
   // game/services and page contents are fixtures; visibility/placement/persistence are real code.
   const FixtureWindow = function(options: Electron.BrowserWindowConstructorOptions) {
-    // The first (main sidebar) window needs native focus for Chromium's real :focus-visible behavior.
+    // Focus/visibility scenarios explicitly request native windows instead of offscreen rendering.
     const offscreen = fixtureWindowCount++ > 0 && !nativeNextWindow;
     nativeNextWindow = false;
     const win = new BrowserWindow({ ...options, webPreferences: { preload: path.join(root, 'dist/preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false, offscreen } });
     const nativeLoad = win.loadFile.bind(win);
+    let fixturePage:string | undefined;
+    const nativeHide=win.hide.bind(win);
+    win.hide=()=>{visibilityTrace.push({page:fixturePage,action:'hide',stack:new Error().stack});nativeHide();};
+    win.on('show',()=>visibilityTrace.push({page:fixturePage,action:'show'}));
     win.loadFile = (file: string) => {
       const key = path.basename(file);
+      fixturePage=key;
       windows.set(key, [...(windows.get(key) || []), win]);
       const promise = nativeLoad(markup);
       tasks.push(promise);
@@ -99,7 +105,7 @@ async function main(): Promise<void> {
   const resizeIpcSource = fs.readFileSync(path.join(root, 'src/modules/ipcHandlers.ts'), 'utf8');
   const resizeStart = resizeIpcSource.indexOf('  type ApplySettingsResult =');
   const resizeSource = resizeIpcSource.slice(resizeStart, resizeIpcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", resizeStart));
-  const resizeBindings = { ipcMain, wm, config, isBoolean: (value: unknown) => typeof value === 'boolean', log() {},
+  const resizeBindings = { ipcMain, wm, config, isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, validateSettingsProfileWrite: () => undefined,
     applyRuntimeSettings() { throw new Error('런처 너비 변경은 런타임 설정 변경이 아니다.'); },
     broadcastChatLogStatus() { throw new Error('런처 너비 변경은 로그 설정 방송이 아니다.'); } };
   vm.runInThisContext(`(function({${Object.keys(resizeBindings).join(',')}}){${ts.transpileModule(resizeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText}})`)(resizeBindings);
@@ -254,10 +260,16 @@ async function main(): Promise<void> {
     await replyDelay;
     return result;
   });
+  nativeNextWindow=true;
   wm.toggleContentsCheckerWindow();
   await loaded();
   let checklist = wm.getContentsCheckerWindow() as BrowserWindow;
-  await eventually(() => checklist.isVisible());
+  assert.equal(checklist.webContents.isOffscreen(),false,'숙제 가시성·크기 검사는 실제 네이티브 창으로 실행한다.');
+  await eventually(() => checklist.isVisible()).catch(error=>{
+    console.error('Checklist visibility state',JSON.stringify({visible:checklist.isVisible(),destroyed:checklist.isDestroyed(),
+      allHidden:wm.areAllWindowsHidden(),enabled:config.load().contentsCheckerEnabled,trace:visibilityTrace.filter(entry=>entry.page==='contents-checker.html')},null,2));
+    throw error;
+  });
   const originalHtml = path.join(root, 'dist/contents-checker.html');
   // Load every production script: a stripped page hides competing config-data subscriptions.
   ipcMain.handle('google-sync-get-status', () => null);
@@ -335,6 +347,11 @@ async function main(): Promise<void> {
   fs.mkdirSync(output, { recursive: true });
   async function capture(win: BrowserWindow, name: string): Promise<void> {
     await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)');
+    if (!win.webContents.isOffscreen()) {
+      await pause(100);
+      const frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false);
+      fs.writeFileSync(path.join(output,name),frame.toPNG());return;
+    }
     let frame!: Electron.NativeImage;
     for (let n = 0; n < 3; n++) {
       await pause(100);
@@ -505,6 +522,19 @@ async function main(): Promise<void> {
   assert.ok(sharedBounds.x >= area.x && sharedBounds.y >= area.y && sharedBounds.x + sharedBounds.width <= area.x + area.width && sharedBounds.y + sharedBounds.height <= area.y + area.height, '공유 배치가 현재 작업 영역을 벗어남');
   assert.deepEqual(BrowserWindow.getAllWindows().map(win => ({ id: win.id, visible: win.isVisible() })), beforeShare, '공유 적용이 열림/숨김 상태를 바꿈');
   assert.equal(await moving.webContents.executeJavaScript(`document.getElementById('draft').value`), '작성 중인 내용', '공유 배치가 renderer를 다시 만듦');
+  wm.openProfilesWindow('game-resync');
+  await Promise.all(tasks);
+  const profileManager=windows.get('profiles.html')!.at(-1)!;
+  await eventually(() => profileManager.isVisible());
+  await profileManager.webContents.executeJavaScript("document.getElementById('draft').value='프로필 편집 중'");
+  wm.hideAll({preserveForResume:true});
+  assert.equal(profileManager.isDestroyed(),false,'게임 최소화가 프로필 선택/편집 창을 닫으면 안 됨');
+  assert.equal(profileManager.isVisible(),true,'이미 최소화된 게임의 선택창도 사용할 수 있어야 함');
+  wm.hideAll();
+  assert.equal(profileManager.isDestroyed(),false,'게임 종료 중에도 프로필 편집 유지');
+  assert.equal(await profileManager.webContents.executeJavaScript("document.getElementById('draft').value"),'프로필 편집 중');
+  wm.toggleAllWindowsHidden();
+  assert.equal(profileManager.isVisible(),false,'사용자의 명시적 전체 숨김은 프로필 창에도 적용');
   for (const win of BrowserWindow.getAllWindows()) win.destroy();
   config.saveImmediate();
   console.log('Window visibility + auto collapse: native lifecycle, drafts, game resume, late loading, notifications, shortcuts, busy UI, failed/delayed save, preset size and product screenshots passed.');

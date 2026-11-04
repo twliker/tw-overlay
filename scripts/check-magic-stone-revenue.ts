@@ -83,6 +83,49 @@ async function main(): Promise<void> {
   expect(rows.length === 2 && rows[1].amount === 1_000_000, '재시도 성공·지연 중복 저장 방지');
   expect((await js(stone, `document.getElementById('save-diary-btn').textContent`)).includes('완료'), '저장 성공 후 완료 표시');
 
+  // Actual diary form: expense sign, positive income, invalid input, and net totals.
+  await js(diary, `(async()=>{await selectDate(${JSON.stringify(today)});})()`);
+  await js(diary, `document.getElementById('manual-seed-mode').value='expense';
+    document.getElementById('manual-seed-desc').value='아이템 구매';
+    document.getElementById('manual-seed-amount').value='56800001';
+    updateSeedPreview('56800001');`);
+  expect((await js(diary, `document.getElementById('manual-seed-preview').textContent`)).startsWith('-'), '지출 미리보기 부호');
+  await js(diary, `saveManualSeed(document.querySelector('button[onclick="saveManualSeed(this)"]'))`);
+  expect(db.getStmt("SELECT amount FROM activity_logs WHERE content LIKE '%아이템 구매%'").get()?.amount === -56_800_001, '실제 수동 지출 저장');
+  const beforeInvalid = db.getStmt('SELECT COUNT(*) AS count FROM activity_logs').get().count;
+  await js(diary, `document.getElementById('manual-seed-amount').value='-1';saveManualSeed(document.querySelector('button[onclick="saveManualSeed(this)"]'))`);
+  expect(db.getStmt('SELECT COUNT(*) AS count FROM activity_logs').get().count === beforeInvalid, '음수 직접 입력 차단');
+  const parser = built('modules/chatParser').chatParser;
+  config.saveConfirmed({ abandonedEnabled: false });
+  built('modules/chatLogProcessor').chatLogProcessor.start();
+  parser.setCurrentDate(today);
+  parser.parseLine('<font color="white"> [13시 34분 27초] </font><font>입장료 5,680,001 Seed를 지불하였습니다.</font></br>');
+  const fee = db.getStmt("SELECT * FROM activity_logs WHERE content LIKE '%어벤던로드 입장료%'").all();
+  expect(fee.length === 1 && fee[0].amount === -5_680_001, 'HUD 비활성 상태에서도 실제 지불 로그 음수 기록');
+  expect(db.getMonthlySummary(month).totalSeed === 773_500_000 - 56_800_001 - 5_680_001, '마정석 수익과 지출 순수익');
+  const checklist = await page('contents-checker.html');
+  checklist.webContents.send('config-data', config.load());
+  await until(async () => await js(checklist, 'configData !== null'), '숙제 초기 설정 수신');
+  await js(checklist, `collapsedSections.add('일일 숙제');collapsedCategories.add('일일 숙제-기타');document.getElementById('search-input').value='추가';document.getElementById('new-item-name').value='추가 피드백 검사';document.getElementById('btn-add-item').click();`);
+  await until(() => config.load().contentsCheckerItems.some((item: { name: string }) => item.name === '추가 피드백 검사'), '실제 숙제 저장');
+  checklist.webContents.send('config-data', config.load());
+  await until(async () => (await js(checklist, `document.getElementById('custom-item-feedback').textContent`)).includes('추가되었습니다'), '실제 숙제 추가 성공 안내');
+  expect(await js(checklist, `!document.getElementById('btn-add-item').disabled && document.getElementById('new-item-name').value === ''`), '추가 확인 후 입력 초기화');
+
+  await pause(800);
+  expect(await js(checklist, `document.getElementById('search-input').value === '추가' && !collapsedSections.has('일일 숙제') && !!document.querySelector('[data-item-id]')`), '추가 숙제 검색 보존·그룹 펼침·행 렌더링');
+  const addedBounds = await js(checklist, `(()=>{const row=document.querySelector('[data-item-id]');const r=row.getBoundingClientRect();const w=document.querySelector('.matrix-wrapper').getBoundingClientRect();return {top:r.top,bottom:r.bottom,viewTop:w.top,viewBottom:w.bottom};})()`);
+  expect(addedBounds.top >= addedBounds.viewTop && addedBounds.bottom <= addedBounds.viewBottom, '추가 숙제 자동 스크롤 후 목록 안에 표시');
+  await js(checklist, `if (!isEditMode) toggleEditMode();`);
+  const reviewDirectory = path.join(os.tmpdir(), 'tw-overlay-feature-review');
+  fs.mkdirSync(reviewDirectory, { recursive: true });
+  await js(checklist, `document.getElementById('custom-item-feedback').scrollIntoView({block:'center'});`);
+  await pause(200);
+  fs.writeFileSync(path.join(reviewDirectory, 'checklist.png'), (await checklist.webContents.capturePage()).toPNG());
+  await js(diary, `document.getElementById('manual-seed-amount').value='56800000';updateSeedPreview('56800000');`);
+  await pause(200);
+  fs.writeFileSync(path.join(reviewDirectory, 'diary.png'), (await diary.webContents.capturePage()).toPNG());
+
   // Existing zero rows: repair only exact calculator output with matching quantity and money.
   const legacy = [
     ['calc', '💰 마정석 교환: 1,545개 (7억 7250만 시드)', 0, 'manual', 772_500_000],
@@ -93,7 +136,7 @@ async function main(): Promise<void> {
     ['calc', '💰 마정석 교환: -2개 (-100만 시드)', 0, 'manual', 0],
     ['calc', '💰 수익: 마정석 교환 (100만 시드)', 0, 'manual', 0],
   ] as const;
-  db.getDiaryByDate('2099-12-29');
+  db.getStmt('INSERT OR IGNORE INTO diaries(date) VALUES(?)').run('2099-12-29');
   const ids = legacy.map(([type, content, amount, source]) => Number(db.getStmt(
     'INSERT INTO activity_logs(date,type,content,time,amount,source) VALUES(?,?,?,?,?,?)')
     .run('2099-12-29', type, content, '12:00:00', amount, source).lastInsertRowid));

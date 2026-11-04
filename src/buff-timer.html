@@ -5,6 +5,8 @@
   <meta charset="UTF-8">
   <title>버프 타이머 알림 설정</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-settings.css">
+  <script src="renderer/profile-settings-page.js"></script>
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
@@ -745,6 +747,28 @@
     let buffEnabled = {};
     let warnSeconds = [60, 10];
 
+    function writeBuffSettings(patch) {
+      if (window.profileSettingsPage?.enabled()) return window.profileSettingsPage.write(patch);
+      window.electronAPI.applySettings(patch);return Promise.resolve(true);
+    }
+    function captureBuffSettings() {
+      return {buffTimerEnabled:document.getElementById('master-toggle').checked,showBuffHud:document.getElementById('show-hud-toggle').checked,
+        buffTimerWarnSeconds:[...warnSeconds],buffTimerAudioAlert:document.getElementById('audio-toggle').checked,
+        buffTimerVisualAlert:document.getElementById('visual-toggle').checked,buffTimerCenterAlert:document.getElementById('center-alert-toggle').checked,
+        buffTimerVolume:Number(document.getElementById('volume-slider').value),buffTimerSound:document.getElementById('sound-select').value,buffTimerBuffs:{...buffEnabled},
+        buffTimerHudPos:{left:Number(document.getElementById('hud-pos-left').value),bottom:Number(document.getElementById('hud-pos-bottom').value)}};
+    }
+    function saveBuffPage() {
+      const input=document.getElementById('add-warn-input');
+      if (document.getElementById('add-input-row').classList.contains('visible') && input.value.trim()) {
+        const seconds=Number(input.value);
+        if (!Number.isInteger(seconds) || seconds<=5) {window.profileSettingsPage.report('경고 시점은 5초보다 큰 정수로 입력해 주세요.');return false;}
+        if (!warnSeconds.includes(seconds)) warnSeconds.push(seconds);
+        input.value='';document.getElementById('add-input-row').classList.remove('visible');renderWarnChips();
+      }
+      return writeBuffSettings(captureBuffSettings());
+    }
+
     function renderBuffList() {
       const list = document.getElementById('buff-list');
       list.innerHTML = '';
@@ -837,7 +861,7 @@
 
     document.getElementById('btn-test').onclick = () => {
       // 테스트 시점의 설정들을 우선 실시간 적용
-      window.electronAPI.applySettings({
+      const saved=writeBuffSettings({
         buffTimerEnabled: document.getElementById('master-toggle').checked,
         showBuffHud: document.getElementById('show-hud-toggle').checked,
         buffTimerWarnSeconds: [...warnSeconds],
@@ -850,32 +874,20 @@
       });
 
       const secs = parseInt(document.getElementById('test-seconds-input').value) || 1200;
-      window.electronAPI.buffTimerTest(secs);
+      if (window.profileSettingsPage?.enabled()) void saved.then(success => {if (success) window.electronAPI.buffTimerTest(secs);});
+      else window.electronAPI.buffTimerTest(secs);
     };
 
-    document.getElementById('show-hud-toggle').onchange = (e) => window.electronAPI.applySettings({ showBuffHud: e.target.checked });
-    document.getElementById('master-toggle').onchange = (e) => window.electronAPI.applySettings({ buffTimerEnabled: e.target.checked });
+    document.getElementById('show-hud-toggle').onchange = (e) => writeBuffSettings({ showBuffHud: e.target.checked });
+    document.getElementById('master-toggle').onchange = (e) => writeBuffSettings({ buffTimerEnabled: e.target.checked });
 
     document.getElementById('btn-apply-pos').onclick = () => {
       const left = parseInt(document.getElementById('hud-pos-left').value) || 0;
       const bottom = parseInt(document.getElementById('hud-pos-bottom').value) || 0;
-      window.electronAPI.applySettings({ buffTimerHudPos: { left, bottom } });
+      writeBuffSettings({ buffTimerHudPos: { left, bottom } });
     };
 
-    document.getElementById('btn-save').onclick = () => {
-      window.electronAPI.applySettings({
-        buffTimerEnabled: document.getElementById('master-toggle').checked,
-        showBuffHud: document.getElementById('show-hud-toggle').checked,
-        buffTimerWarnSeconds: [...warnSeconds],
-        buffTimerAudioAlert: document.getElementById('audio-toggle').checked,
-        buffTimerVisualAlert: document.getElementById('visual-toggle').checked,
-        buffTimerCenterAlert: document.getElementById('center-alert-toggle').checked,
-        buffTimerVolume: parseInt(document.getElementById('volume-slider').value),
-        buffTimerSound: document.getElementById('sound-select').value,
-        buffTimerBuffs: { ...buffEnabled },
-        buffTimerHudPos: { left: parseInt(document.getElementById('hud-pos-left').value) || 0, bottom: parseInt(document.getElementById('hud-pos-bottom').value) || 0 }
-      });
-    };
+    document.getElementById('btn-save').onclick = () => saveBuffPage();
 
     document.getElementById('btn-clear-all-buffs').onclick = () => {
       window.electronAPI.buffTimerClearAll();
@@ -956,7 +968,9 @@
 
     let soundFiles = [];
 
-    window.electronAPI.onConfigData(async (config) => {
+    let buffConfigGeneration=0;
+    async function applyBuffConfig(config,isCurrent=()=>true) {
+      const revision=++buffConfigGeneration;
       cfg = config;
 
       const masterToggle = document.getElementById('master-toggle');
@@ -988,7 +1002,9 @@
       // 사운드 목록 동적 갱신
       if (window.loadSoundList) {
         try {
-          soundFiles = await window.loadSoundList();
+          const sounds = await window.loadSoundList();
+          if (revision!==buffConfigGeneration || !isCurrent()) return;
+          soundFiles=sounds;
           const sel = document.getElementById('sound-select');
           if (sel) {
             const prevVal = sel.value || config.buffTimerSound;
@@ -1006,8 +1022,14 @@
         sel.value = config.buffTimerSound;
       }
 
+      if (revision!==buffConfigGeneration || !isCurrent()) return;
       renderBuffList(); setupAddChip(); renderWarnChips(); refreshIcons();
-    });
+    }
+    if (window.profileSettingsPage) window.profileSettingsPage.init({capture:captureBuffSettings,apply:applyBuffConfig,save:saveBuffPage,
+      commonNotice:'알림음·음량·HUD 표시와 위치는 모든 프로필에 공통입니다.',
+      extra:() => document.getElementById('add-input-row').classList.contains('visible') && !!document.getElementById('add-warn-input').value.trim(),
+      reset:() => {document.getElementById('add-warn-input').value='';document.getElementById('add-input-row').classList.remove('visible');}});
+    else window.electronAPI.onConfigData(applyBuffConfig);
 
     window.onload = async () => {
       refreshIcons();
@@ -1015,9 +1037,11 @@
 
       // 사운드 파일 목록은 로드 시점에 1회만 비동기로 가져옵니다.
       if (window.loadSoundList) {
-        soundFiles = await window.loadSoundList();
+        const isCurrent=window.profileSettingsPage?.guard() || (()=>true);
+        const sounds=await window.loadSoundList();
         const sel = document.getElementById('sound-select');
-        if (sel) {
+        if (isCurrent() && sel) {
+          soundFiles=sounds;
           sel.innerHTML = soundFiles.map(s => `<option value="${s.file}">${s.name}</option>`).join('');
           if (cfg && cfg.buffTimerSound) {
             sel.value = cfg.buffTimerSound;

@@ -11,7 +11,8 @@
  * - 과거 채팅 로그 강제 동기화는 별도의 ChatParser 인스턴스를 사용하므로 이 실시간 추적기를
  *   활성화하지 않습니다. 게임 프로세스가 새로 시작되면 남아 있던 상태도 즉시 초기화합니다.
  */
-import { chatParser } from './chatParser';
+import {onProfileProgress} from './profileParserEvents';
+import {recordEventTime} from './recordEffects';
 import { log } from './logger';
 import { broadcastToAllWindows } from './windowMessaging';
 import type { DigsiteBoardState } from '../shared/types';
@@ -100,19 +101,20 @@ class DigsiteTracker {
     }
     this._started = true;
 
-    chatParser.on('DIGSITE_ENTRY', () => this.applyEvent({ type: 'entry' }));
-    chatParser.on('DIGSITE_NORMAL_REWARD', () => this.applyEvent({ type: 'normal-reward' }));
-    chatParser.on('DIGSITE_PORTAL_VISIT', data => this.applyEvent({ type: 'portal-visit', portal: data.portal }));
-    chatParser.on('DIGSITE_PORTAL_REWARD', () => this.applyEvent({ type: 'portal-reward' }));
-    chatParser.on('DIGSITE_ALTERNATE_REWARD', () => this.applyEvent({ type: 'alternate-reward' }));
+    onProfileProgress('DIGSITE_ENTRY', () => this.applyEvent({ type: 'entry' }));
+    onProfileProgress('DIGSITE_NORMAL_REWARD', () => this.applyEvent({ type: 'normal-reward' }));
+    onProfileProgress('DIGSITE_PORTAL_VISIT', data => this.applyEvent({ type: 'portal-visit', portal: data.portal }));
+    onProfileProgress('DIGSITE_PORTAL_REWARD', () => this.applyEvent({ type: 'portal-reward' }));
+    onProfileProgress('DIGSITE_ALTERNATE_REWARD', () => this.applyEvent({ type: 'alternate-reward' }));
   }
 
   private applyEvent(event: DigsiteBoardEvent): void {
     const wasActive = this._state.isActive;
-    this._state = applyDigsiteBoardEvent(this._state, event, Date.now());
+    this._state = applyDigsiteBoardEvent(this._state, event, recordEventTime());
 
     if (event.type === 'entry') {
-      this.scheduleFixedHide();
+      const remaining=(this._state.expiresAt || 0)-Date.now();
+      if (remaining>0) this.scheduleFixedHide(remaining);else this._state.isActive=false;
       log('[DIGSITE] 입장 감지: 현황판을 초기화하고 5분 표시를 시작합니다.');
     } else if (wasActive && !this._state.isActive) {
       if (this._hideTimer) clearTimeout(this._hideTimer);
@@ -125,14 +127,14 @@ class DigsiteTracker {
     this.notify();
   }
 
-  private scheduleFixedHide(): void {
+  private scheduleFixedHide(remaining=DIGSITE_BOARD_VISIBLE_MS): void {
     if (this._hideTimer) clearTimeout(this._hideTimer);
     this._hideTimer = setTimeout(() => {
       this._hideTimer = null;
       this._state = applyDigsiteBoardEvent(this._state, { type: 'expire' }, Date.now());
       this.notify();
       log('[DIGSITE] 종료 로그가 없어 입장 5분 뒤 현황판을 자동으로 숨겼습니다.');
-    }, DIGSITE_BOARD_VISIBLE_MS);
+    }, remaining);
     this._hideTimer.unref?.();
   }
 
@@ -153,6 +155,14 @@ class DigsiteTracker {
     if (this._hideTimer) clearTimeout(this._hideTimer);
     this._hideTimer = null;
     this._state = createDigsiteBoardState();
+    this.notify();
+  }
+  public restoreProfileState(state:DigsiteBoardState | null):void {
+    if (this._hideTimer) clearTimeout(this._hideTimer);this._hideTimer=null;
+    this._state=state ? structuredClone(state) : createDigsiteBoardState();
+    const remaining=(this._state.expiresAt || 0)-Date.now();
+    if (this._state.isActive && remaining>0) this.scheduleFixedHide(remaining);
+    else this._state.isActive=false;
     this.notify();
   }
 }

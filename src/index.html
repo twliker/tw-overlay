@@ -7,6 +7,9 @@
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
+  <link rel="stylesheet" href="assets/diary-profiles.css">
+  <script src="renderer/diary-profiles.js"></script>
+  <script src="renderer/boss-diary-toast.js"></script>
   <script src="assets/audio-playback.js"></script>
   <script src="shared/sidebarCategories.js"></script>
   <script src="shared/sidebarMenuActivation.js"></script>
@@ -222,7 +225,6 @@
 
     let bossNotifyVolume = 0.5;
     let currentHiddenMenuIds = [];
-    let _lastRecordedBossKey = null;
     let lastConfig = null;
     let sidebarPos = 'right';
     let isCollapsed = false;
@@ -608,11 +610,11 @@
       toast.className = 'boss-toast show';
 
       const buttonHtml = isAlreadyRecorded
-        ? `<button disabled class="px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default">
+        ? `<button data-boss-record-button disabled class="px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default">
             <i data-lucide="info" class="w-3.5 h-3.5"></i>
             이미 기록됨!
           </button>`
-        : `<button onclick="recordKillAndRemove('${toastId}', '${bossName}', '${validSpawnTime || ''}', event)" class="cursor-custom-sword px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-white transition-all text-[11px] font-bold">
+        : `<button data-boss-record-button class="cursor-custom-sword px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-white transition-all text-[11px] font-bold">
             <i data-lucide="sword" class="w-3.5 h-3.5"></i>
             일지 기록
           </button>`;
@@ -628,19 +630,32 @@
           </button>
         </div>
         ${isRealBoss ? `
+        <div data-boss-record-profile hidden></div>
         <div class="mt-3 flex justify-end w-full border-t border-slate-700/50 pt-2">
           ${buttonHtml}
         </div>` : ''}
       `;
 
       appendInteractiveToast(toast);
+      if (isRealBoss) window.bindBossDiaryToast(toast, bossName, validSpawnTime || '', () => {
+        const volume = lastConfig?.volumeCalculators ?? 50;
+        if (!lastConfig?.masterMute && volume > 0) {
+          const audio = new Audio('assets/sound/item_get.wav');
+          audio.volume = volume / 100;
+          audio.play().catch(() => {});
+        }
+      }, () => removeToast(toastId));
 
       // 자동 삭제 타이머
       let duration = 5000; // 커스텀 알림 기본 5초
       if (isRealBoss) {
         duration = (offset === 0) ? 60000 : 30000; // 정각 알림은 1분, N분 전 알림은 30초
       }
-      setTimeout(() => { removeToast(toastId); }, duration);
+      const expire = () => {
+        if (toast.dataset.saving === 'true' || toast.contains(document.activeElement)) {setTimeout(expire, 5000);return;}
+        removeToast(toastId);
+      };
+      setTimeout(expire, duration);
     }
 
     function removeToast(id, event) {
@@ -655,66 +670,6 @@
           interactiveToasts.remove(id);
         }, 300);
       }
-    }
-
-    async function recordKillAndRemove(toastId, bossName, spawnTime, event) {
-      if (event) event.stopPropagation();
-
-      const recordKey = `${bossName}-${spawnTime}`;
-      // 1차 필터: 현재 세션 내 메모리 체크 (가장 빠름)
-      if (_lastRecordedBossKey === recordKey) {
-        const toast = document.getElementById(toastId);
-        if (toast) {
-          const btn = toast.querySelector('button[onclick^="recordKillAndRemove"]');
-          if (btn) {
-            btn.innerHTML = `<i data-lucide="info" class="w-3.5 h-3.5"></i> 이미 기록됨!`;
-            btn.disabled = true;
-            btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default";
-            refreshIcons();
-          }
-          setTimeout(() => { removeToast(toastId); }, 1500);
-        }
-        return;
-      }
-
-      const isMuted = Boolean(lastConfig && lastConfig.masterMute);
-      const vol = (lastConfig && lastConfig.volumeCalculators !== undefined ? lastConfig.volumeCalculators : 50) / 100;
-      if (!isMuted && vol > 0) {
-        const audio = new Audio('assets/sound/item_get.wav');
-        audio.volume = vol;
-        audio.play().catch(e => { });
-      }
-
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const dateStr = String(now.getDate()).padStart(2, '0');
-      const date = `${year}-${month}-${dateStr}`;
-      const recordTime = (spawnTime && spawnTime !== 'null' && spawnTime !== '') ? (spawnTime + ':00') : (String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0'));
-      const content = `[${bossName}] ${spawnTime || recordTime.substring(0, 5)} 스폰 처치 완료`;
-
-      try {
-        // 2차 필터: DB 실제 존재 여부 확인 (최종 보루)
-        const isSuccess = await window.electronAPI.diaryAddActivity(date, recordTime, 'boss', content);
-
-        const toast = document.getElementById(toastId);
-        if (toast) {
-          const btn = toast.querySelector('button[onclick^="recordKillAndRemove"]');
-          if (btn) {
-            if (isSuccess) {
-              _lastRecordedBossKey = recordKey;
-              btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5"></i> 기록 완료!`;
-              btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500 text-white rounded-lg transition-all text-[11px] font-bold opacity-70 cursor-default";
-            } else {
-              btn.innerHTML = `<i data-lucide="info" class="w-3.5 h-3.5"></i> 이미 기록됨!`;
-              btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default";
-            }
-            btn.disabled = true;
-            refreshIcons();
-          }
-          setTimeout(() => { removeToast(toastId); }, isSuccess ? 1000 : 1500);
-        }
-      } catch (err) { console.error('Failed to record boss kill:', err); }
     }
 
     function updateOverlayIcon(isVisible) {

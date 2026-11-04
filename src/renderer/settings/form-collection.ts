@@ -120,6 +120,8 @@
   };
 
   function collectChatOverlayDisplaySettings(blacklistFilters?: string[], customTabs?: unknown[]): Record<string, unknown> {
+    const server=integerValue('chat-overlay-user-server-input',window.lastConfig?.activePlayProfileId ? NaN : defaultConfig.userServer);
+    if (window.lastConfig?.activePlayProfileId && server!==7 && server!==16) throw new Error('프로필의 서버를 선택해 주세요.');
     const visibleTabs = window.chatChannels.OVERLAY_BUILT_IN_TABS
       .filter(tab => checkedValue(`chat-overlay-visible-tab-${tab}`, false));
     return {
@@ -165,7 +167,7 @@
       chatOverlayShowElsoGain: checkedValue('chat-overlay-show-elso-gain', defaultConfig.chatOverlayShowElsoGain),
       chatOverlayHighlightScamNicknames: checkedValue('chat-overlay-highlight-scam-nicknames', defaultConfig.chatOverlayHighlightScamNicknames),
       chatOverlayCustomTabs: Array.isArray(customTabs) ? customTabs : (defaultConfig.chatOverlayCustomTabs || []),
-      userServer: integerValue('chat-overlay-user-server-input', defaultConfig.userServer),
+      userServer: server,
     };
   }
 

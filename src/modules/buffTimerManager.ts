@@ -18,7 +18,7 @@ import * as path from 'path';
 import { powerMonitor } from 'electron';
 import * as config from './config';
 import { log } from './logger';
-import { chatParser } from './chatParser';
+import {onProfileProgress} from './profileParserEvents';
 import type { BuffDefinition, BuffTimerState } from '../shared/types';
 import * as diaryDb from './diaryDb';
 import {
@@ -75,6 +75,7 @@ export function getMissedBuffWarnings(
 
 class BuffTimerManager {
   private _started = false;
+  private _removeProfileListener:(() => void) | null=null;
   private _activeBuffs: Map<string, ActiveBuff> = new Map();
   private _tickInterval: NodeJS.Timeout | null = null;
   private _buffDefs: Map<string, BuffDefinition> = new Map();
@@ -106,7 +107,7 @@ class BuffTimerManager {
 
     if (!this._started) {
       this._started = true;
-      chatParser.on('BUFF_USED', this._buffUsedHandler);
+      this._removeProfileListener=onProfileProgress('BUFF_USED',this._buffUsedHandler);
       powerMonitor.on('suspend', this._suspendHandler);
       powerMonitor.on('resume', this._resumeHandler);
       powerMonitor.on('unlock-screen', this._resumeHandler);
@@ -150,7 +151,7 @@ class BuffTimerManager {
       this._tickInterval = null;
     }
     if (this._started) {
-      chatParser.removeListener('BUFF_USED', this._buffUsedHandler);
+      this._removeProfileListener?.();this._removeProfileListener=null;
       powerMonitor.removeListener('suspend', this._suspendHandler);
       powerMonitor.removeListener('resume', this._resumeHandler);
       powerMonitor.removeListener('unlock-screen', this._resumeHandler);
@@ -516,6 +517,23 @@ class BuffTimerManager {
       log('[BUFF_TIMER] 모든 버프 제거 완료');
       this._sendHudUpdate();
     }
+  }
+
+  public captureProfileState():Array<Omit<ActiveBuff,'warnedAt'> & {warnedAt:number[]}> {
+    return [...this._activeBuffs.values()].filter(buff => this._buffDefs.has(buff.buffId)).map(buff => ({...buff,warnedAt:[...buff.warnedAt]}));
+  }
+  /** 만료된 버프/비활성 동안 지난 경고는 재생하지 않고 원래 종료 시각을 유지한다. */
+  public restoreProfileState(state:ReturnType<BuffTimerManager['captureProfileState']> | null):void {
+    this._activeBuffs.clear();this._suspendedAt=null;this._suspendedBuffs=null;this._lastTickAt=Date.now();
+    this._refreshWarnSecondsCache();
+    for (const buff of state || []) {
+      const remaining=buff.startTime+buff.durationMs-Date.now();
+      if (!this._buffDefs.has(buff.buffId) || remaining<=0) continue;
+      const warnedAt=new Set(buff.warnedAt);
+      for (const seconds of [...this._cachedWarnSeconds,5]) if (remaining<=seconds*1000) warnedAt.add(seconds);
+      this._activeBuffs.set(buff.buffId,{...buff,warnedAt});
+    }
+    this._sendHudUpdate();
   }
 }
 

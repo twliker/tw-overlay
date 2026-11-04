@@ -40,6 +40,8 @@ import { etaCacheManager } from './modules/etaCacheManager';
 import * as cloudSync from './modules/cloudSyncManager';
 import * as backupManager from './modules/backupManager';
 import { createShutdownGate, drainShutdownTask } from './modules/shutdownCoordinator';
+import {startProfileApplication,checkpointProfileApplication,stopProfileApplication,refreshProfileClock} from './modules/profileApplication';
+import {stopHistoricalChatLogSync} from './modules/chatLogSyncManager';
 
 // ── 에러 트래킹 세팅 ──
 process.on('uncaughtException', (error) => {
@@ -71,6 +73,9 @@ function prepareFastSessionEnd(): void {
   appState.isQuitting = true;
   cloudSync.stopBackgroundSync();
   contentsChecker.cancelPendingDiaryWriteRetries();
+  void stopHistoricalChatLogSync();
+  chatLogManager.stop();
+  stopProfileApplication();
   if (config.hasPending()) config.saveImmediate();
   cloudSync.prepareShutdownRecovery();
   if (!diaryDb.flushPendingElso()) {
@@ -104,6 +109,7 @@ if (!gotTheLock) {
 
 let startupWindowsCreated = false;
 app.whenReady().then(async () => {
+  if (!gotTheLock) return;
   const bootstrapError = bootstrap.getFatalBootstrapError();
   if (bootstrapError) {
     dialog.showErrorBox(
@@ -132,16 +138,10 @@ app.whenReady().then(async () => {
   if (!scamMonitor.recoverInterruptedServerInstall()) {
     log('[BOOT] 중단된 AI 바이너리 설치를 복구하지 못했습니다. AI 기능은 재설치 전까지 시작하지 않습니다.');
   }
-  cloudSync.initializeLocalProfileState();
-  powerMonitor.on('resume', () => cloudSync.requestImmediatePull('system-resume'));
-  powerMonitor.on('unlock-screen', () => cloudSync.requestImmediatePull('screen-unlock'));
-  let wasNetworkOnline = net.isOnline();
-  setInterval(() => {
-    const isNetworkOnline = net.isOnline();
-    if (!wasNetworkOnline && isNetworkOnline) cloudSync.requestImmediatePull('network-reconnected');
-    wasNetworkOnline = isNetworkOnline;
-  }, 10_000);
-  if (!gotTheLock) return;
+  powerMonitor.on('resume',()=>refreshProfileClock(true));
+  powerMonitor.on('unlock-screen',()=>refreshProfileClock());
+  powerMonitor.on('resume',()=>cloudSync.requestImmediatePull('resume'));
+  powerMonitor.on('unlock-screen',()=>cloudSync.requestImmediatePull('unlock'));
 
   // 모니터/DPI 변경은 특정 오버레이 사용 여부와 무관하게 앱 수명 동안 한 번만 감시합니다.
   wm.setupDisplayChangeListeners();
@@ -187,9 +187,16 @@ app.whenReady().then(async () => {
   wm.createSplashWindow();
   startupWindowsCreated = true;
 
+  try {await startProfileApplication(()=>wm.openProfilesWindow('game-resync'));}
+  catch (error) {
+    log(`[BOOT] 프로필 준비 실패: ${String(error)}`);
+    dialog.showErrorBox('프로필 데이터 준비 실패',`${String(error)}\n\n원본과 backups 폴더는 보존됩니다. 앱을 종료한 뒤 저장 공간과 폴더 권한을 확인해 주세요.`);
+    wm.closeSplashWindow();app.quit();return;
+  }
+
   // 기본 리소스 준비
   tray.createTray();
-  diaryDb.initDb();
+  diaryDb.initDb(); // 준비된 app-data.db의 공유 연결만 사용한다.
 
   let isAppLaunched = false;
   function launchMainApp() {
@@ -313,14 +320,8 @@ app.whenReady().then(async () => {
       trade.updateWindows(wm.getMainWindow(), wm.getTradeWindow());
     });
 
-    // 구글 드라이브 자동 동기화 (로그인 상태일 때 백그라운드 다운로드)
-    const syncStatus = cloudSync.getSyncStatus();
-    if (syncStatus.isLinked && syncStatus.autoSync !== false && config.load().googleSyncEnabled === true) {
-      cloudSync.startBackgroundSync();
-      cloudSync.syncFromCloud(false).catch((err) => {
-        log(`[BOOT] 구글 드라이브 시작 동기화 실패: ${err}`);
-      });
-    }
+    // 구형 전송은 중지한 채 새 프로필 전용 스케줄러만 시작한다.
+    cloudSync.startBackgroundSync();
 
     // 스플래시 창 닫기 (웰컴 가이드 / 공지 창 연동)
     wm.closeSplashWindow();
@@ -342,6 +343,7 @@ app.on('before-quit', (event) => {
   cloudSync.stopBackgroundSync();
   contentsChecker.cancelPendingDiaryWriteRetries();
   chatLogManager.stop();
+  stopProfileApplication();
   pollingLoop.stop();
   bossNotifier.stop();
   customNotifier.stop();
@@ -367,6 +369,9 @@ app.on('before-quit', (event) => {
 
   // 창은 이미 숨긴 상태에서 클라우드 큐를 제한 시간만 drain하고, 시간초과 시 요청을 취소한다.
   void (async () => {
+    await drainShutdownTask(stopHistoricalChatLogSync(),flushTimeoutMs);
+    checkpointProfileApplication();
+    config.flushPending();
     const outcome = await drainShutdownTask(cloudSync.flushPendingSync(), flushTimeoutMs);
     if (outcome !== 'flushed') {
       log(`[SHUTDOWN] 클라우드 flush ${outcome}, 진행 요청을 취소하고 다음 실행에서 재확인합니다.`);
@@ -374,9 +379,8 @@ app.on('before-quit', (event) => {
     }
     try {
       diaryDb.checkpointWal();
-      if (!diaryDb.closeDb()) {
-        log('[SHUTDOWN] 엘소 flush 미완료 상태로 DB를 닫았습니다. 복구 기록은 유지됩니다.');
-      }
+      config.beginExternalRestore();
+      diaryDb.suspendForRestore(); // 종료 후 늦은 IPC가 DB를 다시 열지 못하게 한다.
     } catch (err) {
       log(`[SHUTDOWN] DB close error: ${err}`);
     }

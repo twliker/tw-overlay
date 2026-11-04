@@ -22,7 +22,7 @@
   };
 
   function protectedState(): boolean {
-    return saving || document.getElementById('add-form')?.classList.contains('show') === true
+    return saving || window.profileChecklist?.status().busy || document.body.inert || document.getElementById('add-form')?.classList.contains('show') === true
       || ['pending-modal', 'char-modal', 'custom-prompt', 'help-modal'].some(id => {
         const element = document.getElementById(id);
         return element && !element.classList.contains('hidden');

@@ -3,11 +3,17 @@ import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPos
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
 import type { ConfigDataContext } from './shared/types';
 import type { ShareGroup, ShareReview, DiaryExportReview, FileActionResult } from './shared/companionFiles';
+import type { PlayProfileStatus, PlayProfileResult } from './shared/playProfiles';
+import type {DiaryProfileFilter,DiaryProfileState} from './shared/diaryProfiles';
+import type {StopwatchRecordMutation,StopwatchRecordResult} from './shared/types';
+
+if (typeof window!=='undefined') window.addEventListener?.('online',()=>ipcRenderer.send('profile-sync-online'));
 
 // sandbox preload은 로컬 모듈 require가 제한되므로 메인 프로세스의 단일 기본값 원본을 동기 조회합니다.
 const MAIN_DEFAULT_CONFIG = ipcRenderer.sendSync('get-default-config-sync') as AppConfig;
 
 const DEFAULT_CONFIG: AppConfig = MAIN_DEFAULT_CONFIG;
+let rendererProfileId: string | undefined;
 
 function getLocalDateKey(now = new Date()): string {
   const year = now.getFullYear();
@@ -30,8 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openSettingsShare: (): Promise<ShareReview> => ipcRenderer.invoke('settings-share-open'),
   previewSettingsShare: (token: string, groups: ShareGroup[]): Promise<ShareReview> => ipcRenderer.invoke('settings-share-preview', token, groups),
   applySettingsShare: (token: string): Promise<FileActionResult> => ipcRenderer.invoke('settings-share-apply', token),
-  previewDiaryExport: (start: string, end: string): Promise<DiaryExportReview> => ipcRenderer.invoke('diary-export-preview', start, end),
-  saveDiaryExport: (token: string): Promise<FileActionResult> => ipcRenderer.invoke('diary-export-save', token),
+  previewDiaryExport: (start:string,end:string,filter?:DiaryProfileFilter):Promise<DiaryExportReview> => filter===undefined ? ipcRenderer.invoke('diary-export-preview',start,end) : ipcRenderer.invoke('diary-export-preview',start,end,filter),
+  saveDiaryExport: (token:string,filter?:DiaryProfileFilter):Promise<FileActionResult> => filter===undefined ? ipcRenderer.invoke('diary-export-save',token) : ipcRenderer.invoke('diary-export-save',token,filter),
   // 창 제어
   toggleSidebar: () => ipcRenderer.send('toggle-sidebar'),
   toggleDock: () => ipcRenderer.send('toggle-dock'),
@@ -55,6 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendEquipmentToCoefficient: (item: EquipmentDictionaryItem) => ipcRenderer.send('send-to-coefficient', item),
   sendEquipmentToEvolution: (selection: EvolutionCalculatorSelection) => ipcRenderer.send('send-to-evolution', selection),
   toggleContentsChecker: () => ipcRenderer.send('toggle-contents-checker'),
+  mutateProfileChecklist: (request:import('./shared/profileChecklist').ProfileChecklistRequest):Promise<import('./shared/profileChecklist').ProfileChecklistResult> => ipcRenderer.invoke('profile-checklist-mutate',request),
   toggleEvolutionCalculator: () => ipcRenderer.send('toggle-evolution-calculator'),
   toggleThesisCoreCalculator: () => ipcRenderer.send('toggle-thesis-core-calculator'),
   toggleMagicStoneCalculator: () => ipcRenderer.send('toggle-magic-stone-calculator'),
@@ -67,6 +74,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleSwordEnhance: () => ipcRenderer.send('toggle-sword-enhance'),
   toggleQteChallenge: () => ipcRenderer.send('toggle-qte-challenge'),
   toggleDiary: () => ipcRenderer.send('toggle-diary'),
+  toggleProfiles: () => ipcRenderer.send('toggle-profiles'),
+  getPlayProfiles: ():Promise<PlayProfileStatus | null> => ipcRenderer.invoke('play-profiles-get'),
+  createPlayProfile: (name:string,server:number,copy?:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-create',name,server,copy),
+  updatePlayProfile: (id:string,name:string,server:number):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-update',id,name,server),
+  selectPlayProfile: (id:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-select',id),
+  deletePlayProfile: (id:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-delete',id),
+  assignPlayProfileSession: (session:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-assign',session),
+  onPlayProfilesChanged: (callback:(status:PlayProfileStatus) => void) => bindIpcListener('play-profiles-changed',callback),
+  getProfileToolContext: async ():Promise<import('./shared/profileTools').ProfileToolContext> => {
+    const value=await ipcRenderer.invoke('get-config');
+    return value.activePlayProfileId ? ipcRenderer.invoke('profile-tool-context') : {enabled:false,profileId:null,name:'',token:'',values:{}};
+  },
+  writeProfileTool: (token:string,key:import('./shared/profileTools').ProfileToolKey,value:string | null) => ipcRenderer.sendSync('profile-tool-write',token,key,value),
+  onProfileToolsChanged: (callback:(change:{profileId:string;key:string;value:string | null}) => void) => bindIpcListener('profile-tools-changed',callback),
+  closePlayProfiles: () => ipcRenderer.send('play-profiles-close'),
   toggleXpHud: () => ipcRenderer.send('toggle-xp-hud'),
   toggleSienaAura: () => ipcRenderer.send('toggle-siena-aura'),
   toggleHuntingPathSimulator: () => ipcRenderer.send('toggle-hunting-path-simulator'),
@@ -137,8 +159,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWindowPosition: (x: number, y: number) => ipcRenderer.send('set-window-position', x, y),
   welcomeGuideClose: () => ipcRenderer.send('welcome-guide-close'),
   welcomeGuideOpen: () => ipcRenderer.send('welcome-guide-open'),
-  startChatLogSync: (includeCompletedLogs: boolean = false): Promise<SyncResultReport> =>
-    ipcRenderer.invoke('start-chat-log-sync', includeCompletedLogs),
+  startChatLogSync: (includeCompletedLogs: boolean = false,profileId=rendererProfileId): Promise<SyncResultReport> => profileId===undefined
+    ? ipcRenderer.invoke('start-chat-log-sync', includeCompletedLogs) : ipcRenderer.invoke('start-chat-log-sync', includeCompletedLogs,profileId),
   getRecentMondayDate: (): Promise<string> => ipcRenderer.invoke('get-recent-monday-date'),
   getSyncTargetFiles: (): Promise<SyncTargetFile[]> => ipcRenderer.invoke('get-sync-target-files'),
   completeSetupWizard: (wizardConfig?: { chatLogPath?: string; userServer?: number; chatLogAutoDeleteDays?: number; diaryKeepDays?: number; lootKeywords?: string[] }) =>
@@ -163,12 +185,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 데이터 및 설정
   setOpacity: (opacity: number) => ipcRenderer.send('set-opacity', opacity),
   saveQuickSlots: (slots: QuickSlotItem[]) => ipcRenderer.send('save-quick-slots', slots),
-  applySettings: (settings: Partial<AppConfig>) => ipcRenderer.send('apply-settings', settings),
-  saveActivityPreset: (name: string, id?: string, renameOnly?: boolean): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('activity-preset-save', name, id, renameOnly),
-  deleteActivityPreset: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('activity-preset-delete', id),
-  applyActivityPreset: (id: string): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('activity-preset-apply', id),
-  showActivityPresetMenu: () => ipcRenderer.send('activity-preset-menu'),
-  applySettingsConfirmed: (settings: Partial<AppConfig>) => ipcRenderer.invoke('apply-settings-confirmed', settings),
+  applySettings: (settings: Partial<AppConfig>, expectedProfileId=rendererProfileId) => expectedProfileId===undefined
+    ? ipcRenderer.send('apply-settings', settings) : ipcRenderer.send('apply-settings', settings, expectedProfileId),
+  applySettingsConfirmed: (settings: Partial<AppConfig>, expectedProfileId=rendererProfileId) => expectedProfileId===undefined
+    ? ipcRenderer.invoke('apply-settings-confirmed', settings) : ipcRenderer.invoke('apply-settings-confirmed', settings, expectedProfileId),
   setContentsCollapsed: (collapsed: boolean): Promise<boolean> => ipcRenderer.invoke('contents-collapse', collapsed),
   onContentsCollapseState: (callback: (collapsed: boolean) => void) => bindIpcListener('contents-collapse-state', callback),
   getConfig: () => ipcRenderer.invoke('get-config'),
@@ -213,14 +233,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   tradeGetServers: () => ipcRenderer.invoke('trade-get-servers'),
 
   // 일지 (Adventure Log) 시스템
-  diaryGetByDate: (date: string) => ipcRenderer.invoke('diary-get-by-date', date),
+  getDiaryProfileState: ():Promise<DiaryProfileState> => ipcRenderer.invoke('diary-profiles-get'),
+  diaryGetByDate: (date:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-by-date',date) : ipcRenderer.invoke('diary-get-by-date',date,filter),
   getTodaySummary: (): Promise<TodaySummary> => ipcRenderer.invoke('today-summary-get'),
-  diaryGetByMonth: (yearMonth: string) => ipcRenderer.invoke('diary-get-by-month', yearMonth),
-  diaryGetMonthlySummary: (yearMonth: string) => ipcRenderer.invoke('diary-get-monthly-summary', yearMonth),
-  diaryGetStatistics: (yearMonth: string) => ipcRenderer.invoke('diary-get-statistics', yearMonth),
-  diaryGetLootHistory: (startDate: string, endDate: string) => ipcRenderer.invoke('diary-get-loot-history', startDate, endDate),
-  diaryGetMonthlyRevenue: (yearMonth: string) => ipcRenderer.invoke('diary-get-monthly-revenue', yearMonth),
-  diaryAddActivity: (date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0) => ipcRenderer.invoke('diary-add-activity', date, time, type, content, amount),
+  diaryGetByMonth: (month:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-by-month',month) : ipcRenderer.invoke('diary-get-by-month',month,filter),
+  diaryGetMonthlySummary: (month:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-monthly-summary',month) : ipcRenderer.invoke('diary-get-monthly-summary',month,filter),
+  diaryGetStatistics: (month:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-statistics',month) : ipcRenderer.invoke('diary-get-statistics',month,filter),
+  diaryGetLootHistory: (start:string,end:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-loot-history',start,end) : ipcRenderer.invoke('diary-get-loot-history',start,end,filter),
+  diaryGetMonthlyRevenue: (month:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-monthly-revenue',month) : ipcRenderer.invoke('diary-get-monthly-revenue',month,filter),
+  diaryAddActivity: (date:string,time:string,type:'boss' | 'calc' | 'memo' | 'loot' | 'homework',content:string,amount:number=0,profileId?:string) => profileId===undefined ? ipcRenderer.invoke('diary-add-activity',date,time,type,content,amount) : ipcRenderer.invoke('diary-add-activity',date,time,type,content,amount,profileId),
   diaryRemoveActivity: (id: number) => ipcRenderer.invoke('diary-remove-activity', id),
   diaryUpdateMonster: (date: string, monsterId: string) => ipcRenderer.send('diary-update-monster', date, monsterId),
 
@@ -234,6 +255,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   testDiscordWebhook: (webhookUrl: string) => ipcRenderer.invoke('test-discord-webhook', webhookUrl),
 
   // Google Drive 동기화
+  googleSyncConnectChoice: (choice:import('./shared/profileSync').ProfileSyncConnectionChoice):Promise<{success:boolean;error?:string}> => ipcRenderer.invoke('profile-sync-connect-choice',choice),
+  googleSyncResolve: (key:string,candidate:string):Promise<{success:boolean;error?:string}> => ipcRenderer.invoke('profile-sync-resolve',key,candidate),
+  googleSyncShowBackup: ():Promise<void> => ipcRenderer.invoke('profile-sync-show-backup'),
   googleSyncLogin: (): Promise<{ success: boolean; status: GoogleSyncStatus; error?: string }> =>
     ipcRenderer.invoke('google-sync-login'),
   googleSyncCancelLogin: (): Promise<boolean> =>
@@ -334,7 +358,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onManagedWindowResizeEnabled: (callback: (options: { minWidth: number, minHeight: number }) => void) =>
     bindIpcListener('managed-window-resize-enabled', callback),
   onConfigData: (callback: (config: AppConfig, context?: ConfigDataContext) => void) =>
-    bindIpcListener('config-data', callback),
+    bindIpcListener('config-data', (config:AppConfig,context?:ConfigDataContext) => {
+      rendererProfileId=config.activePlayProfileId;callback(config,context);
+    }),
   onChatLogSyncProgress: (callback: (info: SyncProgressInfo) => void) =>
     bindIpcListener('chat-log-sync-progress', callback),
   onTodaySummaryConfig: (callback: (config: AppConfig) => void) =>
@@ -469,12 +495,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTimerUpdated: (callback: () => void) =>
     bindIpcListener('timer-updated', callback),
   timerGetState: (): Promise<StopwatchState> => ipcRenderer.invoke('timer-get-state'),
-  timerGetRecords: () => ipcRenderer.invoke('timer-get-records'),
+  timerGetRecords: (filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('timer-get-records') : ipcRenderer.invoke('timer-get-records',filter),
   timerUpdateTitle: (id: number, title: string) => ipcRenderer.send('timer-update-title', id, title),
   timerUpdateSeriesCore: (id: number, series: string | null, core: string | null) =>
     ipcRenderer.send('timer-update-series-core', id, series, core),
   timerDeleteRecord: (id: number) => ipcRenderer.send('timer-delete-record', id),
-  timerToggleSession: (state: 'start' | 'stop'): Promise<StopwatchState> => ipcRenderer.invoke('timer-toggle-session', state),
+  timerMutateRecord: (change:StopwatchRecordMutation):Promise<StopwatchRecordResult> => ipcRenderer.invoke('timer-mutate-record',change),
+  timerToggleSession: (state: 'start' | 'stop',profileId?:string): Promise<StopwatchState> => profileId===undefined ? ipcRenderer.invoke('timer-toggle-session', state) : ipcRenderer.invoke('timer-toggle-session', state,profileId),
 
   onGameOverlayEditMode: (callback: (enabled: boolean, saveOnExit?: boolean, requestId?: number) => void) =>
     bindIpcListener('game-overlay-edit-mode', callback),

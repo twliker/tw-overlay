@@ -3293,89 +3293,6 @@ async function checkFocusedChatSettings(): Promise<void> {
   }
 }
 
-async function checkActivityPresetsRenderer(window: BrowserWindow): Promise<void> {
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(cleanStyledHtmlForTest(path.join(projectRoot, 'dist', 'settings.html')))}`);
-  const code = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'settings', 'activity-presets.js'), 'utf8');
-  await window.webContents.executeJavaScript(`window.__presetCalls = []; window.electronAPI = {
-    saveActivityPreset: async (...args) => { window.__presetCalls.push(['save', ...args]); return { success: true }; },
-    applyActivityPreset: async id => { window.__presetCalls.push(['apply', id]); return { success: false, error: '저장 오류' }; },
-    deleteActivityPreset: async id => { window.__presetCalls.push(['delete', id]); return { success: true }; }
-  }; ${code}; window.settingsActivityPresets.bind({ activityPresets: [{ id: 'hunt', name: '<img id="preset-xss">', openWindows: ['xpHud'] }] });`);
-  assert.equal(await window.webContents.executeJavaScript('!!document.getElementById("preset-xss")'), false);
-  await window.webContents.executeJavaScript(`document.querySelector('#activity-preset-list button').click()`);
-  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('activity-preset-status').textContent`), '저장 오류');
-  await window.webContents.executeJavaScript(`document.getElementById('activity-preset-name').value = '거래'; document.getElementById('activity-preset-save').click()`);
-  assert.deepEqual(await window.webContents.executeJavaScript('window.__presetCalls'), [['apply', 'hunt'], ['save', '거래']]);
-  const draftCode = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'settings', 'draft.js'), 'utf8');
-  await window.webContents.executeJavaScript(`${draftCode}
-    window.__refreshPreset = name => {
-      const draft = window.settingsDraft.beforeRefresh({});
-      window.settingsActivityPresets.bind({ activityPresets: [{ id: 'hunt', name, openWindows: ['xpHud'] }] });
-      draft.restore({});
-    };
-    window.__refreshPreset('사냥');
-    Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '상세').click();
-    window.__renameInput = () => document.querySelector('#activity-preset-list input');
-    window.__renameInput().value = '보스 사냥 수정 중'; window.__renameInput().focus(); window.__renameInput().setSelectionRange(3, 5);
-    window.__refreshPreset('사냥');
-  `);
-  assert.deepEqual(await window.webContents.executeJavaScript(`({ value:__renameInput().value, focused:document.activeElement === __renameInput(), start:__renameInput().selectionStart, end:__renameInput().selectionEnd })`),
-    { value:'보스 사냥 수정 중', focused:true, start:3, end:5 }, '외부 설정 갱신 후 프리셋 이름 초안·포커스·선택 영역을 보존해야 합니다.');
-  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();`);
-  await waitForRendererCondition(window, `document.getElementById('activity-preset-status').textContent === '이름을 변경했습니다.'`, '프리셋 이름 저장이 끝나지 않았습니다.');
-  await window.webContents.executeJavaScript(`window.__refreshPreset('외부에서 변경한 이름');`);
-  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '외부에서 변경한 이름', '저장 완료한 이름을 계속 미저장 초안으로 취급하면 안 됩니다.');
-  await window.webContents.executeJavaScript(`
-    window.electronAPI.saveActivityPreset = () => new Promise(resolve => window.__resolvePresetSave = resolve);
-    __renameInput().value = '저장 요청'; Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();
-    __renameInput().value = '저장 중 추가 편집'; __refreshPreset('저장 요청');
-    __resolvePresetSave({success:true});
-  `);
-  await window.webContents.executeJavaScript(`__refreshPreset('저장 요청');`);
-  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '저장 중 추가 편집', '늦은 저장 성공으로 이후 입력한 이름을 버리면 안 됩니다.');
-  await window.webContents.executeJavaScript(`
-    Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();
-    __resolvePresetSave({success:false,error:'이름 저장 실패'});
-  `);
-  await waitForRendererCondition(window, `document.getElementById('activity-preset-status').textContent === '이름 저장 실패'`, '이름 저장 실패가 표시되지 않았습니다.');
-  await window.webContents.executeJavaScript(`__refreshPreset('저장 요청');`);
-  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '저장 중 추가 편집');
-  const layout = await window.webContents.executeJavaScript(`(() => {
-    const card = document.getElementById('chat-font-settings');
-    document.body.replaceChildren(card);
-    card.style.width = '720px';
-    const grid = card.querySelector('.ui-font-grid');
-    const wide = Array.from(grid.children).map(node => node.getBoundingClientRect());
-    card.style.width = '300px';
-    const narrow = Array.from(grid.children).map(node => node.getBoundingClientRect());
-    const inputsFit = Array.from(card.querySelectorAll('select')).every(node => node.scrollWidth <= node.clientWidth + 1);
-    return { wideColumns: new Set(wide.map(rect => Math.round(rect.left))).size,
-      wideRows: new Set(wide.map(rect => Math.round(rect.top))).size,
-      narrowColumns: new Set(narrow.map(rect => Math.round(rect.left))).size, inputsFit };
-  })()`);
-  assert.deepEqual(layout, { wideColumns: 3, wideRows: 1, narrowColumns: 1, inputsFit: true },
-    '창별 글꼴 설정은 넓은 창에서 3열, 좁은 창에서 잘림 없이 1열이어야 합니다.');
-  const defaultConfig = require(path.join(projectRoot, 'dist', 'modules', 'constants.js')).DEFAULT_CONFIG;
-  const fontCode = ['shared/chatChannels.js', 'renderer/settings/config-binding.js', 'renderer/settings/form-collection.js']
-    .map(file => fs.readFileSync(path.join(projectRoot, 'dist', file), 'utf8')).join('\n');
-  const fontRoundTrips = await window.webContents.executeJavaScript(`(() => {
-    window.electronAPI.DEFAULT_CONFIG = ${JSON.stringify(defaultConfig)};
-    ${fontCode}
-    return [10, 11, 12, 14, 28].map(size => {
-      const config = { ...window.electronAPI.DEFAULT_CONFIG, chatOverlayFontSize: size };
-      window.settingsConfigBinding.applyChatAndAlertSettings(config, window.electronAPI.DEFAULT_CONFIG);
-      const saved = window.settingsFormCollection.collectChatOverlayDisplaySettings([], []);
-      return { size, input: Number(document.getElementById('chat-overlay-fontsize-input').value),
-        label: document.getElementById('chat-overlay-fontsize-val').textContent, saved: saved.chatOverlayFontSize,
-        inherited: window.chatChannels.resolveChatFont(saved, 'sub1').size };
-    });
-  })()`);
-  for (const row of fontRoundTrips) {
-    assert.deepEqual(row, { size: row.size, input: row.size, label: row.size + 'px', saved: row.size, inherited: row.size },
-      '기존 채팅 글꼴은 설정 화면을 열고 저장해도 표시값·저장값·보조 창 상속값을 보존해야 합니다.');
-  }
-}
-
 async function checkManagedWindowResizeLimits(window: BrowserWindow): Promise<void> {
   const utils = fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'), 'utf8');
   await window.loadURL('data:text/html;charset=utf-8,<title>Resize limits</title>');
@@ -5711,6 +5628,7 @@ async function checkAlarmVolumeBoundaries(): Promise<void> {
   ipcMain.on('preview-boss-sound', onPreview);
   ipcMain.handle('get-config', () => config);
   ipcMain.handle('diary-get-by-date', () => ({ activityLogs: [] }));
+  ipcMain.handle('diary-profiles-get', () => ({enabled:false,profiles:[],activeProfileId:null,selectionRequired:true,busy:false}));
   ipcMain.handle('xp-get-stats', () => null);
   ipcMain.handle('check-chat-log-status', () => true);
   const window = new BrowserWindow({ show: false, webPreferences: {
@@ -5732,6 +5650,7 @@ async function checkAlarmVolumeBoundaries(): Promise<void> {
     await window.loadFile(path.join(projectRoot, 'dist', file));
     window.webContents.send('config-data', config);
     window.webContents.send('boss-times-data', { '골론': ['12:00'] });
+    await waitForRendererCondition(window, `!window.settingsProfileTransition || window.settingsProfileTransition.status().ready`, 'settings loaded');
     await waitForRendererCondition(window, file === 'boss-settings.html'
       ? `document.querySelectorAll('#boss-list select option').length > 0`
       : `document.querySelectorAll('#essence-alert-sound option').length > 0`, 'sound options');
@@ -5767,7 +5686,7 @@ async function checkAlarmVolumeBoundaries(): Promise<void> {
     ipcMain.removeListener('get-default-config-sync', onDefaults);
     ipcMain.removeListener('apply-settings', onSave);
     ipcMain.removeListener('preview-boss-sound', onPreview);
-    for (const channel of ['get-config', 'diary-get-by-date', 'xp-get-stats', 'check-chat-log-status']) ipcMain.removeHandler(channel);
+    for (const channel of ['get-config', 'diary-get-by-date', 'diary-profiles-get', 'xp-get-stats', 'check-chat-log-status']) ipcMain.removeHandler(channel);
   }
 }
 
@@ -7140,10 +7059,21 @@ async function main(): Promise<void> {
     app.exit(0);
     return;
   }
+  if (process.argv.includes('--profile-settings-pages')) {
+    const window=new BrowserWindow({show:false,width:1100,height:850,webPreferences:{contextIsolation:false,nodeIntegration:false,backgroundThrottling:false}});
+    try {
+      await checkHuntingExpCalculator(window);await checkXpHudRenderer(window);await checkBuffTimerRenderer(window);
+      await checkBossSettingsRenderer(window);await checkCustomAlertRenderer(window);await checkAlarmVolumeBoundaries();
+      console.log('Standalone settings renderer checks passed.');
+    } finally {window.destroy();}
+    app.exit(0);return;
+  }
   ipcMain.handle('nickname-info-get', () => ({level:null,characterName:null,collectDate:null,stale:true}));
   checkNativeModuleCompatibility();
-  await checkLifecycleStartIsIdempotent();
-  await checkBuffRefreshPolicy();
+  if (!process.argv.includes('--checklist')) {
+    await checkLifecycleStartIsIdempotent();
+    await checkBuffRefreshPolicy();
+  }
   await checkContentsOrderingPersistence();
   const window = new BrowserWindow({
     show: false,
@@ -7159,6 +7089,7 @@ async function main(): Promise<void> {
     await checkContentsChecklist(window);
     console.log('[TEST] checkPendingHomeworkCloudUi');
     await checkPendingHomeworkCloudUi();
+    if (process.argv.includes('--checklist')) {console.log('Checklist renderer and pending UI checks passed.');return;}
     console.log('[TEST] checkRendererHelpers');
     await checkRendererHelpers(window);
     console.log('[TEST] checkTodaySummaryRenderer');
@@ -7249,7 +7180,6 @@ async function main(): Promise<void> {
     await checkCompanionHud(window);
     console.log('[TEST] checkPinnedNoteReading');
     await checkPinnedNoteReading(window);
-    await checkActivityPresetsRenderer(window);
     await checkManagedWindowResizeLimits(window);
     await checkNicknameNoteEscape(window);
     await checkNicknameNoteSaveOrdering(window);

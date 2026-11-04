@@ -396,6 +396,10 @@
         }
         #checklist-cloud-sync-status:hover .checklist-sync-tooltip { display: block; }
         .contents-collapse-only { display: none; }
+        #checklist-profile-context[hidden], #checklist-profile-retry[hidden] { display: none; }
+        .profile-checklist-mode #add-form.show { max-height: max(120px, calc(100vh - 360px)); }
+        .profile-checklist-mode.profile-checklist-compact .section-row,
+        .profile-checklist-mode.profile-checklist-compact .category-row { position: static; }
         body.contents-collapsed > :not(.win-header):not(script) { display: none !important; }
         body.contents-collapsed .win-controls > :not(.contents-collapse-only):not(.win-close-btn),
         body.contents-collapsed #progress-percent-text { display: none; }
@@ -485,6 +489,10 @@
     </div>
 
     <!-- Search Box -->
+    <div id="checklist-profile-context" class="px-6 py-2 border-b border-white/10 no-drag flex items-center gap-3" hidden>
+        <p id="checklist-profile-target" class="text-sm font-bold text-slate-200 flex-1 min-w-0 truncate"></p>
+        <p id="checklist-profile-status" class="text-sm text-slate-200 max-w-[45%]" role="status" aria-live="polite"></p><button id="checklist-profile-retry" type="button" class="ui-button ui-button-small" hidden>다시 확인</button>
+    </div>
     <div class="px-6 py-4 no-drag bg-slate-900/50 border-b border-white/5">
         <div class="bg-black/30 border border-white/10 rounded-xl flex items-center px-4 focus-within:border-violet-500/50 transition-colors">
             <i data-lucide="search" class="w-4 h-4 text-slate-400"></i>
@@ -598,8 +606,8 @@
                         <i data-lucide="layout-grid" class="w-4 h-4"></i>
                     </div>
                     <div>
-                        <h4 class="text-xs font-black text-blue-100 mb-1">다캐릭 매트릭스 UI</h4>
-                        <p class="text-[11px] text-slate-400 leading-relaxed">숙제(좌측)와 캐릭터(상단) 이름이 고정됩니다. 부캐가 많으면 <b>Shift + 휠 스크롤</b>을 이용해 가로로 편리하게 이동할 수 있습니다.</p>
+                        <h4 id="checklist-guide-title" class="text-xs font-black text-blue-100 mb-1">다캐릭 매트릭스 UI</h4>
+                        <p id="checklist-guide-description" class="text-[11px] text-slate-400 leading-relaxed">숙제(좌측)와 캐릭터(상단) 이름이 고정됩니다. 부캐가 많으면 <b>Shift + 휠 스크롤</b>을 이용해 가로로 편리하게 이동할 수 있습니다.</p>
                     </div>
                 </div>
 
@@ -609,8 +617,8 @@
                         <i data-lucide="users" class="w-4 h-4"></i>
                     </div>
                     <div>
-                        <h4 class="text-xs font-black text-purple-100 mb-1">캐릭터 관리</h4>
-                        <p class="text-[11px] text-slate-400 leading-relaxed">상단 보라색 버튼을 클릭해 캐릭터를 추가하거나 이름을 수정할 수 있습니다. (본캐 삭제 방지 적용)</p>
+                        <h4 id="checklist-guide-manage-title" class="text-xs font-black text-purple-100 mb-1">캐릭터 관리</h4>
+                        <p id="checklist-guide-manage-description" class="text-[11px] text-slate-400 leading-relaxed">상단 보라색 버튼을 클릭해 캐릭터를 추가하거나 이름을 수정할 수 있습니다. (본캐 삭제 방지 적용)</p>
                     </div>
                 </div>
 
@@ -621,7 +629,7 @@
                     </div>
                     <div>
                         <h4 class="text-xs font-black text-amber-100 mb-1">숙제 제외 (N/A 설정)</h4>
-                        <p class="text-[11px] text-slate-400 leading-relaxed"><b>관리 모드(톱니바퀴)</b> 활성 후 체크박스를 클릭하면 해당 캐릭터를 해당 숙제에서 제외할 수 있습니다.</p>
+                        <p id="checklist-guide-exclude" class="text-[11px] text-slate-400 leading-relaxed"><b>관리 모드(톱니바퀴)</b> 활성 후 체크박스를 클릭하면 해당 캐릭터를 해당 숙제에서 제외할 수 있습니다.</p>
                     </div>
                 </div>
 
@@ -632,7 +640,7 @@
                     </div>
                     <div>
                         <h4 class="text-xs font-black text-green-100 mb-1">지능형 완료 정렬</h4>
-                        <p class="text-[11px] text-slate-400 leading-relaxed">제외되지 않은 <b>모든 참여 캐릭터</b>가 숙제를 끝내야 '완료됨' 섹션으로 이동합니다.</p>
+                        <p id="checklist-guide-complete" class="text-[11px] text-slate-400 leading-relaxed">제외되지 않은 <b>모든 참여 캐릭터</b>가 숙제를 끝내야 '완료됨' 섹션으로 이동합니다.</p>
                     </div>
                 </div>
             </div>
@@ -709,13 +717,16 @@
   <script src="renderer/contents-checker/audio-feedback.js"></script>
   <script src="renderer/contents-checker/dom-rendering.js"></script>
   <script src="renderer/contents-checker/auto-collapse.js"></script>
+  <script src="renderer/contents-checker/profile.js"></script>
   <script>
+        const checklistApi = window.profileChecklist?.api || window.electronAPI;
         let isEditMode = false;
         let editingItemId = null; // 현재 편집 중인 아이템 ID
         let configData = null;
         let collapsedSections = new Set(); // 일일/주간/완료
         let collapsedCategories = new Set(); // 던전/재화 등
         let promptCallback = null;
+        function getChecklistProfileState() { return { config: configData, editingId: editingItemId }; }
         const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
         const tooltipEl = document.getElementById('contents-checker-tooltip');
@@ -797,7 +808,7 @@
             document.getElementById('new-item-hour').value = item.resetRule.hour;
             document.getElementById('new-item-max-count').value = item.maxCount || 1;
             if (item.resetRule.type === 'weekly') {
-                document.getElementById('new-item-day').value = item.resetRule.dayOfWeek || 1;
+                document.getElementById('new-item-day').value = item.resetRule.dayOfWeek ?? 1;
             }
             
             updateFormVisibility();
@@ -813,6 +824,7 @@
             
             // 입력창으로 스크롤
             document.getElementById('new-item-name').focus();
+            window.profileChecklist?.editorOpened();
         }
 
         /** 폼 초기화 (편집 취소/완료 시) */
@@ -825,6 +837,29 @@
             document.getElementById('btn-add-item').textContent = '목록에 추가하기';
             document.getElementById('btn-add-item').classList.replace('bg-blue-600', 'bg-violet-600');
             document.getElementById('btn-add-item').classList.replace('hover:bg-blue-500', 'hover:bg-violet-500');
+            window.profileChecklist?.editorOpened();
+        }
+
+        function revealProfileChecklistItem(id) {
+            const item = configData?.contentsCheckerItems?.find(row => row.id === id);
+            if (!item) return;
+            const section = item.resetRule.type === 'weekly' ? '주간 숙제' : '일일 숙제';
+            collapsedSections.delete(section);collapsedCategories.delete(`${section}-${item.category}`);render();
+            requestAnimationFrame(() => {
+                const row = Array.from(document.querySelectorAll('[data-item-id]')).find(node => node.dataset.itemId === id);
+                const wrapper = document.querySelector('.matrix-wrapper');if (!row || !wrapper) return;
+                const bounds = row.getBoundingClientRect(), viewport = wrapper.getBoundingClientRect();
+                const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                let covered = 0;
+                for (const header of document.querySelectorAll('.sticky-corner, .section-row, .category-row')) {
+                    if (header.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                        const style = getComputedStyle(header);
+                        if (style.position === 'sticky') covered = Math.max(covered, (parseFloat(style.top) || 0) + header.getBoundingClientRect().height);
+                    }
+                }
+                wrapper.scrollTo({ top: wrapper.scrollTop + bounds.top - viewport.top - covered - Math.max(0, (wrapper.clientHeight - covered - bounds.height) / 2), behavior: reduced ? 'instant' : 'smooth' });
+                if (!reduced) row.animate([{backgroundColor:'rgba(167,139,250,0.45)'},{backgroundColor:'rgba(167,139,250,0)'}],{duration:2000});
+            });
         }
 
         function render() {
@@ -950,9 +985,9 @@
                 const drop = dragPreviewDrop;
                 dragPreviewDrop = null;
                 if (drop.kind === 'category') {
-                    window.electronAPI.contentsReorderCategory(drop.resetType, drop.sourceName, drop.targetName, drop.position);
+                    checklistApi.contentsReorderCategory(drop.resetType, drop.sourceName, drop.targetName, drop.position);
                 } else {
-                    window.electronAPI.contentsReorderItem(drop.sourceId, drop.targetId, drop.position);
+                    checklistApi.contentsReorderItem(drop.sourceId, drop.targetId, drop.position);
                 }
                 return true;
             };
@@ -1081,6 +1116,7 @@
 
                         const infoCell = document.createElement('div');
                         infoCell.title = fullItemHelp;
+                        infoCell.dataset.itemId = item.id;
                         infoCell.className = `matrix-cell item-info sticky-col ${item.isVisible === false ? 'hidden-row' : ''}`;
 
                         const timeStr = String(item.resetRule.hour || 0).padStart(2, '0') + ':00';
@@ -1199,7 +1235,7 @@
                                 iconClassName: 'w-3.5 h-3.5',
                                 onClick: (event) => {
                                     event.stopPropagation();
-                                    window.electronAPI.contentsToggleVisibility(item.id);
+                                    checklistApi.contentsToggleVisibility(item.id);
                                 }
                             }));
                             if (isCustomItem) {
@@ -1348,7 +1384,7 @@
             const progressFill = document.getElementById('global-progress-fill');
             if (progressFill) progressFill.style.width = totalPercent + '%';
             const progressText = document.getElementById('progress-percent-text');
-            if (progressText) progressText.textContent = `ROSTER PROGRESS: ${totalPercent}% (${totalDone}/${totalPossible})`;
+            if (progressText) progressText.textContent = `${configData.activePlayProfileId ? '숙제 진행' : 'ROSTER PROGRESS'}: ${totalPercent}% (${totalDone}/${totalPossible})`;
 
             lucide.createIcons();
         }
@@ -1356,10 +1392,12 @@
         function handleToggle(itemId, charId, currentState, isExcluded) {
             if (isEditMode) {
                 // 관리 모드에서는 제외(N/A) 상태 토글
-                window.electronAPI.contentsToggleExclude(itemId, charId);
+                checklistApi.contentsToggleExclude(itemId, charId);
                 return;
             }
             if (isExcluded) return; // 제외된 항목은 일반 모드에서 체크 불가
+            const soundConfig = configData;
+            let feedback = null;
 
             if (!currentState && window.contentsAudioFeedback.getVolume(configData) > 0) { // 체크하는 순간 (isCompleted: false -> true)
                 const item = configData.contentsCheckerItems.find(i => i.id === itemId);
@@ -1379,13 +1417,19 @@
                 const isLastOne = (doneCount + 1 === sameTypeItems.length);
 
                 if (isLastOne) {
-                    window.contentsAudioFeedback.play(configData, window.contentsAudioFeedback.getCompletionSound(type));
+                    feedback = () => window.contentsAudioFeedback.play(soundConfig, window.contentsAudioFeedback.getCompletionSound(type));
                 } else {
-                    window.contentsAudioFeedback.play(configData, 'assets/sound/item_get.wav');
+                    feedback = () => window.contentsAudioFeedback.play(soundConfig, 'assets/sound/item_get.wav');
                 }
             }
 
-            window.electronAPI.contentsToggleItem(itemId, charId);
+            playAfterChecklistSave(checklistApi.contentsToggleItem(itemId, charId), feedback, soundConfig.activePlayProfileId);
+        }
+
+        function playAfterChecklistSave(result, feedback, profileId) {
+            if (!feedback) return;
+            if (result?.then) result.then(saved => { if (saved?.success && configData.activePlayProfileId === profileId) feedback(); });
+            else feedback();
         }
 
         function handleCountClick(event, itemId, charId, action, isExcluded) {
@@ -1393,7 +1437,7 @@
             
             if (isEditMode) {
                 // 관리 모드에서는 제외(N/A) 상태 토글
-                window.electronAPI.contentsToggleExclude(itemId, charId);
+                checklistApi.contentsToggleExclude(itemId, charId);
                 return;
             }
             if (isExcluded) return;
@@ -1422,15 +1466,17 @@
             const vol = window.contentsAudioFeedback.getVolume(configData);
             const nowCompleted = (targetCount === max);
             const prevCompleted = state?.isCompleted || false;
+            const soundConfig = configData;
+            let feedback = null;
 
             if (nowCompleted && !prevCompleted && vol > 0) {
                 const type = item.resetRule.type;
-                window.contentsAudioFeedback.play(configData, window.contentsAudioFeedback.getCompletionSound(type));
+                feedback = () => window.contentsAudioFeedback.play(soundConfig, window.contentsAudioFeedback.getCompletionSound(type));
             } else if (targetCount !== current && vol > 0) {
-                window.contentsAudioFeedback.play(configData, 'assets/sound/item_get.wav');
+                feedback = () => window.contentsAudioFeedback.play(soundConfig, 'assets/sound/item_get.wav');
             }
 
-            window.electronAPI.contentsUpdateCount(itemId, charId, targetCount);
+            playAfterChecklistSave(checklistApi.contentsUpdateCount(itemId, charId, targetCount), feedback, soundConfig.activePlayProfileId);
         }
 
         function toggleEditMode() {
@@ -1528,23 +1574,24 @@
 
         window.renameChar = (id, oldName) => {
             showCustomPrompt('캐릭터 이름 변경', oldName, (newName) => {
-                if (newName && newName !== oldName) window.electronAPI.contentsRenameCharacter(id, newName);
+                if (newName && newName !== oldName) checklistApi.contentsRenameCharacter(id, newName);
             });
         };
 
         window.removeChar = (id, name) => {
             if (confirm(`'${name}' 캐릭터와 모든 숙제 완료 데이터를 삭제할까요?`)) {
-                window.electronAPI.contentsRemoveCharacter(id);
+                checklistApi.contentsRemoveCharacter(id);
             }
         };
 
         document.getElementById('btn-char-mgmt').onclick = () => {
+            if (configData?.activePlayProfileId) {window.electronAPI.toggleProfiles();return;}
             document.getElementById('char-modal').classList.remove('hidden');
             renderCharList();
         };
 
         document.getElementById('auto-assign-single-candidate-input').onchange = (event) => {
-            window.electronAPI.contentsSetAutoAssignSingleCandidate(event.target.checked);
+            checklistApi.contentsSetAutoAssignSingleCandidate(event.target.checked);
         };
 
         document.getElementById('btn-sound-settings').onclick = () => {
@@ -1571,20 +1618,39 @@
         document.getElementById('btn-add-char-action').onclick = () => {
             const name = document.getElementById('new-char-name').value.trim();
             if (!name) return alert('이름을 입력하세요.');
-            window.electronAPI.contentsAddCharacter(name);
+            checklistApi.contentsAddCharacter(name);
             document.getElementById('new-char-name').value = '';
         };
 
         function removeItem(id) {
-            if (confirm('이 숙제를 삭제할까요?')) window.electronAPI.contentsRemoveItem(id);
+            if (confirm('이 숙제를 삭제할까요?')) checklistApi.contentsRemoveItem(id);
         }
 
         document.getElementById('btn-edit').onclick = toggleEditMode;
         document.getElementById('btn-reset').onclick = () => {
-            if (confirm('모든 캐릭터의 숙제 초기화 시간을 다시 체크할까요?')) window.electronAPI.contentsManualReset();
+            if (confirm(configData?.activePlayProfileId ? '현재 프로필의 숙제 초기화 시간을 다시 확인할까요?' : '모든 캐릭터의 숙제 초기화 시간을 다시 체크할까요?')) checklistApi.contentsManualReset();
         };
 
+        let pendingCustomItem = null;
+        let customItemTimeout;
+        const customItemFeedback = document.createElement('div');
+        customItemFeedback.setAttribute('role', 'status');
+        customItemFeedback.setAttribute('aria-live', 'polite');
+        customItemFeedback.id = 'custom-item-feedback';
+        customItemFeedback.className = 'hidden mt-3 rounded-xl border px-4 py-3 text-sm font-bold leading-relaxed break-words';
+        function showCustomItemFeedback(message, success) {
+            customItemFeedback.className = 'mt-3 rounded-xl border px-4 py-3 text-sm font-bold leading-relaxed break-words ' +
+                (success ? 'bg-green-500/15 border-green-500/40 text-white' : 'bg-amber-500/15 border-amber-500/40 text-white');
+            customItemFeedback.textContent = (success ? '✓  ' : '⚠  ') + message;
+            if (!success) customItemFeedback.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+        document.getElementById('btn-add-item').after(customItemFeedback);
+
+        // 기능 계약: 설정 수신에서 새 ID를 확인한 후에만 추가 성공을 안내한다.
+        // 대기 중 중복 제출을 막고, 다른 항목을 편집한 입력은 지우지 않는다.
         document.getElementById('btn-add-item').onclick = () => {
+            if (window.profileChecklist?.enabled()) return window.profileChecklist.submitEditor();
+            if (pendingCustomItem) return;
             const name = document.getElementById('new-item-name').value.trim();
             const category = document.getElementById('new-item-category').value.trim() || '기타';
             const type = document.getElementById('new-item-type').value;
@@ -1598,18 +1664,31 @@
             
             if (editingItemId) {
                 // 수정 모드
-                window.electronAPI.contentsUpdateItem(editingItemId, name, category, rule, maxCount);
+                checklistApi.contentsUpdateItem(editingItemId, name, category, rule, maxCount);
                 resetForm();
             } else {
                 // 추가 모드
-                window.electronAPI.contentsAddCustom(name, category, rule, maxCount);
-                document.getElementById('new-item-name').value = '';
+                if (pendingCustomItem) return;
+                pendingCustomItem = { name, ids: new Set((configData.contentsCheckerItems || []).map(item => item.id)) };
+                const button = document.getElementById('btn-add-item');
+                button.disabled = true;
+                button.textContent = '추가 중…';
+                customItemFeedback.textContent = '';
+                customItemFeedback.classList.add('hidden');
+                customItemTimeout = setTimeout(() => {
+                    pendingCustomItem = null;
+                    button.disabled = false;
+                    button.textContent = editingItemId ? '수정 완료' : '목록에 추가하기';
+                    showCustomItemFeedback('추가 결과를 확인하지 못했습니다. 목록을 확인해 주세요.', false);
+                }, 10000);
+                checklistApi.contentsAddCustom(name, category, rule, maxCount);
             }
         };
 
         // 보류 팝업 모달 체크 및 렌더링
         function checkAndRenderPendingModal(data) {
             const modal = document.getElementById('pending-modal');
+            if (data.activePlayProfileId) {modal?.classList.add('hidden');return;}
             const itemsList = document.getElementById('pending-items-list');
             const charsList = document.getElementById('pending-chars-list');
             if (!modal || !itemsList || !charsList) return;
@@ -1698,7 +1777,7 @@
                         );
                         btn.onclick = () => {
                             if (confirm(`'${char.name}' 캐릭터는 보류 중인 숙제를 이미 모두 완료했습니다. 정말 반영하시겠습니까? (초과 횟수는 무시됩니다)`)) {
-                                window.electronAPI.contentsApplyPending(char.id);
+                                checklistApi.contentsApplyPending(char.id);
                                 modal.classList.add('hidden');
                             }
                         };
@@ -1712,7 +1791,7 @@
                             'text-xs font-bold text-violet-300 bg-violet-500/20 px-2 py-0.5 rounded'
                         );
                         btn.onclick = () => {
-                            window.electronAPI.contentsApplyPending(char.id);
+                            checklistApi.contentsApplyPending(char.id);
                             modal.classList.add('hidden');
                         };
                     }
@@ -1726,15 +1805,55 @@
             }
         }
 
-        if (window.electronAPI?.onConfigData) {
-            window.electronAPI.onConfigData((data) => {
+        function receiveChecklistConfig(data) {
+                window.profileChecklist?.acceptConfig(data);
+                const submittedName = pendingCustomItem?.name;
+                const canMoveToAddedItem = !editingItemId && document.getElementById('new-item-name').value.trim() === submittedName;
+                const addedItem = pendingCustomItem && (data.contentsCheckerItems || []).find(item =>
+                    item.isCustom && item.name === pendingCustomItem.name && !pendingCustomItem.ids.has(item.id));
+                if (addedItem) {
+                    const addedName = pendingCustomItem.name;
+                    clearTimeout(customItemTimeout);
+                    showCustomItemFeedback(`추가 완료 · ‘${pendingCustomItem.name}’ 숙제가 추가되었습니다.`, true);
+                    pendingCustomItem = null;
+                    const button = document.getElementById('btn-add-item');
+                    button.disabled = false;
+                    button.textContent = editingItemId ? '수정 완료' : '목록에 추가하기';
+                    if (!editingItemId && document.getElementById('new-item-name').value.trim() === addedName) {
+                        document.getElementById('new-item-name').value = '';
+                        document.getElementById('new-item-name').focus({ preventScroll: true });
+                    }
+                }
                 configData = data;
                 window.contentsAutoCollapse.applyConfig(data);
+                // 검색·다음 입력을 보존한다. 검색에 포함될 때만 목록 내부에서 위치를 안내한다.
+                const query = document.getElementById('search-input').value.toLowerCase().trim();
+                const matchesSearch = addedItem && (!query || addedItem.name.toLowerCase().includes(query) || addedItem.category.toLowerCase().includes(query));
+                if (addedItem && !matchesSearch) showCustomItemFeedback(`추가 완료 · ‘${addedItem.name}’ (현재 검색 조건에서는 표시되지 않습니다.)`, true);
+                if (addedItem && matchesSearch && canMoveToAddedItem) {
+                    const section = addedItem.resetRule.type === 'weekly' ? '주간 숙제' : '일일 숙제';
+                    collapsedSections.delete(section);
+                    collapsedCategories.delete(`${section}-${addedItem.category}`);
+                }
                 render();
+                if (addedItem && matchesSearch && canMoveToAddedItem) requestAnimationFrame(() => {
+                    const row = Array.from(document.querySelectorAll('[data-item-id]')).find(node => node.dataset.itemId === addedItem.id);
+                    if (row) {
+                        const wrapper = document.querySelector('.matrix-wrapper');
+                        const bounds = row.getBoundingClientRect();
+                        const viewport = wrapper.getBoundingClientRect();
+                        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                        wrapper.scrollTo({ top: wrapper.scrollTop + bounds.top - viewport.top - (wrapper.clientHeight - bounds.height) / 2, behavior: reducedMotion ? 'instant' : 'smooth' });
+                        if (!reducedMotion) row.animate([
+                            { backgroundColor: 'rgba(167,139,250,0.45)' },
+                            { backgroundColor: 'rgba(167,139,250,0)' }
+                        ], { duration: 2000 });
+                    }
+                });
                 if (!document.getElementById('char-modal').classList.contains('hidden')) renderCharList();
                 checkAndRenderPendingModal(data);
-            });
         }
+        if (window.electronAPI?.onConfigData) window.electronAPI.onConfigData(receiveChecklistConfig);
 
         window.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
@@ -1747,7 +1866,7 @@
             if (clearPendingBtn) {
                 clearPendingBtn.onclick = () => {
                     if (confirm('보류 중인 클리어 이력을 반영하지 않고 완전히 삭제하시겠습니까?')) {
-                        window.electronAPI.contentsClearPending();
+                        checklistApi.contentsClearPending();
                         document.getElementById('pending-modal').classList.add('hidden');
                     }
                 };

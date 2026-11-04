@@ -5,6 +5,8 @@
   <meta charset="UTF-8">
   <title>경험치 HUD</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-settings.css">
+  <script src="renderer/profile-settings-page.js"></script>
     <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
@@ -725,33 +727,33 @@
     });
 
     document.getElementById('toggle-show').addEventListener('change', (e) => {
-      window.electronAPI.applySettings({ showXpWidget: e.target.checked });
+      saveXpSettings({ showXpWidget: e.target.checked });
     });
 
     document.getElementById('btn-toggle-hud-show').addEventListener('click', () => {
-      window.electronAPI.applySettings({ showXpWidget: !currentShowXpWidget });
+      saveXpSettings({ showXpWidget: !currentShowXpWidget });
     });
 
     document.getElementById('toggle-xp-auto-start').addEventListener('change', (e) => {
-      window.electronAPI.applySettings({ xpAutoStart: e.target.checked });
+      saveXpSettings({ xpAutoStart: e.target.checked });
     });
 
     document.getElementById('toggle-ignore-negative').addEventListener('change', (e) => {
-      window.electronAPI.applySettings({ ignoreNegativeXp: e.target.checked });
+      saveXpSettings({ ignoreNegativeXp: e.target.checked });
     });
 
     document.getElementById('toggle-essence-alert').addEventListener('change', (e) => {
-      window.electronAPI.applySettings({ essenceAlertEnabled: e.target.checked });
+      saveXpSettings({ essenceAlertEnabled: e.target.checked });
     });
 
     document.getElementById('essence-alert-sound').addEventListener('change', (e) => {
-      window.electronAPI.applySettings({ essenceAlertSound: e.target.value });
+      saveXpSettings({ essenceAlertSound: e.target.value });
     });
 
     document.getElementById('essence-alert-volume').addEventListener('input', (e) => {
       const vol = parseInt(e.target.value);
       document.getElementById('essence-alert-volume-label').textContent = vol + '%';
-      window.electronAPI.applySettings({ essenceAlertVolume: vol });
+      saveXpSettings({ essenceAlertVolume: vol });
     });
 
     document.getElementById('btn-essence-preview').addEventListener('click', () => {
@@ -765,7 +767,7 @@
     document.getElementById('btn-apply-pos').addEventListener('click', () => {
       const left = parseInt(document.getElementById('pos-left').value) || 0;
       const bottom = parseInt(document.getElementById('pos-bottom').value) || 0;
-      window.electronAPI.applySettings({ xpWidgetPos: { left, bottom } });
+      saveXpSettings({ xpWidgetPos: { left, bottom } });
     });
 
     if (window.electronAPI && window.electronAPI.onHighlightAlarmSettings) {
@@ -805,23 +807,38 @@
           const el = document.getElementById(targetId);
           if (el) el.disabled = !event.target.checked;
         });
-        window.electronAPI.applySettings({ [key]: event.target.checked });
+        saveXpSettings({ [key]: event.target.checked });
       });
     });
     [ ['xp-idle-seconds', 'xpAutoPauseSeconds'], ['xp-efficiency-percent', 'xpEfficiencyDropPercent'], ['xp-efficiency-min-amount', 'xpEfficiencyMinAmount'], ['xp-efficiency-volume', 'xpEfficiencyAlertVolume'] ].forEach(([id, key]) => {
-      document.getElementById(id).addEventListener('change', event => window.electronAPI.applySettings({ [key]: Number(event.target.value) }));
+      document.getElementById(id).addEventListener('change', event => saveXpSettings({ [key]: Number(event.target.value) }));
     });
-    document.getElementById('xp-efficiency-sound').addEventListener('change', event => window.electronAPI.applySettings({ xpEfficiencyAlertSound: event.target.value }));
+    document.getElementById('xp-efficiency-sound').addEventListener('change', event => saveXpSettings({ xpEfficiencyAlertSound: event.target.value }));
     document.getElementById('xp-reset-baseline').addEventListener('click', () => window.electronAPI.resetXpEfficiencyBaseline());
     document.getElementById('xp-efficiency-volume').addEventListener('input', event => document.getElementById('xp-efficiency-volume-value').textContent = event.target.value + '%');
     document.getElementById('xp-efficiency-preview').addEventListener('click', () => window.playPreview(document.getElementById('xp-efficiency-sound').value, Number(document.getElementById('xp-efficiency-volume').value), '경험치 감소 확인'));
 
     let xpConfigGeneration = 0;
-    window.electronAPI.onConfigData(async (config) => {
+    function saveXpSettings(patch) {
+      if (window.profileSettingsPage?.enabled()) return window.profileSettingsPage.write(patch);
+      window.electronAPI.applySettings(patch);return Promise.resolve(true);
+    }
+    function captureXpSettings() {
+      const result={};
+      for (const [id,key] of [['toggle-show','showXpWidget'],['toggle-xp-auto-start','xpAutoStart'],['toggle-ignore-negative','ignoreNegativeXp'],['toggle-essence-alert','essenceAlertEnabled'],['xp-auto-pause','xpAutoPauseEnabled'],['xp-efficiency-enabled','xpEfficiencyAlertEnabled']]) result[key]=document.getElementById(id).checked;
+      for (const [id,key] of [['xp-idle-seconds','xpAutoPauseSeconds'],['xp-efficiency-percent','xpEfficiencyDropPercent'],['xp-efficiency-min-amount','xpEfficiencyMinAmount'],['xp-efficiency-volume','xpEfficiencyAlertVolume'],['essence-alert-volume','essenceAlertVolume']]) result[key]=Number(document.getElementById(id).value);
+      result.essenceAlertSound=document.getElementById('essence-alert-sound').value;
+      result.xpEfficiencyAlertSound=document.getElementById('xp-efficiency-sound').value;
+      result.xpWidgetPos={left:Number(document.getElementById('pos-left').value),bottom:Number(document.getElementById('pos-bottom').value)};
+      return result;
+    }
+    async function applyXpConfig(config,isCurrent=()=>true) {
       const generation = ++xpConfigGeneration;
       document.getElementById('xp-auto-pause').checked = config.xpAutoPauseEnabled !== false;
       document.getElementById('xp-idle-seconds').disabled = config.xpAutoPauseEnabled === false;
-      document.getElementById('xp-idle-seconds').value = config.xpAutoPauseSeconds ?? 60;
+      const idleSelect=document.getElementById('xp-idle-seconds'),idleSeconds=config.xpAutoPauseSeconds ?? 60;
+      if (!Array.from(idleSelect.options).some(option=>option.value===String(idleSeconds))) idleSelect.add(new Option(`${idleSeconds}초`,String(idleSeconds)));
+      idleSelect.value=idleSeconds;
       document.getElementById('xp-efficiency-enabled').checked = config.xpEfficiencyAlertEnabled !== false;
       document.getElementById('xp-efficiency-percent').disabled = config.xpEfficiencyAlertEnabled === false;
       document.getElementById('xp-efficiency-percent').value = config.xpEfficiencyDropPercent ?? 20;
@@ -859,7 +876,7 @@
           const selectionBeforeLoad = efficiencySound.value;
           const sounds = await window.loadSoundList();
           // 이전 설정의 느린 응답이 최신 경고음과 나머지 설정을 되돌리지 않는다.
-          if (generation !== xpConfigGeneration) return;
+          if (generation !== xpConfigGeneration || !isCurrent()) return;
           const selection = efficiencySound.value !== selectionBeforeLoad ? efficiencySound.value : config.xpEfficiencyAlertSound || 'orb.mp3';
           efficiencySound.replaceChildren(...sounds.map(sound => new Option(sound.name, sound.file)));
           efficiencySound.value = selection;
@@ -874,7 +891,7 @@
         }
       }
 
-      if (generation !== xpConfigGeneration) return;
+      if (generation !== xpConfigGeneration || !isCurrent()) return;
       if (config.essenceAlertEnabled !== undefined)
         document.getElementById('toggle-essence-alert').checked = config.essenceAlertEnabled;
       if (config.essenceAlertSound) {
@@ -885,7 +902,10 @@
         document.getElementById('essence-alert-volume').value = config.essenceAlertVolume;
         document.getElementById('essence-alert-volume-label').textContent = config.essenceAlertVolume + '%';
       }
-    });
+    }
+    if (window.profileSettingsPage) window.profileSettingsPage.init({capture:captureXpSettings,apply:applyXpConfig,
+      commonNotice:'알림음·음량·HUD 표시와 위치는 모든 프로필에 공통입니다.'});
+    else window.electronAPI.onConfigData(applyXpConfig);
 
     window.onload = async () => {
       refreshIcons();

@@ -1,5 +1,39 @@
 # 기능 계약 주석 인덱스
 
+새 Google 프로필 동기화: `ApplicationData.syncTransaction`/`profileSyncModel.ts`가 원본과 압축 journal을 함께 저장하고 `profileSyncCoordinator.ts`가 PC별 파일/활동·휴식 예약/ACK/오프라인·복원·계정 경계를 조립한다. `profileSyncDrive.ts`는 appData 변경 feed·gzip·읽은 version+명시 ETag를 사용하고 옛 파일은 전송하지 않는다. `profileCloudSync.ts`/`profileSyncIpc.ts`/`renderer/settings/profile-cloud-sync.ts`는 첫 연결/ZIP/초안/활성 소유자 확인/측정 중 삭제 보호를 맡는다. 기존 Google 중지 검사는 **구형 경로**를 계속 검증한다. 현행 계약: `google-drive-sync-contract.md`, 관련 완료 게이트: `test:profile-sync:acceptance`, 실서비스는 별도 사용자 로그인 `test:profile-sync:live`.
+
+프로필 기능 완료 검사는 `npm run test:profiles:acceptance`를 사용하며 요구사항별 연결은 `docs/development/profile-acceptance-matrix.md`를 따른다. 프로필 관련 검사와 12개 Windows 시작/런처/창모드 조합, 현재 패키지 및 3.2.2 이전을 한 묶음으로 확인한다. `test:profile-crash`는 실제 SIGKILL 이후 WAL·미배정 원본·확정 기록·이전 세션 배정 및 재분석 중복을 확인한다. `profileRecording`의 선택 후 만료 초기화는 상태/일지 집계를 함께 확정하며 실패 시 기존 선택을 유지한다. 일상 변경은 해당 계약의 회귀 검사만 선택하고 기능 완료 시 이 묶음을 실행한다. 배포 실기 게이트를 대신하지 않는다.
+
+프로필 부팅 마무리: `contentsChecker.init({deferRuntime:true})`는 기존 일지를 열지 않고 설정/만료 상태만 정규화하며 `profileApplication`이 새 DB/기록 귀속 연결 후 집계·리셋 타이머를 시작합니다. 검사: `test:profile-upgrade`(실제 3.2.2 패키지 저장 API·원본/백업·두 캐릭터/설정/숙제/일지/도구 입력), `test:profile-lifecycle`, `test:profile-recording` 및 refactor의 숙제 초기화 계약. `tracker.canAutomaticallyRestoreGameFocus`는 게임 최소화/숨김을 자동 복구로 되돌리지 않습니다. `test:profile-windows`는 실제 main/tracker/폴링/선택창과 세 가지 시작 순서·최소화·서버 전환·기록 귀속을 확인합니다. 개발용 게임 대역이며 실게임/관리자/설치 게이트를 대체하지 않습니다. 상세: `docs/development/profile-completion-verification.md`.
+
+앱 재시작 보존은 `test:profile-lifecycle`의 별도 Electron 프로세스 경로로 확인합니다. 이전된 프로필 수/ID·서버별 설정·숙제/N/A·계산기 입력·일지·영수증을 유지하고 새 실행의 선택 대기, 이전 미배정 세션의 명시 배정 및 중복 방지를 검사합니다. 실제 사용자 폴더를 검사 입력으로 받지 않습니다.
+
+프로필 앱 수명/실시간 원본: `profileApplication.ts`의 부팅·주기/종료 저장, `profileLogSource.ts`와 `chatLogManager.ts`의 완전한 원본 byte 구간, `profileParserEvents.ts`의 안정 ID/대기·귀속, `ProfileService.beginStorageMaintenance`와 `profileRecording.suspendForRestore`, `backupManager.ts`의 입력 중지/rollback/catch-up을 함께 확인합니다. 기존 Google 전송은 준비 전에 중지하고 인증/outbox는 유지합니다. 완료 원문 30일 뒤에는 해시 영수증을 남겨 중복/변조 재시도를 검증하며 미배정은 보존합니다. 활동 프리셋 UI/IPC는 제거했고 기존 배치/읽기 도구는 호환 검사만 유지합니다. 검사: `test:profile-lifecycle`(실제 부팅 조립/CRLF tail/선택/과거 복원/원본 보존/ZIP 실패·게임 재시작/영수증/종료/신규 설치/실제 설정 DOM), `check-refactor-regressions.ts`의 격리된 실제 main 부팅·종료 및 기존 tail, 직접 소비 경계의 프로필 기록/저장/백업/선택 UI/Google 중지 검사.
+
+프로필 과거 로그 복원: `chatLogSyncManager.ts`의 고정 대상/ACK 계약, `profileLogRestore.ts`의 DB 진행 상태·원본 구간·구형 미배정 합계, `ProfileService.beginHistoricalRestore`의 작업 잠금·대기 재생, `chatLogSyncWorker.ts`의 소유 이벤트/공통 외치기 분기를 함께 확인합니다. 시작 당시 ID/설정/세션을 유지하고 전환·삭제·설정/숙제 편집을 거부합니다. 기록·원본 구간·확정 offset은 함께 commit하며 다른 프로필/미배정 구간은 복제하지 않습니다. 기존 JSON은 원본 증거로만 사용합니다. 검사: `test:profile-log-restore`(실제 worker/SQLite/설정 HTML·실패/손상/재시도·추가 구간·게임 종료 중 대기·800×600), `check-refactor-regressions.ts` 파일(기존 worker 및 오늘 tail/catch-up), 직접 영향 경계의 `test:profile-recording`, `test:profile-storage`, `test:profile-backup`, `test:profile-settings`, `test:profile-checklist`. 문서: `docs/realtime-log-engine.md`, `docs/settings.md`, `docs/contents-checker.md`, `docs/development/profile-storage.md`. 일반 부팅은 profileApplication의 통합 계약을 따릅니다.
+
+독립 프로필 설정 화면: `renderer/profile-settings-page.ts`의 수신/확정 저장/초안 계약, `profileSettingsAccess.ts`의 로컬 페이지/ID 검증, `profileSettingsTransition.ts`의 Save/Discard/Cancel을 기준으로 합니다. 사냥 경험치 계산기·경험치 HUD·버프 타이머·보스 설정·커스텀 알림에서 입력 시 ID, 부분 저장 ACK, 늦은 응답/알림음 목록, 저장 중 다음 입력·편집 폼, 실패 후 취소/중복 없는 재시도를 보존합니다. 공통 소리/배치는 기존 소유권을 유지합니다. 검사: `test:profile-settings-pages`(실제 5개 제품 창/preload/IPC/SQLite·전환/실패/지연·800×600), `test:settings-pages`(해당 기존 renderer와 0% 음량만), `test:profile-settings`, `test:profile-recording`, `test:diary-profiles-ui`. 사용자 문서는 각 기능과 개발 진행 문서를 함께 확인합니다. 일반 부팅은 profileApplication의 통합 계약을 따릅니다.
+
+프로필 스톱워치: `stopwatchSession.ts`/`profileStopwatch.ts`의 입력 시각·소유권 계약, `stopwatchCalculation.ts`, `stopwatchRevision.ts`, `profileRecording.ts`의 상태 알림/삭제 보호, `stopwatch-renderer.ts`/`game-overlay.html`을 함께 확인합니다. 선택 전 차단, 전환 중 원래 측정 유지, 시작 당시 DB 계산값·도핑·세션 ID, 원래 프로필 저장/실패 재시도, 삭제 프로필의 과거 기록 보존과 재계산 경계, 늦은 화면 상태/조회와 제목 초안 보존을 유지합니다. 검사: `test:profile-stopwatch`(실제 관리/HUD/계산기/preload/IPC/SQLite·최소 창, 계산기 능력치/장비 수치/강화/코어/계산 프리셋·도핑 입력→전환 복원→시작 시 기록 고정), `test:stopwatch`(기존 모드), 전환/도구 경계는 `test:profile-recording`, `test:profile-storage`, `test:profiles-ui`, `test:profile-tools`. 사용자 문서 `docs/stopwatch.md`, `docs/coefficient-calculator.md`, 진행 문서 `docs/development/profile-storage.md`. 일반 부팅 연결을 완료했습니다.
+
+프로필 숙제 UI/수동 조작: `shared/profileChecklist.ts`의 요청 검증, `profileChecklistIpc.ts`의 소유권·원자 commit·중복 ACK 계약, `renderer/contents-checker/profile.ts`와 `profileChecklistTransition.ts`, `contentsChecker.runDiaryWriteWithRetry`를 함께 확인합니다. 1프로필 1열, 프로필 관리 진입점, 기존 캐릭터 CRUD 차단, 완료/N/A/정의·정렬 격리, 저장 실패/응답 유실/전환 중 다음 입력 보존, 재확인의 같은 ID, 일요일 및 검색/추가 위치를 유지합니다. 검사: `test:profile-checklist`, `test:checklist`(기존 숙제/보류 UI만 실행), `test:window-visibility`(실제 자동 접기), `test:audit`, `test:profile-recording`, `test:profile-settings`, `test:companion` 및 `check-refactor-regressions.ts` 파일 단위. 일반 부팅 연결을 완료했습니다.
+
+프로필 설정 초안: `renderer/settings/draft.ts`의 소유자/ACK 경계, `renderer/settings/profile-transition.ts`, `profileSettingsTransition.ts`, `profileSettingsAccess.ts`, `settings.html`의 저장 시작 ID 고정과 `preload.onConfigData`를 함께 확인합니다. 미저장 저장/버리기/취소, 전환 실패 시 초안 보존, 다른 프로필에 늦은 저장 거부, 같은 프로필 재확인·검색에는 확인 생략, 프로필 ID가 바뀐 수신에서만 초안 초기화, 미등록 키워드/탭과 필수 서버를 유지합니다. 검사: `test:profile-settings`(제품 HTML/preload/IPC/DB·실패/지연·작은 창), `test:audit`(기존 초안/동시 저장), `test:hud-edit-settings`(실제 위치 편집), `test:profile-tools`, `test:profile-recording` 및 `check-refactor-regressions.ts` 파일 단위. 일반 부팅 연결을 완료했습니다.
+
+프로필 도구 입력: `shared/profileTools.ts`, `ApplicationData.saveToolValue`/`migrateToolValues`, `profileToolsIpc.ts`, `profileToolTransition.ts`, `renderer/profile-tool-storage.ts`. 실제 저장값의 일회 이전·프로필별 능력치/버프 프리셋·선택 분리, 창별 고정 저장 대상, 편집/저장 실패 시 전환 취소, 같은 프로필 확인 시 초안 유지, 설정 복사/삭제와 ZIP 복원을 보존합니다. 검사: `check-profile-tools.ts` / `npm run test:profile-tools`, 기존 버프 연동은 `test:buffs`, 백업은 `test:profile-backup`, 전환 계층은 `test:profile-storage`와 `test:profile-recording`. `docs/buffs.md`, `docs/coefficient-calculator.md` 및 개발 진행 문서를 함께 확인합니다. 스톱워치는 별도 계약과 검사로, 사냥 경험치 계산기는 독립 프로필 설정 화면의 계약과 검사로 연결했습니다.
+
+프로필 저장 기반(앱 연결 전): `src/modules/applicationData.ts`의 단일 원본 계약과 `shared/playProfiles.ts`, `modules/profileClock.ts`, `modules/config.ts`의 persistence 경계를 함께 확인합니다. 검사: `scripts/check-profile-storage.ts` / `npm run test:profile-storage`. 현재 통합 상태 및 후속 작업: `docs/development/profile-storage.md`. 사용자 정책은 `local-profiles-plan.md`, `profile-storage-design.md`, `profile-sync-lifecycle.md`를 따릅니다.
+
+프로필 선택/관리: `modules/profileService.ts`, `profileGameLifecycle.ts`, `profileIpc.ts`, `renderer/profiles.ts`. 선택 전 기록 대기, 세션 저장 실패, 전환 취소/게임 종료 중 늦은 선택, 자유로운 표시 이름(캐릭터명/에타 조회 키가 아님), 서버 필수·기존 userServer 단일 원본, 삭제 후 빈 기본 및 초안 보존을 유지합니다. 검사: `check-profile-storage.ts`, `check-profiles-ui.ts`. 기존 Google 중지 경계: `cloudSyncManager.pauseForPlayProfiles` 및 `renderer/settings/profile-cloud-pause.ts`, 검사: `check-profile-cloud-pause.ts`. main에서 저장소와 기록 경계를 준비하고 원본 백업 뒤 자동 이전합니다.
+
+프로필 창의 게임 최소화/종료 보존 및 사용자 전체 숨김은 `windowManager.hideAll`과 `pollingLoop.ts`의 최소화 감지 순서를 함께 확인합니다. `check-window-visibility.ts`에서 실제 native 창·입력 보존과 명시적 숨김을 검사합니다.
+
+프로필 자동 기록/실행 상태: `profileParserEvents.ts`의 raw/소유 처리 분리 계약, `ProfileService.dispatch`/`applyRecords`, `config.withConfirmedWrites`, `recordEffects.ts`, `profileRecording.ts`와 각 tracker의 capture/restore를 함께 확인합니다. 검사: `check-profile-recording.ts`(실제 parser/SQLite·일지/숙제/ACK 실패·진행/알림·이전 세션·ZIP), `check-profile-storage.ts`, `check-profile-backup.ts`, `check-xp-hud-policy.ts`, `check-buffs-behavior.ts`, `check-companion-features.ts`, `check-magic-stone-revenue.ts`, parser/실시간/과거 계약은 `check-refactor-regressions.ts` 파일 단위입니다. main 연결은 profileApplication의 계약을 따릅니다.
+
+프로필 모험일지 저장/조회: `diaryDb.ts`의 선두 계약, `connectApplicationData`·journal v2·`diary_profile_days`, `diaryAttribution.ts`, `shared/diaryProfiles.ts`, `ApplicationData.reopen`을 함께 확인합니다. 검사: `check-profile-diary.ts`, `check-profile-storage.ts`, `check-magic-stone-revenue.ts`. 과거 날짜 합계의 안정적인 ID는 `chatLogSyncWorker.ts` 및 `chatLogSyncProtocol.ts`, 검사: `check-refactor-regressions.ts`의 실제 worker·재구성 계약과 `test:profile-log-restore`의 프로필별 복원 계약. 부팅 조립은 profileApplication의 계약을 따릅니다.
+
+일지 조회/수동 기록 대상 UI: `diaryProfileAccess.ts`의 명시적 대상 계약, `renderer/diary-profiles.ts`, `renderer/diary/profile-filter.ts`, `diary.html`의 조회 generation·입력 보존, `renderer/boss-diary-toast.ts`, `boss-settings.html`, `magic-stone-calculator.html`을 함께 확인합니다. 검사: `check-diary-profiles-ui.ts`(제품 HTML/preload/IPC/공유 DB·지연/실패/중복·작은 창 캡처), `check-companion-files.ts`(기존 내보내기), `check-magic-stone-revenue.ts`(기존 수익/지출), `check-diary-calendar-behavior.ts`(달력). 프로필 전체 기능이 활성화되기 전에는 기존 호출 형식을 유지합니다.
+
 보급품 발판 기믹 안내: `src/shared/supplyRecapture.ts`의 계약과 `supplyTracker.ts`, `renderer/game-overlay/companion-hud.ts`, `notification-layout.ts`, `scripts/check-companion-features.ts`, `scripts/check-renderer-behavior.ts`, `docs/companion-tools.md`를 함께 확인합니다. 입장 대기에는 표시하지 않고 암호 순서만 10초간 게임 진행 알림 위치에 표시합니다.
 
 이 문서는 기능별 사용자 약속이 어느 소스의 `기능 계약` 주석에 정의되어 있는지 찾기 위한 인덱스입니다.
@@ -88,11 +122,12 @@
 
 | 기능 | 기준 계약 위치 | 함께 확인할 경로 |
 |---|---|---|
-| 로컬 백업·복원 | `src/modules/backupManager.ts` | `localSnapshot.ts`, `docs/settings.md` |
+| 로컬 백업·복원 | `src/modules/backupManager.ts`, `profileBackupRestore.ts`의 staging 계약 | `localSnapshot.ts`, `ApplicationData.restoreLegacyConfiguration`, `config.load`의 projection 재로드, `profileStartup.ts`, `check-profile-backup.ts`(ZIP/SQLite·부분 복원·rollback·재시작), `check-audit-regressions.ts`, `docs/settings.md` |
 | 도구 localStorage 백업 | `src/modules/rendererStorageBackup.ts` | `shared/rendererStorage.ts`, `storage-bridge.html`, `scripts/check-audit-regressions.ts`, `docs/settings.md` |
 | 설정 초안·런타임 적용 | `src/renderer/settings/draft.ts`, `src/modules/runtimeSettings.ts` | `settings.html`, `ipcHandlers.ts`, `cloudSyncManager.ts`, `scripts/check-audit-regressions.ts`, `docs/settings.md` |
 | 장비 강화·인챈트·인크립트 기댓값 / 0원 구간·횟수 입력 | `src/shared/equipmentSimulator.ts`, `src/renderer/equipment-simulator.ts` | `scripts/check-audit-regressions.ts`, `scripts/check-renderer-behavior.ts --equipment-simulator`, `docs/equipment-simulator.md` |
-| Google Drive 동기화 | `src/modules/cloudSyncManager.ts` | `syncDataHelper.ts`, `google-drive-sync-contract.md`, `docs/google-drive-sync.md` |
+| Google Drive 프로필 동기화 | `profileSyncModel.ts`, `profileSyncCoordinator.ts`, `profileSyncDrive.ts`, `profileCloudSync.ts` | `ApplicationData.syncTransaction`, `profileSyncIpc.ts`, `renderer/settings/profile-cloud-sync.ts`, `google-drive-sync-contract.md`, `test:profile-sync:acceptance` |
+| 두 PC 동시 전송 회귀 | `scripts/check-profile-sync-concurrency.ts` | 독립 프로세스/별도 DB/실제 loopback HTTP/운영 transport·coordinator, 응답 순서·수신 중 편집·ACK·실패·취소·삭제, `test:profile-sync-concurrency` |
 | GA4 사용 통계 | `src/modules/analytics.ts` | `analyticsProtocol.ts`, `PRIVACY_POLICY.md`, `docs/privacy/index.html` |
 
 ## 변경 절차
@@ -133,7 +168,6 @@
 
 | 화면 고정 메모·긴 내용 읽기 | `src/renderer/game-overlay/companion-hud.ts`의 `refreshNoteLayout` | `renderer/settings/companion-controls.ts`, `renderer/game-overlay/edit-mode.ts`, `scripts/check-renderer-behavior.ts`의 `checkPinnedNoteReading`, `docs/companion-tools.md` |
 
-| 활동 프리셋 | `src/shared/activityPresets.ts`의 `mergeActivitySettings`, `src/modules/ipcHandlers.ts`의 `applyActivityPreset` | `windowManager.ts`의 `captureActivityLayout`/`restoreActivityLayout`, `modules/config.ts`, `scripts/check-companion-features.ts`의 `checkActivityBuffRestoration`/`checkActivityWindowSizes`, `scripts/check-preset-position.ts`, `docs/companion-tools.md` |
 
 | 알림 위치·실화면 미리보기 | `src/renderer/game-overlay/notification-layout.ts` | `shared/notificationLayout.ts`, `renderer/settings/notification-layout.ts`, `docs/companion-tools.md` |
 
@@ -141,3 +175,5 @@
 
 
 플레이 보조 화면의 정보·관리 분리: `renderer/nickname-notes.ts`의 정보 조회 세션과 메모 저장 계약, `shared/nicknameInfo.ts`의 캐릭터 매핑, `renderer/settings/activity-presets.ts`의 상세 펼침·이름 초안, `modules/gameOverlayEditSession.ts`의 저장 확인 후 입력 복귀를 함께 확인합니다. 회귀 검사는 `scripts/check-companion-design.ts`(실제 preload·IPC·임시 디스크·Electron), `scripts/check-renderer-behavior.ts`(채팅 이력·초안·긴 메모), `scripts/check-companion-features.ts`(프리셋 실제 창 복원)입니다. 사용자 문서는 `docs/companion-tools.md`, `docs/chat-overlay.md`입니다.
+
+어벤던로드 입장료 지출은 `chatLogProcessor.ts`의 입장료 계약, `chatLogSyncWorker.ts`, `chatLogSyncManager.ts` 정책 fingerprint를 함께 유지합니다. 수동 수익·지출은 `diary.html`의 `saveManualSeed`, 숙제 추가 확인은 `contents-checker.html`의 추가 계약과 `renderer/contents-checker/profile.ts`를 기준으로 합니다. 일상 검증은 변경한 경로에 맞춰 `test:magic-stone`, `test:checklist`, `test:profile-checklist` 및 과거 복원 변경 시 refactor 검사 파일을 선택합니다. 사용자 문서: `docs/diary.md`, `docs/realtime-log-engine.md`, `docs/contents-checker.md`.

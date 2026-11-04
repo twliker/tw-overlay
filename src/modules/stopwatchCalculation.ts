@@ -1,5 +1,23 @@
 /** 시간 측정의 시작 스냅샷과 과거 기록의 계열·코어 변경에 같은 기존 계산식을 사용한다. */
 import activeBuffs from '../assets/data/buffs.json';
+import type {TimerRecord} from '../shared/types';
+export const STOPWATCH_SERIES=['stab','hack','phycomp','magatk','maghack','magdef'];
+export const STOPWATCH_CORES=['none','mercurial','abyss','eclipse','rubicona'];
+export const STOPWATCH_PROFILES_KEY='tw-coefficient-calculator-profiles-v1';
+export const STOPWATCH_TOOL_KEYS=[STOPWATCH_PROFILES_KEY,`${STOPWATCH_PROFILES_KEY}_last`,'buff_presets','tw-coefficient-calculator-settings-v7final'];
+
+/** 렌더러 저장소 또는 소유 프로필 DB에서 받은 같은 형식의 실제 저장값을 계산한다. */
+export function captureStopwatchSnapshot(values:Record<string,string | null | undefined>):Omit<TimerRecord,'id'> {
+  const profiles=JSON.parse(values[STOPWATCH_PROFILES_KEY] || '{}');
+  const selected=values[`${STOPWATCH_PROFILES_KEY}_last`] || 'default';
+  const pData=profiles?.[selected]?.data || profiles?.default?.data || (Object.values(profiles || {}) as any[]).find(item => item?.data)?.data || JSON.parse(values['tw-coefficient-calculator-settings-v7final'] || '{}');
+  const series=STOPWATCH_SERIES.includes(pData.currentType) ? pData.currentType : 'stab';
+  const core=STOPWATCH_CORES.includes(pData.mainCore) ? pData.mainCore : 'none';
+  const calc=recalculateStatsAndCoefficient(pData,series,core,values.buff_presets || null);
+  return {date:'',duration:0,title:'',series,core_master:core,coefficient:calc.coefficient,char_main:calc.charMain,char_sub:calc.charSub,
+    base_main:calc.baseMain,enchant_main:calc.enchantMain,base_sub:calc.baseSub,enchant_sub:calc.enchantSub,accuracy:calc.totalHit,
+    raw_profile_data:JSON.stringify({...pData,stopwatchBuffEffects:calc.buffEffects})};
+}
 const standardBuffs: readonly string[] = require('../shared/buffConstants').STANDARD_BUFFS;
 
 const stopwatchCategories = [

@@ -18,9 +18,11 @@ const userData = path.join(appDataRoot, 'twOverlay');
 fs.mkdirSync(userData, { recursive: true });
 app.setPath('appData', appDataRoot);
 app.setPath('userData', userData);
+const logs=path.join(userData,'fixture-logs');fs.mkdirSync(logs,{recursive:true});
 
 fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify({
   userServer: 1,
+  analyticsEnabled:false,chatLogPath:logs,
   overlayVisible: false,
   autoUpdateEnabled: false,
   googleSyncEnabled: scenario === 'timeout',

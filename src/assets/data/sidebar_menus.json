@@ -280,6 +280,15 @@
     "category": "alarms"
   },
   {
+    "id": "profiles-btn",
+    "label": "프로필",
+    "icon": "users-round",
+    "tooltip": "프로필 선택 및 관리",
+    "color": "slate-400",
+    "api": "toggleProfiles",
+    "isSystem": true
+  },
+  {
     "id": "home-btn",
     "label": "홈 페이지",
     "icon": "home",

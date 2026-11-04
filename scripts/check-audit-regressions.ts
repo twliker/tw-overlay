@@ -540,7 +540,7 @@ async function checkSettingsDraft(): Promise<void> {
   vm.runInNewContext(ts.transpileModule(ipcSource.slice(ipcStart, ipcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", ipcStart)),
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
     ipcMain, config: hudConfigStore, isBoolean: (value: unknown) => typeof value === 'boolean',
-    log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
+    log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {}, validateSettingsProfileWrite: () => undefined,
     wm: { areAllWindowsHidden: () => false, getSettingsWindow: () => null, getGameOverlayWindow: () => hudSender ? window : null,
       applySettings: wmFixture.exports.applySettings },
   });
@@ -721,7 +721,7 @@ async function checkSettingsInitializationAndSaveRaces(): Promise<void> {
     const start = ipcSource.indexOf('  type ApplySettingsResult =');
     const handler = ipcSource.slice(start, ipcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", start));
     vm.runInNewContext(ts.transpileModule(handler, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
-      ipcMain, isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
+      ipcMain, isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {}, validateSettingsProfileWrite: () => undefined,
       config: { load: () => structuredClone(mainConfig),
         sanitizeExternalConfigPatch: (patch: any) => config.sanitizeExternalConfigPatch(structuredClone(patch)), getLastSaveError: () => null },
       wm: { areAllWindowsHidden: () => false, getSettingsWindow: () => win, getGameOverlayWindow: () => null, applySettings: (patch: any, excluded: any) => {

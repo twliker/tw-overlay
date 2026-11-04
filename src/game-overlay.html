@@ -1998,6 +1998,7 @@
       <span class="timer-hud-title">STOPWATCH</span>
       <span class="hud-shortcut-badge" title="Ctrl + Shift + S" data-shortcut-key="toggleTimer">C+S+S</span>
     </div>
+    <div id="timer-hud-profile" class="hidden text-xs text-indigo-300 truncate" style="max-width: 200px;"></div>
     <div id="timer-hud-display" class="timer-hud-display">00:00.00</div>
     <div id="timer-hud-status" class="timer-hud-status hidden">HOLDING (10s)</div>
   </div>
@@ -2291,6 +2292,17 @@
       const s = totalSec % 60;
       const cs = Math.floor((ms % 1000) / 10);
       return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+    }
+
+    function resetTimerDisplay() {
+      timerIsRunning=false;
+      if (timerInterval) {cancelAnimationFrame(timerInterval);timerInterval=null;}
+      if (timerFadeTimeout) {clearTimeout(timerFadeTimeout);timerFadeTimeout=null;}
+      if (timerStatusInterval) {clearInterval(timerStatusInterval);timerStatusInterval=null;}
+      lastTimerDisplay='';timerStartTime=0;
+      const hud=document.getElementById('timer-hud');
+      hud?.classList.remove('show');hud?.classList.add('hidden');
+      document.getElementById('timer-hud-status')?.classList.add('hidden');
     }
 
     function startTimer(startedAt) {
@@ -3779,14 +3791,20 @@
       });
 
       let timerRevision = -1;
+      let timerProfileId = null;
       const applyTimerState = (state) => {
         if (state.revision <= timerRevision) return;
         timerRevision = state.revision;
+        if (state.profileMode && (timerProfileId!==state.profileId || state.selectionRequired || state.startedAt!==timerStartTime && timerIsRunning)) resetTimerDisplay();
+        timerProfileId=state.profileId || null;
+        const profileLabel=document.getElementById('timer-hud-profile');
+        if (profileLabel) {profileLabel.textContent=state.profileName || '';profileLabel.title=state.profileName || '';profileLabel.classList.toggle('hidden',!state.profileMode || !state.profileId);}
         if (state.running) startTimer(state.startedAt);
         else if (state.stoppedAt !== null && (timerIsRunning || Date.now() - state.stoppedAt < 10000)) {
           if (!timerIsRunning) startTimer(state.startedAt);
           stopTimer(state);
         }
+        else if (state.profileMode) resetTimerDisplay();
       };
       window.electronAPI.onTimerToggle(applyTimerState);
       window.electronAPI.timerGetState().then(applyTimerState).catch(console.error);

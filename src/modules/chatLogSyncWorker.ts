@@ -2,6 +2,7 @@ import { promises as fsp } from 'fs';
 import * as iconv from 'iconv-lite';
 import { parentPort, workerData } from 'worker_threads';
 import { ChatParser } from './chatParser';
+import type {ChatParserEventMap} from '../shared/types';
 import { parseElsoMessage, formatLootDiaryContent, getGoldPouchSeedAmount } from './itemAcquisition';
 import { isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
 import { getEssenceExchangeCount } from '../shared/experienceEssence';
@@ -90,6 +91,12 @@ async function runWorker() {
   const failedFiles: Array<{ fileName: string; date: string; error: string }> = [];
 
   const syncParser = new ChatParser();
+  // 이미 다른 프로필/미배정에 귀속된 원본 구간은 소유 기록을 다시 만들지 않는다.
+  // 외치기는 공통이므로 전체 snapshot 재구성에서도 모든 구간을 계속 파싱한다.
+  let currentEventOwned=true;
+  const onOwnedEvent=<K extends keyof ChatParserEventMap>(event:K,callback:(value:ChatParserEventMap[K])=>void) => {
+    syncParser.on(event,value=>{if (currentEventOwned) callback(value);});
+  };
 
   const nextEventId = (kind: string): string => {
     if (!currentFile) throw new Error('현재 채팅 로그 파일이 없습니다.');
@@ -139,11 +146,11 @@ async function runWorker() {
     }
   };
 
-  syncParser.on('ETERNAL_FLOOR_CLEAR', () => {
+  onOwnedEvent('ETERNAL_FLOOR_CLEAR', () => {
     recordHomework('weekly-eternal-floor', 1, true);
   });
 
-  syncParser.on('ECLIPSE_BOSS_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_BOSS_CLEAR', (evt) => {
     const bossMapping: Record<string, string> = {
       '에토스': 'weekly-eclipse-boss-ethos',
       '마티아': 'weekly-eclipse-boss-matias',
@@ -156,7 +163,7 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('MERCURIAL_BOSS_CLEAR', (evt) => {
+  onOwnedEvent('MERCURIAL_BOSS_CLEAR', (evt) => {
     const bossMapping: Record<string, string> = {
       '실반': 'weekly-mur-sylvan',
       '샐리온': 'weekly-mur-salion',
@@ -170,7 +177,7 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('CORE_MASTER_CLEAR', (evt) => {
+  onOwnedEvent('CORE_MASTER_CLEAR', (evt) => {
     const coreMapping: Record<string, string> = {
       '심층Ⅰ': 'weekly-abyss-core-master-1',
       '심층Ⅱ': 'weekly-abyss-core-master-2',
@@ -186,35 +193,35 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, evt.isIncrement !== false);
   });
 
-  syncParser.on('RELIC_SANCTUARY_CLEAR', (evt) => {
+  onOwnedEvent('RELIC_SANCTUARY_CLEAR', (evt) => {
     recordHomework('weekly-ancient-relic', evt.count, false);
   });
 
-  syncParser.on('POWER_ROOT_CLEAR', (evt) => {
+  onOwnedEvent('POWER_ROOT_CLEAR', (evt) => {
     recordHomework('weekly-power-root', evt.count, false);
   });
 
-  syncParser.on('ABYSS_TREASURE_ENTRY', (evt) => {
+  onOwnedEvent('ABYSS_TREASURE_ENTRY', (evt) => {
     recordHomework('weekly-abyss-treasure', evt.count, false);
   });
 
-  syncParser.on('ECLIPSE_SUPPLIES_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_SUPPLIES_CLEAR', (evt) => {
     recordHomework('weekly-eclipse-recapture-supplies', evt.count, false);
   });
 
-  syncParser.on('ECLIPSE_SPECIAL_FORCE_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_SPECIAL_FORCE_CLEAR', (evt) => {
     recordHomework('weekly-eclipse-special-force-suppression', evt.count, false);
   });
 
-  syncParser.on('FORTRESS_GHOST_CLEAR', (evt) => {
+  onOwnedEvent('FORTRESS_GHOST_CLEAR', (evt) => {
     recordHomework('weekly-fortress-ghost', evt.count, false);
   });
 
-  syncParser.on('TESIS_CORE_CLEAR', () => {
+  onOwnedEvent('TESIS_CORE_CLEAR', () => {
     recordHomework('weekly-tesis-core', 1, true);
   });
 
-  syncParser.on('DIGSITE_ENTRY', (evt) => {
+  onOwnedEvent('DIGSITE_ENTRY', (evt) => {
     if (typeof evt.count === 'number') {
       recordHomework('weekly-digsite', evt.count, false);
     } else {
@@ -222,11 +229,11 @@ async function runWorker() {
     }
   });
 
-  syncParser.on('CONTENT_SHINJO_NEST_CLEAR', (evt) => {
+  onOwnedEvent('CONTENT_SHINJO_NEST_CLEAR', (evt) => {
     recordHomework('weekly-shinjo-nest', evt.count, false);
   });
 
-  syncParser.on('ABYSS_DUNGEON_CLEAR', (evt) => {
+  onOwnedEvent('ABYSS_DUNGEON_CLEAR', (evt) => {
     const depthMap: Record<string, string> = {
       '심층Ⅰ': 'weekly-abyss-dungeon-1',
       '심층Ⅱ': 'weekly-abyss-dungeon-2',
@@ -236,91 +243,91 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('ABYSS_BOSS_EX_CLEAR', (evt) => {
+  onOwnedEvent('ABYSS_BOSS_EX_CLEAR', (evt) => {
     recordHomework('weekly-abyss-boss-ex', evt.count, false);
   });
 
-  syncParser.on('SIOKAN_BOSS_CLEAR', (evt) => {
+  onOwnedEvent('SIOKAN_BOSS_CLEAR', (evt) => {
     recordHomework('weekly-siokan-boss', evt.count, false);
   });
 
-  syncParser.on('SIOKAN_ODIN_CLEAR', (evt) => {
+  onOwnedEvent('SIOKAN_ODIN_CLEAR', (evt) => {
     recordHomework('weekly-siokan-odin', evt.count, false);
   });
 
-  syncParser.on('ECLIPSE_BOSS_SUBJUGATION_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_BOSS_SUBJUGATION_CLEAR', (evt) => {
     recordHomework('weekly-eclipse-boss', evt.count, false);
   });
 
-  syncParser.on('MOON_QUEEN_TRAINING_CLEAR', (evt) => {
+  onOwnedEvent('MOON_QUEEN_TRAINING_CLEAR', (evt) => {
     recordHomework('weekly-moon-queen', evt.count, false);
   });
 
-  syncParser.on('APETHIRIA_RAID_CLEAR', (evt) => {
+  onOwnedEvent('APETHIRIA_RAID_CLEAR', (evt) => {
     recordHomework('weekly-apethiria-raid', evt.count, false);
   });
 
-  syncParser.on('PRAVA_DEFENSE_CLEAR', () => {
+  onOwnedEvent('PRAVA_DEFENSE_CLEAR', () => {
     recordHomework('weekly-prava-defense', 1, true);
   });
 
-  syncParser.on('ORLY_DEFENSE_CLEAR', () => {
+  onOwnedEvent('ORLY_DEFENSE_CLEAR', () => {
     recordHomework('weekly-orly-defense', 1, true);
   });
 
-  syncParser.on('CATACOMB_CLEAR', () => {
+  onOwnedEvent('CATACOMB_CLEAR', () => {
     recordHomework('weekly-catacomb-hell', 1, true);
   });
 
-  syncParser.on('VESTIGE_CLEAR', () => {
+  onOwnedEvent('VESTIGE_CLEAR', () => {
     recordHomework('weekly-vestige', 1, true);
   });
 
-  syncParser.on('THURSDAY_CLEAN_CLEAR', () => {
+  onOwnedEvent('THURSDAY_CLEAN_CLEAR', () => {
     recordHomework('weekly-thursday-clean', 1, true);
   });
 
-  syncParser.on('ETA_DAILY_BOX_GAIN', () => {
+  onOwnedEvent('ETA_DAILY_BOX_GAIN', () => {
     recordHomework('daily-eta-quest', 1, true);
   });
 
-  syncParser.on('ETA_WILL_UPGRADE_GAIN', () => {
+  onOwnedEvent('ETA_WILL_UPGRADE_GAIN', () => {
     recordHomework('daily-eta-will-upgrade', 1, true);
   });
 
-  syncParser.on('CLUB_POINT_500_GAIN', () => {
+  onOwnedEvent('CLUB_POINT_500_GAIN', () => {
     recordHomework('daily-club-boss', 1, true);
   });
 
-  syncParser.on('CONFUSED_LAND_CLEAR', () => {
+  onOwnedEvent('CONFUSED_LAND_CLEAR', () => {
     recordHomework('daily-confused-land', 1, true);
   });
 
-  syncParser.on('COLORLESS_LAND_CLEAR', () => {
+  onOwnedEvent('COLORLESS_LAND_CLEAR', () => {
     recordHomework('daily-colorless-land', 1, true);
   });
 
-  syncParser.on('ARCHITECT_MINE_CLEAR', () => {
+  onOwnedEvent('ARCHITECT_MINE_CLEAR', () => {
     recordHomework('daily-architect-mine', 1, true);
   });
 
-  syncParser.on('GOLGOTHA_DEFENSE_CLEAR', () => {
+  onOwnedEvent('GOLGOTHA_DEFENSE_CLEAR', () => {
     recordHomework('daily-golgotha-defense', 1, true);
   });
 
-  syncParser.on('FINAL_BATTLE_CLEAR', () => {
+  onOwnedEvent('FINAL_BATTLE_CLEAR', () => {
     recordHomework('weekly-final-battle', 1, true);
   });
 
-  syncParser.on('JOY_CLEAR', () => {
+  onOwnedEvent('JOY_CLEAR', () => {
     recordHomework('daily-joy', 1, true);
   });
 
-  syncParser.on('SORROW_CLEAR', () => {
+  onOwnedEvent('SORROW_CLEAR', () => {
     recordHomework('daily-sorrow', 1, true);
   });
 
-  syncParser.on('ABANDONED_ENTRY', (evt) => {
+  onOwnedEvent('ABANDONED_ENTRY', (evt) => {
     const regionMapping: Record<string, string> = {
       '필멸의 땅': 'weekly-abandon-road-mortal',
       '카디프': 'weekly-abandon-road-cardiff',
@@ -330,7 +337,7 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('PITTA_ENTRY', (evt) => {
+  onOwnedEvent('PITTA_ENTRY', (evt) => {
     const energy = typeof evt.energy === 'number' && !isNaN(evt.energy) ? evt.energy : 0;
     const computedCount = (20 - energy) + 1;
     if (computedCount >= 1 && computedCount <= 5) {
@@ -338,7 +345,19 @@ async function runWorker() {
     }
   });
 
-  syncParser.on('SEED_GAINED', (evt) => {
+  onOwnedEvent('ABANDONED_FEE', (evt) => {
+    if (!aggregate || !Number.isSafeInteger(evt.amount) || evt.amount <= 0) return;
+    seeds.push({
+      eventId: nextEventId('seed'),
+      date: evt.date,
+      timeOnly: evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', ''),
+      content: `[자동] 어벤던로드 입장료 (-${evt.amount.toLocaleString('en-US')} SEED)`,
+      amount: -evt.amount
+    });
+    aggregate.seedsDetected++;
+  });
+
+  onOwnedEvent('SEED_GAINED', (evt) => {
     if (!aggregate) return;
     const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
     const content = `[자동] ${evt.message} (${formatKoreanNumber(evt.amount)})`;
@@ -353,7 +372,7 @@ async function runWorker() {
   });
 
   // 파서 이벤트 리스너 등록
-  syncParser.on('ITEM_LOOTED', (evt) => {
+  onOwnedEvent('ITEM_LOOTED', (evt) => {
     if (!aggregate) return;
     try {
       const elso = parseElsoMessage(evt.message);
@@ -412,7 +431,7 @@ async function runWorker() {
     }
   });
 
-  syncParser.on('MAGIC_STONE_GAIN', (evt) => {
+  onOwnedEvent('MAGIC_STONE_GAIN', (evt) => {
     if (!aggregate) return;
     if (!matchesRegisteredLoot(lootKeywords, `${evt.grade} 마정석`)) return;
     const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
@@ -426,7 +445,7 @@ async function runWorker() {
     aggregate.lootsDetected++;
   });
 
-  syncParser.on('XP_CHANGED', (evt) => {
+  onOwnedEvent('XP_CHANGED', (evt) => {
     if (!aggregate) return;
     // 수동·자동 교환 공통의 100억 감소만 환산합니다. 자동 교환의 복합 획득 안내는
     // ChatParser가 XP_CHANGED로 발행하지 않으므로 과거 로그에서도 중복되지 않습니다.
@@ -546,18 +565,21 @@ async function runWorker() {
         for (const [date, grades] of Object.entries(aggregate.magicStones)) {
           for (const [grade, info] of Object.entries(grades)) {
             aggregateLoots.push({
+              eventId:createStableChatSyncEventId(file.fingerprint,0,`daily-stone:${date}:${grade}${file.aggregateOwnerKey ? ':'+file.aggregateOwnerKey : ''}`,0),
               date,
               timeOnly: info.latestTime,
               diaryContent: `[득템] [${grade} 마정석]`,
-              count: info.totalCount,
+              count: Math.max(0,info.totalCount-(file.legacyAggregateDeductions?.stones[grade] || 0)),
             });
           }
         }
         for (const [date, info] of Object.entries(aggregate.elsoByDate)) {
-          aggregateElso.push({ date, timeOnly: info.latestTime, amount: info.totalAmount });
+          const amount=Math.max(0,info.totalAmount-(file.legacyAggregateDeductions?.elso || 0));
+          if (amount>0) aggregateElso.push({eventId:createStableChatSyncEventId(file.fingerprint,0,`daily-elso:${date}${file.aggregateOwnerKey ? ':'+file.aggregateOwnerKey : ''}`,0),date,timeOnly:info.latestTime,amount});
         }
         for (const [date, info] of Object.entries(aggregate.goldPouchSeedByDate)) {
-          aggregateGoldPouchSeeds.push({ date, timeOnly: info.latestTime, amount: info.totalAmount });
+          const amount=Math.max(0,info.totalAmount-(file.legacyAggregateDeductions?.gold || 0));
+          if (amount>0) aggregateGoldPouchSeeds.push({eventId:createStableChatSyncEventId(file.fingerprint,0,`daily-gold:${date}${file.aggregateOwnerKey ? ':'+file.aggregateOwnerKey : ''}`,0),date,timeOnly:info.latestTime,amount});
         }
       }
       const batch: ChatLogSyncBatchData = {
@@ -573,7 +595,7 @@ async function runWorker() {
         snapshotSize: file.snapshotSize,
         fileComplete,
         aggregate: structuredClone(aggregate),
-        loots: [...loots, ...aggregateLoots],
+        loots: [...loots, ...aggregateLoots.filter(item=>item.count>0)],
         essences: [...essences],
         shouts: [...shouts],
         seeds: [...seeds],
@@ -599,7 +621,11 @@ async function runWorker() {
       let carry = Buffer.alloc(0);
       let carryStartOffset = file.startOffset;
 
+      let excludedIndex=0;
+      const excluded=file.excludedRanges || [];
       const parseNormalizedLine = (line: string, eventOffset: number): void => {
+        while (excludedIndex<excluded.length && excluded[excludedIndex].end<=eventOffset) ++excludedIndex;
+        const range=excluded[excludedIndex];currentEventOwned=!range || eventOffset<range.start || eventOffset>=range.end;
         currentEventOffset = eventOffset;
         currentEventSequence = 0;
         const timeMatch = line.match(/(\d{1,2})시\s*(\d{1,2})분\s*(\d{1,2})초/);

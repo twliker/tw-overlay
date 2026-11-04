@@ -20,6 +20,18 @@
  *   분석 실패 시 교체 함수 자체를 호출하지 않아 기존 기록을 보존합니다.
  * - 알람 이력의 `scheduledAt`, `recordedAt`, `deliveryStatus`, `dedupeKey`는 실제 실행과 절전 중 누락을
  *   구분하는 계약입니다. 조회용 필터 변경이 원본 행 삭제로 이어져서는 안 됩니다.
+ * - 프로필 저장소가 연결되면 설정/대기 이벤트와 동일한 app-data.db 연결만 사용합니다. 기존/귀속 불명
+ *   기록은 NULL로 남고 기록된 프로필의 이름이나 서버 변경·삭제로 재배정하지 않습니다. 날짜별 금화·엘소·
+ *   마정석, 숙제 중복 키와 점수/완료 통계도 프로필 경계를 유지합니다. 전체 보기는 이를 합산합니다.
+ * - 금화/엘소 버퍼는 입력 때의 프로필·기기·세션을 붙이고 복구 journal v2에 보존합니다. v1의 소유자는
+ *   추정하지 않습니다. 대기 이벤트의 외부 transaction 안에서는 메모리/파일에 미루지 않고 같은 DB에
+ *   기록하며 실패를 상위로 전달해 일지·설정·ACK가 함께 rollback되게 합니다.
+ * - source ID는 전체 프로필에서 중복 방지하되 동일 프로필의 완료 snapshot 재구성은 허용합니다.
+ *   자동 기록/숙제의 날짜 교체는 대상 프로필에 한정합니다. 조회·통계·내보내기의 기본 범위는 전체이며
+ *   프로필/미배정 필터가 원본 변경이나 빈 날짜 생성으로 이어지지 않습니다. 다른 프로필의 득템에는
+ *   그 프로필의 키워드를 사용하고, 삭제되어 설정이 없으면 보존된 원본을 표시합니다.
+ * - 회귀: check-profile-diary.ts, check-profile-storage.ts, check-magic-stone-revenue.ts 및
+ *   check-refactor-regressions.ts의 실제 worker/완료 snapshot 검사. 실제 앱 부팅 통합은 별도 단계입니다.
  */
 import * as path from 'path';
 import * as fs from 'fs';
@@ -33,8 +45,76 @@ import { formatLootDiaryContent, parseItemAcquisition } from './itemAcquisition'
 import { formatLocalDateKey } from '../shared/localDate';
 import { countsTowardLootTotal, isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
 import type { DiaryExportSnapshot, DiaryExportRow } from '../shared/companionFiles';
+import {ensureDiaryAttribution} from './diaryAttribution';
+import type {ApplicationData} from './applicationData';
+import {ALL_DIARY_PROFILES,diaryProfilePredicate} from '../shared/diaryProfiles';
+import type {DiaryRecordContext,DiaryProfileFilter} from '../shared/diaryProfiles';
 
 let db: Database.Database | null = null;
+let applicationData:ApplicationData | null=null;
+let initializingDb=false;
+const currentOwner=():DiaryRecordContext => !initializingDb && applicationData?.getRecordContext() || {profileId:null,deviceId:null,sessionId:null};
+
+/** 기존 연결을 닫고 이전을 검증한 뒤 연결한다. 이후 조회/복원 재연결도 같은 app-data.db만 사용한다. */
+export function connectApplicationData(store:ApplicationData):void {
+  if (db || restoreSuspended) throw new Error('기존 일지 연결을 먼저 닫아 주세요.');
+  if (applicationData && applicationData!==store) throw new Error('다른 프로필 저장소가 이미 연결되어 있습니다.');
+  applicationData=store;
+  initDb();
+  if (!db) throw new Error('프로필 모험일지 저장소를 연결하지 못했습니다.');
+}
+
+function propagateTransactionFailure(error:unknown):void {
+  // 일반 UI 호출은 기존 결과 타입을 유지한다. 외부 이벤트 transaction에서는 ACK 전에 실패시킨다.
+  if (db?.inTransaction) throw error;
+}
+
+interface PendingDailyAmount extends DiaryRecordContext {date:string;latestTime:string;totalAmount:number}
+const pendingKey=(entry:Pick<PendingDailyAmount,'date' | 'profileId' | 'deviceId' | 'sessionId'>) => JSON.stringify([entry.date,entry.profileId,entry.deviceId,entry.sessionId]);
+const sameOwner=(row:{profile_id?:string | null},owner:DiaryRecordContext) => (row.profile_id ?? null)===owner.profileId;
+
+function initializeProfileDays():void {
+  if (!db) return;
+  db.transaction(() => {
+    db!.exec(`CREATE TABLE IF NOT EXISTS diary_profile_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS diary_profile_days(
+        date TEXT NOT NULL REFERENCES diaries(date),profile_id TEXT,
+        total_score INTEGER NOT NULL DEFAULT 0,monster_id TEXT NOT NULL DEFAULT '',
+        daily_done INTEGER NOT NULL DEFAULT 0,daily_total INTEGER NOT NULL DEFAULT 0,
+        weekly_done INTEGER NOT NULL DEFAULT 0,weekly_total INTEGER NOT NULL DEFAULT 0);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_diary_profile_days_key ON diary_profile_days(date,COALESCE(profile_id,''));
+      DROP INDEX IF EXISTS idx_homework_logs_date_content_unique;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_homework_logs_profile_date_content_unique ON homework_logs(date,content_id,COALESCE(profile_id,''));
+      DROP INDEX IF EXISTS idx_alarm_logs_dedupe_key_unique;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_logs_profile_dedupe_key_unique ON alarm_logs(COALESCE(profile_id,''),dedupe_key) WHERE dedupe_key IS NOT NULL;`);
+    if (!db!.prepare("SELECT 1 FROM diary_profile_meta WHERE key='legacy_days_migrated'").get()) {
+      db!.exec(`INSERT INTO diary_profile_days(date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total)
+        SELECT date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total FROM diaries;
+        INSERT INTO diary_profile_meta VALUES('legacy_days_migrated','1');`);
+    }
+    const columns=db!.prepare('PRAGMA table_info(chat_sync_committed_events)').all() as {name:string}[];
+    if (!columns.some(item => item.name==='profile_id')) db!.exec('ALTER TABLE chat_sync_committed_events ADD COLUMN profile_id TEXT');
+  })();
+}
+
+/** 날짜별 누적 행도 입력 당시의 프로필로 합산한다. 여러 세션/기기가 합쳐지면 해당 provenance만 null이다. */
+function accumulateDailyAmount(type:'elso' | 'calc',content:string,entry:PendingDailyAmount):void {
+  if (!db) throw new Error('DB가 초기화되지 않았습니다.');
+  ensureDiaryExists(entry.date,entry.profileId);
+  const existing=getStmt('SELECT id FROM activity_logs WHERE date=? AND type=? AND content=? AND profile_id IS ? ORDER BY id LIMIT 1')
+    .get(entry.date,type,content,entry.profileId) as {id:number} | undefined;
+  if (existing) {
+    getStmt(`UPDATE activity_logs SET amount=COALESCE(amount,0)+?,time=MAX(time,?),
+      record_device_id=CASE WHEN record_device_id IS ? THEN record_device_id ELSE NULL END,
+      record_session_id=CASE WHEN record_session_id IS ? THEN record_session_id ELSE NULL END WHERE id=?`)
+      .run(entry.totalAmount,entry.latestTime,entry.deviceId,entry.sessionId,existing.id);
+  } else {
+    getStmt(`INSERT INTO activity_logs(date,type,content,time,amount,source,profile_id,record_uuid,record_device_id,record_session_id)
+      VALUES(?,?,?,?,?,'automatic',?,?,?,?)`).run(entry.date,type,content,entry.latestTime,entry.totalAmount,
+        entry.profileId,randomUUID(),entry.deviceId,entry.sessionId);
+    if (type==='calc') addScore(entry.date,POINTS.CALC_RECORD,entry.profileId);
+  }
+}
 
 // 포인트 산정 규칙
 const POINTS = {
@@ -44,16 +124,16 @@ const POINTS = {
   CALC_RECORD: 10
 };
 
-/** 엘소 포인트 인메모리 버퍼 (날짜별 누적 및 3초 디바운스 배치 저장) */
+/** 엘소 포인트 인메모리 버퍼 (날짜·입력 당시 귀속별 누적 및 3초 디바운스 저장) */
 const ELSO_FLUSH_DEBOUNCE_MS = 3000;
 let _elsoDebounceTimer: NodeJS.Timeout | null = null;
-const _pendingElsoByDate = new Map<string, { latestTime: string; totalAmount: number }>();
+const _pendingElsoByDate = new Map<string,PendingDailyAmount>();
 
-/** 금화 주머니 환산 SEED 인메모리 버퍼 (날짜별 단일 행 및 3초 디바운스 저장) */
+/** 금화 주머니 환산 SEED 인메모리 버퍼 (날짜·프로필별 합산 및 3초 디바운스 저장) */
 const GOLD_POUCH_FLUSH_DEBOUNCE_MS = 3000;
 export const GOLD_POUCH_DAILY_CONTENT = '[자동] 금화 주머니 환산';
 let _goldPouchDebounceTimer: NodeJS.Timeout | null = null;
-const _pendingGoldPouchSeedByDate = new Map<string, { latestTime: string; totalAmount: number }>();
+const _pendingGoldPouchSeedByDate = new Map<string,PendingDailyAmount>();
 
 export function migrateAlarmLogsV4(database: Database.Database): void {
   const alarmColumns = database.prepare('PRAGMA table_info(alarm_logs)').all() as Array<{ name: string }>;
@@ -69,13 +149,15 @@ export function migrateAlarmLogsV4(database: Database.Database): void {
   if (!alarmColumns.some(column => column.name === 'dedupe_key')) {
     database.exec('ALTER TABLE alarm_logs ADD COLUMN dedupe_key TEXT');
   }
+  if (!alarmColumns.some(column => column.name==='profile_id')) database.exec('ALTER TABLE alarm_logs ADD COLUMN profile_id TEXT');
   database.exec(`
     UPDATE alarm_logs
     SET scheduled_at = COALESCE(scheduled_at, timestamp),
         recorded_at = COALESCE(recorded_at, timestamp),
         delivery_status = COALESCE(delivery_status, 'fired');
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_logs_dedupe_key_unique
-    ON alarm_logs (dedupe_key)
+    DROP INDEX IF EXISTS idx_alarm_logs_dedupe_key_unique;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_logs_profile_dedupe_key_unique
+    ON alarm_logs (COALESCE(profile_id,''),dedupe_key)
     WHERE dedupe_key IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_alarm_logs_recorded_at
     ON alarm_logs (recorded_at);
@@ -83,10 +165,18 @@ export function migrateAlarmLogsV4(database: Database.Database): void {
 }
 
 interface ElsoRecoveryJournal {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   operationId: string;
   createdAt: number;
-  entries: Array<{ date: string; latestTime: string; totalAmount: number }>;
+  entries: PendingDailyAmount[];
+}
+
+function recoveryOwner(entry:Partial<DiaryRecordContext>,version:1 | 2):DiaryRecordContext {
+  if (version===1) return {profileId:null,deviceId:null,sessionId:null};
+  for (const key of ['profileId','deviceId','sessionId'] as const) {
+    if (entry[key]!==null && (typeof entry[key]!=='string' || !entry[key] || entry[key]!.length>200)) throw new Error('복구 기록의 프로필 정보가 유효하지 않습니다.');
+  }
+  return {profileId:entry.profileId!,deviceId:entry.deviceId!,sessionId:entry.sessionId!};
 }
 
 export function getElsoRecoveryJournalPath(): string {
@@ -96,7 +186,7 @@ export function getElsoRecoveryJournalPath(): string {
 function validateElsoRecoveryJournal(value: unknown): ElsoRecoveryJournal {
   if (!value || typeof value !== 'object') throw new Error('복구 기록이 객체가 아닙니다.');
   const journal = value as Partial<ElsoRecoveryJournal>;
-  if (journal.schemaVersion !== 1 || typeof journal.operationId !== 'string' || journal.operationId.length < 8) {
+  if ((journal.schemaVersion !== 1 && journal.schemaVersion !== 2) || typeof journal.operationId !== 'string' || journal.operationId.length < 8) {
     throw new Error('복구 기록 메타데이터가 유효하지 않습니다.');
   }
   if (!Number.isFinite(journal.createdAt) || !Array.isArray(journal.entries) || journal.entries.length === 0) {
@@ -110,10 +200,10 @@ function validateElsoRecoveryJournal(value: unknown): ElsoRecoveryJournal {
     ) {
       throw new Error('복구 기록에 잘못된 엘소 항목이 있습니다.');
     }
-    return { date: entry.date, latestTime: entry.latestTime, totalAmount: entry.totalAmount };
+    return { date: entry.date, latestTime: entry.latestTime, totalAmount: entry.totalAmount,...recoveryOwner(entry,journal.schemaVersion!) };
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     operationId: journal.operationId,
     createdAt: journal.createdAt as number,
     entries
@@ -121,10 +211,14 @@ function validateElsoRecoveryJournal(value: unknown): ElsoRecoveryJournal {
 }
 
 function writeElsoRecoveryJournal(journal: ElsoRecoveryJournal): void {
-  const journalPath = getElsoRecoveryJournalPath();
-  const tempPath = `${journalPath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(journal), 'utf8');
-  fs.renameSync(tempPath, journalPath);
+  writeRecoveryJournal(getElsoRecoveryJournalPath(),journal);
+}
+
+function writeRecoveryJournal(file:string,journal:ElsoRecoveryJournal | GoldPouchRecoveryJournal):void {
+  const temp=`${file}.tmp`;
+  const fd=fs.openSync(temp,'w',0o600);
+  try {fs.writeFileSync(fd,JSON.stringify(journal),'utf8');fs.fsyncSync(fd);} finally {fs.closeSync(fd);}
+  fs.renameSync(temp,file);
 }
 
 function applyElsoRecoveryOperation(journal: ElsoRecoveryJournal): boolean {
@@ -137,19 +231,8 @@ function applyElsoRecoveryOperation(journal: ElsoRecoveryJournal): boolean {
     `).run(journal.operationId, Date.now());
     if (operationResult.changes === 0) return;
 
-    const ensureDiary = db!.prepare('INSERT OR IGNORE INTO diaries (date) VALUES (?)');
-    const selectElso = db!.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso'");
-    const updateElso = db!.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
-    const insertElso = db!.prepare("INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, 'elso', '엘소 포인트 획득', ?, ?)");
-
     for (const entry of journal.entries) {
-      ensureDiary.run(entry.date);
-      const existing = selectElso.get(entry.date) as { id: number; amount: number } | undefined;
-      if (existing) {
-        updateElso.run(entry.latestTime, existing.amount + entry.totalAmount, existing.id);
-      } else {
-        insertElso.run(entry.date, entry.latestTime, entry.totalAmount);
-      }
+      accumulateDailyAmount('elso','엘소 포인트 획득',entry);
     }
     applied = true;
   })();
@@ -227,6 +310,7 @@ export function hasPendingElso(): boolean {
 
 /** 인메모리 버퍼에 대기 중인 엘소 포인트를 DB에 즉시 1회 트랜잭션으로 커밋합니다. */
 export function flushPendingElso(): boolean {
+  if (db?.inTransaction && hasPendingElso()) throw new Error('대기 중인 엘소 기록을 프로필 전환 전에 저장해 주세요.');
   if (_elsoDebounceTimer) {
     clearTimeout(_elsoDebounceTimer);
     _elsoDebounceTimer = null;
@@ -248,12 +332,12 @@ export function flushPendingElso(): boolean {
   const entries = Array.from(_pendingElsoByDate.entries());
   _pendingElsoByDate.clear();
   const journal: ElsoRecoveryJournal = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     operationId: randomUUID(),
     createdAt: Date.now(),
     entries: entries
       .filter(([, info]) => info.totalAmount > 0)
-      .map(([date, info]) => ({ date, latestTime: info.latestTime, totalAmount: info.totalAmount }))
+      .map(([,info]) => ({...info}))
   };
 
   if (journal.entries.length === 0) return true;
@@ -275,7 +359,7 @@ export function flushPendingElso(): boolean {
     if (!journalWritten) {
       // journal 자체를 만들지 못한 경우에만 메모리 버퍼로 복원한다.
       for (const [date, info] of entries) {
-        const current = _pendingElsoByDate.get(date) || { latestTime: info.latestTime, totalAmount: 0 };
+        const current = _pendingElsoByDate.get(date) || {...info,totalAmount:0};
         current.totalAmount += info.totalAmount;
         current.latestTime = info.latestTime;
         _pendingElsoByDate.set(date, current);
@@ -319,6 +403,7 @@ let restoreSuspended = false;
 export function initDb(): void {
   if (restoreSuspended) return;
   if (db) return; // 이미 초기화된 경우 스킵
+  initializingDb=true;
   try {
     let userDataPath = '';
     try {
@@ -326,13 +411,13 @@ export function initDb(): void {
     } catch (e) {
       userDataPath = '.';
     }
-    const dbPath = path.join(userDataPath, 'diary.db');
-    db = new Database(dbPath);
+    if (applicationData) {applicationData.reopen();db=applicationData.database;}
+    else db = new Database(path.join(userDataPath, 'diary.db'));
 
     // 외래 키 제약 조건 활성화 및 고성능 저널 모드 설정
     db.pragma('foreign_keys = ON');
     db.pragma('journal_mode = WAL');
-    db.pragma('synchronous = NORMAL');
+    db.pragma(applicationData ? 'synchronous = FULL' : 'synchronous = NORMAL');
     db.pragma('wal_autocheckpoint = 1000');
 
     // 테이블 생성
@@ -475,6 +560,8 @@ export function initDb(): void {
       CREATE INDEX IF NOT EXISTS idx_timer_records_date ON timer_records (date);
     `);
 
+    ensureDiaryAttribution(db,currentOwner);
+
     // PRAGMA user_version 기반 1회성 마이그레이션 관리 (매 부팅 시 풀스캔 제거)
     const userVersion = (db.pragma('user_version', { simple: true }) as number) || 0;
 
@@ -547,7 +634,7 @@ export function initDb(): void {
             WHERE latest.id = (
               SELECT candidate.id
               FROM homework_logs AS candidate
-              WHERE candidate.date = latest.date AND candidate.content_id = latest.content_id
+              WHERE candidate.date = latest.date AND candidate.content_id = latest.content_id AND candidate.profile_id IS latest.profile_id
               ORDER BY candidate.completed_at DESC, candidate.id DESC
               LIMIT 1
             )
@@ -587,8 +674,8 @@ export function initDb(): void {
               LIMIT 1
             )
           );
-          CREATE UNIQUE INDEX IF NOT EXISTS idx_homework_logs_date_content_unique
-          ON homework_logs (date, content_id);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_homework_logs_profile_date_content_unique
+          ON homework_logs (date, content_id,COALESCE(profile_id,''));
         `);
 
         const insertGround = db!.prepare(`
@@ -682,6 +769,7 @@ export function initDb(): void {
       migrateV6();
       log(`[DiaryDB] Version 6 migration completed: repaired ${repairedManualRevenueAmounts} manual revenue rows.`);
     }
+    initializeProfileDays();
     if (!replayElsoRecoveryJournal()) {
       throw new Error('엘소 복구 기록을 재생하지 못했습니다.');
     }
@@ -719,6 +807,7 @@ export function initDb(): void {
       })();
     }
 
+    if (userVersion<9) db.pragma('user_version=9');
     log('[DiaryDB] Database initialized successfully.');
   } catch (error) {
     log(`[DiaryDB] Failed to initialize database: ${error}`);
@@ -728,7 +817,7 @@ export function initDb(): void {
       try { db.close(); } catch {}
       db = null;
     }
-  }
+  } finally {initializingDb=false;}
 }
 
 /** 과거에 원문 전체나 수량까지 content에 저장된 득템 기록을 표준 형식으로 정리합니다. */
@@ -775,40 +864,35 @@ function consolidateMagicStoneLogs(throwOnError = false): void {
   if (!db) return;
   try {
     const rows = db.prepare(`
-      SELECT id, date, time, content, amount 
+      SELECT id,date,time,content,amount,profile_id,record_device_id,record_session_id
       FROM activity_logs 
       WHERE type = 'loot' AND content LIKE '%마정석%'
       ORDER BY date ASC, time ASC, id ASC
-    `).all() as Array<{ id: number; date: string; time: string; content: string; amount: number }>;
+    `).all() as Array<{id:number;date:string;time:string;content:string;amount:number;profile_id:string | null;record_device_id:string | null;record_session_id:string | null}>;
 
     if (rows.length === 0) return;
 
-    // 일자별/등급별로 합산
-    const summary: Record<string, Record<string, { latestTime: string; totalCount: number }>> = {};
+    // 기존 버전의 정리도 프로필 경계를 유지한다. 보존 행의 UUID/ID를 바꾸지 않는다.
+    const summary=new Map<string,{id:number;content:string;latestTime:string;totalCount:number;ids:number[];deviceId:string | null;sessionId:string | null}>();
     for (const r of rows) {
       const grade = r.content.includes('최상급') ? '최상급' : (r.content.includes('상급') ? '상급' : (r.content.includes('중급') ? '중급' : '하급'));
       const parsedCount = r.amount > 0 ? r.amount : (parseInt((r.content.match(/\[?(\d+)\]?개/) || [])[1], 10) || 1);
 
-      if (!summary[r.date]) summary[r.date] = {};
-      if (!summary[r.date][grade]) {
-        summary[r.date][grade] = { latestTime: r.time, totalCount: 0 };
-      }
-      summary[r.date][grade].totalCount += parsedCount;
-      summary[r.date][grade].latestTime = r.time;
+      const key=JSON.stringify([r.profile_id,r.date,grade]);
+      const group=summary.get(key) || {id:r.id,content:`[득템] [${grade} 마정석]`,latestTime:r.time,totalCount:0,ids:[],deviceId:r.record_device_id,sessionId:r.record_session_id};
+      group.totalCount+=parsedCount;group.ids.push(r.id);group.latestTime=r.time;
+      if (group.deviceId!==r.record_device_id) group.deviceId=null;
+      if (group.sessionId!==r.record_session_id) group.sessionId=null;
+      summary.set(key,group);
     }
 
     const deleteStmt = db.prepare('DELETE FROM activity_logs WHERE id = ?');
-    const insertStmt = db.prepare('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
+    const updateStmt=db.prepare('UPDATE activity_logs SET content=?,time=?,amount=?,record_device_id=?,record_session_id=? WHERE id=?');
 
     db.transaction(() => {
-      for (const r of rows) {
-        deleteStmt.run(r.id);
-      }
-      for (const [date, grades] of Object.entries(summary)) {
-        for (const [grade, info] of Object.entries(grades)) {
-          const content = `[득템] [${grade} 마정석]`;
-          insertStmt.run(date, 'loot', content, info.latestTime, info.totalCount);
-        }
+      for (const info of summary.values()) {
+        updateStmt.run(info.content,info.latestTime,info.totalCount,info.deviceId,info.sessionId,info.id);
+        for (const id of info.ids) if (id!==info.id) deleteStmt.run(id);
       }
     })();
 
@@ -820,7 +904,7 @@ function consolidateMagicStoneLogs(throwOnError = false): void {
 }
 
 /**
- * 마정석 일자별 누적 기록 (하루에 등급별 1개의 레코드로 수량 누적 관리)
+ * 마정석 일자별 누적 기록 (프로필마다 하루에 등급별 1개 행)
  */
 export function addMagicStoneDaily(date: string, time: string, grade: string, count: number): boolean {
   if (!db) initDb();
@@ -833,14 +917,17 @@ export function addMagicStoneDaily(date: string, time: string, grade: string, co
       ensureDiaryExists(date);
       const existing = db!.prepare(`
         SELECT id, amount FROM activity_logs
-        WHERE date = ? AND type = 'loot' AND (content = ? OR content LIKE ?)
+        WHERE date = ? AND type = 'loot' AND (content = ? OR content LIKE ?) AND profile_id IS ?
         ORDER BY id ASC LIMIT 1
-      `).get(date, standardContent, `%${grade}%마정석%`) as { id: number; amount: number } | undefined;
+      `).get(date, standardContent, `%${grade}%마정석%`,currentOwner().profileId) as { id: number; amount: number } | undefined;
 
       if (existing) {
         const newAmount = (existing.amount || 0) + count;
-        db!.prepare(`UPDATE activity_logs SET content = ?, time = ?, amount = ? WHERE id = ?`)
-          .run(standardContent, time, newAmount, existing.id);
+        const owner=currentOwner();
+        db!.prepare(`UPDATE activity_logs SET content=?,time=MAX(time,?),amount=?,
+          record_device_id=CASE WHEN record_device_id IS ? THEN record_device_id ELSE NULL END,
+          record_session_id=CASE WHEN record_session_id IS ? THEN record_session_id ELSE NULL END WHERE id=?`)
+          .run(standardContent,time,newAmount,owner.deviceId,owner.sessionId,existing.id);
       } else {
         db!.prepare(`INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, 'loot', ?, ?, ?)`)
           .run(date, standardContent, time, count);
@@ -849,6 +936,7 @@ export function addMagicStoneDaily(date: string, time: string, grade: string, co
     return true;
   } catch (e) {
     log(`[DiaryDB] addMagicStoneDaily failed: ${e}`);
+    propagateTransactionFailure(e);
     return false;
   }
 }
@@ -922,20 +1010,34 @@ function isVisibleLootLog(log: Pick<ActivityLog, 'type' | 'content' | 'source'>,
   return matchesRegisteredLoot(lootKeywords, log.content);
 }
 
-function filterVisibleLootLogs<T extends Pick<ActivityLog, 'type' | 'content' | 'source'>>(
+function filterVisibleLootLogs<T extends Pick<ActivityLog,'type' | 'content' | 'source' | 'profile_id'>>(
   logs: T[],
   lootKeywords?: readonly string[],
 ): T[] {
-  return lootKeywords === undefined ? logs : logs.filter(log => isVisibleLootLog(log, lootKeywords));
+  if (lootKeywords===undefined) return logs;
+  const keywordsByProfile=new Map<string,readonly string[] | undefined>();
+  return logs.filter(log => {
+    if (!applicationData || !log.profile_id || log.type!=='loot' || log.source==='manual') return isVisibleLootLog(log,lootKeywords);
+    if (!keywordsByProfile.has(log.profile_id)) {
+      const saved=applicationData.setting(log.profile_id,'lootKeywords');
+      // 전체 조회에서 다른 프로필의 득템을 현재 프로필 키워드로 숨기지 않는다.
+      // 삭제된 프로필처럼 설정이 없는 경우에는 보존된 원본을 그대로 보여 준다.
+      keywordsByProfile.set(log.profile_id,Array.isArray(saved) ? saved.filter((item):item is string => typeof item==='string') : undefined);
+    }
+    return isVisibleLootLog(log,keywordsByProfile.get(log.profile_id));
+  });
 }
 
 /** 데이터베이스 연결을 명시적으로 닫습니다 (백업 복구용). */
 export function closeDb(): boolean {
+  if (db?.inTransaction) return false;
   const elsoFlushed = flushPendingElso();
   const goldPouchFlushed = flushPendingGoldPouchSeed();
+  if (!elsoFlushed || !goldPouchFlushed) return false;
   statementCache.clear();
   if (db) {
-    db.close();
+    if (applicationData) applicationData.close();
+    else db.close();
     db = null;
     log('[DiaryDB] Database connection closed.');
   }
@@ -943,90 +1045,67 @@ export function closeDb(): boolean {
 }
 
 /** 특정 날짜의 일지가 없으면 생성합니다. */
-function ensureDiaryExists(date: string): void {
+function ensureDiaryExists(date: string,profileId:string | null=currentOwner().profileId): void {
   if (!db) initDb();
   if (!db) return;
   const stmt = db.prepare('INSERT OR IGNORE INTO diaries (date) VALUES (?)');
   stmt.run(date);
+  getStmt('INSERT OR IGNORE INTO diary_profile_days(date,profile_id) VALUES(?,?)').run(date,profileId);
+}
+
+function syncDiaryAggregate(date:string):void {
+  getStmt(`UPDATE diaries SET
+    total_score=(SELECT COALESCE(SUM(total_score),0) FROM diary_profile_days WHERE date=?),
+    daily_done=(SELECT COALESCE(SUM(daily_done),0) FROM diary_profile_days WHERE date=?),
+    daily_total=(SELECT COALESCE(SUM(daily_total),0) FROM diary_profile_days WHERE date=?),
+    weekly_done=(SELECT COALESCE(SUM(weekly_done),0) FROM diary_profile_days WHERE date=?),
+    weekly_total=(SELECT COALESCE(SUM(weekly_total),0) FROM diary_profile_days WHERE date=?) WHERE date=?`)
+    .run(date,date,date,date,date,date);
 }
 
 /** 날짜별 일지 데이터를 모두 가져옵니다. (메모리 대기 중인 엘소 포인트도 디스크 I/O 없이 실시간 병합) */
-export function getDiaryByDate(date: string, lootKeywords?: readonly string[]): DiaryData {
+export function getDiaryByDate(date: string, lootKeywords?: readonly string[],filter:DiaryProfileFilter=ALL_DIARY_PROFILES): DiaryData {
   if (!db) initDb();
   if (!db) return { diary: null, homeworkLogs: [], activityLogs: [] };
 
-  ensureDiaryExists(date);
-  const diary = db.prepare('SELECT * FROM diaries WHERE date = ?').get(date) as DiaryEntry;
-  const homeworkLogs = db.prepare('SELECT * FROM homework_logs WHERE date = ? ORDER BY completed_at ASC').all(date) as HomeworkLog[];
-  let activityLogs = db.prepare('SELECT * FROM activity_logs WHERE date = ? ORDER BY time ASC').all(date) as ActivityLog[];
+  const scope=diaryProfilePredicate(filter);
+  const diary=(filter.kind==='all' ? getStmt('SELECT * FROM diaries WHERE date=?').get(date)
+    :getStmt(`SELECT date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total FROM diary_profile_days WHERE date=?${scope.sql}`).get(date,...scope.params)) as DiaryEntry | undefined;
+  const homeworkLogs = getStmt(`SELECT * FROM homework_logs WHERE date=?${scope.sql} ORDER BY completed_at ASC`).all(date,...scope.params) as HomeworkLog[];
+  let activityLogs = getStmt(`SELECT * FROM activity_logs WHERE date=?${scope.sql} ORDER BY time ASC`).all(date,...scope.params) as ActivityLog[];
 
   // 메모리에 대기 중인 엘소 포인트가 있다면 디스크 I/O 없이 실시간 합산하여 반환 (오늘의 요약 HUD 초고속 실시간 반영)
-  const pending = _pendingElsoByDate.get(date);
-  if (pending && pending.totalAmount > 0) {
-    let found = false;
-    activityLogs = activityLogs.map(log => {
-      if (log.type === 'elso') {
-        found = true;
-        return {
-          ...log,
-          time: pending.latestTime,
-          amount: (log.amount || 0) + pending.totalAmount
-        };
-      }
-      return log;
-    });
-    if (!found) {
-      activityLogs.push({
-        id: -1,
-        date,
-        type: 'elso',
-        content: '엘소 포인트 획득',
-        time: pending.latestTime,
-        amount: pending.totalAmount
-      });
+  const mergePending=(pending:PendingDailyAmount,type:'calc' | 'elso',content:string) => {
+    if (pending.date!==date || pending.totalAmount<=0
+      || filter.kind==='unassigned' && pending.profileId!==null
+      || filter.kind==='profile' && pending.profileId!==filter.profileId) return;
+    const existing=activityLogs.find(log => log.type===type && log.content===content && sameOwner(log,pending));
+    if (existing) {
+      existing.amount=(existing.amount || 0)+pending.totalAmount;existing.time=[existing.time,pending.latestTime].sort().at(-1)!;
+      if (existing.record_device_id!==pending.deviceId) existing.record_device_id=null;
+      if (existing.record_session_id!==pending.sessionId) existing.record_session_id=null;
     }
-  }
-
-  const pendingGoldPouchSeed = _pendingGoldPouchSeedByDate.get(date);
-  if (pendingGoldPouchSeed && pendingGoldPouchSeed.totalAmount > 0) {
-    let found = false;
-    activityLogs = activityLogs.map(log => {
-      if (log.type === 'calc' && log.content === GOLD_POUCH_DAILY_CONTENT) {
-        found = true;
-        return {
-          ...log,
-          time: pendingGoldPouchSeed.latestTime,
-          amount: (log.amount || 0) + pendingGoldPouchSeed.totalAmount,
-        };
-      }
-      return log;
-    });
-    if (!found) {
-      activityLogs.push({
-        id: -2,
-        date,
-        type: 'calc',
-        content: GOLD_POUCH_DAILY_CONTENT,
-        time: pendingGoldPouchSeed.latestTime,
-        amount: pendingGoldPouchSeed.totalAmount,
-        source: 'automatic',
-      });
-    }
-  }
-
-  return { diary, homeworkLogs, activityLogs: filterVisibleLootLogs(activityLogs, lootKeywords) };
+    else activityLogs.push({id:-1-activityLogs.length,date,type,content,time:pending.latestTime,amount:pending.totalAmount,
+      source:'automatic',profile_id:pending.profileId,record_device_id:pending.deviceId,record_session_id:pending.sessionId});
+  };
+  for (const pending of _pendingElsoByDate.values()) mergePending(pending,'elso','엘소 포인트 획득');
+  for (const pending of _pendingGoldPouchSeedByDate.values()) mergePending(pending,'calc',GOLD_POUCH_DAILY_CONTENT);
+  activityLogs.sort((a,b) => a.time.localeCompare(b.time) || (a.id || 0)-(b.id || 0));
+  return {diary:diary || {date,total_score:0,monster_id:'',daily_done:0,daily_total:0,weekly_done:0,weekly_total:0},
+    homeworkLogs,activityLogs:filterVisibleLootLogs(activityLogs,lootKeywords)};
 }
 
 /** 기간 내보내기는 일지의 숙제·표시 대상 득템·확정 SEED만 읽는다. 채팅/개인 메모는 제외한다.
  * 금화 대기 합계도 먼저 확정하고 기존 amount를 사용하므로 주머니를 다시 환산하지 않는다.
  * 미리보기와 파일 저장은 같은 스냅샷을 사용하며 원본 삭제/빈 날짜 생성은 하지 않는다.
  */
-export function getDiaryExportSnapshot(start: string, end: string, lootKeywords: readonly string[]): DiaryExportSnapshot {
+export function getDiaryExportSnapshot(start: string, end: string, lootKeywords: readonly string[],filter:DiaryProfileFilter=ALL_DIARY_PROFILES): DiaryExportSnapshot {
   if (!db) initDb();
   if (!db || !flushPendingGoldPouchSeed()) throw new Error('모험 일지 기록을 읽지 못했습니다.');
   return db.transaction(() => {
-    const activities = db!.prepare("SELECT date, time, type, content, amount, source FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('homework', 'loot', 'calc') ORDER BY date, time, id LIMIT 100001").all(start, end) as ActivityLog[];
-    const homework = db!.prepare('SELECT date, content_name, completed_at FROM homework_logs WHERE date >= ? AND date <= ? ORDER BY date, completed_at, id LIMIT 100001').all(start, end) as HomeworkLog[];
+    const scope=diaryProfilePredicate(filter);
+    const activities = db!.prepare(`SELECT date,time,type,content,amount,source,profile_id FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('homework', 'loot', 'calc')${scope.sql} ORDER BY date, time, id LIMIT 100001`).all(start,end,...scope.params) as ActivityLog[];
+    const homework = db!.prepare(`SELECT date, content_name, completed_at FROM homework_logs WHERE date >= ? AND date <= ?${scope.sql} ORDER BY date, completed_at, id LIMIT 100001`).all(start,end,...scope.params) as HomeworkLog[];
     if (activities.length + homework.length > 100000) throw new Error('기록이 많습니다. 기간을 나누어 저장해 주세요.');
     const visible = filterVisibleLootLogs(activities, lootKeywords);
     const rows: DiaryExportRow[] = visible.map(row => ({ date: row.date, time: row.time,
@@ -1073,9 +1152,8 @@ export function suspendForRestore(): () => void {
  * 현재 체크리스트 기준을 따르며, 완료 이력이 있는 주에만 `currentWeeklyTotal`을 보완값으로 사용합니다.
  * 기록이 전혀 없는 과거 주까지 `0/전체`로 단정해서는 안 됩니다.
  */
-export function getDiariesByMonth(yearMonth: string, currentWeeklyTotal: number = 0): DiaryEntry[] {
-  flushPendingElso();
-  flushPendingGoldPouchSeed();
+export function getDiariesByMonth(yearMonth: string,currentWeeklyTotal:number=0,filter:DiaryProfileFilter=ALL_DIARY_PROFILES): DiaryEntry[] {
+  requireFlushedDiaryAmounts();
   if (!db) initDb();
   if (!db) return [];
 
@@ -1083,27 +1161,29 @@ export function getDiariesByMonth(yearMonth: string, currentWeeklyTotal: number 
   const normalizedYearMonth = `${y}-${String(m).padStart(2, '0')}`;
 
   // 현재 월의 시작일과 다음 달의 시작일 기준 범위를 넓게 가져옴 (주간 합계 계산용)
+  const scope=diaryProfilePredicate(filter);
   const stmt = getStmt(`
-    SELECT * FROM diaries 
+    SELECT date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total FROM ${filter.kind==='all' ? 'diaries' : 'diary_profile_days'}
     WHERE date >= date(?, '-7 days') 
-      AND date <= date(?, '+1 month', '+7 days') 
+      AND date <= date(?, '+1 month', '+7 days') ${scope.sql}
     ORDER BY date ASC
   `);
   const rangeAnchor = `${normalizedYearMonth}-01`;
-  const diaries = stmt.all(rangeAnchor, rangeAnchor) as DiaryEntry[];
+  const diaries = stmt.all(rangeAnchor,rangeAnchor,...scope.params) as DiaryEntry[];
   const weeklyLogs = getStmt(`
-    SELECT date, content_id
+    SELECT date, content_id,profile_id
     FROM homework_logs
     WHERE type = 'weekly'
       AND date >= date(?, '-7 days')
       AND date <= date(?, '+1 month', '+7 days')
-  `).all(rangeAnchor, rangeAnchor) as Array<{ date: string; content_id: string }>;
+      ${scope.sql}
+  `).all(rangeAnchor,rangeAnchor,...scope.params) as Array<{date:string;content_id:string;profile_id:string | null}>;
 
   const completedIdsByWeek = new Map<string, Set<string>>();
   weeklyLogs.forEach(row => {
     const weekKey = getCalendarWeekKey(row.date);
     const completedIds = completedIdsByWeek.get(weekKey) ?? new Set<string>();
-    completedIds.add(row.content_id);
+    completedIds.add(JSON.stringify([row.profile_id,row.content_id]));
     completedIdsByWeek.set(weekKey, completedIds);
   });
 
@@ -1126,23 +1206,24 @@ export function getDiariesByMonth(yearMonth: string, currentWeeklyTotal: number 
 }
 
 /** 점수를 업데이트하고 몬스터 단계를 결정합니다. (자동 호출됨) */
-function addScore(date: string, points: number): void {
+function addScore(date: string, points: number,profileId:string | null=currentOwner().profileId): void {
   if (!db) return;
-  const stmt = getStmt('UPDATE diaries SET total_score = COALESCE(total_score, 0) + ? WHERE date = ?');
-  stmt.run(points, date);
+  ensureDiaryExists(date,profileId);
+  getStmt('UPDATE diary_profile_days SET total_score=total_score+? WHERE date=? AND profile_id IS ?').run(points,date,profileId);
+  syncDiaryAggregate(date);
 }
 
-function subtractScore(date: string, points: number): void {
+function subtractScore(date: string, points: number,profileId:string | null=currentOwner().profileId): void {
   if (!db) return;
-  const stmt = getStmt('UPDATE diaries SET total_score = MAX(0, COALESCE(total_score, 0) - ?) WHERE date = ?');
-  stmt.run(points, date);
+  getStmt('UPDATE diary_profile_days SET total_score=MAX(0,total_score-?) WHERE date=? AND profile_id IS ?').run(points,date,profileId);
+  syncDiaryAggregate(date);
 }
 
 /** 특정 활동이 이미 기록되어 있는지 확인합니다. */
 export function isActivityLogged(date: string, content: string): boolean {
   if (!db) initDb();
   if (!db) return false;
-  const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND content = ?').get(date, content);
+  const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND content = ? AND profile_id IS ?').get(date, content,currentOwner().profileId);
   return !!existing;
 }
 
@@ -1150,7 +1231,7 @@ export function isActivityLogged(date: string, content: string): boolean {
 export function hasActivityLog(date: string, time: string, content: string): boolean {
   if (!db) initDb();
   if (!db) return false;
-  const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
+  const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ? AND profile_id IS ?').get(date,time,content,currentOwner().profileId);
   return !!existing;
 }
 
@@ -1171,7 +1252,7 @@ export function addActivityLogIfAbsent(
     const transaction = db.transaction(() => {
       ensureDiaryExists(date);
 
-      const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?').get(date, time, content);
+      const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ? AND profile_id IS ?').get(date,time,content,currentOwner().profileId);
       if (existing) return;
 
       const stmt = getStmt("INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, ?, ?, ?, ?, 'automatic')");
@@ -1187,6 +1268,7 @@ export function addActivityLogIfAbsent(
     return inserted;
   } catch (err) {
     log(`[DiaryDB] addActivityLogIfAbsent failed: ${err}`);
+    propagateTransactionFailure(err);
     return false;
   }
 }
@@ -1212,7 +1294,7 @@ function addActivityLogInternal(
 
       // 보스 처치 기록인 경우 중복 체크 (동일 날짜, 동일 내용)
       if (type === 'boss') {
-        const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND content = ?').get(date, content);
+        const existing = getStmt('SELECT id FROM activity_logs WHERE date = ? AND content = ? AND profile_id IS ?').get(date,content,currentOwner().profileId);
         if (existing) {
           log(`[DIARY_DB] 이미 존재하는 보스 기록입니다. 스킵: ${content}`);
           return;
@@ -1232,6 +1314,7 @@ function addActivityLogInternal(
     return insertedId;
   } catch (err) {
     log(`[DiaryDB] addActivityLog failed: ${err}`);
+    propagateTransactionFailure(err);
     return null;
   }
 }
@@ -1253,13 +1336,13 @@ export function removeManualActivityLogById(id: number): boolean {
   try {
     let removed = false;
     const transaction = db.transaction(() => {
-      const existing = getStmt("SELECT date, type FROM activity_logs WHERE id = ? AND source = 'manual'")
-        .get(id) as { date: string; type: string } | undefined;
+      const existing = getStmt("SELECT date,type,profile_id FROM activity_logs WHERE id = ? AND source = 'manual'")
+        .get(id) as { date:string;type:string;profile_id:string | null } | undefined;
       if (!existing) return;
       const result = getStmt("DELETE FROM activity_logs WHERE id = ? AND source = 'manual'").run(id);
       if (result.changes !== 1) return;
-      if (existing.type === 'boss') subtractScore(existing.date, POINTS.BOSS_KILL);
-      if (existing.type === 'calc') subtractScore(existing.date, POINTS.CALC_RECORD);
+      if (existing.type === 'boss') subtractScore(existing.date, POINTS.BOSS_KILL,existing.profile_id);
+      if (existing.type === 'calc') subtractScore(existing.date, POINTS.CALC_RECORD,existing.profile_id);
       removed = true;
     });
     transaction();
@@ -1267,6 +1350,7 @@ export function removeManualActivityLogById(id: number): boolean {
     return removed;
   } catch (err) {
     log(`[DiaryDB] removeManualActivityLogById failed: ${err}`);
+    propagateTransactionFailure(err);
     return false;
   }
 }
@@ -1279,13 +1363,13 @@ export function removeActivityLog(date: string, type: string, content: string): 
   try {
     let changed = false;
     const transaction = db.transaction(() => {
-      const stmt = getStmt('DELETE FROM activity_logs WHERE date = ? AND type = ? AND content = ?');
-      const info = stmt.run(date, type, content);
+      const stmt = getStmt('DELETE FROM activity_logs WHERE date = ? AND type = ? AND content = ? AND profile_id IS ?');
+      const info = stmt.run(date,type,content,currentOwner().profileId);
 
       // 삭제된 행이 있을 때만 포인트 차감
       if (info.changes > 0) {
-        if (type === 'boss') subtractScore(date, POINTS.BOSS_KILL);
-        if (type === 'calc') subtractScore(date, POINTS.CALC_RECORD);
+        if (type === 'boss') subtractScore(date,POINTS.BOSS_KILL*info.changes);
+        if (type === 'calc') subtractScore(date,POINTS.CALC_RECORD*info.changes);
         changed = true;
       }
     });
@@ -1293,6 +1377,7 @@ export function removeActivityLog(date: string, type: string, content: string): 
     if (changed) notifyUpdate();
   } catch (err) {
     log(`[DiaryDB] removeActivityLog failed: ${err}`);
+    propagateTransactionFailure(err);
   }
 }
 
@@ -1307,7 +1392,7 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
       ensureDiaryExists(date);
 
       // 이미 해당 숙제가 오늘/이번주 기록되어 있는지 확인
-      const existing = getStmt('SELECT id FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { id: number } | undefined;
+      const existing = getStmt('SELECT id FROM homework_logs WHERE date = ? AND content_id = ? AND profile_id IS ?').get(date,contentId,currentOwner().profileId) as {id:number} | undefined;
       if (existing) {
         // 사용자가 직접 조작하거나 실시간 감지한 체크리스트 기록이 과거 동기화 기록보다 우선한다.
         getStmt(`
@@ -1319,8 +1404,8 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
         return;
       }
 
-      const stmt = getStmt("INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at, source) VALUES (?, ?, ?, ?, ?, ?, 'checklist')");
-      stmt.run(date, contentId, contentName, category, type, completedAt);
+      const stmt = getStmt("INSERT INTO homework_logs (date, content_id, content_name, category, type, completed_at, source,profile_id) VALUES (?, ?, ?, ?, ?, ?, 'checklist',?)");
+      stmt.run(date,contentId,contentName,category,type,completedAt,currentOwner().profileId);
 
       // 포인트 부여
       if (type === 'daily') addScore(date, POINTS.DAILY_HOMEWORK);
@@ -1332,6 +1417,7 @@ export function addHomeworkLog(date: string, contentId: string, contentName: str
     return true;
   } catch (err) {
     log(`[DiaryDB] addHomeworkLog failed: ${err}`);
+    propagateTransactionFailure(err);
     return false;
   }
 }
@@ -1344,11 +1430,11 @@ export function removeHomeworkLog(date: string, contentId: string): boolean {
   try {
     let removed = false;
     const transaction = db.transaction(() => {
-      const existing = getStmt('SELECT type FROM homework_logs WHERE date = ? AND content_id = ?').get(date, contentId) as { type: string } | undefined;
+      const existing = getStmt('SELECT type FROM homework_logs WHERE date = ? AND content_id = ? AND profile_id IS ?').get(date,contentId,currentOwner().profileId) as {type:string} | undefined;
       if (!existing) return;
 
-      const stmt = getStmt('DELETE FROM homework_logs WHERE date = ? AND content_id = ?');
-      stmt.run(date, contentId);
+      const stmt = getStmt('DELETE FROM homework_logs WHERE date = ? AND content_id = ? AND profile_id IS ?');
+      stmt.run(date,contentId,currentOwner().profileId);
 
       // 포인트 차감
       if (existing.type === 'daily') subtractScore(date, POINTS.DAILY_HOMEWORK);
@@ -1360,6 +1446,7 @@ export function removeHomeworkLog(date: string, contentId: string): boolean {
     return true;
   } catch (err) {
     log(`[DiaryDB] removeHomeworkLog failed: ${err}`);
+    propagateTransactionFailure(err);
     return false;
   }
 }
@@ -1373,15 +1460,17 @@ export function updateHomeworkStats(date: string, dailyDone: number, dailyTotal:
     db.transaction(() => {
       ensureDiaryExists(date);
       db!.prepare(`
-        UPDATE diaries
+        UPDATE diary_profile_days
         SET daily_done = ?, daily_total = ?, weekly_done = ?, weekly_total = ?
-        WHERE date = ?
-      `).run(dailyDone, dailyTotal, weeklyDone, weeklyTotal, date);
+        WHERE date = ? AND profile_id IS ?
+      `).run(dailyDone, dailyTotal, weeklyDone, weeklyTotal, date,currentOwner().profileId);
+      syncDiaryAggregate(date);
     })();
     notifyUpdate();
     return true;
   } catch (err) {
     log(`[DiaryDB] updateHomeworkStats failed: ${err}`);
+    propagateTransactionFailure(err);
     return false;
   }
 }
@@ -1395,11 +1484,13 @@ export function updateDiaryMonster(date: string, monsterId: string): boolean {
     db.transaction(() => {
       ensureDiaryExists(date);
       db!.prepare('UPDATE diaries SET monster_id = ? WHERE date = ?').run(monsterId, date);
+      db!.prepare('UPDATE diary_profile_days SET monster_id=? WHERE date=? AND profile_id IS ?').run(monsterId,date,currentOwner().profileId);
     })();
     notifyUpdate();
     return true;
   } catch (err) {
     log(`[DiaryDB] updateDiaryMonster failed: ${err}`);
+    propagateTransactionFailure(err);
     return false;
   }
 }
@@ -1427,7 +1518,7 @@ export interface SyncedHomeworkLogInput {
  * 과거 채팅 로그에서 확정된 숙제 완료 이력을 날짜별로 반영한다.
  *
  * - `replaceDates`는 채팅 로그 동기화가 안전하게 전체 분석을 마친 날짜만 받으며, 그 날짜의
- *   `chat-log-sync` 행만 삭제 후 재생성한다.
+ *   대상 프로필의 `chat-log-sync` 행만 삭제 후 재생성한다.
  * - 사용자가 직접 체크했거나 실시간 체크리스트가 만든 `checklist` 행은 같은 키여도 덮어쓰지 않는다.
  * - 삭제와 삽입, 일일 숙제 점수 보정은 하나의 트랜잭션이므로 중간 실패로 과거 이력이 비지 않는다.
  */
@@ -1457,17 +1548,17 @@ export function upsertSyncedHomeworkLogs(
         const removedDaily = db!.prepare(`
           SELECT date, COUNT(*) AS count
           FROM homework_logs
-          WHERE source = 'chat-log-sync' AND type = 'daily' AND date IN (${placeholders})
+          WHERE source = 'chat-log-sync' AND type = 'daily' AND date IN (${placeholders}) AND profile_id IS ?
           GROUP BY date
-        `).all(...normalizedReplaceDates) as Array<{ date: string; count: number }>;
+        `).all(...normalizedReplaceDates,currentOwner().profileId) as Array<{date:string;count:number}>;
         for (const row of removedDaily) subtractScore(row.date, row.count * POINTS.DAILY_HOMEWORK);
         changed += db!.prepare(`
           DELETE FROM homework_logs
-          WHERE source = 'chat-log-sync' AND date IN (${placeholders})
-        `).run(...normalizedReplaceDates).changes;
+          WHERE source = 'chat-log-sync' AND date IN (${placeholders}) AND profile_id IS ?
+        `).run(...normalizedReplaceDates,currentOwner().profileId).changes;
       }
 
-      const selectExisting = db!.prepare('SELECT id, source FROM homework_logs WHERE date = ? AND content_id = ?');
+      const selectExisting = db!.prepare('SELECT id, source FROM homework_logs WHERE date = ? AND content_id = ? AND profile_id IS ?');
       const updateSynced = db!.prepare(`
         UPDATE homework_logs
         SET content_name = ?, category = ?, type = ?, completed_at = ?
@@ -1475,13 +1566,13 @@ export function upsertSyncedHomeworkLogs(
       `);
       const insertSynced = db!.prepare(`
         INSERT INTO homework_logs
-          (date, content_id, content_name, category, type, completed_at, source)
-        VALUES (?, ?, ?, ?, ?, ?, 'chat-log-sync')
+          (date, content_id, content_name, category, type, completed_at, source,profile_id)
+        VALUES (?, ?, ?, ?, ?, ?, 'chat-log-sync',?)
       `);
 
       for (const entry of normalizedEntries) {
         ensureDiaryExists(entry.date);
-        const existing = selectExisting.get(entry.date, entry.contentId) as { id: number; source: string } | undefined;
+        const existing = selectExisting.get(entry.date,entry.contentId,currentOwner().profileId) as {id:number;source:string} | undefined;
         if (existing?.source === 'checklist') continue;
         if (existing) {
           changed += updateSynced.run(
@@ -1500,6 +1591,7 @@ export function upsertSyncedHomeworkLogs(
           entry.category,
           entry.type,
           entry.completedAt,
+          currentOwner().profileId,
         );
         if (entry.type === 'daily') addScore(entry.date, POINTS.DAILY_HOMEWORK);
         if (entry.type === 'weekly') addScore(entry.date, POINTS.WEEKLY_HOMEWORK);
@@ -1510,6 +1602,7 @@ export function upsertSyncedHomeworkLogs(
     return { success: true, changed };
   } catch (error) {
     log(`[DiaryDB] upsertSyncedHomeworkLogs failed: ${error}`);
+    propagateTransactionFailure(error);
     return { success: false, changed: 0, error: error instanceof Error ? error.message : String(error) };
   }
 }
@@ -1521,14 +1614,14 @@ export function upsertSyncedHomeworkLogs(
  * 경험의 정수는 일반 득템 목록인 `lootList`에서는 제외하고, 날짜별 활동을 보여 주는
  * `calendarLootList`에는 남깁니다. 두 목록을 다시 합치면 두 번째 탭에 정수가 재노출됩니다.
  */
-export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly string[]): MonthlySummaryData {
-  flushPendingElso();
-  flushPendingGoldPouchSeed();
+export function getMonthlySummary(yearMonth:string,lootKeywords?:readonly string[],filter:DiaryProfileFilter=ALL_DIARY_PROFILES): MonthlySummaryData {
+  requireFlushedDiaryAmounts();
   if (!db) initDb();
   if (!db) return { totalLoots: 0, totalSeed: 0, lootList: [], calendarLootList: [], seedList: [] };
 
   const { start, end } = getMonthDateRange(yearMonth);
-  const rawLogs = getStmt("SELECT date, type, content, amount, source FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('loot', 'calc') ORDER BY date DESC, time DESC").all(start, end) as ActivityLog[];
+  const scope=diaryProfilePredicate(filter);
+  const rawLogs = getStmt(`SELECT date,type,content,amount,source,profile_id FROM activity_logs WHERE date>=? AND date<=? AND type IN ('loot','calc')${scope.sql} ORDER BY date DESC,time DESC`).all(start,end,...scope.params) as ActivityLog[];
   const logs = filterVisibleLootLogs(rawLogs, lootKeywords);
 
   let totalLoots = 0;
@@ -1555,9 +1648,8 @@ export function getMonthlySummary(yearMonth: string, lootKeywords?: readonly str
 }
 
 /** 월간 통계 데이터를 추출합니다 (인포그래픽용). */
-export function getMonthlyStatistics(yearMonth: string, lootKeywords?: readonly string[]): any {
-  flushPendingElso();
-  flushPendingGoldPouchSeed();
+export function getMonthlyStatistics(yearMonth:string,lootKeywords?:readonly string[],filter:DiaryProfileFilter=ALL_DIARY_PROFILES): any {
+  requireFlushedDiaryAmounts();
   if (!db) initDb();
   if (!db) return null;
 
@@ -1566,7 +1658,8 @@ export function getMonthlyStatistics(yearMonth: string, lootKeywords?: readonly 
   const { start, end } = getMonthDateRange(yearMonth);
 
   // 1. 기본 로그 가져오기 (인덱스 Range Scan 활용)
-  const rawLogs = getStmt("SELECT date, time, type, content, amount, source FROM activity_logs WHERE date >= ? AND date <= ?").all(start, end) as ActivityLog[];
+  const scope=diaryProfilePredicate(filter);
+  const rawLogs = getStmt(`SELECT date,time,type,content,amount,source,profile_id FROM activity_logs WHERE date>=? AND date<=?${scope.sql}`).all(start,end,...scope.params) as ActivityLog[];
   const logs = filterVisibleLootLogs(rawLogs, lootKeywords);
 
   // 2. 출석일수 (활동 로그가 있는 고유 날짜 수)
@@ -1667,6 +1760,7 @@ export function getMonthlyStatistics(yearMonth: string, lootKeywords?: readonly 
 }
 
 export interface LootHistoryRow {
+  profile_id?:string | null;
   date: string;
   time: string;
   content: string;
@@ -1685,15 +1779,17 @@ export function getLootHistory(
   startDate: string,
   endDate: string,
   lootKeywords?: readonly string[],
+  filter:DiaryProfileFilter=ALL_DIARY_PROFILES,
 ): LootHistoryRow[] {
   if (!db) initDb();
   if (!db) return [];
+  const scope=diaryProfilePredicate(filter);
   const rows = getStmt(`
-    SELECT date, time, content, amount, source
+    SELECT date,time,content,amount,source,profile_id
     FROM activity_logs
-    WHERE date >= ? AND date <= ? AND type = 'loot'
+    WHERE date >= ? AND date <= ? AND type = 'loot' ${scope.sql}
     ORDER BY date DESC, time DESC
-  `).all(startDate, endDate) as LootHistoryRow[];
+  `).all(startDate,endDate,...scope.params) as LootHistoryRow[];
   const generalLootRows = rows
     .map(row => ({ ...row, type: 'loot' as const }))
     .filter(row => !isAlwaysTrackedLoot(row.content));
@@ -1706,20 +1802,22 @@ export function getLootHistory(
 /**
  * 특정 월의 일별 수익 데이터를 가져옵니다 (차트용).
  */
-export function getMonthlyRevenueData(yearMonth: string): { date: string, amount: number }[] {
+export function getMonthlyRevenueData(yearMonth:string,filter:DiaryProfileFilter=ALL_DIARY_PROFILES): {date:string;amount:number}[] {
+  if (!flushPendingGoldPouchSeed()) throw new Error('금화 주머니 기록을 먼저 저장해 주세요.');
   if (!db) initDb();
   if (!db) return [];
 
   const { start, end } = getMonthDateRange(yearMonth);
 
   // 1. DB에서 해당 월의 일별 합계 가져오기
+  const scope=diaryProfilePredicate(filter);
   const rows = getStmt(`
     SELECT date, SUM(amount) as daily_sum 
     FROM activity_logs 
-    WHERE date >= ? AND date <= ? AND type = 'calc'
+    WHERE date >= ? AND date <= ? AND type = 'calc' ${scope.sql}
     GROUP BY date
     ORDER BY date ASC
-  `).all(start, end) as { date: string, daily_sum: number }[];
+  `).all(start,end,...scope.params) as {date:string;daily_sum:number}[];
 
   const dailyMap = new Map(rows.map(r => [r.date, r.daily_sum]));
 
@@ -1839,17 +1937,17 @@ export interface BatchSyncData {
   loots: Array<{ eventId?: string; date: string; timeOnly: string; diaryContent: string; count: number }>;
   essences: Array<{ eventId?: string; date: string; timeOnly: string; diaryContent: string; count: number }>;
   seeds: Array<{ eventId?: string; date: string; timeOnly: string; content: string; amount: number }>;
-  elsoPoints: Array<{ date: string; timeOnly: string; amount: number }>;
-  goldPouchSeeds?: Array<{ date: string; timeOnly: string; amount: number }>;
+  elsoPoints: Array<{eventId?:string;date:string;timeOnly:string;amount:number}>;
+  goldPouchSeeds?: Array<{eventId?:string;date:string;timeOnly:string;amount:number}>;
   shouts: Array<{ eventId?: string; fullTimestamp: number; sender: string; message: string; shoutKind?: import('../shared/types').ShoutKind }>;
   replaceAutomaticDate?: string;
 }
 
 interface GoldPouchRecoveryJournal {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   operationId: string;
   createdAt: number;
-  entries: Array<{ date: string; latestTime: string; totalAmount: number }>;
+  entries: PendingDailyAmount[];
 }
 
 export function getGoldPouchRecoveryJournalPath(): string {
@@ -1859,7 +1957,7 @@ export function getGoldPouchRecoveryJournalPath(): string {
 function validateGoldPouchRecoveryJournal(value: unknown): GoldPouchRecoveryJournal {
   if (!value || typeof value !== 'object') throw new Error('복구 기록이 객체가 아닙니다.');
   const journal = value as Partial<GoldPouchRecoveryJournal>;
-  if (journal.schemaVersion !== 1 || typeof journal.operationId !== 'string' || journal.operationId.length < 8) {
+  if ((journal.schemaVersion !== 1 && journal.schemaVersion !== 2) || typeof journal.operationId !== 'string' || journal.operationId.length < 8) {
     throw new Error('복구 기록 메타데이터가 유효하지 않습니다.');
   }
   if (!Number.isFinite(journal.createdAt) || !Array.isArray(journal.entries) || journal.entries.length === 0) {
@@ -1871,10 +1969,10 @@ function validateGoldPouchRecoveryJournal(value: unknown): GoldPouchRecoveryJour
       || typeof entry.latestTime !== 'string'
       || !Number.isSafeInteger(entry.totalAmount) || entry.totalAmount <= 0
     ) throw new Error('복구 기록에 잘못된 금화 주머니 항목이 있습니다.');
-    return { date: entry.date, latestTime: entry.latestTime, totalAmount: entry.totalAmount };
+    return { date: entry.date, latestTime: entry.latestTime, totalAmount: entry.totalAmount,...recoveryOwner(entry,journal.schemaVersion!) };
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     operationId: journal.operationId,
     createdAt: journal.createdAt as number,
     entries,
@@ -1882,10 +1980,7 @@ function validateGoldPouchRecoveryJournal(value: unknown): GoldPouchRecoveryJour
 }
 
 function writeGoldPouchRecoveryJournal(journal: GoldPouchRecoveryJournal): void {
-  const journalPath = getGoldPouchRecoveryJournalPath();
-  const tempPath = `${journalPath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(journal), 'utf8');
-  fs.renameSync(tempPath, journalPath);
+  writeRecoveryJournal(getGoldPouchRecoveryJournalPath(),journal);
 }
 
 function applyGoldPouchRecoveryOperation(journal: GoldPouchRecoveryJournal): boolean {
@@ -1898,20 +1993,8 @@ function applyGoldPouchRecoveryOperation(journal: GoldPouchRecoveryJournal): boo
     `).run(journal.operationId, Date.now());
     if (operationResult.changes === 0) return;
 
-    const ensureDiary = db!.prepare('INSERT OR IGNORE INTO diaries (date) VALUES (?)');
-    const selectSeed = db!.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'calc' AND content = ? ORDER BY id ASC LIMIT 1");
-    const updateSeed = db!.prepare('UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?');
-    const insertSeed = db!.prepare("INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, 'calc', ?, ?, ?, 'automatic')");
-
     for (const entry of journal.entries) {
-      ensureDiary.run(entry.date);
-      const existing = selectSeed.get(entry.date, GOLD_POUCH_DAILY_CONTENT) as { id: number; amount: number } | undefined;
-      if (existing) {
-        updateSeed.run(entry.latestTime, (existing.amount || 0) + entry.totalAmount, existing.id);
-      } else {
-        insertSeed.run(entry.date, GOLD_POUCH_DAILY_CONTENT, entry.latestTime, entry.totalAmount);
-        addScore(entry.date, POINTS.CALC_RECORD);
-      }
+      accumulateDailyAmount('calc',GOLD_POUCH_DAILY_CONTENT,entry);
     }
     applied = true;
   })();
@@ -1957,8 +2040,13 @@ export function hasPendingGoldPouchSeed(): boolean {
   return _pendingGoldPouchSeedByDate.size > 0 || fs.existsSync(getGoldPouchRecoveryJournalPath());
 }
 
+function requireFlushedDiaryAmounts():void {
+  if (!flushPendingElso() || !flushPendingGoldPouchSeed()) throw new Error('대기 중인 일지 금액을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+}
+
 /** 금화 주머니 환산 SEED 버퍼를 복구 가능한 단일 트랜잭션으로 저장합니다. */
 export function flushPendingGoldPouchSeed(): boolean {
+  if (db?.inTransaction && hasPendingGoldPouchSeed()) throw new Error('대기 중인 금화 기록을 프로필 전환 전에 저장해 주세요.');
   if (_goldPouchDebounceTimer) {
     clearTimeout(_goldPouchDebounceTimer);
     _goldPouchDebounceTimer = null;
@@ -1973,12 +2061,12 @@ export function flushPendingGoldPouchSeed(): boolean {
   const entries = Array.from(_pendingGoldPouchSeedByDate.entries());
   _pendingGoldPouchSeedByDate.clear();
   const journal: GoldPouchRecoveryJournal = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     operationId: randomUUID(),
     createdAt: Date.now(),
     entries: entries
       .filter(([, info]) => info.totalAmount > 0)
-      .map(([date, info]) => ({ date, latestTime: info.latestTime, totalAmount: info.totalAmount })),
+      .map(([,info]) => ({...info})),
   };
   if (journal.entries.length === 0) return true;
 
@@ -1997,7 +2085,7 @@ export function flushPendingGoldPouchSeed(): boolean {
   } catch (error) {
     if (!journalWritten) {
       for (const [date, info] of entries) {
-        const current = _pendingGoldPouchSeedByDate.get(date) || { latestTime: info.latestTime, totalAmount: 0 };
+        const current = _pendingGoldPouchSeedByDate.get(date) || {...info,totalAmount:0};
         current.totalAmount += info.totalAmount;
         current.latestTime = info.latestTime;
         _pendingGoldPouchSeedByDate.set(date, current);
@@ -2034,8 +2122,7 @@ function createFailedBatchSyncResult(error: string): BatchSyncResult {
  * 과거 로그 동기화 결과물을 작은 유한 배치 단위 트랜잭션으로 커밋합니다.
  */
 export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
-  flushPendingElso();
-  flushPendingGoldPouchSeed();
+  if (!flushPendingElso() || !flushPendingGoldPouchSeed()) return createFailedBatchSyncResult('대기 중인 일지 기록을 먼저 저장해 주세요.');
   if (!db) initDb();
   if (!db) return createFailedBatchSyncResult('데이터베이스를 초기화하지 못했습니다.');
 
@@ -2045,21 +2132,22 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
   let elsoPointsAdded = 0;
   let shoutsAdded = 0;
 
-  const selectActivity = db.prepare('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ?');
+  const profileId=currentOwner().profileId;
+  const selectActivity = db.prepare('SELECT id FROM activity_logs WHERE date = ? AND time = ? AND content = ? AND profile_id IS ?');
   const insertActivity = db.prepare('INSERT INTO activity_logs (date, type, content, time, amount) VALUES (?, ?, ?, ?, ?)');
   const selectShout = db.prepare('SELECT id FROM shout_history WHERE sender = ? AND message = ? AND ABS(timestamp - ?) <= 5');
   const insertShout = db.prepare('INSERT INTO shout_history (timestamp, sender, message, shout_kind) VALUES (?, ?, ?, ?)');
-  const selectElso = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso' ORDER BY id ASC LIMIT 1");
+  const selectElso = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'elso' AND profile_id IS ? ORDER BY id ASC LIMIT 1");
   const updateElso = db.prepare("UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?");
-  const selectGoldPouchSeed = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'calc' AND content = ? ORDER BY id ASC LIMIT 1");
+  const selectGoldPouchSeed = db.prepare("SELECT id, amount FROM activity_logs WHERE date = ? AND type = 'calc' AND content = ? AND profile_id IS ? ORDER BY id ASC LIMIT 1");
   const updateGoldPouchSeed = db.prepare('UPDATE activity_logs SET time = ?, amount = ? WHERE id = ?');
   const countAutomaticCalcRows = db.prepare(`
     SELECT COUNT(*) AS count FROM activity_logs
-    WHERE date = ? AND source = 'automatic' AND type = 'calc' AND content LIKE '[자동] %'
+    WHERE date = ? AND source = 'automatic' AND type = 'calc' AND content LIKE '[자동] %' AND profile_id IS ?
   `);
   const deleteAutomaticLogRows = db.prepare(`
     DELETE FROM activity_logs
-    WHERE date = ? AND source = 'automatic' AND (
+    WHERE date = ? AND source = 'automatic' AND profile_id IS ? AND (
       type = 'loot'
       OR type = 'elso'
       OR (type = 'calc' AND content LIKE '[자동] %')
@@ -2072,13 +2160,13 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
   const selectStone = db.prepare(`
     SELECT id, amount FROM activity_logs 
-    WHERE date = ? AND type = 'loot' AND (content = ? OR content LIKE ?)
+    WHERE date = ? AND type = 'loot' AND (content = ? OR content LIKE ?) AND profile_id IS ?
     ORDER BY id ASC LIMIT 1
   `);
   const updateStone = db.prepare('UPDATE activity_logs SET content = ?, time = ?, amount = ? WHERE id = ?');
   const insertCommittedEvent = db.prepare(`
-    INSERT OR IGNORE INTO chat_sync_committed_events (event_id, committed_at)
-    VALUES (?, ?)
+    INSERT OR IGNORE INTO chat_sync_committed_events (event_id, committed_at,profile_id)
+    VALUES (?, ?,?)
   `);
 
   const runBatch = db.transaction(() => {
@@ -2091,7 +2179,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
       amount: number,
     ): boolean => {
       const eventKey = JSON.stringify([date, timeOnly, content]);
-      const existing = selectActivity.get(date, timeOnly, content);
+      const existing = selectActivity.get(date,timeOnly,content,profileId);
       // 같은 배치 안의 서로 다른 실제 이벤트는 같은 초·같은 내용이어도 모두 보존한다.
       // 배치 시작 전에 있던 행은 구버전 재탐색 중복일 수 있으므로 기존처럼 건너뛴다.
       if (existing && !insertedActivityKeys.has(eventKey)) return false;
@@ -2121,17 +2209,18 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
         throw new Error('자동 채팅 로그 외치기 교체 배치에 다른 날짜가 포함되어 있습니다.');
       }
 
-      const previousCalcCount = (countAutomaticCalcRows.get(replaceDate) as { count: number } | undefined)?.count || 0;
+      const previousCalcCount = (countAutomaticCalcRows.get(replaceDate,profileId) as {count:number} | undefined)?.count || 0;
       if (previousCalcCount > 0) subtractScore(replaceDate, previousCalcCount * POINTS.CALC_RECORD);
-      deleteAutomaticLogRows.run(replaceDate);
+      deleteAutomaticLogRows.run(replaceDate,profileId);
       deleteShoutsForDate.run(replaceDateStart, replaceDateEnd);
     }
 
-    const claimEvent = (eventId?: string): boolean => {
-      // 오늘 전체 재구성은 기존 event claim과 무관하게 완성된 snapshot을 그대로 기록한다.
-      if (data.replaceAutomaticDate) return true;
+    const claimEvent = (eventId?:string,allowExisting=!!data.replaceAutomaticDate,owner=profileId): boolean => {
       if (!eventId) return true;
-      return insertCommittedEvent.run(eventId, Date.now()).changes > 0;
+      const existing=getStmt('SELECT profile_id FROM chat_sync_committed_events WHERE event_id=?').get(eventId) as {profile_id:string | null} | undefined;
+      // 같은 원본 이벤트를 다른 프로필로 중복 복원하거나 기존 미배정 기록을 암묵 재배정하지 않는다.
+      if (existing) return allowExisting && existing.profile_id===owner;
+      return insertCommittedEvent.run(eventId,Date.now(),owner).changes>0;
     };
 
     // 1-1. 득템 및 마정석 기록
@@ -2139,6 +2228,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     for (const item of data.loots) {
       ensureDiaryExists(item.date);
       if (item.diaryContent.includes('마정석')) {
+        if (!claimEvent(item.eventId,true)) continue;
         const grade = item.diaryContent.includes('최상급') ? '최상급' : (item.diaryContent.includes('상급') ? '상급' : (item.diaryContent.includes('중급') ? '중급' : '하급'));
         if (!magicStonesByDate[item.date]) magicStonesByDate[item.date] = {};
         if (!magicStonesByDate[item.date][grade]) {
@@ -2156,7 +2246,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     for (const [date, grades] of Object.entries(magicStonesByDate)) {
       for (const [grade, info] of Object.entries(grades)) {
         const standardContent = `[득템] [${grade} 마정석]`;
-        const existing = selectStone.get(date, standardContent, `%${grade}%마정석%`) as { id: number; amount: number } | undefined;
+        const existing = selectStone.get(date,standardContent,`%${grade}%마정석%`,profileId) as {id:number;amount:number} | undefined;
 
         if (existing) {
           if (existing.amount !== info.totalCount) {
@@ -2194,8 +2284,9 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
     // 2-1. 과거 로그의 날짜별 금화 주머니 총액과 로컬 DB 중 큰 값을 유지한다.
     for (const item of (data.goldPouchSeeds || [])) {
+      if (!claimEvent(item.eventId,true)) continue;
       ensureDiaryExists(item.date);
-      const existing = selectGoldPouchSeed.get(item.date, GOLD_POUCH_DAILY_CONTENT) as { id: number; amount: number } | undefined;
+      const existing = selectGoldPouchSeed.get(item.date,GOLD_POUCH_DAILY_CONTENT,profileId) as {id:number;amount:number} | undefined;
       if (existing) {
         if (item.amount > (existing.amount || 0)) {
           updateGoldPouchSeed.run(item.timeOnly, item.amount, existing.id);
@@ -2211,6 +2302,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     // 3. 엘소 포인트 (일자별 총합 집계 후 멱등성 있게 반영하여 중복 누적 방지)
     const elsoByDate: Record<string, { latestTime: string; totalAmount: number }> = {};
     for (const item of data.elsoPoints) {
+      if (!claimEvent(item.eventId,true)) continue;
       if (!elsoByDate[item.date]) {
         elsoByDate[item.date] = { latestTime: item.timeOnly, totalAmount: 0 };
       }
@@ -2220,7 +2312,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
     for (const [date, info] of Object.entries(elsoByDate)) {
       ensureDiaryExists(date);
-      const existing = selectElso.get(date) as { id: number; amount: number } | undefined;
+      const existing = selectElso.get(date,profileId) as {id:number;amount:number} | undefined;
       if (existing) {
         if (existing.amount !== info.totalAmount) {
           if (info.totalAmount > existing.amount) {
@@ -2236,7 +2328,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
     // 4. 외치기 기록 (5초 이내 동일 발신자/내용 중복 방지)
     for (const item of data.shouts) {
-      if (!claimEvent(item.eventId)) continue;
+      if (!claimEvent(item.eventId,!!data.replaceAutomaticDate,null)) continue;
       const existing = selectShout.get(item.sender, item.message, item.fullTimestamp);
       if (!existing) {
         insertShout.run(item.fullTimestamp, item.sender, item.message, item.shoutKind ?? null);
@@ -2249,6 +2341,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
     runBatch();
   } catch (err) {
     log(`[DiaryDB] batchInsertSyncResults failed: ${err}`);
+    propagateTransactionFailure(err);
     // 트랜잭션은 전부 롤백되므로 중간에 증가한 메모리 카운터를 성공 건수로 반환하면 안 된다.
     return createFailedBatchSyncResult(err instanceof Error ? err.message : String(err));
   }
@@ -2475,6 +2568,7 @@ export function cleanOldDiaryData(keepDays: number): void {
 
       const infoHw = delHw.run(cutoffStr);
       const infoAct = delAct.run(cutoffStr);
+      db!.prepare('DELETE FROM diary_profile_days WHERE date < ?').run(cutoffStr);
       const infoDiary = delDiary.run(cutoffStr);
 
       log(`[DiaryDB] Cleanup completed. Removed: ${infoDiary.changes} diaries, ${infoHw.changes} homework logs, ${infoAct.changes} activity logs (Older than ${cutoffStr})`);
@@ -2489,12 +2583,16 @@ export function cleanOldDiaryData(keepDays: number): void {
 }
 
 export function addElsoPoints(date: string, time: string, points: number): void {
-  if (points <= 0) return;
-
-  const current = _pendingElsoByDate.get(date) || { latestTime: time, totalAmount: 0 };
+  if (!Number.isSafeInteger(points) || points <= 0) return;
+  if (!db) initDb();
+  const owner=currentOwner();
+  if (db?.inTransaction) {accumulateDailyAmount('elso','엘소 포인트 획득',{...owner,date,latestTime:time,totalAmount:points});return;}
+  const key=pendingKey({...owner,date});
+  const current = _pendingElsoByDate.get(key) || {...owner,date,latestTime:time,totalAmount:0};
+  if (!Number.isSafeInteger(current.totalAmount+points)) throw new Error('엘소 포인트 합계가 저장 범위를 초과했습니다.');
   current.totalAmount += points;
   current.latestTime = time;
-  _pendingElsoByDate.set(date, current);
+  _pendingElsoByDate.set(key, current);
 
   // 1. 디스크 영구 저장용 3초 디바운스 타이머
   if (_elsoDebounceTimer) {
@@ -2511,11 +2609,15 @@ export function addElsoPoints(date: string, time: string, points: number): void 
 /** 실시간으로 감지한 금화 주머니 환산 SEED를 날짜별 단일 행에 누적합니다. */
 export function addGoldPouchSeed(date: string, time: string, amount: number): void {
   if (!Number.isSafeInteger(amount) || amount <= 0) return;
-
-  const current = _pendingGoldPouchSeedByDate.get(date) || { latestTime: time, totalAmount: 0 };
+  if (!db) initDb();
+  const owner=currentOwner();
+  if (db?.inTransaction) {accumulateDailyAmount('calc',GOLD_POUCH_DAILY_CONTENT,{...owner,date,latestTime:time,totalAmount:amount});return;}
+  const key=pendingKey({...owner,date});
+  const current = _pendingGoldPouchSeedByDate.get(key) || {...owner,date,latestTime:time,totalAmount:0};
+  if (!Number.isSafeInteger(current.totalAmount+amount)) throw new Error('금화 주머니 합계가 저장 범위를 초과했습니다.');
   current.totalAmount += amount;
   current.latestTime = time;
-  _pendingGoldPouchSeedByDate.set(date, current);
+  _pendingGoldPouchSeedByDate.set(key, current);
 
   if (_goldPouchDebounceTimer) clearTimeout(_goldPouchDebounceTimer);
   _goldPouchDebounceTimer = setTimeout(() => {
@@ -2551,9 +2653,9 @@ export function addAlarmLog(
     db.transaction(() => {
       db!.prepare(`
         INSERT INTO alarm_logs
-          (timestamp, scheduled_at, recorded_at, delivery_status, dedupe_key, type, title, message)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
+          (timestamp, scheduled_at, recorded_at, delivery_status, dedupe_key, type, title, message,profile_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?,?)
+        ON CONFLICT DO NOTHING
       `).run(
         recordedAt,
         scheduledAt,
@@ -2562,7 +2664,8 @@ export function addAlarmLog(
         dedupeKey,
         type,
         title,
-        message
+        message,
+        currentOwner().profileId
       );
 
       // 용량 관리를 위해 24시간 이전의 로그 자동 삭제 (24시간 = 24 * 60 * 60 * 1000 ms)
@@ -2575,6 +2678,7 @@ export function addAlarmLog(
     return true;
   } catch (e) {
     log(`[DiaryDB] addAlarmLog 실패: ${e}`);
+    propagateTransactionFailure(e);
     return false;
   }
 }
@@ -2582,20 +2686,22 @@ export function addAlarmLog(
 /**
  * 알람 로그 조회
  */
-export function getAlarmLogs(limit: number = 100): AlarmLog[] {
+export function getAlarmLogs(limit:number=100,filter:DiaryProfileFilter=ALL_DIARY_PROFILES): AlarmLog[] {
   if (!db) initDb();
   if (!db) return [];
   try {
+    const scope=diaryProfilePredicate(filter);
     return db.prepare(`
-      SELECT id, timestamp, type, title, message,
+      SELECT id,timestamp,type,title,message,profile_id,record_uuid,record_device_id,record_session_id,
              scheduled_at AS scheduledAt,
              recorded_at AS recordedAt,
              delivery_status AS deliveryStatus,
              dedupe_key AS dedupeKey
       FROM alarm_logs
+      WHERE 1=1 ${scope.sql}
       ORDER BY recorded_at DESC
       LIMIT ?
-    `).all(limit) as AlarmLog[];
+    `).all(...scope.params,limit) as AlarmLog[];
   } catch (e) {
     log(`[DiaryDB] getAlarmLogs 실패: ${e}`);
     return [];
@@ -2657,6 +2763,7 @@ export function addTimerRecord(record: Omit<TimerRecord, 'id'>): boolean {
     return true;
   } catch (e) {
     log(`[DiaryDB] addTimerRecord failed: ${e}`);
+    propagateTransactionFailure(e);
     return false;
   }
 }
@@ -2664,11 +2771,12 @@ export function addTimerRecord(record: Omit<TimerRecord, 'id'>): boolean {
 /**
  * 시간 측정 기록 목록 조회
  */
-export function getTimerRecords(): TimerRecord[] {
+export function getTimerRecords(filter:DiaryProfileFilter=ALL_DIARY_PROFILES): TimerRecord[] {
   if (!db) initDb();
   if (!db) return [];
   try {
-    return db.prepare('SELECT * FROM timer_records ORDER BY date DESC').all() as TimerRecord[];
+    const scope=diaryProfilePredicate(filter);
+    return db.prepare(`SELECT * FROM timer_records WHERE 1=1${scope.sql} ORDER BY date DESC`).all(...scope.params) as TimerRecord[];
   } catch (e) {
     log(`[DiaryDB] getTimerRecords failed: ${e}`);
     return [];
@@ -2676,17 +2784,24 @@ export function getTimerRecords(): TimerRecord[] {
 }
 
 /**
- * 시간 측정 기록 제목 수정
+ * 시간 측정 기록 단건 조회 (조회 화면의 프로필 필터와 독립적)
  */
-export function updateTimerRecordTitle(id: number, title: string): void {
+export function getTimerRecord(id:number):TimerRecord | null {
+  if (!db) initDb();if (!db) return null;
+  return db.prepare('SELECT * FROM timer_records WHERE id=?').get(id) as TimerRecord | undefined || null;
+}
+
+export function updateTimerRecordTitle(id: number, title: string): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
   try {
     db.prepare('UPDATE timer_records SET title = ? WHERE id = ?').run(title, id);
     log(`[DiaryDB] Timer record title updated (id: ${id}) -> ${title}`);
     notifyTimerUpdate();
+    return true;
   } catch (e) {
     log(`[DiaryDB] updateTimerRecordTitle failed: ${e}`);
+    return false;
   }
 }
 
@@ -2705,9 +2820,9 @@ export function updateTimerRecordSeriesAndCore(
   base_sub: number,
   enchant_sub: number,
   accuracy: number
-): void {
+): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
   try {
     db.prepare(`
       UPDATE timer_records 
@@ -2730,23 +2845,27 @@ export function updateTimerRecordSeriesAndCore(
     );
     log(`[DiaryDB] Timer record updated (id: ${id}) -> series: ${series}, core: ${core_master}, coeff: ${coefficient}`);
     notifyTimerUpdate();
+    return true;
   } catch (e) {
     log(`[DiaryDB] updateTimerRecordSeriesAndCore failed: ${e}`);
+    return false;
   }
 }
 
 /**
  * 시간 측정 기록 삭제
  */
-export function deleteTimerRecord(id: number): void {
+export function deleteTimerRecord(id: number): boolean {
   if (!db) initDb();
-  if (!db) return;
+  if (!db) return false;
   try {
     db.prepare('DELETE FROM timer_records WHERE id = ?').run(id);
     log(`[DiaryDB] Timer record deleted (id: ${id})`);
     notifyTimerUpdate();
+    return true;
   } catch (e) {
     log(`[DiaryDB] deleteTimerRecord failed: ${e}`);
+    return false;
   }
 }
 
@@ -2754,7 +2873,7 @@ export function deleteTimerRecord(id: number): void {
  * 시간 측정 기록 업데이트 알림
  */
 function notifyTimerUpdate(): void {
-  broadcastToAllWindows('timer-updated');
+  try {broadcastToAllWindows('timer-updated');} catch (error) {log(`[DiaryDB] Timer refresh failed: ${error}`);}
 }
 
 

@@ -907,6 +907,8 @@ export function loadLocalSyncBackup(): AppConfig {
     throw new Error('로컬 동기화 백업 파일의 크기가 올바르지 않습니다.');
   }
   const parsed = JSON.parse(fs.readFileSync(backupPath, 'utf-8')) as unknown;
+  // 구형 로컬 복구 사본의 제거된 활동 프리셋은 다시 적용하지 않는다. 원본 파일은 유지한다.
+  if (parsed && typeof parsed==='object' && !Array.isArray(parsed)) delete (parsed as Record<string,unknown>).activityPresets;
   const sanitized = sanitizeExternalConfigPatch(parsed);
   if (!sanitized || Object.keys(sanitized).length === 0) {
     throw new Error('로컬 동기화 백업 파일의 형식이 올바르지 않습니다.');

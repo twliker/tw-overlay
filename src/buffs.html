@@ -4,6 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-tools.css">
+  <script src="renderer/profile-tool-storage.js"></script>
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
@@ -928,9 +930,16 @@
     };
 
     window.onload = async () => {
+      await window.profileToolStorage.ready;
       await loadData();
       loadCurrentSelection();
       renderPresets();
+      window.profileToolStorage.setFlusher(() => {
+        const editing = editingPresetId === null ? null : getPresets().find(item => Number(item.id) === Number(editingPresetId));
+        const changed = editing && (document.getElementById('preset-name').value !== String(editing.name || '') || !sameBuffIds(selectedBuffIds, editing.buffIds));
+        if (creatingPreset || changed) return '버프 백과의 프리셋을 저장하거나 편집을 취소한 뒤 프로필을 전환해 주세요.';
+        saveCurrentSelection();return true;
+      });
       lucide.createIcons();
     };
 
@@ -957,16 +966,16 @@
         document.getElementById('buff-list').innerHTML = '<div class="col-span-full text-center py-20 text-red-300 text-sm font-bold">버프 정보를 불러오지 못했습니다.</div>';
       }
     }
-    function saveCurrentSelection() { localStorage.setItem('buff_current_selection', JSON.stringify(Array.from(selectedBuffIds))); localStorage.setItem('buff_active_preset_id', JSON.stringify(activePresetId)); }
+    function saveCurrentSelection() { window.profileToolStorage.setItem('buff_current_selection', JSON.stringify(Array.from(selectedBuffIds))); window.profileToolStorage.setItem('buff_active_preset_id', JSON.stringify(activePresetId)); }
     function loadCurrentSelection() {
       try {
-        const savedIds = JSON.parse(localStorage.getItem('buff_current_selection') || '[]');
+        const savedIds = JSON.parse(window.profileToolStorage.getItem('buff_current_selection') || '[]');
         selectedBuffIds = new Set(Array.isArray(savedIds) ? savedIds.filter(id => allBuffs.some(buff => buff.id === id)) : []);
       } catch {
         selectedBuffIds = new Set();
       }
       try {
-        activePresetId = JSON.parse(localStorage.getItem('buff_active_preset_id') || 'null');
+        activePresetId = JSON.parse(window.profileToolStorage.getItem('buff_active_preset_id') || 'null');
       } catch {
         activePresetId = null;
       }
@@ -978,7 +987,7 @@
       renderList();
     }
     function getPresets() {
-      const saved = localStorage.getItem('buff_presets');
+      const saved = window.profileToolStorage.getItem('buff_presets');
       if (!saved) return [];
       try {
         const parsed = JSON.parse(saved);
@@ -992,7 +1001,7 @@
           if (buffIds.length !== originalIds.length || !Array.isArray(preset.buffIds)) changed = true;
           return { ...preset, buffIds };
         });
-        if (changed) localStorage.setItem('buff_presets', JSON.stringify(sanitized));
+        if (changed) window.profileToolStorage.setItem('buff_presets', JSON.stringify(sanitized));
         return sanitized;
       } catch {
         return [];
@@ -1129,7 +1138,7 @@
         const existing = presets[editingIndex];
         existing.name = (nameInput.value.trim() || String(existing.name || '프리셋')).slice(0, 40);
         existing.buffIds = Array.from(selectedBuffIds);
-        localStorage.setItem('buff_presets', JSON.stringify(presets));
+        window.profileToolStorage.setItem('buff_presets', JSON.stringify(presets));
         activePresetId = existing.id;
         leavePresetEditing(false);
         saveCurrentSelection();
@@ -1140,7 +1149,7 @@
       const name = (nameInput.value.trim() || `프리셋 ${presets.length + 1}`).slice(0, 40);
       const newPreset = { id: Date.now(), name, buffIds: Array.from(selectedBuffIds) };
       presets.push(newPreset);
-      localStorage.setItem('buff_presets', JSON.stringify(presets));
+      window.profileToolStorage.setItem('buff_presets', JSON.stringify(presets));
       nameInput.value = '';
       activePresetId = newPreset.id;
       creatingPreset = false;
@@ -1189,7 +1198,7 @@
       if (!confirm(`'${String(targetPreset.name || '프리셋')}' 프리셋을 삭제할까요?`)) return;
       if (Number(editingPresetId) === Number(presetId)) leavePresetEditing(false);
       const filtered = getPresets().filter(p => Number(p.id) !== Number(presetId));
-      localStorage.setItem('buff_presets', JSON.stringify(filtered));
+      window.profileToolStorage.setItem('buff_presets', JSON.stringify(filtered));
       if (Number(activePresetId) === Number(presetId)) activePresetId = null;
       saveCurrentSelection();
       renderPresets();

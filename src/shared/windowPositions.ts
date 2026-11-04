@@ -26,6 +26,7 @@ export const DEFAULT_WINDOW_POSITIONS: Record<WindowPositionKey, WindowPosition>
   magicStoneCalculator: { offsetX: -400, offsetY: 40 },
   customAlert: { offsetX: -580, offsetY: 40 },
   diary: { offsetX: -850, offsetY: 40 },
+  profiles: { offsetX: -820, offsetY: 40 },
   uniformColor: { offsetX: -360, offsetY: 40 },
   swordEnhance: { offsetX: -1300, offsetY: 40 },
   qteChallenge: { offsetX: -980, offsetY: 40 },

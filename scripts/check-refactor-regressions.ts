@@ -7,6 +7,7 @@ import path = require('node:path');
 import vm = require('node:vm');
 import { app } from 'electron';
 import { checkWindowMovePersistence } from './check-window-move-persistence';
+import { resolveReleaseChannel } from './release-channel';
 
 const projectRoot = path.resolve(__dirname, '..');
 const sourceRoot = path.join(projectRoot, 'src');
@@ -31,6 +32,9 @@ function finishRegressionChecks(exitCode: number): never {
   cleanupIsolatedUserData();
   return (process as NodeJS.Process & { reallyExit(code: number): never }).reallyExit(exitCode);
 }
+
+// 파일 로딩 단계의 계약 검사도 실패 시 Electron을 종료한다. 모달 오류 창에서 대기하지 않는다.
+process.once('uncaughtException',error => {console.error(error);finishRegressionChecks(1);});
 
 function read(relativePath: string): string {
   return fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
@@ -386,42 +390,29 @@ function checkMainQuitRecoveryScenarios(): void {
     const expectsChecklist = scenario === 'checklist' || scenario === 'both'
       || scenario === 'timeout' || scenario === 'session-end';
     const expectedOperationIds = expectsChecklist ? [`main-quit-${scenario}-operation`] : [];
-    if (scenario === 'timeout') {
-      assertShutdownTimeoutElapsed(summary.quitElapsedMs, 'timeout main quit');
-    } else {
-      assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
-        `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
-    }
+    assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
+      `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
     assert.ok(summary.firstVisibleWindowCount > 0, `${scenario} main quit 전에 표시 창이 없었습니다.`);
     assert.ok(summary.hideLatencyMs !== null && summary.hideLatencyMs <= 100,
       `${scenario} main quit 창 숨김이 늦었습니다: ${summary.hideLatencyMs}`);
-    if (scenario === 'timeout') {
-      assert.ok(summary.settingsDirtyKeys.includes('userServer'));
-      assert.deepEqual(
-        [...summary.recoverySettingsDirtyKeys].sort(),
-        [...summary.settingsDirtyKeys].sort(),
-        'timeout main quit recovery marker가 종료 시점의 settings dirty 집합을 모두 보존하지 않았습니다.',
-      );
-    } else {
-      assert.deepEqual(summary.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
-      assert.deepEqual(summary.recoverySettingsDirtyKeys, expectsSettings ? ['userServer'] : []);
-    }
+    assert.deepEqual(summary.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    assert.deepEqual(summary.recoverySettingsDirtyKeys, [],'중지한 기존 Google 전송의 새 복구 표식을 만들지 않는다');
     assert.deepEqual(summary.checklistOperationIds, expectedOperationIds);
-    assert.deepEqual(summary.recoveryChecklistOperationIds, expectedOperationIds);
+    assert.deepEqual(summary.recoveryChecklistOperationIds, []);
     assert.equal(summary.walCheckpointLogged, true, `${scenario} main quit WAL checkpoint 로그가 없습니다.`);
     assert.equal(summary.databaseCloseLogged, true, `${scenario} main quit DB close 로그가 없습니다.`);
     assert.equal(summary.cancelledRequestCount, scenario === 'timeout' ? 1 : 0,
       `${scenario} main quit Drive 요청 취소 횟수가 다릅니다.`);
-    assert.equal(summary.shutdownTimeoutLogged, scenario === 'timeout',
+    assert.equal(summary.shutdownTimeoutLogged, false,
       `${scenario} main quit timeout 로그 상태가 다릅니다.`);
-    assert.equal(summary.beforeQuitCount, scenario === 'timeout' ? 3 : 2,
+    assert.equal(summary.beforeQuitCount, 2,
       `${scenario} main quit의 외부 요청/finalizer 경계 횟수가 다릅니다.`);
     if (scenario === 'session-end') {
       assert.ok(summary.sessionEndObservation);
       assert.equal(summary.sessionEndObservation.prevented, false,
         'query-session-end fast path가 Windows 세션 종료를 취소했습니다.');
-      assert.deepEqual(summary.sessionEndObservation.recoverySettingsDirtyKeys, ['userServer']);
-      assert.deepEqual(summary.sessionEndObservation.recoveryChecklistOperationIds, expectedOperationIds);
+      assert.deepEqual(summary.sessionEndObservation.recoverySettingsDirtyKeys, []);
+      assert.deepEqual(summary.sessionEndObservation.recoveryChecklistOperationIds, []);
       assert.equal(summary.sessionEndObservation.walCheckpointLogged, true,
         'query-session-end fast path가 WAL checkpoint를 동기식으로 끝내지 않았습니다.');
     } else {
@@ -430,278 +421,7 @@ function checkMainQuitRecoveryScenarios(): void {
   }
 }
 
-function checkMainResponseLossRestartReconciliation(): void {
-  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-response-loss-probe.js');
-  for (const responseLossKind of ['settings', 'checklist'] as const) {
-    const probeRoot = path.join(isolatedUserData, `main-response-loss-restart-${responseLossKind}`);
-    fs.mkdirSync(probeRoot, { recursive: true });
 
-    const run = (mode: 'loss' | 'restart') => {
-      const resultPath = path.join(probeRoot, `${mode}-result.json`);
-      const result = spawnElectronProbe([
-        probePath,
-        mode,
-        probeRoot,
-        resultPath,
-        responseLossKind,
-        '--dev',
-      ], 20_000);
-      assert.equal(result.error, undefined,
-        `${responseLossKind} ${mode} response loss main probe 실행 실패: ${result.error?.message || ''}`);
-      assert.equal(result.status, 0,
-        `${responseLossKind} ${mode} response loss main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-      assert.equal(fs.existsSync(resultPath), true,
-        `${responseLossKind} ${mode} response loss 결과 파일이 없습니다.`);
-      const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
-      assert.equal(summary.probeError, null,
-        summary.probeError || `${responseLossKind} ${mode} response loss probe 실패`);
-      return summary;
-    };
-
-    const lostResponse = run('loss');
-    assertShutdownTimeoutElapsed(lostResponse.quitElapsedMs, `${responseLossKind} response loss main quit`);
-    assert.equal(lostResponse.cancelledRequestCount, 1);
-    assert.equal(lostResponse.shutdownTimeoutLogged, true);
-    assert.equal(lostResponse.checklistOperationIds.includes('response-loss-checklist-operation'), true,
-      '응답 유실 뒤 로컬 outbox에서 검증 대상 숙제 operation이 사라졌습니다.');
-    assert.deepEqual(
-      [...lostResponse.recoveryChecklistOperationIds].sort(),
-      [...lostResponse.checklistOperationIds].sort(),
-      `${responseLossKind} 응답 유실 marker가 로컬 outbox operation을 모두 보존하지 않았습니다.`,
-    );
-
-    if (responseLossKind === 'settings') {
-      assert.ok(lostResponse.settingsDirtyKeys.includes('userServer'));
-      assert.deepEqual(
-        [...lostResponse.recoverySettingsDirtyKeys].sort(),
-        [...lostResponse.settingsDirtyKeys].sort(),
-        '설정 응답 유실 marker가 settings dirty key를 모두 보존하지 않았습니다.',
-      );
-      const remoteSettings = lostResponse.remoteStore.files['tw_overlay_settings.json'];
-      assert.equal(remoteSettings.payload.data.userServer, 1,
-        '응답 유실 전에 commit된 원격 설정 payload가 없습니다.');
-      assert.equal(lostResponse.remoteStore.uploadCounts['tw_overlay_settings.json'], 1);
-      assert.equal(lostResponse.remoteStore.uploadCounts['tw_overlay_checklist.json'], undefined);
-    } else {
-      const remoteChecklist = lostResponse.remoteStore.files['tw_overlay_checklist.json'];
-      const remoteChecklistOperationIds = remoteChecklist.payload.operations
-        .map((operation: any) => operation.id);
-      for (const operationId of lostResponse.checklistOperationIds) {
-        assert.equal(remoteChecklistOperationIds.includes(operationId), true,
-          `응답 유실 전에 commit된 원격 payload에 숙제 operation ${operationId}이(가) 없습니다.`);
-      }
-      assert.equal(lostResponse.remoteStore.uploadCounts['tw_overlay_checklist.json'], 1);
-    }
-
-    const restarted = run('restart');
-    assert.ok(restarted.convergenceObservation);
-    assert.deepEqual(restarted.convergenceObservation.settingsDirtyKeys, []);
-    assert.deepEqual(restarted.convergenceObservation.checklistOperationIds, []);
-    assert.deepEqual(restarted.convergenceObservation.recoverySettingsDirtyKeys, []);
-    assert.deepEqual(restarted.convergenceObservation.recoveryChecklistOperationIds, []);
-    assert.equal(restarted.convergenceObservation.confirmedChecklistOperationIds
-      .includes('response-loss-checklist-operation'), true);
-    if (responseLossKind === 'settings') {
-      assert.equal(restarted.convergenceObservation.settingsUploadCount, 1,
-        '설정 응답 유실 재확인이 이미 commit된 설정 payload를 중복 업로드했습니다.');
-      assert.ok(restarted.convergenceObservation.checklistUploadCount >= 1,
-        '설정 응답 유실 뒤 미전송 숙제 outbox가 처리되지 않았습니다.');
-    } else {
-      assert.equal(restarted.convergenceObservation.checklistUploadCount, 1,
-        '숙제 응답 유실 재확인이 이미 commit된 숙제 payload를 중복 업로드했습니다.');
-      assert.ok(restarted.convergenceObservation.settingsUploadCount >= 1,
-        '숙제 응답 유실 뒤 설정 dirty가 처리되지 않았습니다.');
-    }
-  }
-}
-
-function checkMainPartialRestoreConfirmationGate(): void {
-  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-partial-restore-probe.js');
-  const probeRoot = path.join(isolatedUserData, 'main-partial-restore');
-  const reverseProbeRoot = path.join(isolatedUserData, 'main-reverse-partial-restore');
-  const rollbackProbeRoot = path.join(isolatedUserData, 'main-rollback-restore');
-  fs.mkdirSync(probeRoot, { recursive: true });
-  fs.mkdirSync(reverseProbeRoot, { recursive: true });
-  fs.mkdirSync(rollbackProbeRoot, { recursive: true });
-
-  const run = (mode: 'partial' | 'reverse-partial' | 'blocked' | 'confirmed' | 'rollback', root = probeRoot) => {
-    const resultPath = path.join(root, `${mode}-result.json`);
-    const result = spawnElectronProbe([
-      probePath,
-      mode,
-      root,
-      resultPath,
-      '--dev',
-    ], 20_000);
-    assert.equal(result.error, undefined,
-      `${mode} partial restore main probe 실행 실패: ${result.error?.message || ''}`);
-    assert.equal(result.status, 0,
-      `${mode} partial restore main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-    assert.equal(fs.existsSync(resultPath), true, `${mode} partial restore 결과 파일이 없습니다.`);
-    const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
-    assert.equal(summary.probeError, null, summary.probeError || `${mode} partial restore probe 실패`);
-    return summary;
-  };
-
-  const partial = run('partial');
-  assert.equal(partial.rendererStoragePending, false, 'main 시작에서 도구 저장소 복원이 완료되지 않았습니다.');
-  assert.equal(partial.observation.profileState, 'needs-confirmation');
-  assert.equal(partial.observation.settingsStatus, 'invalid');
-  assert.equal(partial.observation.checklistStatus, 'restored');
-  assert.deepEqual(partial.observation.characterPresetIds, ['remote-character']);
-  assert.deepEqual(partial.remoteStore.uploadCounts, {},
-    '부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
-
-  const reversePartial = run('reverse-partial', reverseProbeRoot);
-  assert.equal(reversePartial.observation.profileState, 'needs-confirmation');
-  assert.equal(reversePartial.observation.settingsStatus, 'restored');
-  assert.equal(reversePartial.observation.checklistStatus, 'invalid');
-  assert.equal(reversePartial.observation.userServer, 16,
-    '정상 설정 파일이 손상된 숙제 파일과 독립적으로 복원되지 않았습니다.');
-  assert.deepEqual(reversePartial.observation.characterPresetIds, ['local-default'],
-    '손상된 숙제 파일 때문에 기존 로컬 숙제/캐릭터 설정이 변경되었습니다.');
-  assert.deepEqual(reversePartial.remoteStore.uploadCounts, {},
-    '역방향 부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
-
-  run('partial', rollbackProbeRoot);
-  const rollback = run('rollback', rollbackProbeRoot);
-  assert.equal(rollback.observation.profileState, 'established');
-  assert.equal(rollback.observation.restoredObservation.userServer, 16);
-  assert.deepEqual(rollback.observation.restoredObservation.characterPresetIds,
-    ['rollback-remote-character']);
-  assert.equal(rollback.observation.rolledBackUserServer, 7);
-  assert.deepEqual(rollback.observation.rolledBackCharacterPresetIds, ['remote-character']);
-  assert.equal(rollback.observation.remoteServer, 7,
-    '되돌린 로컬 설정이 후속 자동 동기화로 원격에 반영되지 않았습니다.');
-  assert.deepEqual(rollback.observation.remoteCharacterIds, ['remote-character'],
-    '되돌린 로컬 숙제/캐릭터가 후속 자동 동기화로 원격에 반영되지 않았습니다.');
-  assert.deepEqual(rollback.observation.settingsDirtyKeys, []);
-  assert.deepEqual(rollback.observation.checklistOperationIds, []);
-  assert.equal(rollback.observation.uploadCounts['tw_overlay_settings.json'], 1);
-  assert.equal(rollback.observation.uploadCounts['tw_overlay_checklist.json'], 1);
-
-  const blocked = run('blocked');
-  assert.equal(blocked.observation.profileState, 'needs-confirmation');
-  assert.equal(blocked.observation.userServer, 7,
-    'needs-confirmation 재시작에서 원격 설정이 자동 적용되었습니다.');
-  assert.equal(blocked.observation.downloadCount, 0,
-    'needs-confirmation 재시작에서 사용자 선택 전에 원격 파일을 다운로드했습니다.');
-  assert.deepEqual(blocked.remoteStore.uploadCounts, blocked.phaseStartUploadCounts,
-    'needs-confirmation 재시작에서 사용자 선택 전에 원격 파일을 업로드했습니다.');
-  assert.equal(blocked.remoteStore.files['corrupt-settings'].payload.data.userServer, 16,
-    'needs-confirmation 재시작에서 원격 설정을 로컬 값으로 덮어썼습니다.');
-
-  const confirmed = run('confirmed');
-  assert.equal(confirmed.observation.profileState, 'established');
-  assert.equal(confirmed.observation.userServer, 17);
-  assert.deepEqual(confirmed.observation.characterPresetIds, ['remote-character'],
-    '설정만 선택한 복원이 원격 숙제/캐릭터 파일까지 적용했습니다.');
-  assert.equal(confirmed.observation.remoteServer, 17,
-    '수동 복원 확인 뒤 설정 자동 업로드가 재개되지 않았습니다.');
-  assert.equal(confirmed.remoteStore.uploadCounts['tw_overlay_settings.json'], 1);
-  assert.equal(confirmed.observation.uploadCounts['tw_overlay_checklist.json'], undefined,
-    '설정 선택 복원 직후 변경하지 않은 숙제 파일이 함께 업로드되었습니다.');
-}
-
-async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
-  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-cross-upload-probe.js');
-  for (const scenario of ['nonconflict', 'same-field'] as const) {
-    const probeRoot = path.join(isolatedUserData, `main-cross-upload-${scenario}`);
-    fs.mkdirSync(probeRoot, { recursive: true });
-
-    for (const device of ['company', 'home'] as const) {
-      const resultPath = path.join(probeRoot, `${device}-prepare-result.json`);
-      const result = spawnElectronProbe([
-        probePath, 'prepare', device, probeRoot, resultPath, scenario, '--dev',
-      ], 20_000);
-      assert.equal(result.error, undefined,
-        `${scenario} ${device} cross upload prepare 실행 실패: ${result.error?.message || ''}`);
-      assert.equal(result.status, 0,
-        `${scenario} ${device} cross upload prepare 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-    }
-
-    const runDevice = async (device: 'company' | 'home') => {
-      const resultPath = path.join(probeRoot, `${device}-run-result.json`);
-      const result = await spawnElectronProbeAsync([
-        probePath, 'run', device, probeRoot, resultPath, scenario, '--dev',
-      ], 35_000);
-      assert.equal(result.error, undefined,
-        `${scenario} ${device} concurrent main probe 실행 실패: ${result.error?.message || ''}`);
-      assert.equal(result.status, 0,
-        `${scenario} ${device} concurrent main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-      assert.equal(fs.existsSync(resultPath), true,
-        `${scenario} ${device} concurrent main 결과 파일이 없습니다.`);
-      const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
-      assert.equal(summary.probeError, null,
-        summary.probeError || `${scenario} ${device} concurrent main probe 실패`);
-      return summary;
-    };
-
-    const [company, home] = await Promise.all([runDevice('company'), runDevice('home')]);
-    const expectedOperationIds = [
-      `cross-upload-${scenario}-company-operation`,
-      `cross-upload-${scenario}-home-operation`,
-    ];
-    assert.equal(company.observation.firstChecklistRevision, home.observation.firstChecklistRevision,
-      `${scenario} 두 main 프로세스의 첫 숙제 다운로드가 같은 원격 revision에서 교차하지 않았습니다.`);
-    for (const [device, summary] of [['company', company], ['home', home]] as const) {
-      assert.deepEqual(summary.observation.remoteOperationIds, expectedOperationIds,
-        `${scenario} ${device}가 확인한 최종 원격 payload에 두 operation ID가 남지 않았습니다.`);
-      assert.deepEqual(summary.observation.confirmedOperationIds, expectedOperationIds,
-        `${scenario} ${device} 로컬 확인 이력에 두 operation ID가 남지 않았습니다.`);
-      assert.deepEqual(summary.observation.checklistOutboxIds, []);
-    }
-    if (scenario === 'nonconflict') {
-      assert.equal(company.observation.companyState.currentCount, 1);
-      assert.equal(company.observation.homeState.currentCount, 2);
-      assert.equal(home.observation.companyState.currentCount, 1);
-      assert.equal(home.observation.homeState.currentCount, 2);
-    } else {
-      const expectedHomeCompletedAt = Number(fs.readFileSync(
-        path.join(probeRoot, 'completion-time-base.txt'),
-        'utf8',
-      )) + 2_000;
-      assert.deepEqual(company.observation.companyState, home.observation.companyState,
-        '동일 숙제·캐릭터 충돌에서 회사/집 로컬 상태가 수렴하지 않았습니다.');
-      assert.deepEqual(company.observation.companyState, company.observation.remoteCompanyState,
-        '동일 숙제·캐릭터 충돌에서 최종 원격과 회사 로컬 상태가 다릅니다.');
-      assert.equal(company.observation.companyState.isCompleted, true,
-        '회사 PC의 완료 변경이 집 PC의 횟수 변경과 결합되지 않았습니다.');
-      assert.equal(company.observation.companyState.currentCount, 2,
-        '동일 횟수 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
-      assert.equal(company.observation.companyState.lastCompletedAt, expectedHomeCompletedAt,
-        '동일 완료 시각 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
-    }
-    assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'company').length >= 1);
-    assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'home').length >= 1);
-    assert.ok(company.observation.writeConflicts + home.observation.writeConflicts >= 1,
-      `${scenario} 동일 revision의 교차 업로드가 조건부 저장 충돌을 검출하지 않았습니다.`);
-    assert.deepEqual(new Set(company.remoteStore.checklistUploadOrder.slice(0, 2)), new Set(['company', 'home']),
-      `${scenario} 최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.`);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-download.ready')), true);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-checklist-upload.ready')), true);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-checklist-upload.ready')), true);
-
-    const storePath = path.join(probeRoot, 'remote-store.json');
-    const uploadsBeforeRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
-    for (const device of ['company', 'home'] as const) {
-      const restarted = await runDevice(device);
-      assert.deepEqual(restarted.observation.remoteOperationIds, expectedOperationIds,
-        `${scenario} ${device} 재시작 후 원격 operation 확인 결과가 달라졌습니다.`);
-      assert.deepEqual(restarted.observation.confirmedOperationIds, expectedOperationIds,
-        `${scenario} ${device} 재시작 후 로컬 확인 operation 이력이 사라졌습니다.`);
-      assert.deepEqual(restarted.observation.checklistOutboxIds, []);
-      if (scenario === 'same-field') {
-        assert.deepEqual(restarted.observation.companyState, company.observation.companyState,
-          `${device} 재시작 후 동일 필드 충돌 결과가 달라졌습니다.`);
-      }
-      const uploadsAfterRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
-      assert.deepEqual(uploadsAfterRestart, uploadsBeforeRestart,
-        `${scenario} ${device} 재시작이 변경 없는 숙제 echo upload를 만들었습니다.`);
-    }
-  }
-}
 
 function createUiUtilsSandbox(): any {
   const registeredListeners: Record<string, Array<() => void>> = {};
@@ -1113,7 +833,7 @@ function checkRendererResources() {
   const settingsPage = read('src/settings.html');
   assert.match(settingsPage, /applySettingsWithDraft\(\{ chatOverlayCustomTabs: nextTabs \}/,
     '사용자 정의 채팅 탭 저장이 초안 기준을 갱신하는 공통 저장 경로를 사용하지 않습니다.');
-  assert.match(settingsPage, /async function applySettingsWithDraft\([\s\S]*?await window\.electronAPI\.applySettingsConfirmed\(settings\)/,
+  assert.match(settingsPage, /async function applySettingsWithDraft\([\s\S]*?await window\.electronAPI\.applySettingsConfirmed\(settings, expectedProfileId\)/,
     '초안 저장 경로가 결과 확인 가능한 설정 IPC를 사용하지 않습니다.');
   assert.match(settingsPage, /\.\.\.\(checkedChannels\.includes\('system'\) \? \{ systemColorFilters: systemColors \} : \{\}\)/,
     '시스템 채널이 없는 사용자 정의 탭에 선택적 시스템 색상 필드가 포함될 수 있습니다.');
@@ -2046,6 +1766,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       focusedChat: ['focused-chat.html', 460, 720, false], evolutionCalculator: ['evolution-calculator.html', 1040, 820, false],
       thesisCoreCalculator: ['thesis-core-calculator.html', 850, 880, false], magicStoneCalculator: ['magic-stone-calculator.html', 400, 800, false],
       customAlert: ['custom-alert.html', 580, 640, false], diary: ['diary.html', 1400, 920, false],
+      profiles: ['profiles.html',820,680,false],
       uniformColor: ['uniform-color.html', 360, 800, false], swordEnhance: ['sword-enhance.html', 1300, 850, false],
       qteChallenge: ['qte-challenge.html', 980, 780, false],
       shoutHistory: ['shout-history.html', 450, 600, false], gameOverlay: ['game-overlay.html', 0, 0, false],
@@ -3619,6 +3340,8 @@ function checkPreloadDefaultConfigCompatibility() {
     match => match[1],
   );
   assert.deepEqual(listenerChannels, [
+    'play-profiles-changed',
+    'profile-tools-changed',
     'notification-positions-preview',
     'notification-edit-mode',
     'notification-edit-state',
@@ -3949,7 +3672,10 @@ function checkAgentDocumentationLocations(): void {
     'fail_on_unmatched_files: true',
     'dist_electron/twOverlay-Setup-*.exe',
     'dist_electron/twOverlay-Setup-*.exe.blockmap',
-    'dist_electron/latest.yml',
+    'node dist-tools/release-channel.js',
+    'prerelease: ${{ steps.release.outputs.prerelease }}',
+    "make_latest: ${{ steps.release.outputs.prerelease == 'true' && 'false' || 'legacy' }}",
+    'dist_electron/${{ steps.release.outputs.update_file }}',
   ]
     .forEach(command => assert.ok(
       buildWorkflow.includes(command),
@@ -3960,6 +3686,15 @@ function checkAgentDocumentationLocations(): void {
     1,
     'GitHub Draft Release 생성 단계는 정확히 하나여야 합니다.',
   );
+  assert.deepEqual(resolveReleaseChannel('3.5.0-beta.1','v3.5.0-beta.1'),{prerelease:true,updateFile:'beta.yml'});
+  assert.deepEqual(resolveReleaseChannel('3.5.0','v3.5.0'),{prerelease:false,updateFile:'latest.yml'});
+  for(const channel of ['alpha','rc','preview'])assert.deepEqual(resolveReleaseChannel(`3.5.0-${channel}.2`,`v3.5.0-${channel}.2`),{prerelease:true,updateFile:`${channel}.yml`});
+  assert.throws(()=>resolveReleaseChannel('3.5.0-beta.1','v3.5.0'),'다른 태그로 잘못된 파일을 게시하지 않음');
+  for(const version of ['3.5.0-../../latest','03.5.0','3.5.0-beta.01'])assert.throws(()=>resolveReleaseChannel(version,`v${version}`));
+  const releasePackage=JSON.parse(read('package.json'));
+  const channel=resolveReleaseChannel(releasePackage.version,`v${releasePackage.version}`).updateFile.slice(0,-4);
+  for(const publish of releasePackage.build.publish)if(publish.provider==='github')assert.equal(publish.channel || 'latest',channel,
+    'Electron Builder의 실제 업데이트 파일과 GitHub 업로드 채널이 일치해야 합니다.');
   assert.doesNotMatch(
     buildWorkflow,
     /action-electron-builder|--publish\s+(?:always|onTag|onTagOrDraft)/,
@@ -6973,16 +6708,16 @@ function checkViewRequestGenerationContracts(): void {
 
   const diarySource = read('src/diary.html');
   assert.match(diarySource,
-    /const request = detailRequests\.begin\(`date:\$\{dateStr\}`\)[\s\S]*?await window\.electronAPI\.diaryGetByDate\(dateStr\)[\s\S]*?!detailRequests\.isCurrent\(request\)/,
+    /const request = detailRequests\.begin\(`\$\{diaryScopeKey\(\)\}:date:\$\{dateStr\}`\)[\s\S]*?await window\.electronAPI\.diaryGetByDate\(dateStr,filter\)[\s\S]*?!detailRequests\.isCurrent\(request\)/,
     '일간 상세 응답에 날짜 generation guard가 없습니다.');
   assert.match(diarySource,
-    /detailRequests\.begin\(`week:[\s\S]*?Promise\.all[\s\S]*?!detailRequests\.isCurrent\(request\)/,
+    /detailRequests\.begin\(`\$\{diaryScopeKey\(\)\}:week:[\s\S]*?Promise\.all[\s\S]*?!detailRequests\.isCurrent\(request\)/,
     '주간 상세 응답이 일간 상세와 공유 generation을 사용하지 않습니다.');
   assert.match(diarySource,
     /const \[nextMonthlyData, nextSummary\] = await Promise\.all[\s\S]*?!monthRequests\.isCurrent\(request\)/,
     '월 데이터/요약 응답 역전 guard가 없습니다.');
   assert.match(diarySource,
-    /diaryGetMonthlyRevenue\(yearMonth\)[\s\S]*?!statisticsRequests\.isCurrent\(request\)/,
+    /diaryGetMonthlyRevenue\(yearMonth,filter\)[\s\S]*?!statisticsRequests\.isCurrent\(request\)/,
     '통계 차트의 늦은 월 응답 guard가 없습니다.');
   assert.match(diarySource,
     /const renderedDate = selectedDateStr[\s\S]*?diaryRemoveActivity\(rowId\)[\s\S]*?selectedDateStr === renderedDate/,
@@ -7712,20 +7447,19 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '종료 flush 전에 모든 창을 즉시 숨기지 않습니다.');
   assert.match(mainSource, /outcome !== 'flushed'[\s\S]*?cancelPendingShutdownRequests/,
     '종료 flush 시간초과·실패 시 진행 중인 Drive 요청을 취소하지 않습니다.');
-  assert.match(mainSource, /diaryDb\.checkpointWal\(\);\s*if \(!diaryDb\.closeDb\(\)\)/,
+  assert.match(mainSource, /diaryDb\.checkpointWal\(\);[\s\S]*?config\.beginExternalRestore\(\);[\s\S]*?diaryDb\.suspendForRestore\(\)/,
     '종료 시 WAL checkpoint 후 DB를 닫지 않습니다.');
   assert.match(mainSource, /browser-window-created[\s\S]*?query-session-end[\s\S]*?prepareFastSessionEnd/,
     'Windows 로그오프·시스템 종료 fast path가 창에 등록되지 않았습니다.');
   assert.match(mainSource, /function prepareFastSessionEnd[\s\S]*?config\.hasPending\(\)[\s\S]*?prepareShutdownRecovery\(\)[\s\S]*?flushPendingElso\(\)[\s\S]*?checkpointWal\(\)/,
     'Windows 세션 종료 전에 config·클라우드 marker·DB 상태를 동기 저장하지 않습니다.');
-  assert.match(mainSource, /startBackgroundSync\(\);\s*cloudSync\.syncFromCloud\(false\)/,
-    '앱 시작 시 로그인된 자동 동기화 프로필의 즉시 pull이 연결되지 않았습니다.');
-  assert.match(mainSource, /powerMonitor\.on\('resume',[\s\S]*?requestImmediatePull\('system-resume'\)/,
-    '절전 복귀가 클라우드 즉시 pull에 연결되지 않았습니다.');
-  assert.match(mainSource, /powerMonitor\.on\('unlock-screen',[\s\S]*?requestImmediatePull\('screen-unlock'\)/,
-    '잠금 해제가 클라우드 즉시 pull에 연결되지 않았습니다.');
-  assert.match(mainSource, /let wasNetworkOnline = net\.isOnline\(\)[\s\S]*?!wasNetworkOnline && isNetworkOnline[\s\S]*?requestImmediatePull\('network-reconnected'\)[\s\S]*?10_000/,
-    '10초 네트워크 복구 감지가 클라우드 즉시 pull에 연결되지 않았습니다.');
+  assert.match(mainSource, /await startProfileApplication\([\s\S]*?pollingLoop\.start\(\)/,
+    '게임 폴링보다 먼저 프로필 기록 경계를 준비해야 합니다.');
+  assert.match(mainSource,/cloudSync\.startBackgroundSync\(\)/,'프로필 준비 뒤 새 동기화 scheduler를 시작해야 합니다.');
+  assert.match(read('src/modules/cloudSyncManager.ts'),/export function startBackgroundSync[\s\S]*?getProfileCloudSync\(\)[\s\S]*?\.start\(\)[\s\S]*?if \(profilePauseReason\) return/,
+    '일반 부팅의 새 프로필 전용 경로와 구형 전송 중지 guard를 함께 유지해야 합니다.');
+  assert.match(mainSource,/powerMonitor\.on\('resume',\(\)=>refreshProfileClock\(true\)\)/);
+  assert.match(mainSource,/powerMonitor\.on\('unlock-screen',\(\)=>refreshProfileClock\(\)\)/);
   const pollingSource = read('src/modules/pollingLoop.ts');
   assert.match(pollingSource, /gameJustStarted[\s\S]*?requestImmediatePull\('game-started'\)/,
     '게임 시작 전환이 클라우드 즉시 pull에 연결되지 않았습니다.');
@@ -7772,7 +7506,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.match(authSource, /if \(!tokens\.refresh_token\)[\s\S]*?invalidateAuth\(\)/,
     '만료된 access token에 refresh token이 없을 때 재로그인 필요 상태로 전환하지 않습니다.');
   const cloudManagerSource = read('src/modules/cloudSyncManager.ts');
-  assert.match(cloudManagerSource, /reauthRequired:\s*!isLinked[\s\S]*?googleSyncEnabled === true/,
+  assert.match(cloudManagerSource, /reauthRequired:\s*!profilePauseReason\s*&&\s*!isLinked[\s\S]*?googleSyncEnabled === true/,
     '토큰 만료와 사용자의 명시적 연결 해제를 구분하는 상태가 없습니다.');
   assert.match(cloudManagerSource, /SyncFileCompatibilityError[\s\S]*?status:\s*'incompatible'/,
     '현재 버전 비호환 파일을 일반 손상과 다른 파일별 상태로 기록하지 않습니다.');
@@ -8056,14 +7790,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Drive 401의 1회 refresh/retry 경계가 없습니다.');
 
   const cloudSyncDocs = read('docs/google-drive-sync.md');
-  assert.match(cloudSyncDocs, /마지막으로 두 PC가 같았던 상태/,
-    '사용자용 동기화 가이드가 3방향 병합의 기준 상태를 쉬운 말로 설명하지 않습니다.');
-  assert.match(cloudSyncDocs, /서로 다른 캐릭터[\s\S]*?변경을 모두 유지/,
-    '사용자용 동기화 가이드에 다른 캐릭터의 숙제 변경 병합 예시가 없습니다.');
-  assert.match(cloudSyncDocs, /완료·해제[\s\S]*?횟수[\s\S]*?정해진 순서로 다시 적용/,
-    '사용자용 동기화 가이드에 같은 숙제의 완료·해제·횟수 충돌 설명이 없습니다.');
-  assert.match(cloudSyncDocs, /선택 대기 상태도 클라우드에 저장[\s\S]*?캐릭터 선택 팝업/,
-    '사용자용 동기화 가이드에 pending 숙제의 다른 PC 팝업 동작이 없습니다.');
+  assert.match(cloudSyncDocs, /변경의 선후 관계와 인터넷 기준 시각/,'새 프로필 동기화의 순서 판정 설명이 없습니다.');
+  assert.match(cloudSyncDocs, /서로 다른 프로필의 변경은 모두 유지/,'프로필별 변경 격리 설명이 없습니다.');
+  assert.match(cloudSyncDocs, /완료·해제·횟수[\s\S]*?확인할 변경[\s\S]*?양쪽 값을 보관/,'상충하는 숙제 진행의 후보 보존 설명이 없습니다.');
+  assert.match(cloudSyncDocs, /미배정 기록은 원래 PC에 보관[\s\S]*?전송하지 않습니다/,'미배정 원본의 로컬 전용 정책 설명이 없습니다.');
   const settingsEnvelope = syncDataHelper.buildSettingsSyncPayload(
     sampleLocalConfig,
     'device-doc-fixture',
@@ -8151,10 +7881,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const privacyPolicyMarkdown = read('PRIVACY_POLICY.md');
   const privacyPolicyHtml = read('docs/privacy/index.html');
   const privacyParityTerms = [
-    'tw_overlay_settings.json', 'tw_overlay_checklist.json', 'tw_overlay_sync_meta.json',
+    'tw_overlay_profiles_',
     'appDataFolder', 'Discord Webhook URL', 'Google OAuth 토큰', '채팅/메신저 로그 경로',
     '커스텀 사운드 절대경로', '창 위치·크기', '일지 DB', '채팅 로그', '알람 이력',
-    '종단간 암호화', '이메일은 로컬 계정 표시에만 사용', '세 동기화 JSON에는 저장하지 않습니다',
+    '종단간 암호화', '이메일은 로컬 계정 표시에만 사용', '동기화 파일에는 저장하지 않습니다',
     'google-drive-sync.md',
     'Google Analytics 사용 통계', '가명 설치 식별자', '배포 채널(Microsoft Store 또는 GitHub)', '사용 통계 전송',
   ];
@@ -8169,14 +7899,14 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '설정 ⚙️ → 시스템 & 관리 → 데이터 관리',
     'Google Drive의 앱 전용 데이터 보기 및 관리',
     '체크박스 없이 요청 권한 목록',
-    '`지금 저장`', '`불러오기`', '`연결 해제`',
+    '`지금 동기화`', 'Google 데이터로 가져오기', '`연결 해제`',
     '숨겨진 앱 데이터 삭제',
   ]) {
     assert.ok(googleSyncGuide.includes(requiredGuideText),
       `Google 로그인 사용자 가이드에 필수 안내가 누락됐습니다: ${requiredGuideText}`);
   }
   for (const guideImage of [
-    'google-sync-login-guide.svg',
+    'google-sync-profiles.png',
     'google-sync-permission-guide.svg',
   ]) {
     assert.ok(googleSyncGuide.includes(`./screenshot/${guideImage}`),
@@ -9930,8 +9660,10 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
   assert.match(managerSource, /partial = failedFiles\.length > 0/);
   assert.match(managerSource, /reanalyzeCompletedLogs \|\| target\.dateStr === todayStr/,
     '완료된 로그 재분석 옵션이 파일 전체 재구성 경로에 연결되지 않았습니다.');
-  assert.match(managerSource, /mergeHomeworkCountFromSync\(hwId, detected\.count, MAIN_CHAR_ID\)/,
-    '과거 로그 숙제가 메인 캐릭터에 명시적으로 반영되지 않습니다.');
+  assert.match(managerSource, /targetCharacterId=owner\?\.profileId \|\| MAIN_CHAR_ID/,
+    '프로필 모드는 고정 대상을 사용하고 기존 모드는 메인 캐릭터를 사용해야 합니다.');
+  assert.match(managerSource, /mergeHomeworkCountFromSync\(hwId, detected\.count, targetCharacterId\)/,
+    '과거 로그 숙제가 고정 대상에 명시적으로 반영되지 않습니다.');
   const settingsSource = read('src/settings.html');
   assert.match(settingsSource, /일부 복원 완료/);
   assert.match(settingsSource, /id="reanalyze-completed-chat-logs"/);
@@ -9958,6 +9690,8 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const essenceDirect = '<font size="2" color="white"> [22시 41분 15초] </font><font>[경험의 정수] 아이템을 2개 획득하였습니다.</font></br>';
     const essenceXpDecrease = '<font size="2" color="white"> [22시 42분 15초] </font><font>경험치가 10000000000 감소했습니다.</font></br>';
     const essenceAutoExchange = '<font size="2" color="white"> [22시 42분 15초] </font><font>경험치 100억이 차감되고, 경험의 정수 1개를 획득 하였습니다.</font></br>';
+    const goldPouches='<font size="2" color="white"> [22시 43분 15초] </font><font>[금화 주머니] 아이템을 2개 획득하였습니다.</font></br>';
+    const elsoScroll='<font size="2" color="white"> [22시 44분 15초] </font><font>[엘소 스크롤 (20 포인트)] 아이템을 2개 획득하였습니다.</font></br>';
     const eternalFloor = '<font size="2" color="white"> [17시 11분  8초] </font><font>[이터널 플로어 보상 상자] 아이템을 획득하였습니다.</font></br>';
     const etaDaily = '<font size="2" color="white"> [18시 11분  8초] </font><font>[루이나 및 제네로 일반 상자] 아이템을 습득했습니다.</font></br>';
     const architectFixture = (JSON.parse(read('scripts/fixtures/architect-mine-logs.json')) as Array<{ lines: string[] }>)[encoding === 'utf8' ? 0 : 1];
@@ -9969,6 +9703,8 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       essenceDirect,
       essenceXpDecrease,
       essenceAutoExchange,
+      goldPouches,
+      elsoScroll,
       eternalFloor,
       etaDaily,
       ...architectFixture.lines,
@@ -10067,9 +9803,14 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     assert.equal(finalBatch.confirmedOffset, encoded.length);
     assert.equal(finalBatch.loots.find((item: any) => item.diaryContent.includes('하급 마정석'))?.count, 3,
       '파일 완료 배치가 마정석의 파일 전체 합계를 전달하지 않았습니다.');
+    assert.match(finalBatch.loots.find((item:any) => item.diaryContent.includes('하급 마정석')).eventId,/^[a-f0-9]{64}$/,'마정석 일 합계에도 원본 ID 필요');
+    assert.equal(finalBatch.goldPouchSeeds[0].amount,1_000_000);
+    assert.match(finalBatch.goldPouchSeeds[0].eventId,/^[a-f0-9]{64}$/);
+    assert.equal(finalBatch.elsoPoints[0].amount,40);
+    assert.match(finalBatch.elsoPoints[0].eventId,/^[a-f0-9]{64}$/);
     assert.equal(finalBatch.seeds.length, 1,
       `${encoding} 다중 바이트 문자가 read chunk 경계에서 손상되었습니다.`);
-    assert.equal(finalBatch.aggregate.seedsDetected, 1);
+    assert.equal(finalBatch.aggregate.seedsDetected,2,'SEED 직접 획득과 금화 환산은 각각 한 번 감지');
     assert.equal(finalBatch.essences.reduce((sum: number, item: any) => sum + item.count, 0), 3,
       '등록 아이템 목록에 없어도 직접 획득과 자동 전환 경험의 정수가 모두 복원되어야 합니다.');
     assert.equal(finalBatch.aggregate.essencesDetected, 3,
@@ -10110,6 +9851,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     });
     fullParser.on('ITEM_LOOTED', (event: any) => {
       if (event.isOwn && event.itemName === '경험의 정수') golden.essenceCount += event.count;
+      if (event.isOwn && event.itemName==='금화 주머니') golden.seedEvents++;
     });
     fullParser.on('XP_CHANGED', (event: any) => {
       golden.essenceCount += getEssenceExchangeCount(event.amount);
@@ -10140,6 +9882,9 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
 
   const utf8First = await runFixture('utf8', true);
   const utf8Replay = await runFixture('utf8', false);
+  for (const key of ['loots','goldPouchSeeds','elsoPoints']) assert.equal(
+    utf8First.batches.at(-1)![key][0].eventId,utf8Replay.batches.at(-1)![key][0].eventId,
+    '일 합계 원본 ID는 실행/배치 ID가 달라도 동일해야 합니다.');
   assert.equal(
     utf8First.batches.at(-1)!.seeds[0].eventId,
     utf8Replay.batches.at(-1)!.seeds[0].eventId,
@@ -10188,6 +9933,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
   const managerFile = path.join(managerFixtureDirectory, 'TWChatLog_2026_08_26.html');
   const managerSeedMessage = '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.';
   const managerLines = [
+    '<font size="2" color="white"> [22시 39분 33초] </font><font>입장료 5,680,001 Seed를 지불하였습니다.</font></br>',
     '<font size="2" color="white"> [22시 39분 34초] </font> <font size="2" color="#ff64ff">하급 마정석 1개를 획득 하였습니다.</font></br>',
     '<font size="2" color="white"> [22시 39분 35초] </font> <font size="2" color="#c8ffc8">테스터 : 금화 주머니를 획득 했습니다.</font></br>',
     '<font size="2" color="white"> [22시 39분 35초] </font> <font size="2" color="#ff64ff">가짜 달여왕 군단의 군자금 [ 금화 주머니 80개 ]를 획득했습니다.</font></br>',
@@ -10220,15 +9966,18 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const firstSync = await firstSyncPromise;
     assert.equal(firstSync.success, true);
     assert.equal(firstSync.totalFiles, 1);
-    assert.equal(firstSync.seedsDetected, 3);
+    assert.equal(firstSync.seedsDetected, 4);
     assert.equal(firstSync.lootsDetected, 1);
     assert.equal(firstSync.essencesDetected, 3,
       '과거 동기화가 직접 획득 2개와 100억 교환 1개를 정확히 합산하지 못했습니다.');
-    assert.equal(firstSync.seedsAdded, 2);
+    assert.equal(firstSync.seedsAdded, 3);
     assert.equal(firstSync.lootsAdded, 1);
     assert.equal(firstSync.essencesAdded, 3,
       '과거 동기화 결과가 실제 경험의 정수 수량이 아니라 로그 줄 수를 표시합니다.');
     const managerDiary = diaryDb.getDiaryByDate('2026-08-26');
+    const feeRows = managerDiary.activityLogs.filter((row: { content: string }) => row.content.includes('어벤던로드 입장료'));
+    assert.equal(feeRows.length, 1, '과거 로그 입장료 누락 또는 중복');
+    assert.equal(feeRows[0].amount, -5_680_001, '과거 로그 입장료 부호·정수 금액');
     const managerEssenceTotal = managerDiary.activityLogs
       .filter((log: { type: string; content: string }) => (
         log.type === 'loot' && log.content === '[득템] 경험의 정수'
@@ -10552,8 +10301,6 @@ async function runRegressionChecks(): Promise<void> {
   checkManualEvidenceComparator();
   checkShutdownRecoveryAcrossProcessRestarts();
   checkMainQuitRecoveryScenarios();
-  checkMainResponseLossRestartReconciliation();
-  checkMainPartialRestoreConfirmationGate();
   checkXpExchangeContracts();
   checkAbandonedFeeMatchingContracts();
   checkDigsiteBoardContracts();
@@ -10562,7 +10309,6 @@ async function runRegressionChecks(): Promise<void> {
   checkViewRequestGenerationContracts();
   await checkMissedMinuteSchedulerContracts();
   await checkAudioPlaybackContracts();
-  await checkMainConcurrentCrossUploadConvergence();
   await checkChatLogWorkerReadRecovery();
   await checkChatSearchSizeBoundaries();
   await checkChatLogWorkerBatchProtocol();

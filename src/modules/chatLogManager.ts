@@ -35,6 +35,7 @@ import {
   trimRecentChatLogLines,
 } from './chatLogFileReader';
 import { formatLocalDateKey } from '../shared/localDate';
+import {prepareProfileLogSource,withProfileLogSource,type ProfileLogSource} from './profileLogSource';
 
 const { isLegacyNpcSender, isNpcChat } = require('../shared/chatConstants') as ChatConstants;
 const { COLORS: CHAT_COLORS, parseShoutContent, isOverlayChatVisible, getSystemColorGroup, resolveOverlayCustomTab } = require('../shared/chatChannels') as ChatChannelConstants;
@@ -64,6 +65,8 @@ export interface ChatLogSyncPauseToken {
 export interface ChatLogSyncCatchUpResult {
   startOffset: number;
   handoffOffset: number;
+  /** 끝이 잘린 물리 줄을 제외하고 실제 parser에 전달한 마지막 byte 위치. */
+  completedOffset: number;
   processedBytes: number;
 }
 
@@ -171,6 +174,14 @@ export class ChatLogManager {
   private _syncPaused = false;
   private _syncPauseSequence = 0;
   private _syncCatchUpActive = false;
+  private _sourceFingerprint:string | undefined;
+  private _pendingProfileSource:ProfileLogSource | undefined;
+  private _tailSourceOffset=0;
+
+  private source(filePath:string,start:number,end:number):ProfileLogSource | undefined {
+    this._sourceFingerprint ||= prepareProfileLogSource(filePath,formatLocalDateKey());
+    return this._sourceFingerprint ? {fingerprint:this._sourceFingerprint,start,end} : undefined;
+  }
 
   /**
    * 스트리밍 시작
@@ -212,6 +223,7 @@ export class ChatLogManager {
     }
     this._tailRetryAttempts = 0;
     this._lineNormalizer.reset();
+    this._sourceFingerprint=undefined;this._pendingProfileSource=undefined;this._tailSourceOffset=0;
     this._currentFilePath = null;
     this._todayLines = [];
     this._todayLineChars = 0;
@@ -231,6 +243,10 @@ export class ChatLogManager {
    * 미완성 물리 줄만 resume offset에서 제외합니다. 동기화 중 새 로그는 파일에 계속 append되며 파일
    * 자체가 내구성 있는 queue 역할을 합니다.
    */
+  public pauseForLocalRestore():Promise<ChatLogSyncPauseToken | null> {
+    return this._currentFilePath ? this.pauseForHistoricalSync(this._currentFilePath) : Promise.resolve(null);
+  }
+
   public async pauseForHistoricalSync(expectedFilePath: string): Promise<ChatLogSyncPauseToken | null> {
     if (this._syncPaused) throw new Error('실시간 채팅 로그가 이미 동기화 대기 상태입니다.');
     if (!this._tail || !this._currentFilePath) return null;
@@ -306,7 +322,7 @@ export class ChatLogManager {
           if (rawLine.length > 0 && rawLine[rawLine.length - 1] === 0x0d) {
             rawLine = rawLine.subarray(0, rawLine.length - 1);
           }
-          this.consumeDecodedLine(iconv.decode(rawLine, encoding));
+          this.consumeDecodedLine(iconv.decode(rawLine, encoding),this.source(filePath,position-carry.length+lineStart,position-carry.length+index+1));
           lineStart = index + 1;
         }
         carry = Buffer.from(combined.subarray(lineStart));
@@ -314,7 +330,7 @@ export class ChatLogManager {
       }
 
       if (carry.length > 0 && /<\/br>\s*$/i.test(iconv.decode(carry, encoding).trimEnd())) {
-        this.consumeDecodedLine(iconv.decode(carry, encoding));
+        this.consumeDecodedLine(iconv.decode(carry, encoding),this.source(filePath,endOffset-carry.length,endOffset));
         carry = Buffer.alloc(0);
       }
       return carry;
@@ -354,10 +370,12 @@ export class ChatLogManager {
         useWatchFile: true,
         fsWatchOptions: { interval: 1000 },
         encoding: 'binary',
+        separator: '\n',
       });
       const runtime = tail as Tail & TailRuntimeState;
       const handoffOffset = Math.max(safeStartOffset, Math.trunc(runtime.currentCursorPos ?? fileSize));
       let incompleteRawLine = this.catchUpRange(token.filePath, safeStartOffset, handoffOffset, encoding);
+      this._tailSourceOffset=handoffOffset-incompleteRawLine.length;
 
       // catch-up 범위는 handoff 시점의 확정된 물리 줄까지만 읽습니다. 마지막 논리 줄을 일반 tail처럼
       // 100ms 뒤에 처리하면 동기화 완료 응답 직후 오늘의 요약/모험일지를 조회했을 때 추가분이 잠시
@@ -372,7 +390,9 @@ export class ChatLogManager {
           rawLine = Buffer.concat([incompleteRawLine, rawLine]);
           incompleteRawLine = Buffer.alloc(0);
         }
-        this.consumeDecodedLine(iconv.decode(rawLine, this._chatLogEncoding));
+        const end=this._tailSourceOffset+rawLine.length+1;
+        this.consumeDecodedLine(iconv.decode(rawLine, this._chatLogEncoding).replace(/\r$/,''),this.source(token.filePath,this._tailSourceOffset,end));
+        this._tailSourceOffset=end;
       });
       tail.on('error', (error) => {
         log(`[CHAT_LOG] Tail 오류: ${error}`);
@@ -389,6 +409,7 @@ export class ChatLogManager {
       return {
         startOffset: safeStartOffset,
         handoffOffset,
+        completedOffset: handoffOffset-incompleteRawLine.length,
         processedBytes: handoffOffset - safeStartOffset,
       };
     } catch (error) {
@@ -470,16 +491,23 @@ export class ChatLogManager {
         follow: true,
         useWatchFile: true, // 네트워크 드라이브나 특정 윈도우 환경 대응
         fsWatchOptions: { interval: 1000 },
-        encoding: 'binary' // 원본 바이너리 보존을 위해 binary로 읽음
+        encoding: 'binary', // 원본 바이너리 보존을 위해 binary로 읽음
+        separator: '\n', // CR도 원본 byte 위치에 포함한 뒤 디코딩 시 제거한다.
       });
 
       this._tail = tail;
+      this._sourceFingerprint=prepareProfileLogSource(filePath,formatLocalDateKey());
+      this._tailSourceOffset=Math.trunc((tail as Tail & TailRuntimeState).currentCursorPos || 0);
       tail.on('line', (data: string) => {
         this._tailRetryAttempts = 0;
         // 바이너리 문자열을 Buffer로 변환 후 초기 파일에서 판별한 문자셋으로 디코딩
         const buffer = Buffer.from(data, 'binary');
-        const decodedLine = iconv.decode(buffer, this._chatLogEncoding);
-        this.consumeDecodedLine(decodedLine);
+        const decodedLine = iconv.decode(buffer, this._chatLogEncoding).replace(/\r$/,'');
+        const cursor=(tail as Tail & TailRuntimeState).currentCursorPos;
+        if (cursor!==undefined && cursor<this._tailSourceOffset) {this._tailSourceOffset=0;this._sourceFingerprint=undefined;}
+        const end=this._tailSourceOffset+buffer.length+1;
+        this.consumeDecodedLine(decodedLine,this.source(filePath,this._tailSourceOffset,end));
+        this._tailSourceOffset=end;
       });
 
       tail.on('error', (error) => {
@@ -517,12 +545,18 @@ export class ChatLogManager {
     }, delayMs);
   }
 
-  private consumeDecodedLine(decodedLine: string): void {
+  private consumeDecodedLine(decodedLine: string,source?:ProfileLogSource): void {
     if (this._normalizerFlushTimer) {
       clearTimeout(this._normalizerFlushTimer);
       this._normalizerFlushTimer = null;
     }
-    this._lineNormalizer.push(decodedLine).forEach(line => this.processNormalizedLine(line));
+    const hadPending=this._lineNormalizer.hasPending(),previous=this._pendingProfileSource;
+    const output=this._lineNormalizer.push(decodedLine);
+    output.forEach((line,index)=>{
+      const origin=hadPending && index===0 ? previous && source ? {...previous,end:output.length===1 && !this._lineNormalizer.hasPending() ? source.end : previous.end} : previous : source;
+      this.processNormalizedLine(line,origin);
+    });
+    this._pendingProfileSource=this._lineNormalizer.hasPending() ? hadPending && !output.length && previous && source ? {...previous,end:source.end} : source : undefined;
     if (this._lineNormalizer.hasPending() && !this._syncCatchUpActive) {
       this._normalizerFlushTimer = setTimeout(() => {
         this._normalizerFlushTimer = null;
@@ -532,16 +566,17 @@ export class ChatLogManager {
   }
 
   private flushPendingNormalizedLine(): void {
-    this._lineNormalizer.flush().forEach(line => this.processNormalizedLine(line));
+    this._lineNormalizer.flush().forEach(line => this.processNormalizedLine(line,this._pendingProfileSource));
+    this._pendingProfileSource=undefined;
   }
 
-  private processNormalizedLine(line: string): void {
+  private processNormalizedLine(line: string,source?:ProfileLogSource): void {
     // 회복 로그 등 너무 빈번한 로그는 결합이 끝난 뒤 1차로 제외합니다.
     if (line.includes('회복되었습니다')) return;
     this._todayLines.push(line);
     this._todayLineChars += line.length + 1;
     this.trimRecentHistoryIfNeeded();
-    chatParser.parseLine(line);
+    withProfileLogSource(source,()=>chatParser.parseLine(line));
   }
 
   private trimRecentHistoryIfNeeded(): void {

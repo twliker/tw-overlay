@@ -73,75 +73,6 @@ function checkDetectedHomeworkSummary(cfg: any): void {
   } finally { cfg.saveImmediate(original); }
 }
 
-function checkActivityBuffRestoration(cfg: any, activity: any): void {
-  const original = cfg.load();
-  const defaults = built('modules/constants').DEFAULT_CONFIG;
-  const ids: string[] = JSON.parse(fs.readFileSync(path.join(root, 'dist/assets/data/buffs.json'), 'utf8')).map((buff: any) => buff.id);
-  const buffId = 'exp_potato_900';
-  assert.ok(ids.includes(buffId));
-  assert.equal(defaults.buffTimerBuffs[buffId], undefined, '기본 ON이지만 명시적 설정 키가 없는 실제 버프를 검사합니다.');
-  const { buffTimerManager: manager } = isolatedModule('buffTimerManager', {
-    './config': cfg, './windowMessaging': { findFirstWindowByPage: () => null, sendToFirstWindowByPage() {} },
-  });
-  manager.loadBuffDefs();
-  const save = (patch: any) => {
-    const sanitized = cfg.sanitizeExternalConfigPatch(patch);
-    assert.ok(sanitized);
-    assert.equal(cfg.saveConfirmed(sanitized), true);
-  };
-  const apply = (settings: any) => {
-    // 기존 sparse 프리셋을 실제 파일에 보관하고 다시 읽어, IPC와 같은 검증·확정 저장 경로로 적용한다.
-    save({ activityPresets: [{ id: 'buff-round-trip', name: '버프 복원', updatedAt: 1, openWindows: [], settings }] });
-    const disk = JSON.parse(fs.readFileSync(built('modules/constants').get_CONFIG_PATH(), 'utf8'));
-    const before = cfg.load();
-    const snapshot = structuredClone(disk.activityPresets[0].settings);
-    const patch = activity.mergeActivitySettings(before, disk.activityPresets[0].settings);
-    assert.deepEqual(disk.activityPresets[0].settings, snapshot, '복원 중 저장 프리셋을 변경하면 안 됩니다.');
-    assert.deepEqual(cfg.load(), before, '복원 패치 계산 중 현재 설정을 변경하면 안 됩니다.');
-    save(patch);
-    manager.refreshConfig();
-    return JSON.parse(fs.readFileSync(built('modules/constants').get_CONFIG_PATH(), 'utf8'));
-  };
-  try {
-    const on = Object.fromEntries(ids.map(id => [id, true]));
-    const off = Object.fromEntries(ids.map(id => [id, false]));
-    const sparse = { buffTimerBuffs: activity.captureActivitySettings(defaults).buffTimerBuffs };
-    save({ buffTimerEnabled: true, buffTimerBuffs: off, pinnedNoteText: '보존할 개인 메모' });
-    manager.activateBuff(buffId);
-    assert.equal(manager.getActiveBuffs().length, 0);
-    let restored = apply(sparse);
-    for (const id of ids) assert.equal(restored.buffTimerBuffs[id], true, `${id}: 기본 ON 프리셋 복원 누락`);
-    manager.activateBuff(buffId);
-    assert.ok(manager.getActiveBuffs().some((buff: any) => buff.buffId === buffId), '실제 버프 감지도 다시 켜져야 합니다.');
-    manager.deactivateBuff(buffId);
-
-    save({ buffTimerBuffs: on });
-    restored = apply({ buffTimerBuffs: off });
-    for (const id of ids) assert.equal(restored.buffTimerBuffs[id], false, `${id}: 명시적 OFF 복원 누락`);
-    manager.activateBuff(buffId);
-    assert.equal(manager.getActiveBuffs().length, 0, 'OFF 프리셋은 실제 버프 감지도 끕니다.');
-
-    const mixed = Object.fromEntries(ids.map((id, index) => [id, index % 2 === 0]));
-    restored = apply({ buffTimerBuffs: mixed });
-    for (const id of ids) assert.equal(restored.buffTimerBuffs[id], mixed[id]);
-    assert.equal(restored.pinnedNoteText, '보존할 개인 메모');
-    assert.equal(restored.selectedCharacterId, original.selectedCharacterId);
-
-    save({ buffTimerBuffs: { future_buff_fixture: false, [buffId]: false } });
-    restored = apply({ buffTimerBuffs: {} });
-    assert.equal(restored.buffTimerBuffs.future_buff_fixture, true, '저장 후 추가된 ID도 생략의 기본 ON 의미를 복원합니다.');
-    assert.equal(restored.buffTimerBuffs[buffId], true);
-    save({ buffTimerBuffs: { [buffId]: false } });
-    restored = apply({ xpAutoPauseEnabled: true });
-    assert.equal(restored.buffTimerBuffs[buffId], false, '버프 맵 자체가 없는 부분 프리셋은 기존 버프 설정을 유지합니다.');
-    save({ buffTimerBuffs: { [ids[0]]: false, [ids[1]]: false } });
-    save({ buffTimerBuffs: { [ids[0]]: true } });
-    assert.equal(cfg.load().buffTimerBuffs[ids[1]], false, '일반 부분 저장의 병합 규칙은 그대로 유지해야 합니다.');
-  } finally {
-    manager.stop();
-    cfg.saveConfirmed(original);
-  }
-}
 
 /** 실제 창 bounds → 프로덕션 캡처 → 디스크 저장 → 프로덕션 복원 → 네이티브 bounds를 비교한다.
  * 게임/디스플레이 조회만 격리하며 캡처·크기 정책·복원은 모의 함수로 대체하지 않는다.
@@ -303,14 +234,14 @@ async function main(): Promise<void> {
   assert.equal(rows.find((row: any) => row.sender === '유저1').shout_kind, 'free');
   diary.closeDb();
   const cfg = built('modules/config');
+  const ipcSource = fs.readFileSync(path.join(root,'src/modules/ipcHandlers.ts'),'utf8');
   checkDetectedHomeworkSummary(cfg);
   const activity = built('shared/activityPresets');
   checkActivityWindowSizes(cfg, activity);
-  checkActivityBuffRestoration(cfg, activity);
   const captured = activity.captureActivitySettings({ xpAutoPauseEnabled: true, positions: { xpHud: { offsetX: 20, offsetY: 40 }, settings: { offsetX: 99, offsetY: 88 } }, nicknameNotes: notes, pinnedNoteText: '개인 메모', discordWebhookUrl: '비공개', selectedCharacterId: '부캐', activityPresets: [] });
   assert.deepEqual(captured, { positions: { xpHud: { offsetX: 20, offsetY: 40 } }, xpAutoPauseEnabled: true });
   const profile = { id: 'hunting', name: '사냥', updatedAt: 1, settings: captured, openWindows: ['xpHud'] };
-  assert.ok(cfg.sanitizeExternalConfigPatch({ activityPresets: [profile] }));
+  assert.equal(cfg.sanitizeExternalConfigPatch({ activityPresets: [profile] }), null);
   assert.equal(cfg.sanitizeExternalConfigPatch({ activityPresets: [{ ...profile, settings: { xpAutoPauseSeconds: -1 } }] }), null);
   assert.equal(cfg.sanitizeExternalConfigPatch({ activityPresets: [{ ...profile, settings: { activityPresets: [] } }] }), null);
   assert.equal(cfg.sanitizeExternalConfigPatch({ activityPresets: [{ ...profile, openWindows: ['settings'] }] }), null);
@@ -318,109 +249,6 @@ async function main(): Promise<void> {
   const restored = activity.mergeActivitySettings({ positions: { settings: { offsetX: 99, offsetY: 88 } }, selectedCharacterId: '부캐' }, captured);
   assert.deepEqual(restored.positions, { settings: { offsetX: 99, offsetY: 88 }, xpHud: { offsetX: 20, offsetY: 40 } });
   assert.equal(restored.selectedCharacterId, undefined);
-  // 실제 IPC 구현을 격리해 저장 실패·갱신·전환 시 기록 보존을 검증한다.
-  const ipcSource = fs.readFileSync(path.join(root, 'src/modules/ipcHandlers.ts'), 'utf8');
-  const ipcStart = ipcSource.indexOf('  type ApplySettingsResult =');
-  const handlers = new Map<string, (...args: any[]) => any>();
-  const state: any = { ...built('modules/constants').DEFAULT_CONFIG, activityPresets: [], selectedCharacterId: 'keep-character', pinnedNoteText: 'keep-note', xpAutoPauseEnabled: true, abandonedEnabled: true, chatOverlayClickThrough: true };
-  let saveFails = false;
-  let automaticSaves = 0;
-  const layouts: string[][] = [];
-  const fixtureConfig = {
-    load: () => structuredClone(state), loadFields: () => structuredClone(state),
-    sanitizeExternalConfigPatch: (patch: unknown) => cfg.sanitizeExternalConfigPatch(structuredClone(patch)), getLastSaveError: () => 'fixture',
-    save: (patch: any) => { automaticSaves++; Object.assign(state, patch); },
-    saveConfirmed: (patch: any) => { if (saveFails) return false; Object.assign(state, patch); return true; },
-  };
-  const { abandonedTracker: abandoned } = isolatedModule('abandonedTracker', {
-    './config': fixtureConfig, './chatParser': { chatParser: parser }, './windowMessaging': { broadcastToAllWindows() {} },
-  });
-  abandoned.start();
-  const runtime = isolatedModule('runtimeSettings', {
-    './abandonedTracker': { abandonedTracker: abandoned }, './shortcutManager': { reloadShortcuts() {} },
-    './galleryMonitor': { updateWindows() {} }, './tradeMonitor': { updateWindows() {} },
-    './analytics': { analytics: { refreshEnabledState() {}, trackEvent() {} } }, './autoStart': { setupAutoStart() {} },
-    './diaryDb': { cleanOldDiaryData() {} }, './windowMessaging': { broadcastToAllWindows() {} },
-  });
-  const nativeWindow = () => ({
-    mouse: [] as boolean[], sent: [] as any[], isDestroyed: () => false,
-    setIgnoreMouseEvents(ignore: boolean) { this.mouse.push(ignore); },
-    getBounds: () => ({ x: 0, y: 0, width: 600, height: 300 }), setBounds() {}, setOpacity() {}, close() {},
-    webContents: { send: (...args: any[]) => {} },
-  });
-  const windows = Object.fromEntries(['chatOverlay', 'chatOverlaySub', 'chatOverlaySub2', 'dock', 'settings', 'contentsChecker'].map(key => [key, nativeWindow()]));
-  const browser = nativeWindow(), sidebar = nativeWindow();
-  for (const win of [browser, sidebar, ...Object.values(windows)]) win.webContents.send = (...args) => { win.sent.push(args); };
-  const wmSource = fs.readFileSync(path.join(root, 'src/modules/windowManager.ts'), 'utf8');
-  const wmContext = vm.createContext({
-    contentsWindowCollapse: new (built('modules/contentsWindowCollapse').ContentsWindowCollapse)(),
-    config: fixtureConfig, overlayWindow: browser, mainWindow: sidebar, gameOverlayWindow: null,
-    windowRegistry: Object.fromEntries(Object.entries(windows).map(([key, ref]) => [key, { ref }])),
-    buffTimerManager: { refreshConfig() {} }, physicalGameRect: null, gameRect: null, isClickThrough: true,
-    isChatOverlayVisible: false, isChatOverlaySubVisible: false, isChatOverlaySub2Visible: false, isContentsCheckerVisible: false,
-    isGameFullscreen: false, isApplyingSize: false, isToolbarShown: true, MIN_W: 200, MIN_H: 120, updateViewBounds() {},
-    log() {}, require: () => ({ updateTrayMenu() {} }), setTimeout() {}, tracker: { getGameHwnd: () => null },
-    applyRuntimeModePositions() {}, getModePositions: () => ({}), getActiveMode: () => 'windowed', resizeBounds: (bounds: unknown) => bounds,
-  });
-  vm.runInContext(ts.transpileModule(wmSource.slice(wmSource.indexOf('export function applySettings('), wmSource.indexOf('export function toggleSidebar(')).replace(/export /g, ''),
-    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, wmContext);
-  vm.runInNewContext(ts.transpileModule(ipcSource.slice(ipcStart, ipcSource.indexOf('  function broadcastChatLogStatus()', ipcStart)), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
-    ipcMain: { on() {}, handle: (name: string, handler: any) => handlers.set(name, handler) },
-    config: fixtureConfig,
-    isActivityPresets: activity.isActivityPresets, mergeActivitySettings: activity.mergeActivitySettings,
-    randomUUID: () => 'new-preset', isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, applyRuntimeSettings: runtime.applyRuntimeSettings, broadcastChatLogStatus() {},
-    wm: { getSettingsWindow: () => null, isAnyUserDragging: () => false,
-      captureActivityLayout: () => ({ settings: activity.captureActivitySettings(state), openWindows: ['xpHud'] }),
-      restoreActivityLayout: (windows: string[]) => layouts.push(Array.from(windows)),
-      applySettings: wmContext.applySettings },
-  });
-  assert.equal(handlers.get('activity-preset-save')!({}, '사냥').success, true);
-  state.xpAutoPauseEnabled = false;
-  assert.equal(handlers.get('activity-preset-save')!({}, '사냥 이름 변경', 'new-preset', true).success, true);
-  assert.equal(state.activityPresets[0].settings.xpAutoPauseEnabled, true, '이름 변경이 저장된 프리셋 내용을 덮어쓰면 안 됩니다.');
-  const entry = (count: number) => parser.parseLine(`<font size="2" color="white"> [22시 38분 01초] </font><font>이번 주 어벤던로드 카디프 지역의 도전 횟수는 ${count}번 입니다.</font></br>`);
-  entry(1);
-  abandoned.setEnabled(false);
-  assert.equal(wmContext.toggleClickThrough(), false);
-  const writesBeforePreset = automaticSaves;
-  const mouseCallsBeforeFailure = browser.mouse.length;
-  saveFails = true;
-  assert.equal(handlers.get('activity-preset-apply')!({}, 'new-preset').success, false);
-  assert.equal(layouts.length, 0);
-  assert.equal(state.xpAutoPauseEnabled, false);
-  assert.equal(abandoned.getState().isEnabled, false);
-  assert.equal(wmContext.isClickThrough, false);
-  assert.equal(browser.mouse.length, mouseCallsBeforeFailure, '저장 실패 시 실제 창의 입력 상태도 그대로 유지해야 합니다.');
-  entry(2);
-  assert.equal(abandoned.getState().regions['카디프'], 1);
-  saveFails = false;
-  assert.equal(handlers.get('activity-preset-apply')!({}, 'new-preset').success, true);
-  assert.deepEqual(layouts, [['xpHud']]);
-  assert.equal(state.xpAutoPauseEnabled, true);
-  assert.equal(state.selectedCharacterId, 'keep-character');
-  assert.equal(state.pinnedNoteText, 'keep-note');
-  assert.equal(abandoned.getState().isEnabled, true);
-  assert.equal(abandoned.getState().regions['카디프'], 1, '프리셋 적용은 기존 측정 기록을 초기화하지 않습니다.');
-  assert.equal(automaticSaves, writesBeforePreset, '저장이 확정된 프리셋은 런타임 적용 중 다시 저장하지 않습니다.');
-  entry(3);
-  assert.equal(abandoned.getState().regions['카디프'], 3);
-  for (const win of [browser, windows.chatOverlay, windows.chatOverlaySub, windows.chatOverlaySub2]) assert.equal(win.mouse.at(-1), true);
-  for (const win of [browser, sidebar, windows.dock]) assert.equal(win.sent.filter(args => args[0] === 'click-through-status').at(-1)[1], true);
-  assert.equal(wmContext.isToolbarShown, false);
-  assert.equal(wmContext.toggleClickThrough(), false, '프리셋 직후 첫 단축키로 투과를 해제해야 합니다.');
-  abandoned.setEnabled(false);
-  assert.equal(handlers.get('activity-preset-save')!({}, '꺼짐', 'new-preset').success, true);
-  abandoned.setEnabled(true);
-  assert.equal(wmContext.toggleClickThrough(), true);
-  assert.equal(handlers.get('activity-preset-apply')!({}, 'new-preset').success, true);
-  assert.equal(abandoned.getState().isEnabled, false);
-  assert.equal(abandoned.getState().isActive, false);
-  entry(4);
-  assert.equal(abandoned.getState().regions['카디프'], 3, '꺼짐 프리셋은 새 로그 수집을 멈추되 기존 기록을 유지합니다.');
-  for (const win of [browser, windows.chatOverlay, windows.chatOverlaySub, windows.chatOverlaySub2]) assert.equal(win.mouse.at(-1), false);
-  assert.equal(wmContext.toggleClickThrough(), true, '꺼짐 프리셋 직후 첫 단축키로 투과를 켜야 합니다.');
-  assert.equal(handlers.get('activity-preset-delete')!({}, 'new-preset').success, true);
-  assert.equal(state.activityPresets.length, 0);
   assert.ok(cfg.sanitizeExternalConfigPatch({ notificationPositions: { center: 'top-right', buff: 'default', hunting: 'top-left', toast: 'bottom-right' } }));
   assert.equal(cfg.sanitizeExternalConfigPatch({ notificationPositions: { center: 'offscreen', buff: 'default', hunting: 'top-left', toast: 'bottom-right' } }), null);
   assert.equal(cfg.sanitizeExternalConfigPatch({ notificationPositions: { center: 'top-right' } }), null);
@@ -509,7 +337,7 @@ async function main(): Promise<void> {
     chatLogManager._todayLines = previousLines;
     cfg.saveConfirmed(previousConfig);
   }
-  console.log('Companion features: shout filters, ETA colors, memos, supply guide and activity presets passed.');
+  console.log('Companion features: shout filters, ETA colors, memos, supply guide, layout compatibility and retired preset input rejection passed.');
   app.exit(0);
 }
 void main().catch(error => { console.error(error); app.exit(1); });

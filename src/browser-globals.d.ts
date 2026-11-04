@@ -323,6 +323,9 @@ interface Window {
   settingsAudioControls: SettingsAudioControls;
   settingsConfigBinding: SettingsConfigBinding;
   settingsDraft: {
+    setOwner(profileId: string | null): void;
+    fieldIds(): string[];
+    hasChanges(extras: Record<string, any>): boolean;
     initializeNewFields(): void;
     beforeSave(fieldIds: string[], extras?: Record<string, any>, readExtras?: () => Record<string, any>): { commit(): void };
     beforeRefresh(extras: Record<string, any>, savedFieldIds?: string[]): { restore(extras: Record<string, any>): Record<string, any> };

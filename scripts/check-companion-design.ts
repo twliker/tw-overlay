@@ -225,24 +225,6 @@ async function main(): Promise<void> {
   await settle(win, '!document.querySelector("dialog").open');
   assert.equal(config.load().nicknameNotes.find((note: any) => note.server === 16).note, '조회 실패 중에도 저장');
 
-  await loadMarkup(win, 'settings.html');
-  await win.webContents.executeJavaScript(`
-    document.body.replaceChildren(document.getElementById('activity-presets-card'));
-    document.body.style.cssText='padding:24px;overflow:auto;height:auto';
-    ${code('renderer/settings/activity-presets.js')}
-    settingsActivityPresets.bind({showXpWidget:true, activityPresets:[
-      {id:'hunt',name:'사냥 준비 · 창 배치와 알림',openWindows:['chatOverlay','xpHud','buffTimer'],settings:{showXpWidget:true},updatedAt:0},
-      {id:'boss',name:'보스 공략',openWindows:['contentsChecker','chatOverlay'],settings:{showXpWidget:false},updatedAt:0}
-    ]});
-  `);
-  assert.equal(await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.ui-preset-detail')).every(el=>el.hidden)`), true);
-  await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#activity-preset-list button')).find(el=>el.textContent==='상세').click()`);
-  assert.match(await win.webContents.executeJavaScript(`document.querySelector('.ui-preset-detail').textContent`), /현재와 같습니다/);
-  assert.equal(await win.webContents.executeJavaScript(`document.documentElement.scrollWidth <= innerWidth`), true);
-  await capture(win, 'presets-narrow.png');
-  win.setContentSize(1000, 720);
-  await settle(win, 'innerWidth === 1000');
-  await capture(win, 'presets.png');
   win.destroy();
   console.log('Companion design: actual Electron/preload/IPC, cache, persistence, HUD snap/save/failure/cancel/stale response and input policy passed.');
   app.exit(0);

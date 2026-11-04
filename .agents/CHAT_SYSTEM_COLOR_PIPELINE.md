@@ -29,6 +29,8 @@
 
 `src/modules/chatParser.ts`, `chatLogProcessor.ts`, `chatLogManager.ts`를 거치며 다음과 같이 단계별로 처리됩니다:
 
+개발 중인 프로필 연결은 `profileParserEvents.ts`에서 기록/추적기 소유 소비자만 분기합니다. `SEED_GAINED`·`ITEM_LOOTED`·`XP_CHANGED`의 표시용 채팅은 raw parser에서 기존 색상으로 즉시 발행하고 프로필 대기 재생으로 다시 발행하지 않습니다. 이 분기는 아래 색상 결정/탭 분류 규칙을 바꾸지 않습니다.
+
 ```mermaid
 flowchart TD
     A[원본 로그 1줄 수집] --> B[HTML 태그 제거 및 본문 color 추출]

@@ -8,6 +8,8 @@
     <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
+  <link rel="stylesheet" href="assets/diary-profiles.css">
+  <script src="renderer/diary-profiles.js"></script>
   <style>
     body {
       font-family: 'Pretendard', sans-serif;
@@ -307,6 +309,7 @@
           </div>
         </div>
       </div>
+      <div id="stone-record-profile" hidden></div>
       <button id="save-diary-btn" onclick="saveToDiary()" class="w-full mt-4 py-2.5 bg-orange-500/20 text-orange-400 hover:bg-orange-500 hover:text-white rounded-xl text-[13px] font-black transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2">
         <i data-lucide="book-open-check" class="w-4 h-4"></i>
         일지에 수익 기록
@@ -322,6 +325,7 @@
     let config = null;
     let currentOverlayEnabled = true;
     let diarySavePending = false;
+    const stoneRecordProfile = window.diaryProfiles.target(document.getElementById('stone-record-profile'), {compact:true,scope:document.body});
     const diarySaveButtonHtml = document.getElementById('save-diary-btn').innerHTML;
 
     const GRADE_IMGS = {
@@ -552,6 +556,7 @@
     }
 
     function fillFromSession() {
+      stoneRecordProfile.holdDraft();
       if (window.electronAPI && window.electronAPI.abandonedGetState) {
         window.electronAPI.abandonedGetState().then(state => {
           if (!state) return;
@@ -619,13 +624,18 @@
       btn.disabled = true;
       btn.textContent = '기록 중...';
       try {
-        const rowId = await window.electronAPI.diaryAddActivity(date, time, 'calc', content, amount);
+        const target = stoneRecordProfile.capture();
+        stoneRecordProfile.lock(true);
+        const profileId = await target;
+        const rowId = await window.electronAPI.diaryAddActivity(date, time, 'calc', content, amount, profileId);
         if (!Number.isSafeInteger(rowId) || rowId <= 0) throw new Error('Diary save failed');
       } catch {
         btn.textContent = '기록 실패 · 다시 시도';
         btn.disabled = false;
         diarySavePending = false;
         return;
+      } finally {
+        stoneRecordProfile.lock(false);
       }
 
       const isMuted = Boolean(config && config.masterMute);
