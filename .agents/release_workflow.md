@@ -10,6 +10,7 @@
 
 - 버전은 `X.Y.Z-beta.N` 등 프리릴리즈 형식으로 package.json·package-lock.json 루트·설정 화면·공지·README·릴리즈 노트를 맞춘다. `build.publish`의 GitHub `channel`도 베타는 `beta`, 정식은 `latest`(또는 생략)로 맞춘다. 기존 태그는 재사용하지 않는다.
 - 로컬에서는 이번 배포 변경의 타입 검사·빌드·관련 회귀와 비밀 파일/생성물 제외를 확인한다. 설치 파일 생성과 전체 자동 검사·부하·프로덕션 의존성 검사는 기존 Actions가 수행한다. 실패한 검사를 skip/continue-on-error로 우회하지 않는다.
+- CI offscreen 화면 캡처의 GPU 종료/UnknownVizError는 실패 로그를 보존하고 해당 검사의 렌더링 설정을 점검한다. `check-profile-settings-pages.ts`는 앱 ready 전 `app.disableHardwareAcceleration()`으로 software output device를 사용하고 비어 있지 않은 캡처를 필수로 확인한다. 제품의 그래픽 설정이나 실제 Windows 창 검사를 이 설정으로 대체하지 않는다. 실패한 원격 태그는 재작성하지 않고 수정된 새 `beta.N`으로 검증한다.
 - 실계정 Google·실제 PC 2대·실게임·관리자 권한·실제 설치 업데이트는 해당 설치본으로 확인할 항목이다. 미검증 상태를 릴리즈 노트에 명시하고 정식 배포 전에 완료한다.
 - 현재 작업 브랜치와 베타 태그만 푸시한다. main 병합이나 기존 태그 재작성은 이 절차에 포함하지 않는다.
 - Actions는 `scripts/release-channel.ts`로 태그·앱 버전·GitHub publish.channel의 일치를 확인한다. GitHub provider의 채널을 명시해 베타의 `beta.yml`, 정식의 `latest.yml`처럼 해당 파일만 생성/업로드한다. 베타는 `prerelease: true`, `make_latest: false`로 Draft를 만든다. 정식 사용자는 베타를 직접 선택해 설치한다.

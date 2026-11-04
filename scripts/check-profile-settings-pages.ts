@@ -4,6 +4,10 @@ import fs = require('node:fs');
 import os = require('node:os');
 import path = require('node:path');
 import {app,BrowserWindow,ipcMain,dialog} from 'electron';
+// 여러 offscreen 창의 GPU→CPU 캡처가 Windows CI에서 GPU 종료/UnknownVizError로
+// 중단되지 않도록 Electron의 software output device를 사용한다. 제품 앱에는 적용하지 않는다.
+// https://www.electronjs.org/docs/latest/tutorial/offscreen-rendering#software-output-device
+app.disableHardwareAcceleration();
 const root=path.resolve(__dirname,'..'),fixture=fs.mkdtempSync(path.join(os.tmpdir(),'tw-profile-settings-pages-'));
 const output=path.join(root,'output/profile-settings-pages');
 app.setPath('userData',fixture);app.on('window-all-closed',() => {});
@@ -16,6 +20,11 @@ async function until(win:BrowserWindow,code:string):Promise<void> {
 }
 async function main():Promise<void> {
   await app.whenReady();fs.mkdirSync(output,{recursive:true});
+  assert.equal(app.isHardwareAccelerationEnabled(),false,'offscreen 검사는 GPU에 의존하지 않아야 합니다.');
+  const capture=async(win:BrowserWindow,name:string)=>{
+    const image=await win.webContents.capturePage();assert.equal(image.isEmpty(),false,`${name}: 화면 캡처가 비었습니다.`);
+    fs.writeFileSync(path.join(output,name),image.toPNG());
+  };
   const config=built('modules/config'),diary=built('modules/diaryDb'),defaults=built('modules/constants').DEFAULT_CONFIG;
   assert.equal(config.saveConfirmed({...structuredClone(defaults),analyticsEnabled:false,userServer:7,
     chatOverlayEnabled:false,chatOverlaySubEnabled:false,chatOverlaySub2Enabled:false,contentsCheckerEnabled:false,showXpWidget:false,showBuffHud:false,showTodaySummaryHud:false,pinnedNoteEnabled:false,
@@ -152,16 +161,16 @@ async function main():Promise<void> {
     assert.equal(service.update(b.id,'표시 이름 <변경>',16).success,true);await allReady(b.id);
     for (let index=0;index<windows.length;index++) {
       const win=windows[index];win.setSize(800,600);await pause(130);
-      fs.writeFileSync(path.join(output,files[index].replace('.html','-800.png')),(await win.webContents.capturePage()).toPNG());
+      await capture(win,files[index].replace('.html','-800.png'));
       assert.equal(await js(win,`(()=>{const r=document.querySelector('.profile-settings-context').getBoundingClientRect();return r.top>=0 && r.bottom<=innerHeight && getComputedStyle(document.querySelector('.profile-settings-context')).fontSize==='14px' && document.documentElement.scrollWidth<=innerWidth;})()`),true);
       assert.match(await js(win,`document.querySelector('.profile-settings-context').textContent`),/표시 이름 <변경>/);
     }
     await js(hunting,`document.getElementById('add-doping-btn').click();document.getElementById('editor-name').value='도핑 입력 확인'`);
-    await pause(100);fs.writeFileSync(path.join(output,'hunting-editor-800.png'),(await hunting.webContents.capturePage()).toPNG());
+    await pause(100);await capture(hunting,'hunting-editor-800.png');
     assert.equal(await js(hunting,`(()=>{const r=document.querySelector('#editor-form button[type="submit"]').getBoundingClientRect();return r.top>0 && r.bottom<innerHeight;})()`),true);
     await js(hunting,`document.getElementById('cancel-editor-btn').click()`);
     await js(alerts,`openAddForm();document.getElementById('form-message').value='알림 입력 확인'`);
-    await pause(100);fs.writeFileSync(path.join(output,'custom-alert-editor-800.png'),(await alerts.webContents.capturePage()).toPNG());
+    await pause(100);await capture(alerts,'custom-alert-editor-800.png');
     assert.equal(await js(alerts,`(()=>{const r=document.getElementById('save-btn').getBoundingClientRect();return r.top>0 && r.bottom<innerHeight;})()`),true,'minimum-size custom alert editor must keep Save visible');
     console.log('PASS profile settings pages: five real pages, per-profile restore, Save/Discard/Cancel, failed/retried forms, partial ACK, next draft, stale owner/ACK/sound and minimum-size UI');
   } finally {

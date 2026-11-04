@@ -15,7 +15,7 @@
 
 ## Actions 및 설치본에서 확인할 항목
 
-- [ ] 이번 태그의 전체 자동 검사·부하 검사·프로덕션 의존성 검사 완료
+- [ ] 이번 태그의 전체 자동 검사·부하 검사·프로덕션 의존성 검사 완료 — [CI 실행](https://github.com/twliker/tw-overlay/actions/runs/41787833688)의 profile-settings-pages 화면 캡처에서 GPU 종료/UnknownVizError로 실패. 이후 부하/의존성/패키징은 미실행. 수정본은 beta.2에서 검증한다.
 - [ ] 베타 설치 파일·blockmap·beta.yml이 포함된 프리릴리즈 Draft 생성
 - [ ] 실제 Google OAuth·왕복·첫 복원·충돌 해결
 - [ ] 실제 PC 2대의 다른 프로필/같은 프로필 동시 사용·종료/재접속

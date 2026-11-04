@@ -1,5 +1,5 @@
 {
-  "version": "3.5.0-beta.1",
+  "version": "3.5.0-beta.2",
   "title": "프로필·Google 동기화 테스트 버전 안내",
   "date": "2026-11-04",
   "summary": "프로필과 Google 동기화를 두 PC에서 확인하기 위한 베타 버전입니다. 설치 전 각 PC의 데이터를 ZIP으로 백업해 주세요.",
