@@ -16,4 +16,18 @@ beta.2의 [CI 실행](https://github.com/twliker/tw-overlay/actions/runs/4178898
 - 순간 유입/지속 유입 부하 검사 통과.
 - 프로덕션 의존성 critical 기준 audit 통과(critical/high 0, moderate 1).
 
-타입 검사·최종 빌드와 버전/채널 일치를 확인한 뒤 새 브랜치 커밋·태그를 푸시한다. 설치 파일은 Actions가 만들며 전체 CI 결과를 확인한다. 실계정 Google·물리 PC 2대·실게임·관리자 권한·설치 업데이트는 아직 미검증이다. Draft를 자동 게시하지 않는다.
+타입 검사·최종 빌드와 버전/채널 일치를 확인한 뒤 새 브랜치 커밋·태그를 푸시했다. 설치 파일은 Actions가 생성했다. 실계정 Google·물리 PC 2대·실게임·관리자 권한·실제 설치 업데이트는 아직 미검증이다. 작업에서는 게시 명령을 실행하지 않았다.
+
+## CI 최종 결과
+
+2026-11-04 16:32 KST 확인. [beta.3 CI 실행](https://github.com/twliker/tw-overlay/actions/runs/41791269848)은 12분 47초에 전체 성공으로 완료됐다. 빌드 커밋은 `b763310a3047ade886f4771cec2ebc1e3b1d9258`이다.
+
+- [x] 타입 검사 및 전체 npm test 회귀
+- [x] 순간/지속 유입 부하 검사
+- [x] 프로덕션 의존성 critical 기준 audit
+- [x] beta 채널/태그/버전 확인
+- [x] Windows 설치 파일·blockmap·beta.yml 생성 및 Release 첨부
+
+확인 시점 [v3.5.0-beta.3](https://github.com/twliker/tw-overlay/releases/tag/v3.5.0-beta.3)은 `draft=false`, `prerelease=true`였고 정식 latest는 v3.2.2였다. 실제 설치 실행 완료를 뜻하지 않는다.
+
+GitHub가 제공한 설치 파일 메타데이터: `twOverlay-Setup-3.5.0-beta.3.exe`, 128,887,102 bytes, SHA-256 `76d6e72b32102ff5e9bc42d20fa4a40178ed7776ddbf69e74bfa1ee40cfc4966`. 실제 파일을 로컬에서 재빌드하거나 설치한 결과로 표시하지 않는다. 다른 PC·Google 실기는 이 프리릴리즈 설치본으로 진행한다.
