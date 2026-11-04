@@ -17,6 +17,8 @@ npm run test:profiles:proof
 
 ## 요구사항과 검사 연결
 
+아래의 **빈 기본 프로필**은 이름·서버·진행 기록이 비어 있다는 뜻이다. 숙제 목록은 실제 배포 기본 목록 전체를 포함해야 한다. 기본값을 임의 목록으로 바꾼 fixture만으로 이 조건을 통과 처리하지 않는다.
+
 | ID | 사용자 관점의 합격 조건 | 검사 |
 |---|---|---|
 | P01 | 신규 설치는 빈 기본 프로필 하나이며 이름·서버 설정이 필수다. | profile-storage, profiles-ui, profile-lifecycle |
@@ -41,6 +43,7 @@ npm run test:profiles:proof
 | P20 | 완료 원문 정리 후에도 중복 방지 영수증을 유지하고 같은 ID의 다른 내용은 거부한다. | profile-lifecycle, profile-storage |
 | P21 | 구버전 DB 원본·이전 전 백업을 보존하며 만료된 숙제의 정상 초기화는 유지한다. | profile-upgrade |
 | P22 | 패키지의 JS/HTML/CSS/JSON이 현재 빌드와 같고 검사 도구가 포함되지 않는다. 패키지 내부 코드로도 12개 창 조합과 3.2.2 이전을 통과한다. | package-integrity, packaged-windows-matrix, packaged-release-upgrade |
+| P23 | 신규/추가/설정 복사/마지막 삭제의 프로필은 실제 기본 숙제 전체를 표시한다. 이전 베타의 누락은 기존 행·진행·정렬·커스텀·명시 삭제를 보존하며 복구하고, 실패 rollback·별도 재시작 후 중복 방지를 확인한다. | profile-homework-defaults, profile-checklist |
 
 ## 판정 범위
 

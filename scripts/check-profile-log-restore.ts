@@ -134,15 +134,20 @@ async function main():Promise<void> {
 
     // 최종 숙제 저장의 바깥 COMMIT 실패도 설정 메모리와 DB를 함께 되돌린다.
     const resetItems=structuredClone(config.load().contentsCheckerItems);
-    resetItems[0].completedState={[a.id]:{isCompleted:false,currentCount:0}};
+    const targetId='weekly-eternal-floor',targetItem=resetItems.find((item:any)=>item.id===targetId);assert.ok(targetItem);
+    targetItem.completedState={[a.id]:{isCompleted:false,currentCount:0}};
     assert.equal(config.saveConfirmed({contentsCheckerItems:resetItems}),true);
+    const homeworkSnapshot=()=>store.database.prepare('SELECT profile_id,item_id,definition,state,position FROM profile_homework ORDER BY profile_id,item_id').all();
+    const beforeFinalCommit=homeworkSnapshot();
     store.database.exec(`CREATE TABLE restore_commit_fixture(owner TEXT REFERENCES play_profiles(id) DEFERRABLE INITIALLY DEFERRED);
       CREATE TRIGGER fail_restore_final_commit AFTER INSERT ON profile_homework BEGIN INSERT INTO restore_commit_fixture VALUES('missing-owner');END;`);
     await assert.rejects(run(a.id,fresh),/FOREIGN KEY/);assert.equal(service.status().busy,false);
-    assert.equal(config.load().contentsCheckerItems[0].completedState[a.id].currentCount,0);
-    assert.equal(JSON.parse(store.database.prepare('SELECT state FROM profile_homework WHERE profile_id=?').get(a.id).state).currentCount,0);
+    assert.equal(config.load().contentsCheckerItems.find((item:any)=>item.id===targetId).completedState[a.id].currentCount,0);
+    assert.deepEqual(homeworkSnapshot(),beforeFinalCommit,'복원 COMMIT 실패 시 실제 기본 목록 전체와 다른 프로필 상태도 보존');
+    assert.equal(JSON.parse(store.database.prepare('SELECT state FROM profile_homework WHERE profile_id=? AND item_id=?').get(a.id,targetId).state).currentCount,0);
     store.database.exec('DROP TRIGGER fail_restore_final_commit;DROP TABLE restore_commit_fixture');
-    assert.equal((await run(a.id,fresh)).success,true);assert.equal(config.load().contentsCheckerItems[0].completedState[a.id].currentCount,1);
+    assert.equal((await run(a.id,fresh)).success,true);assert.equal(config.load().contentsCheckerItems.find((item:any)=>item.id===targetId).completedState[a.id].currentCount,1);
+    assert.equal(JSON.parse(store.database.prepare('SELECT state FROM profile_homework WHERE profile_id=? AND item_id=?').get(a.id,targetId).state).currentCount,1);
 
     // 실제 설정 화면에서 경고/고정 ID/결과와 작은 창을 확인한다.
     built('modules/ipcHandlers').register();

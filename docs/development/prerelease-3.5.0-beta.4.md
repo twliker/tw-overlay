@@ -20,3 +20,7 @@
 타입 검사·최종 앱 빌드와 기존 `check-refactor-regressions.ts` 파일 단위 검사도 통과했다. `test:profile-checklist` 캡처는 편집 모드를 종료하고 실제 렌더링을 기다린 뒤 기본 목록의 일반 화면을 보관한다.
 
 실제 Google 계정·물리 PC 2대·실게임·관리자 권한·실제 설치 업데이트는 아직 확인하지 않았다. 로컬 관련 검사 결과를 전체 CI나 실기 통과로 표시하지 않는다. 최종 버전/채널 일치를 확인 후 새 태그를 푸시하며 설치 파일은 Actions로 생성한다.
+
+## CI 중단과 후속 수정
+
+[beta.4 CI](https://github.com/twliker/tw-overlay/actions/runs/41796642444)는 실제 기본 목록 복구 및 앞선 저장/백업/설정 검사에 통과한 후 `profile-log-restore`에서 실패했다. 테스트가 숙제 ID 조건 없이 한 행을 읽어 기본 목록의 다른 항목을 읽었다. 설치 파일은 생성하지 않았고 태그를 보존한다. 제품 복구 구현은 유지하고 해당 검사의 ID 지정 및 전체 상태 rollback 검증을 강화한 [beta.5](./prerelease-3.5.0-beta.5.md)에서 다시 검증한다.
