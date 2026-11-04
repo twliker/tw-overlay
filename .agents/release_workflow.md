@@ -85,8 +85,9 @@ npm audit --omit=dev --audit-level=critical
   - `check-profile-settings-pages.ts` / `test:profile-settings-pages`는 사냥 경험치 계산기·경험치 HUD·버프 타이머·보스 설정·커스텀 알림의 실제 HTML/preload/IPC/공유 DB로 프로필별 복원, 저장/버리기/취소, 부분 저장 ACK와 다음 입력, 실패한 새 항목 취소/중복 없는 재시도, 이전 소유자/ACK/알림음 목록, 공통 0% 음량·임의 휴식 시간 보존 및 800×600 화면을 검사합니다. 전체 `npm test`에 포함하며, 기존 5개 화면과 음량 경계만 검사할 때는 `test:settings-pages`를 사용합니다.
   - `check-profile-checklist.ts`는 실제 숙제 HTML/preload/IPC/공유 DB로 프로필 관리 진입점·단일 열, 완료/N/A/정의/정렬, 일지 실패 rollback·같은 요청 재확인·응답 유실, 편집 중 저장/버리기/취소, 다음 입력/원래 귀속/효과음, 일요일·검색·추가 스크롤 및 800×600 화면을 검사합니다. 일상 개발의 기존 숙제 UI는 `npm run test:checklist`로 해당 renderer 검사와 보류 UI만 실행할 수 있습니다. 전체 `test:renderer`도 기존과 같이 이를 포함합니다.
   - `check-profile-stopwatch.ts` / `npm run test:profile-stopwatch`는 실제 관리 창/HUD/preload/IPC/SQLite에서 프로필별 동시 측정·전환/선택 대기, 시작 시 DB 스냅샷·도핑/세션 귀속, 저장 실패 재시도·삭제 보호, 전체/프로필/미배정/삭제 기록, 구형 재계산·늦은 조회·제목 초안/저장 실패와 800×600 표시를 검사합니다. 기존 스톱워치 경로는 `test:stopwatch`로 함께 확인하며 전체 `npm test`에도 포함합니다.
-  - `check-shared-layout.ts`는 실제 설정 공유 UI·파일·IPC와 native 창을 연결하여 로딩 중 배치, 프리셋/다른 창 저장 순서, 숨김·접힘·입력 보존을 검사합니다.
-  - `check-hud-edit-settings.ts`는 전체 설정/HUD UI와 프리셋·공유 파일·IPC·디스크를 연결해 편집 종료 후 최신 배치·표시 상태, 실패·지연 응답·창 닫기를 검사합니다.
+  - `check-shared-layout.ts`는 실제 설정 공유 UI·파일·IPC와 native 창을 연결하여 로딩 중 배치, 공유/다른 창 설정 저장 순서, 숨김·접힘·입력 보존을 검사합니다.
+  - `check-hud-edit-settings.ts`는 전체 설정/HUD UI와 설정 저장·공유 파일·IPC·디스크를 연결해 편집 종료 후 최신 배치·표시 상태, 실패·지연 응답·창 닫기를 검사합니다.
+  - `check-preset-position.ts`의 기존 명령 이름은 유지하되 실제 창 배치 snapshot·설정 저장 IPC·공통 좌표 복원으로 10개 창의 첫 표시·로딩 중 최신 값·다중 모니터·화면 밖 좌표를 검사합니다. 제거한 활동 프리셋 메뉴/IPC를 호출하지 않으며 해당 API 부재도 확인합니다.
 - `npm run test:stress`
   - 초당 100건 이상 burst와 10초간 1,200건 지속 유입에서 채팅·숙제·XP·렌더 DOM 정합성 및 이벤트 루프 지연 검사
 - `npm audit --omit=dev`

@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     canAutomaticallyRestoreGameFocus: () => false, isGameOrAppForeground: () => false,
     reconcileGameZOrder() {}, focusGameWindow: () => false, restoreGameAfterOwnedWindowClose() {} };
   install('tracker', tracker);
-  // Full product HTML, preload, IPC, config persistence, preset/share and windowManager.
+  // Full product HTML, preload, IPC, config persistence, settings/share and windowManager.
   // Only game/focus, native file selection, IPC delivery and a temporary-file failure are controlled.
   const Native = function(options: electron.BrowserWindowConstructorOptions) {
     const win = new BrowserWindow({ ...options, show: false, webPreferences: { ...options.webPreferences,
@@ -124,16 +124,12 @@ async function main(): Promise<void> {
   await exit();
   results.push({ name: 'unrelated settings preserve empty edit previews' });
   await set(second);
-  await js("(()=>{const n=document.getElementById('activity-preset-name');n.value='배치 B';n.dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('activity-preset-save').click();})()");
-  await until(settings, "document.querySelectorAll('#activity-preset-list .ui-preset-row').length===1");
+  assert.equal(await js('typeof electronAPI.applyActivityPreset'),'undefined');
   const shareFile = path.join(fixture, 'hud-layout.json');
   electron.dialog.showSaveDialog = async () => ({ canceled: false, filePath: shareFile });
   electron.dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [shareFile] });
   assert.equal((await js("electronAPI.exportSettingsShare(['layout'])")).success, true);
-  const preset = async () => {
-    await js("document.querySelector('#activity-preset-list .ui-preset-title button').click();true");
-    await until(settings, "document.getElementById('activity-preset-status').textContent.startsWith('적용했습니다')"); await pause();
-  };
+  const applySettingsFromPanel = () => set(second);
   const share = async () => {
     await js("document.getElementById('settings-share-open').click();true");
     await until(settings, "!document.getElementById('settings-share-review').hidden && !document.getElementById('settings-share-compare').disabled");
@@ -142,7 +138,7 @@ async function main(): Promise<void> {
     await js("document.getElementById('settings-share-apply').click();true");
     await until(settings, "document.getElementById('settings-share-status').textContent.startsWith('설정을 적용했습니다')"); await pause();
   };
-  for (const [name, apply] of [['preset', preset], ['share', share], ['other-window', () => set(second, true)]] as const) {
+  for (const [name, apply] of [['settings', applySettingsFromPanel], ['share', share], ['other-window', () => set(second, true)]] as const) {
     for (const save of [false, true]) {
       await set(first); await start(); await apply();
       assert.equal(await hjs("document.getElementById('xp-hud').style.left"), '30px', 'External settings must preserve the active drag draft');
@@ -159,9 +155,9 @@ async function main(): Promise<void> {
   };
   const visible = () => hjs(`Object.fromEntries(${JSON.stringify(Object.keys(specs))}.map(id=>[id,!document.getElementById(id).classList.contains('hidden')]))`);
   const off = { showXpWidget: false, showBuffHud: false, showTodaySummaryHud: false, pinnedNoteEnabled: false, digsiteHudEnabled: false };
-  await set({ ...first, ...off }); await live(false); await start(); await preset(); await live(true); await exit();
+  await set({ ...first, ...off }); await live(false); await start(); await applySettingsFromPanel(); await live(true); await exit();
   assert.deepEqual(await visible(), Object.fromEntries(Object.keys(specs).map(id => [id, true])));
-  results.push({ name: 'OFF to ON preset and live activation', visibility: await visible() });
+  results.push({ name: 'OFF to ON settings and live activation', visibility: await visible() });
   await start(); await set(off, true); await live(false); await exit();
   assert.deepEqual(await visible(), Object.fromEntries(Object.keys(specs).map(id => [id, false])));
   results.push({ name: 'ON to OFF and live completion', visibility: await visible() });
@@ -181,8 +177,8 @@ async function main(): Promise<void> {
   try { assert.equal((await hjs(`electronAPI.applySettingsConfirmed(${JSON.stringify(second)})`)).success, false); }
   finally { fs.renameSync = rename; }
   await exit(); assert.equal(disk().xpWidgetPos.left, first.xpWidgetPos.left); await check('failed external apply/cancel');
-  // Failed HUD save keeps the draft and input; cancel still uses the successful preset.
-  await set(first); await start(); await preset();
+  // Failed HUD save keeps the draft and input; cancel still uses the successful settings.
+  await set(first); await start(); await applySettingsFromPanel();
   fs.renameSync = (from, to) => {
     if (String(from).endsWith('.confirmed.tmp')) throw Object.assign(Error('fixture locked HUD save'), { code: 'EACCES' });
     return rename(from, to);
@@ -205,7 +201,7 @@ async function main(): Promise<void> {
   assert.equal(disk().xpWidgetPos.left, third.xpWidgetPos.left); await check('later write before delayed save reply');
   assert.equal(mouse.get(hud.id), true);
   // Settings close cancels a queued save; its old request must not close a new edit session.
-  await set(first); await start(); await preset(); saved = false;
+  await set(first); await start(); await applySettingsFromPanel(); saved = false;
   beforeSave = new Promise(resolve => { release = resolve; });
   await hjs("document.getElementById('hud-edit-save').click();true");
   await until(hud, "document.getElementById('hud-edit-save').disabled");
@@ -222,7 +218,7 @@ async function main(): Promise<void> {
   await check('share/settings close'); assert.equal(mouse.get(hud.id), true);
   fs.writeFileSync(path.join(output, 'hud-restored.png'), (await hud.webContents.capturePage()).toPNG());
   fs.writeFileSync(path.join(output, 'hud-edit-settings.json'), JSON.stringify({ fixture, results }, null, 2));
-  console.log('HUD edit settings: full UI/preset/share/IPC/disk; all HUD coordinates, visibility/live state, failed/delayed writes, close/cancel/save and stale sessions passed.');
+  console.log('HUD edit settings: full UI/settings/share/IPC/disk; all HUD coordinates, visibility/live state, failed/delayed writes, close/cancel/save and stale sessions passed.');
   BrowserWindow.getAllWindows().forEach(win => win.destroy());
 }
 main().then(() => app.exit(0)).catch(error => { console.error(error); app.exit(1); });

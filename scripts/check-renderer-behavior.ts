@@ -3158,12 +3158,20 @@ async function checkFocusedChatSettings(): Promise<void> {
   });
   // 실제 저장 핸들러를 사용하고 창 배치 부수 효과만 격리한다. 저장 검증을 테스트에 다시 구현하지 않는다.
   const ipcSource = fs.readFileSync(path.join(projectRoot, 'src/modules/ipcHandlers.ts'), 'utf8');
-  const saveStart = ipcSource.indexOf("  ipcMain.handle('nickname-note-save'");
-  const saveEnd = ipcSource.indexOf('  // 기능 계약: 현재 저장 설정만', saveStart);
-  assert.ok(saveStart >= 0 && saveEnd > saveStart);
+  const ts: typeof import('typescript') = require('typescript');
+  const sourceFile = ts.createSourceFile('ipcHandlers.ts', ipcSource, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  const saveCalls: string[] = [];
+  const visit = (node: import('typescript').Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'ipcMain'
+      && node.expression.name.text === 'handle' && node.arguments.length > 0
+      && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === 'nickname-note-save') saveCalls.push(node.getText(sourceFile));
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  assert.equal(saveCalls.length, 1, '실제 메모 저장 IPC 등록이 하나 있어야 합니다. 주변 주석/들여쓰기에 의존하지 않습니다.');
   let saveHandler: (...args: any[]) => any;
-  const ts = require('typescript');
-  require('node:vm').runInNewContext(ts.transpileModule(ipcSource.slice(saveStart, saveEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+  require('node:vm').runInNewContext(ts.transpileModule(saveCalls[0] + ';', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
     ipcMain: { handle: (_channel: string, handler: typeof saveHandler) => { saveHandler = handler; } }, config,
     require: (name: string) => { assert.equal(name, '../shared/nicknameNotes'); return nicknameNotes; },
     wm: { applySettings: (patch: unknown) => {

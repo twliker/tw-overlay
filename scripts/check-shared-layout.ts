@@ -130,10 +130,9 @@ async function main(): Promise<void> {
 
   await create(false); await applyShare(); check(positions, false);
   config.saveImmediate({ chatOverlayEnabled: true, chatOverlaySubEnabled: true, chatOverlaySub2Enabled: true, contentsCheckerEnabled: true });
-  assert.equal((await other('electronAPI.saveActivityPreset("공유와 교차 검증")')).success, true);
-  const preset = config.load().activityPresets.find((row: any) => row.name === '공유와 교차 검증');
-  const applyPreset = async () => {
-    await settle(); assert.equal((await other(`electronAPI.applyActivityPreset(${JSON.stringify(preset.id)})`)).success, true);
+  assert.equal(await other('typeof electronAPI.saveActivityPreset'),'undefined');
+  const applyOtherWindowLayout = async () => {
+    await settle(); assert.equal((await other(`electronAPI.applySettingsConfirmed(${JSON.stringify({fixedWindowPositions:positions})})`)).success, true);
   };
   await create(true); await applyShare(); await release(); check(positions, true);
   await create(true); await applyShare(); await applyShare(later); await release(); check(later, true);
@@ -144,8 +143,8 @@ async function main(): Promise<void> {
   await release(); check(edited, true);
   assert.deepEqual(target('diary').getSize(), [1000, 700], 'Use the latest size saved while loading');
   // Both ordering directions share the same pending-layout slot.
-  await create(true); await applyShare(later); await applyPreset(); await release(); check(positions, true);
-  await create(true); await applyPreset(); await applyShare(later); await release(); check(later, true);
+  await create(true); await applyShare(later); await applyOtherWindowLayout(); await release(); check(positions, true);
+  await create(true); await applyOtherWindowLayout(); await applyShare(later); await release(); check(later, true);
 
   // Sharing cannot create closed windows, reveal hidden ones or discard renderer drafts.
   target('diary').destroy(); const hidden = target('focusedChat');
@@ -166,6 +165,6 @@ async function main(): Promise<void> {
   assert.equal(wm.__probe.registry.diary.ref, null);
 
   BrowserWindow.getAllWindows().forEach(win => win.destroy());
-  console.log('Shared layout: full settings UI/file/preload/IPC/config/native placement; all 10 windows ready/loading/first show, repeated share, other-window save, preset ordering, closed/hidden/collapsed state and drafts passed.');
+  console.log('Shared layout: full settings UI/file/preload/IPC/config/native placement; all 10 windows ready/loading/first show, repeated share/settings ordering, other-window save, closed/hidden/collapsed state and drafts passed.');
 }
 main().then(() => app.exit(0), error => { console.error(error); app.exit(1); });

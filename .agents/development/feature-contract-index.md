@@ -96,7 +96,7 @@
 | 사용자 전체 창 숨김·복원 | `src/modules/userWindowVisibility.ts` | `windowManager.ts`, `tray.ts`, `shortcutManager.ts`, `scripts/check-window-visibility.ts`, `docs/settings.md` |
 | renderer 표시 실패 안전장치 | `src/modules/rendererHealthGuard.ts` | `main.ts`, `windowManager.ts`, `scripts/check-refactor-regressions.ts` |
 | 창모드↔창모드 전체화면 전환 | `src/modules/gameWindowModePolicy.ts`, `src/modules/windowManager.ts` | `tracker.ts`, `pollingLoop.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
-| HUD 위치 편집·손상 좌표 복구 | `src/renderer/game-overlay/edit-mode.ts`, `src/modules/gameOverlayEditSession.ts`의 종료 후 최신 설정 재적용, `src/shared/windowPositions.ts` | `game-overlay.html`의 콘텐츠 표시 상태, `settings.html`, `modules/config.ts`, `scripts/check-renderer-behavior.ts`, `scripts/check-hud-edit-settings.ts`(프리셋/공유/다른 창 저장·취소·실패·지연·창 닫기), `docs/settings.md` |
+| HUD 위치 편집·손상 좌표 복구 | `src/renderer/game-overlay/edit-mode.ts`, `src/modules/gameOverlayEditSession.ts`의 종료 후 최신 설정 재적용, `src/shared/windowPositions.ts` | `game-overlay.html`의 콘텐츠 표시 상태, `settings.html`, `modules/config.ts`, `scripts/check-renderer-behavior.ts`, `scripts/check-hud-edit-settings.ts`(설정/공유/다른 창 저장·취소·실패·지연·창 닫기), `docs/settings.md` |
 | 전역 단축키 | `src/modules/shortcutManager.ts`, `src/modules/tracker.ts` | `settings.html`, `renderer/settings/shortcuts.ts`, `scripts/check-refactor-regressions.ts` |
 | 설정 기본값·마이그레이션·저장 확정 | `src/modules/config.ts`의 `saveConfirmed`와 자동 저장 계약 | `windowManager.ts`, `constants.ts`, `shared/types.ts`, `scripts/check-audit-regressions.ts`, `docs/settings.md` |
 | Windows 자동 실행 | `src/modules/autoStart.ts`, `src/modules/storeAutoStart.ts` | `runtimeSettings.ts`, `native/store-update-helper/Program.cs`, `build/appx/appxmanifest.xml`, `scripts/check-auto-start.ts`, `scripts/check-audit-regressions.ts`, `scripts/verify-appx-package.ts`, `docs/settings.md`, `package.json` 관리자 권한 정책 |
@@ -144,7 +144,7 @@
 | 기능 | 기준 계약 위치 | 함께 확인할 경로 |
 |---|---|---|
 | 채팅 간단 표시 | `shared/chatChannels.ts`의 `applyReadingDisplay` | `chatOverlayRenderer.ts`, `focusedChatRenderer.ts`, `renderer/settings/chat-preview.ts`, `check-companion-reading.ts`, `check-renderer-behavior.ts`, `docs/chat-overlay.md` |
-| 선택 설정 공유 | `modules/settingsShare.ts`, `modules/companionFiles.ts`, `windowManager.applySharedWindowLayout`의 초기 배치 대기 계약 | `renderer/settings/sharing.ts`, `check-companion-files.ts`, `check-shared-layout.ts`(10개 창의 첫 표시·공유/프리셋/다른 창 저장 순서), `check-window-visibility.ts`, `docs/settings.md` |
+| 선택 설정 공유 | `modules/settingsShare.ts`, `modules/companionFiles.ts`, `windowManager.applySharedWindowLayout`의 초기 배치 대기 계약 | `renderer/settings/sharing.ts`, `check-companion-files.ts`, `check-shared-layout.ts`(10개 창의 첫 표시·공유/다른 창 설정 저장 순서), `check-preset-position.ts`(공통 좌표 복원), `check-window-visibility.ts`, `docs/settings.md` |
 | 모험 일지 내보내기 | `diaryDb.getDiaryExportSnapshot`, `modules/diaryExport.ts` | `modules/companionFiles.ts`, `renderer/diary/export.ts`, `check-companion-files.ts`, `docs/diary.md` |
 
 ## 사냥 보조

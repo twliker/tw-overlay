@@ -12,4 +12,6 @@ beta.1의 [CI 실행](https://github.com/twliker/tw-overlay/actions/runs/4178783
 
 ## 이후 판정
 
+[beta.2 CI 결과](https://github.com/twliker/tw-overlay/actions/runs/41788985688): profile-settings-pages와 프로필·동기화·두 프로세스 동시성 검사는 통과했다. 이후 test:renderer의 집중 대화방 메모 검사에서 저장 IPC 뒤의 주석을 찾는 구형 추출 기준이 실패했다. 부하·의존성·패키징은 CI에서 미실행이다. 후속 수정은 beta.3에 기록한다.
+
 수정된 작업 브랜치와 `v3.5.0-beta.2` 태그를 새로 푸시하고 Actions의 전체 자동 검사·부하·의존성·패키징 결과를 확인한다. 로컬 설치 파일은 생성하지 않는다. CI 성공 전에는 전체 검사·설치 파일 생성 완료라고 표현하지 않는다. 실제 Google·물리 PC 2대·실게임·관리자 권한·설치 업데이트는 프리릴리즈 설치본으로 확인하며 Draft 자동 게시는 하지 않는다.

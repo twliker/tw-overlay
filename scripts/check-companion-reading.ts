@@ -61,6 +61,7 @@ async function main(): Promise<void> {
   const apply = source.slice(start, source.indexOf("  ipcMain.on('apply-settings'", start));
   let failSave = false, delaySave: Promise<void> | undefined, selectedFile: string | undefined;
   const bindings = { ...fonts, BrowserWindow, config, isBoolean: (value: unknown) => typeof value === 'boolean',
+    validateSettingsProfileWrite: built('modules/profileSettingsAccess.js').validateSettingsProfileWrite,
     log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
     dialog: { showOpenDialog: async () => ({ canceled: !selectedFile, filePaths: selectedFile ? [selectedFile] : [] }) },
     wm: { getSettingsWindow: () => win, getGameOverlayWindow: () => null,
@@ -117,9 +118,10 @@ async function main(): Promise<void> {
     ${code('renderer/settings/config-binding.js')}
     ${code('renderer/settings/form-collection.js')}
     ${code('renderer/settings/chat-preview.js')}
+    let lastConfig;
     function collectSettingsDraftExtras(){return {}};
     ${saveFunction}
-    window.receive = cfg => { const draft=settingsDraft.beforeRefresh({}); settingsCompanion.bind(cfg); settingsConfigBinding.applyChatAndAlertSettings(cfg,electronAPI.DEFAULT_CONFIG); draft.restore({}); };
+    window.receive = cfg => { lastConfig=cfg;const draft=settingsDraft.beforeRefresh({}); settingsCompanion.bind(cfg); settingsConfigBinding.applyChatAndAlertSettings(cfg,electronAPI.DEFAULT_CONFIG); draft.restore({}); };
     receive(${JSON.stringify(defaults)}); lucide.createIcons();
   `);
   const js = (value: string) => win.webContents.executeJavaScript(value);
