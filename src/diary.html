@@ -25,6 +25,11 @@
     }
 
     /* Calendar Grid */
+    .calendar-toolbar { flex-wrap: wrap; gap: 8px 12px; }
+    .calendar-month-nav { flex: none; white-space: nowrap; }
+    .calendar-summary-badges { flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+    .calendar-summary-badges > div { white-space: nowrap; }
+
     .calendar-grid {
       display: grid;
       grid-template-columns: repeat(8, minmax(0, 1fr));
@@ -364,7 +369,9 @@
   <div id="diary-profile-bar" class="diary-profile-bar" hidden>
     <label for="diary-profile-filter">조회 범위<select id="diary-profile-filter" class="ui-input" aria-label="일지 조회 프로필"></select></label>
     <p id="diary-profile-note" class="ui-description"></p>
+    <button id="diary-archives-open" type="button" class="ui-button" hidden>이전 프로필 정리</button>
   </div>
+  <dialog id="diary-archives-dialog" class="diary-archives-dialog ui-card"><div class="ui-card-header"><h2 class="ui-heading">이전 프로필 기록 정리</h2><button id="diary-archives-close" type="button" class="ui-button">닫기</button></div><p class="ui-description">삭제되거나 더 이상 없는 프로필의 기록입니다. 무시하면 원본을 보존한 채 미배정 기록으로 옮깁니다.</p><div id="diary-archives-list"></div><p id="diary-archives-status" class="ui-status" role="status"></p></dialog>
   <p id="diary-view-error" class="ui-status px-5 py-2" role="status" hidden></p>
   <!-- Content -->
   <div class="flex-1 flex overflow-hidden no-drag relative">
@@ -391,19 +398,19 @@
     <div id="view-log" class="flex-1 flex overflow-hidden">
       <!-- Left: Calendar (expanded view) -->
       <div class="flex-1 flex flex-col bg-[#0b0f19]/30 overflow-hidden">
-        <div class="flex items-center justify-between p-4 border-b border-slate-800/60 bg-[#0f172a]/60 select-none shrink-0">
-          <div class="flex items-center gap-2">
-            <button onclick="changeMonth(-1)" class="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
+        <div class="calendar-toolbar flex items-center justify-between p-4 border-b border-slate-800/60 bg-[#0f172a]/60 select-none shrink-0">
+          <div class="calendar-month-nav flex items-center gap-2">
+            <button onclick="changeMonth(-1)" aria-label="이전 달" class="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
               <i data-lucide="chevron-left" class="w-4.5 h-4.5"></i>
             </button>
             <div id="current-month" class="text-base font-black text-slate-100 tracking-wider font-mono px-2">2024. 03</div>
-            <button onclick="changeMonth(1)" class="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
+            <button onclick="changeMonth(1)" aria-label="다음 달" class="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors">
               <i data-lucide="chevron-right" class="w-4.5 h-4.5"></i>
             </button>
           </div>
           
           <!-- Summary Badges in calendar header -->
-          <div class="flex items-center gap-3">
+          <div class="calendar-summary-badges flex items-center">
             <div class="flex items-center gap-2 bg-amber-500/8 border border-amber-500/20 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-400">
               <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
               <span>이번 달 득템:</span>
@@ -1040,6 +1047,7 @@
     }
 
     function formatSeedShort(val) {
+      if (val < 0) return '-' + formatSeedShort(Math.abs(val));
       if (val >= 100000000) return (val / 100000000).toFixed(1) + '억';
       if (val >= 10000) return (val / 10000).toFixed(0) + '만';
       return val.toLocaleString();
@@ -1710,7 +1718,7 @@
           <span class="text-sm font-black text-red-400">${dailyBossKills}회</span>
         </div>
         <div class="flex flex-col items-center flex-1 border-r border-slate-800/50">
-          <span class="text-xs text-slate-500 font-bold">획득 시드</span>
+          <span class="text-xs text-slate-500 font-bold">시드 합계</span>
           <span class="text-sm font-black text-orange-400">${formatSeedShort(dailySeed)}</span>
         </div>
         <div class="flex flex-col items-center flex-1 border-r border-slate-800/50">

@@ -282,6 +282,27 @@ export interface IncompleteContentItem {
     type: ResetRule['type'];
 }
 
+export interface ProfileIncompleteContents {
+    profileId: string;
+    profileName: string;
+    userServer: number | null;
+    items: IncompleteContentItem[];
+}
+
+export interface GameExitReminderContents {
+    profiles: ProfileIncompleteContents[];
+    activeProfileId?: string;
+    unavailable?: boolean;
+}
+
+/** 이전 알림 발신자의 배열도 계속 표시한다. 새 발신자는 완료한 프로필까지 포함한다. */
+export type IncompleteContentsPayload = GameExitReminderContents | IncompleteContentItem[];
+
+export interface GameExitReminderApi {
+    onReminderMessage(callback: (message: string) => void): void;
+    onIncompleteContents(callback: (contents: IncompleteContentsPayload) => void): void;
+}
+
 export interface GameRect {
     x: number;
     y: number;

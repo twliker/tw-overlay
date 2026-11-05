@@ -118,14 +118,15 @@ async function main():Promise<void> {
     // 오늘 snapshot 뒤에 실제 파일로 추가된 기록은 실시간 경로로 대기/재생한다.
     // 이어받은 구간도 원래 프로필에 보존해 다른 프로필의 다음 복원에 복제하지 않는다.
     const live=built('modules/chatLogManager').chatLogManager;
-    write(date(0),[line('입장료 33 Seed를 지불하였습니다.')]);live.start();
+    write(date(0),[line('일반 시스템 안내'),line('입장료 33 Seed를 지불하였습니다.').trimEnd()]);live.start();
     let appended=false;
     try {
       const result=await run(a.id,date(0),false,(info:any)=>{
         if (appended || info.phase!=='preparing') return;appended=true;
-        fs.appendFileSync(file(date(0)),line('입장료 44 Seed를 지불하였습니다.','10시 00분 01초'),'utf8');
+        fs.appendFileSync(file(date(0)),'\r\n'+line('입장료 44 Seed를 지불하였습니다.','10시 00분 01초'),'utf8');
       });
       assert.equal(result.success,true);assert.equal(result.todayRebuilt,true);assert.equal(result.todayCatchUpProcessed,true);
+      assert.equal(result.seedsDetected,1,'닫힌 마지막 행은 개행이 없어도 worker snapshot에서 복원해야 함');
       assert.equal(appended,true);assert.ok(result.todayCatchUpBytes>0);assert.equal(store.pending().length,0);assert.equal(scope(a.id,date(0)),-77);
     } finally {live.stop();}
     assert.equal((await service.select(b.id,replay)).success,true);assert.equal((await run(b.id,date(0),true)).success,true);

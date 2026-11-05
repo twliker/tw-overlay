@@ -151,7 +151,10 @@ async function main():Promise<void> {
     // 기존 내부 재시도 경로도 A 기록을 B에 쓰지 않는다.
     store.database.exec("CREATE TRIGGER fail_retry_diary BEFORE INSERT ON homework_logs BEGIN SELECT RAISE(ABORT,'retry owner fixture');END");
     built('modules/contentsChecker').updateItemCount(items[1].id,a.id,3);
-    assert.equal((await service.select(b.id,replay)).success,true);await ready(b.id);store.database.exec('DROP TRIGGER fail_retry_diary');await pause(450);
+    assert.equal((await service.select(b.id,replay)).success,true);await ready(b.id);store.database.exec('DROP TRIGGER fail_retry_diary');
+    // 전환/실제 기본 목록 처리 동안 첫 250ms 재시도가 실패하면 다음 예약은 1초 뒤다.
+    // 고정 sleep 대신 원래 프로필에 기록이 확정되는 조건을 기다린다.
+    for (let retry=0;retry<200 && store.database.prepare('SELECT COUNT(*) n FROM homework_logs WHERE profile_id=? AND content_id=?').get(a.id,`${items[1].id}_${a.id}`).n!==1;retry++)await pause();
     assert.equal(store.database.prepare('SELECT COUNT(*) n FROM homework_logs WHERE profile_id=? AND content_id=?').get(a.id,`${items[1].id}_${a.id}`).n,1);
     assert.equal(store.database.prepare('SELECT COUNT(*) n FROM homework_logs WHERE profile_id=?').get(b.id).n,0);assert.equal(store.getRecordContext().profileId,b.id);
     assert.equal(store.pending().length,0);

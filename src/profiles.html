@@ -13,13 +13,15 @@
   </header>
   <main class="custom-scroll">
     <div id="selection-notice" class="ui-inset" role="status">프로필을 불러오는 중입니다.</div>
-    <div class="profiles-columns">
+    <div id="profiles-columns" class="profiles-columns">
       <section class="ui-card" aria-labelledby="profiles-list-title">
-        <div class="ui-card-header"><h2 id="profiles-list-title" class="ui-heading">내 프로필</h2><button id="new-profile" class="ui-button">추가</button></div>
+        <div class="ui-card-header"><h2 id="profiles-list-title" class="ui-heading">내 프로필</h2><div class="profile-list-actions"><button id="reorder-profiles" type="button" class="ui-button" aria-pressed="false" hidden>순서 변경</button><button id="new-profile" class="ui-button">추가</button></div></div>
+        <p id="profile-order-note" class="ui-description profile-progress-note" hidden>손잡이를 드래그하거나 ↑·↓로 이동하세요. 변경 즉시 이 PC에 저장됩니다.</p>
+        <p class="ui-description profile-progress-note">숨김·N/A를 제외한 완료 숙제 수입니다.</p>
         <div id="profiles-list" aria-label="프로필 목록"></div>
       </section>
-      <section class="ui-card" aria-labelledby="profile-editor-title">
-        <h2 id="profile-editor-title" class="ui-heading">프로필 수정</h2>
+      <section id="profile-editor" class="ui-card" aria-labelledby="profile-editor-title" hidden>
+        <div class="ui-card-header"><h2 id="profile-editor-title" class="ui-heading">프로필 수정</h2><button id="close-editor" type="button" class="ui-button">편집 닫기</button></div>
         <form id="profile-form">
           <label for="profile-name">프로필 이름</label>
           <input id="profile-name" class="ui-input" maxlength="40" required autocomplete="off" placeholder="예: 사냥용, 계정 1">
@@ -27,14 +29,14 @@
           <label for="profile-server">서버</label>
           <select id="profile-server" class="ui-input" required><option value="">서버 선택</option><option value="7">하이아칸</option><option value="16">네냐플</option></select>
           <p class="ui-description">환경설정의 내 서버와 같은 설정입니다.</p>
-          <div id="profile-copy-field" hidden><label for="profile-copy">설정 가져오기</label><select id="profile-copy" class="ui-input"><option value="">기본 설정으로 시작</option></select><p class="ui-description">선택한 프로필의 설정만 복사합니다. 숙제 완료 기록은 새로 시작합니다.</p></div>
+          <div id="profile-copy-field" hidden><label for="profile-copy">설정 가져오기</label><select id="profile-copy" class="ui-input"><option value="">기본 설정으로 시작</option></select><p class="ui-description">환경설정·계산기 입력·숙제 항목과 표시·정렬·N/A 설정을 가져옵니다. 숙제 완료 횟수와 기록은 새로 시작합니다.</p></div>
           <div class="profile-form-actions"><button id="save-use-profile" type="submit" class="ui-button ui-button-primary">저장하고 사용</button><button id="save-profile" type="button" class="ui-button">저장</button></div>
           <button id="delete-profile" type="button" class="ui-button ui-button-danger">프로필 삭제</button>
         </form>
       </section>
     </div>
-    <section id="pending-section" class="ui-card" hidden aria-labelledby="pending-title"><h2 id="pending-title" class="ui-heading">프로필을 기다리는 기록</h2><p class="ui-description">이전에 선택하지 못한 기록입니다. 현재 사용할 프로필을 선택한 뒤 해당 기록을 배정할 수 있습니다.</p><div id="pending-sessions"></div></section>
-    <p class="ui-description profile-local-note">모험일지는 이 PC에 보관됩니다. Google 동기화는 개선 전까지 일시 중지됩니다.</p>
+    <section id="pending-section" class="ui-card" hidden aria-labelledby="pending-title"><h2 id="pending-title" class="ui-heading">미배정 플레이 기록</h2><p class="ui-description">프로필을 선택하지 않았던 기록입니다. 내용을 확인하고 사용할 프로필을 선택한 뒤 배정하세요. 지난 HUD·알림은 다시 재생하지 않습니다.</p><div id="pending-sessions"></div></section>
+    <p class="ui-description profile-local-note">모험일지는 이 PC에 보관됩니다. 프로필·숙제·환경설정은 환경설정에서 Google 동기화를 연결할 수 있습니다.</p>
   </main>
   <footer><p id="profile-status" role="status" aria-live="polite"></p><button id="retry-profiles" class="ui-button" hidden>다시 불러오기</button></footer>
   <dialog id="profile-confirm" class="ui-card"><form method="dialog"><h2 id="confirm-title" class="ui-heading"></h2><p id="confirm-body"></p><div class="profile-form-actions"><button value="cancel" class="ui-button" autofocus>취소</button><button id="confirm-accept" value="accept" class="ui-button ui-button-primary">계속</button></div></form></dialog>

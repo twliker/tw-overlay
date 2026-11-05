@@ -1766,7 +1766,7 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       focusedChat: ['focused-chat.html', 460, 720, false], evolutionCalculator: ['evolution-calculator.html', 1040, 820, false],
       thesisCoreCalculator: ['thesis-core-calculator.html', 850, 880, false], magicStoneCalculator: ['magic-stone-calculator.html', 400, 800, false],
       customAlert: ['custom-alert.html', 580, 640, false], diary: ['diary.html', 1400, 920, false],
-      profiles: ['profiles.html',820,680,false],
+      profiles: ['profiles.html',640,520,false],
       uniformColor: ['uniform-color.html', 360, 800, false], swordEnhance: ['sword-enhance.html', 1300, 850, false],
       qteChallenge: ['qte-challenge.html', 980, 780, false],
       shoutHistory: ['shout-history.html', 450, 600, false], gameOverlay: ['game-overlay.html', 0, 0, false],
@@ -1855,6 +1855,10 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     { width: 900, height: 650, isResizable: true, isTransparent: true, minWidth: 800, minHeight: 600, policy: 'user-resizable' },
     '일반 보조 창의 저장 크기가 재실행 시 복원되지 않습니다.',
   );
+  assert.deepEqual(sizing.resolveManagedWindowSizing('profiles',640,520,{}, {width:1920,height:1080}),
+    {width:640,height:520,isResizable:true,isTransparent:false,minWidth:560,minHeight:400,policy:'user-resizable'},'간결한 선택창의 기본/최소 크기');
+  assert.equal(sizing.resolveManagedWindowSizing('profiles',640,520,{managedWindowSizes:{profiles:{width:900,height:650}}},{width:1920,height:1080}).width,900,'사용자가 정한 크기는 보존');
+  assert.equal(sizing.resolveManagedWindowSizing('profiles',640,520,{}, {width:500,height:350}).width,460,'작은 작업 영역에 맞춤');
 
   const moveModule = require(path.join(projectRoot, 'dist', 'modules', 'programmaticMoveTracker.js')) as {
     ProgrammaticMoveTracker: new (threshold: number, windowMs: number, now: () => number) => {
@@ -2524,7 +2528,7 @@ function checkWindowedFullscreenFocusContracts(): void {
     '브라우저 오버레이 자동 생성이 포커스를 획득할 수 있습니다.');
   assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply' \| 'preload'/,
     '사용자가 연 창과 자동 재생성을 구분하는 표시 정책이 없습니다.');
-  assert.match(manager, /showReason === 'user-open' && !isPassiveOverlay[\s\S]*?showWindowUnlessHidden\(win, true\);[\s\S]*?showWindowUnlessHidden\(win\);/,
+  assert.match(manager, /effectiveShowReason === 'user-open' && !isPassiveOverlay[\s\S]*?showWindowUnlessHidden\(win, true\);[\s\S]*?showWindowUnlessHidden\(win\);/,
     '자동 재생성된 관리 창이 비활성 상태로 표시되지 않습니다.');
   assert.doesNotMatch(manager, /key === 'dock'[^\n]*focusable: false/,
     '독 창이 no-activate로 생성되어 hover만 되고 클릭이 전달되지 않을 수 있습니다.');
@@ -2553,7 +2557,7 @@ function checkWindowedFullscreenFocusContracts(): void {
     '안정 폴링이 숨긴 독 창을 닫아 재사용 최적화를 무효화합니다.');
   assert.match(manager, /createToggleableWindow\('dock', undefined, 'preload'\)/,
     '독 모드 진입 시 숨은 renderer를 미리 준비하지 않아 첫 단축키 표시가 지연됩니다.');
-  assert.match(manager, /showReason === 'preload'[\s\S]*?showMethod = 'preload-hidden'/,
+  assert.match(manager, /effectiveShowReason === 'preload'[\s\S]*?showMethod = 'preload-hidden'/,
     '사전 로딩한 독이 준비 과정에서 화면에 노출될 수 있습니다.');
   assert.match(ipcHandlers, /ipcMain\.on\('save-quick-slots'[\s\S]*?config\.saveImmediate\(\{ quickSlots: slots \}\);[\s\S]*?wm\.broadcastConfig\(\)/,
     '퀵링크 저장 후 재사용 중인 독 renderer에 최신 설정을 즉시 전달하지 않습니다.');
@@ -9115,6 +9119,12 @@ function checkLargeChatLogReadBoundary(): void {
     fs.statSync(noNewlineCompletePath).size,
     '개행 없이 </br>로 닫힌 구형 로그 행을 불완전한 줄로 잘못 제외했습니다.',
   );
+  const multiLineClosed=completeBoundaryPrefix+'<font>닫힌 마지막 줄</font></br>';
+  fs.writeFileSync(noNewlineCompletePath,multiLineClosed,'utf8');
+  assert.equal(findLastCompleteChatLogOffset(noNewlineCompletePath),Buffer.byteLength(multiLineClosed),
+    '앞선 줄에 개행이 있어도 닫힌 마지막 행을 snapshot에서 누락하면 안 됩니다.');
+  assert.equal(findLastCompleteChatLogOffset(noNewlineCompletePath,Buffer.byteLength(completeBoundaryPrefix)+6),Buffer.byteLength(completeBoundaryPrefix),
+    'snapshot 이후에 작성된 닫는 태그로 불완전한 snapshot을 확장하면 안 됩니다.');
 }
 
 function checkStoreUpdateLogic(): void {

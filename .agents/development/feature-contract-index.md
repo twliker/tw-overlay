@@ -1,5 +1,25 @@
 # 기능 계약 주석 인덱스
 
+실제 창 조작·화면 표시·자동 검사의 범위는 `docs/development/manual-ux-review-2026-11-05.md`에 나눠 기록한다. `manual-ui-review.ts`는 임시 사용자 폴더·실제 main/preload/IPC를 사용하고 실제 게임 탐지/대역·원격 시작·전역 단축키는 제외한다. 일반 `check-profile-windows.ts`는 기존 실행 앱이 감지하지 않는 TwoverlayProfileFixture 프로세스명과 소유 PID 제한을 함께 사용한다.
+
+개발 콘솔 실패 격리: `logger.ts`는 동기/비동기 stdout 실패를 기능 호출자에게 전파하지 않고 파일 로그·회전·운영 필터를 유지한다. `test:logger`의 EPIPE 이후 실제 파일 로그·숙제/음수 SEED 저장을 검사한다. 종료 리마인더의 `windowManager.showGameExitReminder`는 로딩/표시 중 반복 호출에도 창 하나를 재사용하고 최신 내용을 갱신하며 최소화 복원·프로필 탭 선택을 유지한다. 검사: `test:game-exit-reminder`, 직접 소비 경계 `test:window-visibility`, `test:profile-windows -- --with-reminder`.
+
+런타임·빌드 보안 호환: `scripts/check-build-dependencies.ts`는 electron-builder의 실제 `FileMatcher`와 `@electron/universal`의 named API, 기존 asar/glob/dir-compare 함수 API, 포함/제외/asarUnpack 패턴을 검사한다. minimatch의 override는 7 이상 11 미만에 한정하며 구형 소비자에 전역 적용하지 않는다. `scripts/check-runtime-compatibility.ts`는 실제 sandbox preload 3개와 IPC 재등록·WebContentsView Escape 처리, 임시 SQLite WAL/rollback/reopen, 소유한 창의 Win32 PID와 토큰 암호화 왕복을 확인한다. 두 검사는 전체 `npm test`에도 포함한다. 패키지 검수는 각각 `--archive`와 `--app-root` 인수로 동일한 unpacked 산출물을 검사한다. 설치본 실행·관리자 Z-order·실제 Google/물리 PC 검사를 대체하지 않는다. 상세: `docs/development/runtime-security-upgrade-2026-11-05.md`.
+
+미배정 기록 무시: `ApplicationData.ignorePendingSession`과 `pendingSessionSnapshot`, `ProfileService.ignoreSession`, `profileIpc`의 전용 `play-profiles-ignore` 및 `renderer/profiles.ts`를 함께 확인한다. 과거 대기는 프로필 선택 전에도 명시적 확인 후 정리할 수 있다. 현재 세션/전환·복구 중은 거부하고, 확인한 원문 집합의 SHA-256이 바뀌면 전체 실패한다. 원문을 삭제/재생하지 않고 resolved_at/배정 대상 null로 보관하며 기존 30일 압축·동일 ID 영수증 정책을 유지한다. 취소/실패는 대기를 보존하고 성공은 즉시 목록/안내를 갱신한다. 불완전 항목에는 동작 없는 배정 버튼 대신 무시 동작을 제공한다. 검사: `test:profile-storage`(변경 경합/원본·이력 보존/rollback/반복/재시작·압축 후 재수신), `test:profiles-ui`(실제 preload/IPC/DOM의 취소·성공·실패/현재 세션 보호/선택 전 정리/잘못된 인수·다른 화면 거부). 문서: `docs/development/profile-pending-ignore-2026-11-04.md`, `docs/settings.md`, `docs/contents-checker.md`.
+
+구형 미배정 숙제의 정보 누락: `shared/legacyHomework.readLegacyPendingHomework`는 ID/적용 방식/수량/시각을 검증한다. `profilePendingPreview`는 구형 자료의 묶음 수와 보류 수량을 구분하고, 정보가 없으면 완료 횟수로 표현하지 않으며 배정 불가를 안내한다. `profileRecording`도 재생 전에 검증해 없는 ID가 무시된 뒤 ACK만 성공하는 경로를 막는다. 실제 원본을 추측해 보정·삭제하지 않는다. 검사: `test:profiles-ui`의 누락 ID/방식·143 수량 대역/원본 보존과 `test:profile-recording`의 정상+불완전 배정 rollback/ACK 보존/없는 숙제 거부. 진단: `docs/development/profile-legacy-pending-diagnosis-2026-11-04.md`.
+
+간결한 프로필 선택/미배정 기록 요약: `profilePendingPreview.readProfilePendingDetails`는 감지 이벤트 종류별 수·최근 원문 3개(각 180자까지)를 SQL 집계/제한 조회로 읽고 원본/배정/ACK/일지를 쓰지 않는다. 파생 값은 로컬 `profileIpc` getter에서만 전달하며 일반 status 알림에 붙이지 않는다. `renderer/profiles.ts`는 개수/기간에 맞는 요약·대표 문장/펼쳐보기·배정 확인을 표시하고 조회 실패/늦은 응답에도 선택/초안을 보존한다. 기본 640×520/최소 560×400의 선택 화면은 추가/수정/필수 설정 때만 편집기를 펼친다. 사용자 창 크기·센터 배치와 일일/주간 숫자·진행률 바를 유지한다. 회귀: `test:profiles-ui`(실제 SQLite/IPC/DOM, 요약/손상/긴 원문/다중 종류·조회 무변경/실패복구·작은 창·초안/배정), `check-refactor-regressions.ts`(창 크기/저장값/공통 계약), `test:profile-placement`, `test:profile-windows -- --scenario game-first --layout sidebar --mode windowed --with-reminder`. 문서: `docs/settings.md`, `docs/contents-checker.md`, `docs/development/profile-compact-selection-2026-11-04.md`.
+
+게임 종료 리마인더의 프로필 탭: `modules/gameExitReminderContents.ts`의 계약과 `windowManager.showGameExitReminder`, `profileHomeworkProgress.readCurrentProfileHomework`, `renderer/game-exit-reminder.ts`를 함께 확인한다. 모든 살아 있는 프로필/빈 탭·마지막 사용 기본 선택·숨김/N/A/완료 제외·비활성 만료의 읽기 전용 정규화를 유지한다. 탭 전환은 로컬 보기 상태이며 프로필 선택 IPC를 호출하지 않는다. 실패/복구 중은 완료로 표시하지 않고, 이름 중복/긴 이름·많은 탭·안내 메시지/확인 버튼·Esc를 보존한다. 검사: `test:game-exit-reminder`(실제 SQLite/서비스/창 생성/preload/DOM), `test:profile-homework-progress`, `test:profiles-ui`, `check-refactor-regressions.ts` 파일 및 실제 종료 감지 `test:profile-windows -- --scenario game-first --layout sidebar --mode windowed --with-reminder`. 문서: `docs/settings.md`, `docs/contents-checker.md`, `docs/development/profile-exit-reminder-2026-11-04.md`.
+
+프로필 일일/주간 현황: `profileHomeworkProgress.readProfileHomeworkProgress`는 살아 있는 프로필의 숙제를 일괄 읽고 기존 `resetExpiredHomeworkItems`/`calculateDiaryHomeworkStats` 기준으로 완료한 항목 수를 계산한다. 숨김/N/A 제외, 반복 숙제는 최대 횟수 완료 시 1개이며 비활성 만료는 읽기용 메모리에서만 정규화한다. `profileIpc`의 로컬 프로필 화면 조회에만 snapshot을 붙이고 일반 `service.status`/자동 로그·DB·일지·전송 이력에는 추가하지 않는다. `renderer/profiles.ts`는 각 카드에 숫자/퍼센트/진행률 바를 표시하고 입력/버튼 DOM·선택을 보존하며 조회 실패/복구·늦은 응답/주기 경계를 처리한다. 검사: `test:profile-homework-progress`, `test:profiles-ui`, 직접 소비 경계 `test:profile-checklist`, 실제 게임 먼저 시작 1개 `test:profile-windows -- --scenario game-first --layout sidebar --mode windowed`.
+
+프로필 선택창 중앙 배치: `windowManager.resolveProfileWindowPosition`은 첫 표시 전에 최신 게임 좌표를 `screenToDipRect(null, ...)`로 변환한다. `windowPlacement.centerWindowOverGame`은 게임 중앙을 계산하고 작업 영역에서 벗어나지 않게 제한한다. 이전 저장/고정 위치보다 열기 시 중앙이 우선이며 직접 드래그한 뒤에는 기존 위치 정책을 따른다. 최소화/미실행은 기존 모니터 fallback이며 게임을 복원하지 않는다. 좌표 대기 중 새 전체 숨김/닫기를 늦은 응답이 취소하지 않는다. 검사: `test:profile-placement`(실제 배치 resolver·음수 모니터/고배율/작업영역/드래그), `test:profile-windows`(12개 시작/런처/창모드의 최초 show부터 중앙), `test:window-visibility`, `test:preset-position`, `test:shared-layout`, `check-refactor-regressions.ts`.
+
+프로필 설정 가져오기/시작 표시 검수: 생성 시 환경설정·도구 입력과 숙제 정의·커스텀·숨김·순서·N/A를 복사하고 완료 횟수/시각은 제외한다. `rememberProfileHomeworkDeletion`은 복사 원본에서 삭제한 기본 숙제의 삭제를 새 프로필/다른 PC에도 유지한다. 최소화/숨김 시작은 세션만 준비하고 자동 선택창은 보이는 상태까지 보류하며 수동 선택 후 복귀 때 중복 표시하지 않는다. 검사: 실제 생성 UI `test:profiles-ui`, 실제 배포/복사/재시작/수신 `test:profile-homework-defaults`, 저장/실패/게임 상태 `test:profile-storage`, 일반 부팅 `test:profile-lifecycle`, Windows 12개 조합 `test:profile-windows`.
+
 프로필 기본 숙제: `profileStartup.initializePlayProfileStorage`는 검증된 배포 `contents.json`을 생성 기본값으로 전달합니다. `ApplicationData.fillMissingDefaultHomework`는 기존 행을 수정하지 않고 누락 기본 항목만 보충하며 명시적 삭제/동기화 삭제 표식을 존중합니다. 시작·백업 재연결·Google 수신의 복구와 전송 대기를 같은 transaction으로 확정합니다. 검사: `test:profile-homework-defaults`(실제 기본 목록·부팅·신규/설정 복사/마지막 삭제·빈/일부 누락 복구·실패 rollback·별도 재시작), `test:profile-checklist`(실제 새 프로필 DOM 기본 목록 전체), 직접 영향의 저장/백업/수명/동기화 검사. 합성 기본 목록만으로 실제 기본값 연결을 검증한 것으로 표시하지 않습니다.
 
 새 Google 프로필 동기화: `ApplicationData.syncTransaction`/`profileSyncModel.ts`가 원본과 압축 journal을 함께 저장하고 `profileSyncCoordinator.ts`가 PC별 파일/활동·휴식 예약/ACK/오프라인·복원·계정 경계를 조립한다. `profileSyncDrive.ts`는 appData 변경 feed·gzip·읽은 version+명시 ETag를 사용하고 옛 파일은 전송하지 않는다. `profileCloudSync.ts`/`profileSyncIpc.ts`/`renderer/settings/profile-cloud-sync.ts`는 첫 연결/ZIP/초안/활성 소유자 확인/측정 중 삭제 보호를 맡는다. 기존 Google 중지 검사는 **구형 경로**를 계속 검증한다. 현행 계약: `google-drive-sync-contract.md`, 관련 완료 게이트: `test:profile-sync:acceptance`, 실서비스는 별도 사용자 로그인 `test:profile-sync:live`.
@@ -179,3 +199,28 @@
 플레이 보조 화면의 정보·관리 분리: `renderer/nickname-notes.ts`의 정보 조회 세션과 메모 저장 계약, `shared/nicknameInfo.ts`의 캐릭터 매핑, `renderer/settings/activity-presets.ts`의 상세 펼침·이름 초안, `modules/gameOverlayEditSession.ts`의 저장 확인 후 입력 복귀를 함께 확인합니다. 회귀 검사는 `scripts/check-companion-design.ts`(실제 preload·IPC·임시 디스크·Electron), `scripts/check-renderer-behavior.ts`(채팅 이력·초안·긴 메모), `scripts/check-companion-features.ts`(프리셋 실제 창 복원)입니다. 사용자 문서는 `docs/companion-tools.md`, `docs/chat-overlay.md`입니다.
 
 어벤던로드 입장료 지출은 `chatLogProcessor.ts`의 입장료 계약, `chatLogSyncWorker.ts`, `chatLogSyncManager.ts` 정책 fingerprint를 함께 유지합니다. 수동 수익·지출은 `diary.html`의 `saveManualSeed`, 숙제 추가 확인은 `contents-checker.html`의 추가 계약과 `renderer/contents-checker/profile.ts`를 기준으로 합니다. 일상 검증은 변경한 경로에 맞춰 `test:magic-stone`, `test:checklist`, `test:profile-checklist` 및 과거 복원 변경 시 refactor 검사 파일을 선택합니다. 사용자 문서: `docs/diary.md`, `docs/realtime-log-engine.md`, `docs/contents-checker.md`.
+
+
+## 프로필 정렬·일지 정리 및 표시 수정 (2026-11-05)
+
+- 프로필 표시 순서: `ApplicationData.setProfileOrder`의 계약, `ProfileService.reorder`, 전용 `play-profiles-reorder` IPC, `renderer/profiles.ts`. 모든 현재 ID를 한 번씩 검증해 app_meta에 원자 저장하며 이 PC에만 적용한다. 선택·숙제·일지·Google outbox는 변경하지 않는다. 드래그/버튼/방향키, 경합·실패·초안·재시작, 종료 리마인더 순서: `test:profile-storage`, `test:profiles-ui`, `test:game-exit-reminder`.
+- 모험일지 이전 소유자 정리: `diaryArchivedProfiles.ts`, `diaryArchiveIpc.ts`, `shared/diaryProfiles.diaryProfilePredicate`, `renderer/diary/profile-filter.ts`. 삭제/유실된 소유자의 기록만 명시적 확인 후 미배정으로 분류한다. 원본 profile_id/UUID는 보존하고 로컬 diary_profile_meta에 분류한다. 숙제 대기 무시와 별개이며 현재 프로필에는 배정하지 않는다. 일반 드롭다운은 현재 프로필만 표시한다. 조회/통계/합계/내보내기·실패/취소/다른 화면 거부: `test:profile-diary`, `test:diary-profiles-ui`.
+- 구형/복원 입장료 이중 집계: `diaryLegacyFees.ts`의 상세 계약과 `diaryDb.ts`의 초기화/실시간·배치 저장 진입점. 원본 보존 및 모든 활동 조회의 동일 view, 다른 현재 프로필/수동/반복·다른 시각 보존, rollback/재시작: `test:profile-diary`, 실시간과 실제 worker의 복원은 `test:magic-stone`, `test:profile-log-restore`, `check-refactor-regressions.ts`.
+- 음수 SEED 단위/구형 문구 부호: `diary.html`의 `formatSeedShort`, `renderer/diary/log-utils.ts`, `test:magic-stone`.
+- 아티팩트 실제 명칭: `scripts/parse-equipment.ts`의 `cleanEquipmentName`, `src/assets/data/equipment_dic.json`, 계산기의 장비 목록. 퍼센트 부가 설명을 제거해도 디펜시오는 남긴다. `test:profile-tools`에서 모든 계열의 기본/디펜시오 쌍과 실제 계산기 데이터를 검사한다. 테스트가 데이터 생성기를 실행해 원본을 덮어쓰지 않는다.
+
+검증 상세: `docs/development/profile-diary-fixes-2026-11-05.md`.
+
+
+### 2026-11-05 후속 부작용 검수
+
+일지 정리의 `diaryArchiveIpc`는 분류 저장과 결과 snapshot 읽기를 함께 commit/rollback하며, commit 후 창 전송 실패가 저장 실패로 바뀌지 않게 한다. `diaryProfiles.acknowledgeArchive`는 ACK의 과거 현재 프로필을 덮어쓰지 않고 성공한 정리 ID만 반영한다. 이후 조회 실패에도 분류는 보존하며 재조회/초안 보호를 유지한다. 필터 변경은 한 번만 알리고 복원/전환 중 정리 버튼을 잠근다. `diaryLegacyFees`는 지불 원문/새 문구의 금액과 amount가 불일치하면 보정하지 않는다. `getDiaryByDate`의 메모리 금화/엘소도 DB와 같은 미배정 분류를 따른다. 회귀: `test:diary-profiles-ui`, `test:profile-diary`; 직접 소비 경계 및 실행 기록: `docs/development/profile-side-effects-review-2026-11-05.md`, `output/profile-side-effects-review/latest.json`.
+
+
+### 전체 검수 경계 보완 (2026-11-05)
+
+- `chatLogFileReader.findLastCompleteChatLogOffset`: 앞선 행의 개행 여부와 무관하게 snapshot 안의 닫힌 마지막 HTML 행을 포함한다. 작성 중인 행/고정 snapshot 이후의 닫는 태그는 제외한다. 검사: `check-refactor-regressions.ts`의 `checkLargeChatLogReadBoundary`, `test:profile-log-restore`의 오늘 worker → 개행/다음 입장료 catch-up.
+- `tradeMonitor.forceCheck`/`checkNewPostsUI`/`setServer`: UI는 서버 세대와 최신 요청을 함께 검증한다. 서버 변경은 이전 목록을 비우고 보이는 창만 즉시 새 목록을 조회한다. 기존 키워드 검색 cursor/백오프/알림 정책을 보존한다. 검사: `test:audit`의 서버 전환/복귀·역순·열린 창 갱신, `test:companion`, `test:renderer`의 거래 화면.
+- 기본 숙제의 다른 PC 검사에서는 `localSyncProfileId`로 공통 remote ID를 수신 local ID로 해석한다. 빈 기본 프로필 재사용을 ID 동일성으로 검사하지 않는다. `test:profile-homework-defaults`가 모든 수신 프로필의 이름/숙제/개수와 복사 설정·삭제/재시작을 검사한다.
+
+전체 검수 기록: `docs/development/project-review-2026-11-05.md`, `output/project-review/latest.json`.

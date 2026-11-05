@@ -6,9 +6,23 @@
 
 프로필 숙제 기본값은 `profileStartup`이 `contentsChecker.loadDefaultItems()`로 검증한 실제 배포 목록을 주입합니다. `DEFAULT_CONFIG.contentsCheckerItems`는 빈 초기값이므로 새 프로필 기본 목록으로 직접 사용하지 않습니다. `ApplicationData`는 시작·백업 재연결·Google 수신 시 누락 기본 항목만 원자적으로 보충하고 기존 정의·상태·순서와 명시적 삭제를 보존합니다. 실제 목록/부팅/별도 재시작 검사는 `test:profile-homework-defaults`, 실제 화면 검사는 `test:profile-checklist`입니다.
 
+설정 가져오기는 숙제 정의/커스텀/숨김/정렬/N/A와 도구 입력도 복사하고 완료 횟수·시각은 제외합니다. 새 프로필에서 제외한 기본 숙제는 명시적 동기화 삭제 표식을 함께 남깁니다. `ProfileGameLifecycle`은 최소화/숨김 시작 시 기록 세션만 준비하고 자동 선택창은 게임이 보일 때까지 보류합니다. 숨김 중 직접 선택한 뒤 복귀해도 다시 열지 않습니다.
+
+프로필 선택/관리 창은 `windowManager.resolveProfileWindowPosition`이 최초 표시 전에 최신 게임 좌표를 DIP로 변환해 중앙에 놓습니다. 저장/고정 위치보다 열기 시 중앙이 우선이며, 직접 이동 후에는 기존 위치 정책을 사용합니다. 위치 조회 중 전체 숨김/닫기와 늦은 응답은 보존합니다. 검사: `test:profile-placement`, `test:profile-windows` 및 직접 영향을 받는 창 배치·가시성 검사. 검증 내역: `docs/development/profile-window-placement-2026-11-04.md`.
+
+프로필 목록의 일일/주간 현황은 `profileHomeworkProgress`가 DB를 읽어 기존 숙제 초기화·집계 기준으로 계산합니다. 로컬 프로필 화면의 명시적 `getPlayProfiles` 조회에만 붙이는 파생 값이며 선택/기록/DB/동기화 저장 구조를 바꾸지 않습니다. 카드의 완료 수·퍼센트·진행률 바는 초안·버튼 포커스를 유지하며 갱신합니다. 검사: `test:profile-homework-progress`, `test:profiles-ui` 및 직접 소비 경계. 상세: `docs/development/profile-homework-progress-2026-11-04.md`.
+
 로컬 프로필의 기능 완료 판정은 [프로필 자동 검증 기준](../docs/development/profile-acceptance-matrix.md)을 따릅니다. `npm run test:profiles:acceptance`가 관련 검사·강제 종료 복구·12개 실제 Windows 창 조합·현재 패키지 검사를 실행하고 소스/패키지 해시를 기록합니다. `test:profiles:proof`로 현재 결과인지 확인합니다. 일상 변경은 기존처럼 작업 관련 검사만 선택하며 배포 실기 게이트는 별도입니다.
 
 ## 프로젝트 개요
+
+미배정 기록의 **무시하기**는 확인 후 전용 IPC → `ProfileService.ignoreSession` → `ApplicationData.ignorePendingSession`으로 처리합니다. 프로필 선택 전에도 가능하며 현재 플레이 세션은 제외합니다. 로컬 조회의 snapshotToken은 확인한 원문 집합을 식별하며, 변경되면 정리를 실패시켜 다시 확인하게 합니다. 원문을 즉시 삭제하거나 숙제/일지에 적용하지 않고 기존 완료 원문 보관/압축 정책으로 유지합니다. 스키마/Google 저장 형식 변경은 없습니다. 검사: `test:profile-storage`, `test:profiles-ui`; 상세: `docs/development/profile-pending-ignore-2026-11-04.md`.
+
+구형 보류 숙제는 감지 원문 하나와 달리 여러 수량을 합친 자료일 수 있습니다. `legacyHomework`가 필수 정보(ID/누적·절대 방식/수량/시각)를 검증하며, 정보 누락은 요약에 배정 불가로 표시하고 실제 재생에서도 실패시켜 원본/ACK를 보존합니다. 조회는 해당 자료를 임의 복구하거나 삭제하지 않습니다. 관련 검사는 `test:profiles-ui`, `test:profile-recording`입니다.
+
+프로필 선택은 기본 640×520(최소 560×400)이며 편집 폼은 추가/수정 또는 최초 이름·서버 설정 때 펼칩니다. `profilePendingPreview.readProfilePendingDetails`는 미배정 이벤트의 종류별 수와 최근 원문 3개를 읽기 전용으로 요약하며, 로컬 프로필 getter에만 `pendingDetails`를 추가합니다. 일반 `service.status`/자동 기록/Google 저장 구조는 바꾸지 않습니다. 렌더러는 개수·기간이 일치하는 요약만 표시하고 기존 단일 조회 예약으로 현황과 함께 갱신합니다. 검사: `test:profiles-ui`, `check-refactor-regressions.ts`, `test:profile-placement`와 실제 Windows 선택 흐름. 상세: `docs/development/profile-compact-selection-2026-11-04.md`.
+
+게임 종료 안내는 `windowManager.showGameExitReminder` → `gameExitReminderContents.collectProfileIncompleteContents` → 전용 preload 수신 → `renderer/game-exit-reminder.ts`로 전달합니다. `profileHomeworkProgress.readCurrentProfileHomework`의 일괄 읽기/메모리 초기화를 공유해 모든 살아 있는 프로필의 미완료 숙제를 탭으로 보여줍니다. 실제 프로필 선택/원본 상태/일지/전송 이력은 변경하지 않습니다. 검사: `test:game-exit-reminder`, 공통 현황 검사 및 `test:profile-windows -- --scenario game-first --layout sidebar --mode windowed --with-reminder`. 상세: `docs/development/profile-exit-reminder-2026-11-04.md`.
 
 TW-Overlay는 테일즈위버 게임 창을 추적하여 사이드바, 게임 오버레이, 전용 브라우저와 각종 보조 도구를 제공하는 Windows용 Electron 애플리케이션입니다.
 
@@ -24,8 +38,10 @@ TW-Overlay는 테일즈위버 게임 창을 추적하여 사이드바, 게임 �
 
 ## 기술 스택
 
+화면 UX는 앱의 기본 크기에서 먼저 확인한다. 최소 크기는 잘림·겹침·스크롤을 확인할 때만 추가로 사용한다. 자동 회귀, 화면 표시, 실제 조작의 결과는 각각 기록한다. 2026-11-05 화면별 결과와 격리된 검수 환경은 `docs/development/manual-ux-review-2026-11-05.md`를 따른다. 일반 Windows 창 검사는 기존 앱이 게임으로 감지하지 않는 전용 프로세스명을 사용하며 관리자 Z-order 검사는 사용자 전용으로 유지한다.
+
 - 언어: TypeScript
-- 런타임: Node.js, Electron
+- 런타임: Electron 45.2.3 이상(45 계열), 내장 Node.js 24; 개발/CI Node.js 24
 - 화면: HTML, CSS, Tailwind CSS, Lucide Icons, Chart.js
 - Windows 연동: Koffi를 통한 Win32 API 호출
 - 로컬 데이터: `electron-store`, SQLite (`better-sqlite3`)
@@ -33,6 +49,8 @@ TW-Overlay는 테일즈위버 게임 창을 추적하여 사이드바, 게임 �
 - 로컬 LLM: `llama-server`와 GGUF 모델
 - 패키징: `electron-builder`, NSIS
 - 네이티브 모듈 ABI 동기화: `npm ci` 후 `electron-builder install-app-deps` 자동 실행
+- 빌드 보안 호환: electron-builder 26.18.0, minimatch 9/10 소비자만 11 계열로 override하며 함수 API를 쓰는 3/5 계열은 유지. `test:build-dependencies`로 실제 매칭·제외·unpack 패턴을 확인한다.
+- 런타임 주버전 경계: `test:runtime-compatibility`로 임시 데이터의 SQLite WAL/rollback/reopen, 소유한 HWND의 Win32 PID, 3개 sandbox preload의 IPC와 암호화 왕복을 확인한다. `--app-root`로 unpacked 패키지도 검사하며 사용자 관리자 Z-order/설치 검사를 대체하지 않는다.
 - 자동 배포: GitHub Actions의 Windows runner
 
 브라우저에서 직접 로드되는 일부 HTML 화면에는 화면 전용 JavaScript가 남아 있습니다. 메인 프로세스, preload, 공통 모듈, 분리된 렌더러 모듈과 빌드·테스트 도구의 원본은 TypeScript를 사용합니다.
@@ -269,3 +287,11 @@ npm run test:magic-stone
 ### 프로필 일반 부팅/저장 수명 (2026-11-04)
 
 `profileApplication`은 구형 Google 중지→이전 전 스냅샷→숙제 정규화→저장소/기록 gate→새 Google 조립 순서이며 main은 게임 폴링과 일반 창 전에 이를 기다립니다. main 시작 완료 뒤 새 스케줄러를 켜고 `observeProfileGameState`의 표시/최소화/종료 상태를 전달합니다. 1분·전환·백업·종료 checkpoint, byte 원본 귀속/대기/ACK, 완료 원문의 30일 영수증 및 ZIP 실패 catch-up은 기존 로컬 계약을 유지합니다. 새 동기화는 프로필·숙제·휴대 가능한 설정만 전송하고 일지/채팅/실행 상태를 제외합니다. 활동 프리셋 UI/IPC는 제거한 상태입니다. 계약/검사: feature-contract-index, `test:profile-lifecycle`, `test:profile-sync:acceptance`.
+
+
+### 프로필 보기 순서와 일지 정리 (2026-11-05)
+
+`app_meta.profile_display_order`는 이 PC의 프로필/종료 리마인더 표시 순서를 보관한다. 프로필 데이터나 Google payload 필드가 아니다. `diaryArchivedProfiles`는 삭제/유실된 소유자에 대한 사용자 확인 후 `diary_profile_meta`의 `unassigned-profile:<id>`로 미배정 조회 분류를 보관한다. 원본 소유자와 UUID는 유지해 같은 숙제의 서로 다른 완료 기록이 unique 제약으로 유실되지 않게 한다. `diaryLegacyFees`는 구형/재복원 입장료의 제한된 1:1 대응을 로컬 `diary_fee_duplicates`에 저장하고 `diary_visible_activity_logs` view로 조회·수익 합계·내보내기의 기준을 통일한다. 원본 활동은 삭제하지 않으며 대응하는 복원 원본이 제거되면 구형 원본을 다시 표시한다. 이 메타데이터와 일지는 Google 동기화 대상이 아니다.
+
+
+일지 이전 소유자 정리의 응답 snapshot은 분류 저장 transaction 안에서 읽는다. 성공 뒤 알림 전송/재조회 실패는 저장을 취소한 것으로 응답하지 않는다. 렌더러는 정리한 ID만 확정해 제거하고 현재 프로필/입력은 보존한다. 일지 조회 범위의 동일한 분류 기준은 메모리 금화/엘소에도 적용한다. 상세 후속 검수는 `docs/development/profile-side-effects-review-2026-11-05.md`에 기록한다.

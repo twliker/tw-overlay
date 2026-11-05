@@ -81,7 +81,9 @@ async function main():Promise<void> {
   const {service,replay}=controller.runtime,store=service.store;
   const [a,b]=store.list();assert.equal(store.list().length,2);
   assert.equal(service.status().selectionRequired,true);assert.equal(built('modules/cloudSyncManager').getSyncStatus().profileSync?.version,1,'구형 전송 중지 뒤 새 프로필 전용 동기화 경계');
-  controller.runtime.onGameState('minimized');controller.runtime.onGameState('running');assert.equal(opened,1);
+  controller.runtime.onGameState('minimized');assert.equal(opened,0,'최소화 시작 중 자동 선택창 보류');
+  const hiddenSession=service.status().sessionId;assert.ok(hiddenSession);
+  controller.runtime.onGameState('running');assert.equal(opened,1);assert.equal(service.status().sessionId,hiddenSession);
   built('modules/chatLogProcessor').chatLogProcessor.start();
   const live=built('modules/chatLogManager').chatLogManager,sync=built('modules/chatLogSyncManager'),diary=built('modules/diaryDb');
   diary.addActivityLog(today,'09:00:00','calc',diary.GOLD_POUCH_DAILY_CONTENT,1500000);

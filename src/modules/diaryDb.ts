@@ -30,6 +30,9 @@
  *   자동 기록/숙제의 날짜 교체는 대상 프로필에 한정합니다. 조회·통계·내보내기의 기본 범위는 전체이며
  *   프로필/미배정 필터가 원본 변경이나 빈 날짜 생성으로 이어지지 않습니다. 다른 프로필의 득템에는
  *   그 프로필의 키워드를 사용하고, 삭제되어 설정이 없으면 보존된 원본을 표시합니다.
+ * - 사용자가 이전 프로필의 기록을 무시하면 원본 귀속/UUID를 보존한 별도 로컬 분류로 미배정에
+ *   포함한다. 정상 프로필을 자동 배정하거나 Google로 전송하지 않는다. 구형/복원 입장료의
+ *   이중 집계는 diaryLegacyFees의 제한된 1:1 대응 view를 모든 수익 조회/내보내기에 적용한다.
  * - 회귀: check-profile-diary.ts, check-profile-storage.ts, check-magic-stone-revenue.ts 및
  *   check-refactor-regressions.ts의 실제 worker/완료 snapshot 검사. 실제 앱 부팅 통합은 별도 단계입니다.
  */
@@ -47,12 +50,15 @@ import { countsTowardLootTotal, isAlwaysTrackedLoot, matchesRegisteredLoot } fro
 import type { DiaryExportSnapshot, DiaryExportRow } from '../shared/companionFiles';
 import {ensureDiaryAttribution} from './diaryAttribution';
 import type {ApplicationData} from './applicationData';
-import {ALL_DIARY_PROFILES,diaryProfilePredicate} from '../shared/diaryProfiles';
+import {ALL_DIARY_PROFILES,diaryProfilePredicate as baseDiaryProfilePredicate} from '../shared/diaryProfiles';
+import {isReclassifiedDiaryOwner} from './diaryArchivedProfiles';
+import {initializeDiaryFeeVisibility,reconcileDiaryFees,isCanonicalDiaryFee} from './diaryLegacyFees';
 import type {DiaryRecordContext,DiaryProfileFilter} from '../shared/diaryProfiles';
 
 let db: Database.Database | null = null;
 let applicationData:ApplicationData | null=null;
 let initializingDb=false;
+const diaryProfilePredicate=(filter:DiaryProfileFilter)=>baseDiaryProfilePredicate(filter,!!applicationData);
 const currentOwner=():DiaryRecordContext => !initializingDb && applicationData?.getRecordContext() || {profileId:null,deviceId:null,sessionId:null};
 
 /** 기존 연결을 닫고 이전을 검증한 뒤 연결한다. 이후 조회/복원 재연결도 같은 app-data.db만 사용한다. */
@@ -770,6 +776,7 @@ export function initDb(): void {
       log(`[DiaryDB] Version 6 migration completed: repaired ${repairedManualRevenueAmounts} manual revenue rows.`);
     }
     initializeProfileDays();
+    initializeDiaryFeeVisibility(db,!!applicationData);
     if (!replayElsoRecoveryJournal()) {
       throw new Error('엘소 복구 기록을 재생하지 못했습니다.');
     }
@@ -1070,15 +1077,17 @@ export function getDiaryByDate(date: string, lootKeywords?: readonly string[],fi
 
   const scope=diaryProfilePredicate(filter);
   const diary=(filter.kind==='all' ? getStmt('SELECT * FROM diaries WHERE date=?').get(date)
+    :filter.kind==='unassigned' ? getStmt(`SELECT date,SUM(total_score) AS total_score,MAX(monster_id) AS monster_id,SUM(daily_done) AS daily_done,SUM(daily_total) AS daily_total,SUM(weekly_done) AS weekly_done,SUM(weekly_total) AS weekly_total FROM diary_profile_days WHERE date=?${scope.sql} GROUP BY date`).get(date,...scope.params)
     :getStmt(`SELECT date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total FROM diary_profile_days WHERE date=?${scope.sql}`).get(date,...scope.params)) as DiaryEntry | undefined;
   const homeworkLogs = getStmt(`SELECT * FROM homework_logs WHERE date=?${scope.sql} ORDER BY completed_at ASC`).all(date,...scope.params) as HomeworkLog[];
-  let activityLogs = getStmt(`SELECT * FROM activity_logs WHERE date=?${scope.sql} ORDER BY time ASC`).all(date,...scope.params) as ActivityLog[];
+  let activityLogs = getStmt(`SELECT * FROM diary_visible_activity_logs WHERE date=?${scope.sql} ORDER BY time ASC`).all(date,...scope.params) as ActivityLog[];
 
   // 메모리에 대기 중인 엘소 포인트가 있다면 디스크 I/O 없이 실시간 합산하여 반환 (오늘의 요약 HUD 초고속 실시간 반영)
   const mergePending=(pending:PendingDailyAmount,type:'calc' | 'elso',content:string) => {
-    if (pending.date!==date || pending.totalAmount<=0
-      || filter.kind==='unassigned' && pending.profileId!==null
-      || filter.kind==='profile' && pending.profileId!==filter.profileId) return;
+    if (pending.date!==date || pending.totalAmount<=0)return;
+    const reclassified=filter.kind!=='all' && applicationData && isReclassifiedDiaryOwner(applicationData,pending.profileId);
+    if(filter.kind==='unassigned' && pending.profileId!==null && !reclassified
+      || filter.kind==='profile' && (pending.profileId!==filter.profileId || reclassified))return;
     const existing=activityLogs.find(log => log.type===type && log.content===content && sameOwner(log,pending));
     if (existing) {
       existing.amount=(existing.amount || 0)+pending.totalAmount;existing.time=[existing.time,pending.latestTime].sort().at(-1)!;
@@ -1092,7 +1101,8 @@ export function getDiaryByDate(date: string, lootKeywords?: readonly string[],fi
   for (const pending of _pendingGoldPouchSeedByDate.values()) mergePending(pending,'calc',GOLD_POUCH_DAILY_CONTENT);
   activityLogs.sort((a,b) => a.time.localeCompare(b.time) || (a.id || 0)-(b.id || 0));
   return {diary:diary || {date,total_score:0,monster_id:'',daily_done:0,daily_total:0,weekly_done:0,weekly_total:0},
-    homeworkLogs,activityLogs:filterVisibleLootLogs(activityLogs,lootKeywords)};
+    homeworkLogs:filter.kind==='unassigned' ? homeworkLogs.map(row=>({...row,profile_id:null})) : homeworkLogs,
+    activityLogs:filterVisibleLootLogs(activityLogs,lootKeywords).map(row=>filter.kind==='unassigned' ? {...row,profile_id:null} : row)};
 }
 
 /** 기간 내보내기는 일지의 숙제·표시 대상 득템·확정 SEED만 읽는다. 채팅/개인 메모는 제외한다.
@@ -1104,7 +1114,7 @@ export function getDiaryExportSnapshot(start: string, end: string, lootKeywords:
   if (!db || !flushPendingGoldPouchSeed()) throw new Error('모험 일지 기록을 읽지 못했습니다.');
   return db.transaction(() => {
     const scope=diaryProfilePredicate(filter);
-    const activities = db!.prepare(`SELECT date,time,type,content,amount,source,profile_id FROM activity_logs WHERE date >= ? AND date <= ? AND type IN ('homework', 'loot', 'calc')${scope.sql} ORDER BY date, time, id LIMIT 100001`).all(start,end,...scope.params) as ActivityLog[];
+    const activities = db!.prepare(`SELECT date,time,type,content,amount,source,profile_id FROM diary_visible_activity_logs WHERE date >= ? AND date <= ? AND type IN ('homework', 'loot', 'calc')${scope.sql} ORDER BY date, time, id LIMIT 100001`).all(start,end,...scope.params) as ActivityLog[];
     const homework = db!.prepare(`SELECT date, content_name, completed_at FROM homework_logs WHERE date >= ? AND date <= ?${scope.sql} ORDER BY date, completed_at, id LIMIT 100001`).all(start,end,...scope.params) as HomeworkLog[];
     if (activities.length + homework.length > 100000) throw new Error('기록이 많습니다. 기간을 나누어 저장해 주세요.');
     const visible = filterVisibleLootLogs(activities, lootKeywords);
@@ -1163,10 +1173,10 @@ export function getDiariesByMonth(yearMonth: string,currentWeeklyTotal:number=0,
   // 현재 월의 시작일과 다음 달의 시작일 기준 범위를 넓게 가져옴 (주간 합계 계산용)
   const scope=diaryProfilePredicate(filter);
   const stmt = getStmt(`
-    SELECT date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total FROM ${filter.kind==='all' ? 'diaries' : 'diary_profile_days'}
+    SELECT ${filter.kind==='unassigned' ? 'date,SUM(total_score) AS total_score,MAX(monster_id) AS monster_id,SUM(daily_done) AS daily_done,SUM(daily_total) AS daily_total,SUM(weekly_done) AS weekly_done,SUM(weekly_total) AS weekly_total' : 'date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total'} FROM ${filter.kind==='all' ? 'diaries' : 'diary_profile_days'}
     WHERE date >= date(?, '-7 days') 
       AND date <= date(?, '+1 month', '+7 days') ${scope.sql}
-    ORDER BY date ASC
+    ${filter.kind==='unassigned' ? 'GROUP BY date' : ''} ORDER BY date ASC
   `);
   const rangeAnchor = `${normalizedYearMonth}-01`;
   const diaries = stmt.all(rangeAnchor,rangeAnchor,...scope.params) as DiaryEntry[];
@@ -1260,6 +1270,7 @@ export function addActivityLogIfAbsent(
 
       if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
       if (type === 'calc') addScore(date, POINTS.CALC_RECORD);
+      if(type==='calc' && isCanonicalDiaryFee(content))reconcileDiaryFees(db!,!!applicationData,date);
       inserted = true;
     });
 
@@ -1304,6 +1315,7 @@ function addActivityLogInternal(
       const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, ?, ?, ?, ?, ?)');
       const result = stmt.run(date, type, content, time, amount, source);
       insertedId = Number(result.lastInsertRowid);
+      if(source==='automatic' && type==='calc' && isCanonicalDiaryFee(content))reconcileDiaryFees(db!,!!applicationData,date);
 
       // 포인트 부여
       if (type === 'boss') addScore(date, POINTS.BOSS_KILL);
@@ -1621,7 +1633,7 @@ export function getMonthlySummary(yearMonth:string,lootKeywords?:readonly string
 
   const { start, end } = getMonthDateRange(yearMonth);
   const scope=diaryProfilePredicate(filter);
-  const rawLogs = getStmt(`SELECT date,type,content,amount,source,profile_id FROM activity_logs WHERE date>=? AND date<=? AND type IN ('loot','calc')${scope.sql} ORDER BY date DESC,time DESC`).all(start,end,...scope.params) as ActivityLog[];
+  const rawLogs = getStmt(`SELECT date,type,content,amount,source,profile_id FROM diary_visible_activity_logs WHERE date>=? AND date<=? AND type IN ('loot','calc')${scope.sql} ORDER BY date DESC,time DESC`).all(start,end,...scope.params) as ActivityLog[];
   const logs = filterVisibleLootLogs(rawLogs, lootKeywords);
 
   let totalLoots = 0;
@@ -1659,7 +1671,7 @@ export function getMonthlyStatistics(yearMonth:string,lootKeywords?:readonly str
 
   // 1. 기본 로그 가져오기 (인덱스 Range Scan 활용)
   const scope=diaryProfilePredicate(filter);
-  const rawLogs = getStmt(`SELECT date,time,type,content,amount,source,profile_id FROM activity_logs WHERE date>=? AND date<=?${scope.sql}`).all(start,end,...scope.params) as ActivityLog[];
+  const rawLogs = getStmt(`SELECT date,time,type,content,amount,source,profile_id FROM diary_visible_activity_logs WHERE date>=? AND date<=?${scope.sql}`).all(start,end,...scope.params) as ActivityLog[];
   const logs = filterVisibleLootLogs(rawLogs, lootKeywords);
 
   // 2. 출석일수 (활동 로그가 있는 고유 날짜 수)
@@ -1786,7 +1798,7 @@ export function getLootHistory(
   const scope=diaryProfilePredicate(filter);
   const rows = getStmt(`
     SELECT date,time,content,amount,source,profile_id
-    FROM activity_logs
+    FROM diary_visible_activity_logs
     WHERE date >= ? AND date <= ? AND type = 'loot' ${scope.sql}
     ORDER BY date DESC, time DESC
   `).all(startDate,endDate,...scope.params) as LootHistoryRow[];
@@ -1813,7 +1825,7 @@ export function getMonthlyRevenueData(yearMonth:string,filter:DiaryProfileFilter
   const scope=diaryProfilePredicate(filter);
   const rows = getStmt(`
     SELECT date, SUM(amount) as daily_sum 
-    FROM activity_logs 
+    FROM diary_visible_activity_logs
     WHERE date >= ? AND date <= ? AND type = 'calc' ${scope.sql}
     GROUP BY date
     ORDER BY date ASC
@@ -2281,6 +2293,8 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
         seedsAdded++;
       }
     }
+
+    for(const date of new Set(data.seeds.filter(item=>isCanonicalDiaryFee(item.content)).map(item=>item.date)))reconcileDiaryFees(db!,!!applicationData,date);
 
     // 2-1. 과거 로그의 날짜별 금화 주머니 총액과 로컬 DB 중 큰 값을 유지한다.
     for (const item of (data.goldPouchSeeds || [])) {

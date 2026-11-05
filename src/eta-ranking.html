@@ -60,7 +60,7 @@
             </div>
             <div class="win-title-text">
                 <span class="win-title-main">에타 랭킹 조회</span>
-                <span id="last-update" class="win-title-sub">Loading...</span>
+                <span id="last-update" class="win-title-sub">조회 중…</span>
             </div>
         </div>
         <div class="win-controls">
@@ -93,7 +93,7 @@
                 class="flex gap-2 bg-black/40 p-1.5 rounded-xl border border-white/5 focus-within:border-yellow-500/50 transition-colors">
                 <i data-lucide="search" class="w-4 h-4 text-slate-400 ml-3 mt-3"></i>
                 <input id="search-input"
-                    class="bg-transparent flex-1 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-700 font-bold"
+                    class="bg-transparent flex-1 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-400 font-bold"
                     placeholder="캐릭터명 검색..." onkeypress="if(event.key==='Enter')fetchRanking(true)">
                 <button onclick="fetchRanking(true)"
                     class="text-xs bg-amber-600 hover:bg-yellow-500 text-white px-5 py-2 rounded-lg font-black transition-all active:scale-95 shadow-lg flex items-center justify-center w-16"
@@ -152,7 +152,7 @@
             const list = document.getElementById('ranking-list');
             list.innerHTML = '';
             if (!entries || entries.length === 0) {
-                list.innerHTML = '<div class="text-xs text-slate-700 text-center py-10 font-bold tracking-widest opacity-50">검색 결과가 없습니다.</div>';
+                list.innerHTML = '<div class="text-sm text-slate-300 text-center py-10 font-bold">검색 결과가 없습니다.</div>';
                 return;
             }
 
@@ -201,7 +201,8 @@
                 input.value = ''; // 초기화 호출 시 검색어 비우기
             }
 
-            list.innerHTML = '<div class="text-xs text-slate-600 font-bold text-center py-6 animate-pulse">데이터 조회 중...</div>';
+            lastUpdateLabel.innerText = '조회 중…';
+            list.innerHTML = '<div class="text-sm text-slate-300 font-bold text-center py-6">데이터 조회 중…</div>';
 
             // 검색 중 버튼 비활성화
             input.disabled = true;
@@ -215,7 +216,7 @@
                 const params = { sc, cc: 99, page: 1, search: searchKeyword };
                 const result = await window.electronAPI.getEtaRanking(params);
 
-                lastUpdateLabel.innerText = result.lastUpdate || 'Unknown';
+                lastUpdateLabel.innerText = result.lastUpdate || '갱신 시각 정보 없음';
 
                 if (searchKeyword) {
                     resultTitle.innerHTML = `<i data-lucide="search" class="w-3 h-3"></i> 검색 결과`;
@@ -227,7 +228,8 @@
 
             } catch (err) {
                 console.error(err);
-                list.innerHTML = `<div class="text-xs font-bold text-red-400 text-center py-6">조회 실패: ${escapeHtml(err?.message || '잠시 후 다시 시도해 주세요.')}</div>`;
+                lastUpdateLabel.innerText = '조회 실패';
+                list.innerHTML = '<div class="text-sm font-bold text-red-300 text-center py-6">랭킹을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</div>';
             } finally {
                 input.disabled = false;
                 document.querySelectorAll('input[name="server"]').forEach(el => el.disabled = false);

@@ -226,6 +226,7 @@
     let bossNotifyVolume = 0.5;
     let currentHiddenMenuIds = [];
     let lastConfig = null;
+    let lastClickThrough = null;
     let sidebarPos = 'right';
     let isCollapsed = false;
     let wasCloudReauthRequired = false;
@@ -530,6 +531,7 @@
         refreshIcons();
         applyMenuVisibility();
         if (lastConfig) updateMasterMuteButton(Boolean(lastConfig.masterMute));
+        if (lastClickThrough !== null) updateClickThroughButton(lastClickThrough);
       } catch (e) { console.error('Failed to load dynamic menus:', e); }
     }
 
@@ -780,7 +782,7 @@
         iconName = isCollapsed ? 'chevron-right' : 'chevron-left';
       }
 
-      document.getElementById('toggle-icon').setAttribute('data-lucide', iconName);
+      document.getElementById('toggle-icon')?.setAttribute('data-lucide', iconName);
       tooltip.style.display = 'none';
       refreshIcons();
     });
@@ -812,13 +814,17 @@
       refreshIcons();
     }
 
-    window.electronAPI.onClickThroughStatus((isClickThrough) => {
-      const icon = document.getElementById('click-through-icon');
+    // Startup status can arrive before the asynchronous menu definitions finish loading.
+    function updateClickThroughButton(isClickThrough) {
+      lastClickThrough = isClickThrough;
       const btn = document.getElementById('click-through-btn');
-      if (isClickThrough) { icon.setAttribute('data-lucide', 'mouse-pointer-off'); btn.classList.add('text-green-400'); btn.classList.remove('text-slate-400'); }
-      else { icon.setAttribute('data-lucide', 'mouse-pointer-2'); btn.classList.add('text-slate-400'); btn.classList.remove('text-green-400'); }
+      if (!btn) return;
+      btn.querySelector('i, svg')?.setAttribute('data-lucide', isClickThrough ? 'mouse-pointer-off' : 'mouse-pointer-2');
+      btn.classList.toggle('text-green-400', isClickThrough);
+      btn.classList.toggle('text-slate-400', !isClickThrough);
       refreshIcons();
-    });
+    }
+    window.electronAPI.onClickThroughStatus(updateClickThroughButton);
 
     window.electronAPI.onConfigData((config) => {
       lastConfig = config;
@@ -841,7 +847,7 @@
       } else {
         iconName = isCollapsed ? 'chevron-right' : 'chevron-left';
       }
-      document.getElementById('toggle-icon').setAttribute('data-lucide', iconName);
+      document.getElementById('toggle-icon')?.setAttribute('data-lucide', iconName);
 
       bossNotifyVolume = (config.fieldBossNotifyVolume !== undefined ? config.fieldBossNotifyVolume : 50) / 100;
 

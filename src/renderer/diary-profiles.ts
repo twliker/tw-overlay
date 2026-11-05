@@ -8,7 +8,7 @@ interface DiaryProfileTarget {
   error(message:string):void;
 }
 interface Window {
-  diaryProfiles:{ready:Promise<void>;refresh():Promise<void>;state():import('../shared/diaryProfiles').DiaryProfileState;
+  diaryProfiles:{ready:Promise<void>;refresh():Promise<void>;acknowledgeArchive(id:string):void;state():import('../shared/diaryProfiles').DiaryProfileState;
     label(id:string):string;subscribe(callback:() => void):() => void;
     target(container:HTMLElement,options?:{isDirty?:() => boolean;onChange?:() => void;compact?:boolean;hint?:string;scope?:HTMLElement}):DiaryProfileTarget};
 }
@@ -43,14 +43,21 @@ interface Window {
   }
   const ready=refresh();
   api.onPlayProfilesChanged?.(() => {void refresh();});
+  function acknowledgeArchive(id:string):void {
+    // 저장 ACK 뒤의 목록 조회 실패가 성공한 정리를 되돌려 보이지 않게 한다.
+    // 오래된 ACK의 현재 프로필/선택 상태를 적용하지 않고 정리한 ID만 제거한다.
+    ++generation;
+    state={...state,archivedProfiles:state.archivedProfiles?.filter(profile=>profile.id!==id)};
+    error='';notify();void refresh();
+  }
 
   function target(container:HTMLElement,options:{isDirty?:() => boolean;onChange?:() => void;compact?:boolean;hint?:string;scope?:HTMLElement}={}):DiaryProfileTarget {
     const existing=targets.get(container);if (existing) return existing;
     container.classList.add('diary-profile-target');container.classList.toggle('diary-profile-compact',!!options.compact);
-    const title=document.createElement('label');title.textContent='기록할 프로필';
+    const title=document.createElement('label');title.textContent='새 수동 기록을 저장할 프로필';
     const select=document.createElement('select');select.className='ui-input';select.setAttribute('aria-label','기록할 프로필');
     title.append(select);
-    const hint=document.createElement('p');hint.className='ui-description';hint.textContent=options.hint || '선택한 프로필에 수동 기록을 저장합니다.';
+    const hint=document.createElement('p');hint.className='ui-description';hint.textContent=options.hint || '새로 추가하는 기록의 저장 대상입니다. 위 조회 범위의 기록 소유자와는 별개입니다.';
     const status=document.createElement('p');status.className='ui-status';status.setAttribute('role','status');
     const manage=document.createElement('button');manage.type='button';manage.className='ui-button';manage.textContent='프로필 관리';
     manage.addEventListener('click',() => api.toggleProfiles?.());
@@ -107,5 +114,5 @@ interface Window {
     const listener=() => {if (!container.isConnected) {listeners.delete(listener);return;}render();};
     listeners.add(listener);targets.set(container,handle);render();return handle;
   }
-  window.diaryProfiles={ready,refresh,state:() => state,label,subscribe(callback) {listeners.add(callback);return () => listeners.delete(callback);},target};
+  window.diaryProfiles={ready,refresh,acknowledgeArchive,state:() => state,label,subscribe(callback) {listeners.add(callback);return () => listeners.delete(callback);},target};
 })();

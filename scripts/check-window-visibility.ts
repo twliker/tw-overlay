@@ -68,9 +68,10 @@ async function main(): Promise<void> {
   };
   Object.assign(FixtureWindow, { getAllWindows: BrowserWindow.getAllWindows });
   let trayUpdates = 0;
+  let profilePositionQuery:(()=>Promise<any>) | undefined;
   const wm = isolatedModule('windowManager', {
     electron: { ...require('electron'), BrowserWindow: FixtureWindow },
-    './tracker': { getGameHwnd: () => null, isGameOrAppForeground: () => false, canAutomaticallyRestoreGameFocus: () => false,
+    './tracker': { queryGameRect:()=>profilePositionQuery ? profilePositionQuery() : Promise.resolve(undefined),getGameHwnd: () => null, isGameOrAppForeground: () => false, canAutomaticallyRestoreGameFocus: () => false,
       reconcileGameZOrder() {}, focusGameWindow() {}, restoreGameAfterOwnedWindowClose() {} },
     './updater': { getCurrentStatus: () => null }, './tray': { updateTrayMenu: () => { trayUpdates++; } },
     './galleryMonitor': {}, './tradeMonitor': {}, './bossNotifier': {},
@@ -535,6 +536,16 @@ async function main(): Promise<void> {
   assert.equal(await profileManager.webContents.executeJavaScript("document.getElementById('draft').value"),'프로필 편집 중');
   wm.toggleAllWindowsHidden();
   assert.equal(profileManager.isVisible(),false,'사용자의 명시적 전체 숨김은 프로필 창에도 적용');
+  let releaseProfileQuery:(value:any)=>void=()=>{};
+  profilePositionQuery=()=>new Promise(resolve=>{releaseProfileQuery=resolve;});
+  wm.openProfilesWindow('user-open');
+  assert.equal(wm.areAllWindowsHidden(),false,'명시적 열기의 전체 숨김 해제는 요청 시 실행');
+  assert.equal(profileManager.isVisible(),false,'좌표 조회가 끝나기 전 이전 위치에 표시하지 않음');
+  wm.toggleAllWindowsHidden();releaseProfileQuery(game);await pause(150);
+  assert.equal(wm.areAllWindowsHidden(),true,'늦은 좌표 조회가 이후 사용자의 전체 숨김을 취소하면 안 됨');
+  assert.equal(profileManager.isVisible(),false);
+  profilePositionQuery=async()=>game;wm.openProfilesWindow('user-open');await eventually(()=>profileManager.isVisible());
+  assert.equal(await profileManager.webContents.executeJavaScript("document.getElementById('draft').value"),'프로필 편집 중','중앙 재배치가 기존 입력을 지우면 안 됨');
   for (const win of BrowserWindow.getAllWindows()) win.destroy();
   config.saveImmediate();
   console.log('Window visibility + auto collapse: native lifecycle, drafts, game resume, late loading, notifications, shortcuts, busy UI, failed/delayed save, preset size and product screenshots passed.');

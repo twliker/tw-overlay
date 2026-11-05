@@ -14,7 +14,7 @@ import Database = require('better-sqlite3');
 import {loadChatLogSyncStateAtPath} from './chatLogSyncState';
 import {ensureDiaryAttribution} from './diaryAttribution';
 import {isProfileToolKey,PROFILE_TOOL_KEYS} from '../shared/profileTools';
-import {prepareProfileSyncSchema,captureProfileSyncChanges,ProfileSyncModel} from './profileSyncModel';
+import {prepareProfileSyncSchema,captureProfileSyncChanges,ProfileSyncModel,rememberProfileHomeworkDeletion} from './profileSyncModel';
 import type {DiaryRecordContext} from '../shared/diaryProfiles';
 import type { AppConfig, ContentsCheckerItem } from '../shared/types';
 import {
@@ -23,6 +23,7 @@ import {
 } from '../shared/playProfiles';
 
 const SCHEMA = 1;
+const PROFILE_ORDER_KEY='profile_display_order';
 const clone = <T>(value: T): T => structuredClone(value);
 const json = (value: unknown): string => JSON.stringify(value);
 
@@ -221,8 +222,30 @@ export class ApplicationData {
   list(includeDeleted = false): PlayProfile[] {
     const rows = this.database.prepare(`SELECT * FROM play_profiles ${includeDeleted ? '' : 'WHERE deleted_at IS NULL'}
       ORDER BY COALESCE(last_used_at,0) DESC, created_at,id`).all() as ProfileRow[];
-    return rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, lastUsedAt: row.last_used_at,
+    const profiles=rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, lastUsedAt: row.last_used_at,
       deletedAt: row.deleted_at, userServer: this.setting(row.id, 'userServer') as number | null }));
+    const saved=this.database.prepare('SELECT value FROM app_meta WHERE key=?').get(PROFILE_ORDER_KEY) as {value:string} | undefined;
+    if(!saved)return profiles;
+    let order:unknown;try {order=JSON.parse(saved.value);} catch {return profiles;}
+    if(!Array.isArray(order) || !order.length || order.some(id=>typeof id!=='string') || new Set(order).size!==order.length)return profiles;
+    const rank=new Map(order.map((id,index)=>[id as string,index]));
+    return profiles.sort((a,b)=>(rank.get(a.id) ?? order.length)-(rank.get(b.id) ?? order.length) || a.createdAt-b.createdAt || a.id.localeCompare(b.id));
+  }
+
+  /** 순서는 이 PC의 보기 설정이다. 직접 지정하기 전에는 기존 최근 사용 순을 유지하고, 지정한 뒤에는
+   * 프로필 선택/이름 변경/Google 수신으로 순서를 바꾸지 않는다. 새 ID는 지정한 목록 뒤에 표시한다.
+   * 살아 있는 ID 전체를 정확히 한 번씩 받아 원자 저장하며, 선택/숙제/일지/Google 변경 이력은 쓰지 않는다.
+   * 회귀: check-profile-storage.ts, check-profiles-ui.ts. */
+  setProfileOrder(ids:readonly string[]):void {
+    if(!Array.isArray(ids) || !ids.length || ids.some(id=>typeof id!=='string') || new Set(ids).size!==ids.length)throw new Error('프로필 순서가 올바르지 않습니다.');
+    this.database.transaction(()=>{
+      const live=this.database.prepare('SELECT id FROM play_profiles WHERE deleted_at IS NULL').all() as {id:string}[];
+      const requested=new Set(ids);
+      if(live.length!==ids.length || live.some(profile=>!requested.has(profile.id)))throw new Error('프로필 목록이 변경되었습니다. 목록을 확인한 뒤 다시 순서를 바꿔 주세요.');
+      const value=json(ids),existing=this.database.prepare('SELECT value FROM app_meta WHERE key=?').get(PROFILE_ORDER_KEY) as {value:string} | undefined;
+      if(existing?.value===value)return;
+      this.database.prepare('INSERT INTO app_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(PROFILE_ORDER_KEY,value);
+    }).immediate();
   }
 
   /** 기존 기록은 미지정으로 보존. 신규 기록 출처만 같은 DB 연결의 context에서 확정한다. */
@@ -434,10 +457,19 @@ export class ApplicationData {
       }
       this.database.prepare('INSERT INTO profile_settings VALUES(?,?,?) ON CONFLICT(profile_id,key) DO UPDATE SET value=excluded.value')
         .run(id,'userServer',json(userServer));
-      // 기본 숙제 정의는 앱 기본값만 사용. 설정 복사로 진행도/커스텀 항목이 섞이지 않는다.
-      for (const [position,item] of (this.options.defaults.contentsCheckerItems || []).entries()) {
+      // 설정 가져오기는 숙제 정의/커스텀/숨김/정렬/N/A도 복사한다. 완료 횟수·시각은 복사하지 않는다.
+      // 원본에서 삭제한 기본 항목은 새 프로필의 복구 및 다른 PC 수신에도 부활하지 않게 표시한다.
+      // 회귀: check-profile-homework-defaults.ts, check-profiles-ui.ts, check-profile-storage.ts.
+      const homework=base.contentsCheckerItems || [];
+      for (const [position,item] of homework.entries()) {
         const { completedState: _state, ...definition } = item;
-        this.database.prepare('INSERT INTO profile_homework VALUES(?,?,?,?,?)').run(id,item.id,json(definition),'{}',position);
+        const state=copySettingsFrom && item.completedState[copySettingsFrom]?.isExcluded===true ? {isCompleted:false,isExcluded:true} : {};
+        this.database.prepare('INSERT INTO profile_homework VALUES(?,?,?,?,?)').run(id,item.id,json(definition),json(state),position);
+      }
+      if (copySettingsFrom) for (const item of this.options.defaults.contentsCheckerItems || []) {
+        if (homework.some(existing=>existing.id===item.id)) continue;
+        rememberProfileHomeworkDeletion(this.database,id,item.id);
+        this.change(id,'homework',item.id,'delete',null);
       }
       this.change(id,'profile','metadata','create',{ name:name.trim(),userServer });
       this.change(id,'profile','settings','set',Object.fromEntries(PROFILE_SETTING_KEYS.map(k => [k,this.setting(id,k)])));
@@ -676,6 +708,30 @@ export class ApplicationData {
   pendingSessions(): Array<{sessionId:string;count:number;firstOccurredAt:number;lastOccurredAt:number}> {
     return (this.database.prepare('SELECT session_id,COUNT(*) AS count,MIN(occurred_at) AS first,MAX(occurred_at) AS last FROM pending_profile_events WHERE resolved_at IS NULL GROUP BY session_id ORDER BY first,session_id')
       .all() as {session_id:string;count:number;first:number;last:number}[]).map(row => ({sessionId:row.session_id,count:row.count,firstOccurredAt:row.first,lastOccurredAt:row.last}));
+  }
+
+  pendingSessionSnapshot(sessionId:string):{token:string;count:number;firstOccurredAt:number;lastOccurredAt:number} | null {
+    const hash=createHash('sha256');let count=0,firstOccurredAt=Infinity,lastOccurredAt=-Infinity;
+    const rows=this.database.prepare('SELECT event_id,occurred_at,payload FROM pending_profile_events WHERE session_id=? AND resolved_at IS NULL ORDER BY rowid').iterate(sessionId) as Iterable<{event_id:string;occurred_at:number;payload:string}>;
+    for(const row of rows) {
+      hash.update(json([row.event_id,row.occurred_at,row.payload]));++count;
+      firstOccurredAt=Math.min(firstOccurredAt,row.occurred_at);lastOccurredAt=Math.max(lastOccurredAt,row.occurred_at);
+    }
+    return count ? {token:hash.digest('hex'),count,firstOccurredAt,lastOccurredAt} : null;
+  }
+
+  /** 명시적으로 확인한 과거 대기 집합만 무시한다. 원문을 삭제하거나 숙제/일지/프로필에 적용하지 않는다.
+   * 확인 중 새 기록·같은 개수의 다른 원문으로 바뀌면 전체 실패한다. 반복 요청은 이미 처리한 경우 0건이다.
+   * resolved_at + 배정 대상 null로 보관해 재시작/동일 ID 재수신에도 다시 대기하지 않으며, 기존 30일 이후
+   * 원문 압축은 해시 영수증을 남긴다. 회귀: check-profile-storage.ts, check-profiles-ui.ts. */
+  ignorePendingSession(sessionId:string,snapshotToken:string):number {
+    if(!sessionId || !/^[a-f0-9]{64}$/.test(snapshotToken))throw new Error('대기 기록을 다시 확인해 주세요.');
+    return this.database.transaction(()=>{
+      const current=this.pendingSessionSnapshot(sessionId);
+      if(!current)return 0;
+      if(current.token!==snapshotToken)throw new Error('대기 기록이 변경되었습니다. 내용을 다시 확인한 뒤 무시해 주세요.');
+      return this.database.prepare('UPDATE pending_profile_events SET assigned_profile_id=NULL,resolved_at=? WHERE session_id=? AND resolved_at IS NULL').run(Date.now(),sessionId).changes;
+    }).immediate();
   }
 
   /** apply는 같은 database 연결을 사용해야 한다. 콜백 실패 시 반영과 ACK를 함께 취소한다. */

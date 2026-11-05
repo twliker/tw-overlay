@@ -60,7 +60,9 @@ npm run test:profile-cloud-pause
 
 UI 검사는 제품 HTML/preload/IPC/SQLite로 서버 필수, 임의 표시 이름, 설정 복사, 저장만 했을 때 선택 유지, 초안 보존/취소, 저장 실패/재시도, 세션 배정, 마지막 삭제 후 빈 기본, 준비 전 재시도 및 최소 창 크기를 확인한다. Google 검사는 중지 전에 시작한 요청·예약 요청의 배출, 중지 후 자동/수동 호출 차단, 로컬 설정/인증/기존 outbox 보존과 실제 설정 카드 DOM을 확인한다. 두 화면은 캡처 이미지로도 확인했다.
 
-창 관리 변경은 `npm run test:window-visibility`로 확인했다. 프로필 관리 창은 게임 최소화·종료로 닫지 않으며 작성 중인 입력을 보존한다. 사용자가 명시적으로 전체 창 숨김을 실행한 경우에는 함께 숨긴다. 이미 최소화된 게임 감지 시에는 기존 오버레이 숨김을 끝낸 다음 선택창을 열어 바로 닫히지 않게 한다.
+창 관리 변경은 `npm run test:window-visibility`로 확인한다. 이미 열린 프로필 관리 창은 게임 최소화·종료로 닫지 않으며 작성 중인 입력을 보존한다. 사용자가 명시적으로 전체 창 숨김을 실행한 경우에는 함께 숨긴다. 앱 시작 시 게임이 최소화·숨김 상태면 선택 전 기록 세션만 준비하고 자동 선택창은 게임이 보일 때까지 보류한다. 이때 받은 기록은 같은 세션으로 대기한다. 숨김 중 시스템 메뉴에서 직접 선택했다면 복귀 때 다시 표시하지 않는다.
+
+프로필 생성의 **설정 가져오기**에는 환경설정·도구 입력뿐 아니라 실제 기본/커스텀 숙제의 정의·숨김·순서·N/A가 포함된다. 완료 횟수·완료 시각·일지·실행 타이머는 복사하지 않는다. 삭제한 기본 항목은 새 프로필의 변경 이력과 동기화 삭제 표식에도 남겨 재시작/다른 PC 수신 때 누락 복구가 되살리지 않게 한다. 생성 전체가 한 transaction이므로 실패하면 새 프로필·숙제·삭제 표식·동기화 ID를 함께 되돌린다. 실제 생성 화면은 `test:profiles-ui`, 배포 목록·원본 보존·실패/재시작/수신은 `test:profile-homework-defaults`에서 확인한다.
 
 일지 검사는 실제 이전/공유 연결·원본 파일 불변, 수익/지출·숙제·마정석·금화·엘소의 분리와 전체 합계, 프로필별 득템 표시, transaction/ACK 실패 재시도, journal 중복 재생·이전 버전 복구·삭제 프로필, 필터별 통계/내보내기와 외래 키/무결성을 확인한다. 기존 마정석 실제 UI/IPC 검사를 함께 실행하며, 과거 worker/재구성 검사는 `check-refactor-regressions.ts` 파일 단위로 실행한다. 전체 npm test를 각 단계에서 실행하지 않는다.
 
@@ -173,3 +175,11 @@ ZIP 교체는 service 작업 잠금→실제 파일 입력 drain/중지→실행
 활동 프리셋의 설정 카드·검색·독 메뉴·preload/API/IPC는 제거했다. 기존 적용값과 창 배치는 유지하고 보관 원본은 이전 전 백업에 남긴다. 기존 형식 읽기/공유 창 배치의 내부 도구는 호환 검사만 유지하며 프리셋을 다시 실행하는 사용자 경로는 없다. 새 Google 동기화는 별도 개발한다.
 
 검사: `test:profile-lifecycle`, `test:profile-log-restore`, `test:profile-recording`, `test:profile-storage`, `test:profile-backup`, `test:profile-cloud-pause`, `test:profile-settings`, `test:profiles-ui` 및 직접 변경한 보조 도구/설정 DOM 검사를 선택한다. refactor의 실제 main probe는 appData/userData 모두 임시 경로로 바꿔 실행한다. 실제 게임 플레이/설치 업데이트 검증은 남아 있다.
+
+
+## 로컬 표시·미배정 정리 (2026-11-05)
+
+- `app_meta`의 `profile_display_order`: 현재 프로필 ID 전체의 순서. 기본은 기존 최근 사용순이며 사용자가 정하면 선택/이름 변경으로 흔들리지 않고 새 프로필은 뒤에 붙는다. PC 전용이며 Google에는 내보내지 않는다.
+- `diary_profile_meta`의 `unassigned-profile:<id>`: 사용자가 이전 소유자를 무시한 분류. 원본 profile_id/record_uuid를 덮어쓰지 않으며 미배정 필터에 포함한다. 중복 숙제/알람의 원래 식별값과 건수를 유지한다. 현재 살아 있는 프로필 ID는 정리할 수 없고, 같은 ID가 복원되어 현재 프로필이 되면 미배정으로 조회하지 않는다.
+- `diary_fee_duplicates`와 `diary_visible_activity_logs`: 상세 계약의 구형/복원 입장료를 1:1로 대응해 중복 집계만 제외한다. 원본 UUID/내용/amount/소유자는 유지한다. 초기화/실시간 입장료/과거 SEED 배치 transaction에서 재계산하며 getter는 이 메타데이터를 쓰지 않는다.
+- 위 정보는 app-data.db 전체 ZIP 백업에 보관된다. 모험일지/정리 정보는 Google 동기화 범위가 아니다.

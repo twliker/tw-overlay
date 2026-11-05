@@ -4,13 +4,15 @@ import {getProfileRuntime} from './profileRuntime';
 import {parseDiaryProfileFilter,type DiaryProfileFilter,type DiaryProfileState} from '../shared/diaryProfiles';
 import {isProfileServer} from '../shared/playProfiles';
 import {MAIN_CHAR_ID} from '../shared/types';
+import {readArchivedDiaryProfiles} from './diaryArchivedProfiles';
 
 export function getDiaryProfileState():DiaryProfileState {
   const runtime=getProfileRuntime();
   if (!runtime) return {enabled:false,profiles:[],activeProfileId:null,selectionRequired:true,busy:false};
   const status=runtime.service.status();
-  return {enabled:true,profiles:runtime.service.store.list(true),activeProfileId:status.activeProfileId || null,
-    selectionRequired:status.selectionRequired,busy:status.busy};
+  const readable=runtime.service.store.database.open && !runtime.service.isStorageMaintenanceActive();
+  return {enabled:true,profiles:readable ? runtime.service.store.list(true) : status.profiles,activeProfileId:status.activeProfileId || null,
+    selectionRequired:status.selectionRequired,busy:status.busy,archivedProfiles:readable ? readArchivedDiaryProfiles(runtime.service.store) : []};
 }
 
 export function resolveDiaryProfileFilter(value:unknown):DiaryProfileFilter {

@@ -53,10 +53,13 @@ async function main():Promise<void> {
   const runtime=built('modules/profileRuntime');runtime.setProfileRuntime({service,replay:() => {}});
   service.beginSession('ui-game');assert.equal((await service.select(a.id,() => {})).success,true);
   let gate:Promise<void> | undefined,release:(() => void) | undefined,entered=0,delayFilter='',readGate:Promise<void> | undefined,readRelease:(() => void) | undefined,readsEntered=0;
+  let failProfileRead=false,archiveGate:Promise<void> | undefined,archiveRelease:(()=>void) | undefined;
   const register=ipcMain.handle.bind(ipcMain);
   ipcMain.handle=(channel,listener) => register(channel,async (event,...args) => {
+    if(channel==='diary-profiles-get' && failProfileRead)throw new Error('fixture profile state unavailable');
     if (channel==='diary-add-activity') {entered++;if (gate) await gate;}
     const result=await listener(event,...args);
+    if(channel==='diary-archive-ignore' && archiveGate)await archiveGate;
     if (channel.startsWith('diary-get-') && delayFilter && args.at(-1)?.profileId===delayFilter && readGate) {readsEntered++;await readGate;}
     return result;
   });
@@ -65,6 +68,10 @@ async function main():Promise<void> {
   const diary=await page('diary.html');
   await until(diary,`currentSummary?.totalSeed===1280`);
   const filter=async (value:string) => {await js(diary,`document.getElementById('diary-profile-filter').value=${JSON.stringify(value)};document.getElementById('diary-profile-filter').dispatchEvent(new Event('change'));`);};
+  await js(diary,`window.__filterChanges=0;window.addEventListener('diary-profile-filter-changed',()=>window.__filterChanges++);`);
+  await filter('unassigned');await until(diary,'currentSummary?.totalSeed===30');
+  assert.equal(await js(diary,'window.__filterChanges'),1,'조회 범위 선택 한 번은 한 번만 새로고침');
+  await filter('all');await until(diary,'currentSummary?.totalSeed===1280');
   const target=async (win:BrowserWindow,id:string,value:string) => js(win,`{const select=document.querySelector(${JSON.stringify('#'+id+' select')});select.value=${JSON.stringify(value)};select.dispatchEvent(new Event('change'));}`);
   const fa={kind:'profile',profileId:a.id},fb={kind:'profile',profileId:b.id};
   for (const [scope,amount] of [[fa,1000],[fb,200],[{kind:'unassigned'},30],[{kind:'profile',profileId:c.id},50]] as Array<[{kind:string;profileId?:string},number]>) {
@@ -155,6 +162,71 @@ async function main():Promise<void> {
   await until(sidebar,`document.querySelector('[data-boss-record-profile]').nextElementSibling.textContent.includes('기록 완료')`);
   assert.equal(store.database.prepare("SELECT COUNT(*) n FROM activity_logs WHERE type='boss'").get().n,2);
   await capture(sidebar,'sidebar.png');
+  // 삭제된 프로필은 조회 선택지에서 숨기고, 별도 정리 창에서 미배정으로 보낸다.
+  assert.equal(await js(diary,`[...document.getElementById('diary-profile-filter').options].some(o=>o.value===${JSON.stringify(c.id)})`),false);
+  await filter('unassigned');await until(diary,'currentSummary?.totalSeed===30');
+  assert.match(await js(diary,`document.getElementById('diary-profile-note').textContent`),/새 수동 기록/);
+  assert.equal(await js(diary,`getComputedStyle(document.getElementById('diary-profile-filter')).colorScheme`),'dark');
+  assert.equal(await js(diary,`getComputedStyle(document.querySelector('#diary-profile-filter option')).backgroundColor`),'rgb(15, 18, 30)');
+  await assert.rejects(js(sidebar,`electronAPI.ignoreArchivedDiaryProfile(${JSON.stringify(c.id)})`),/모험일지/);
+  await assert.rejects(js(diary,`electronAPI.ignoreArchivedDiaryProfile(${JSON.stringify(a.id)})`),/사용 중/);
+  await assert.rejects(js(diary,`electronAPI.ignoreArchivedDiaryProfile('../bad')`));
+  const beforeArchive=store.database.prepare('SELECT * FROM activity_logs WHERE profile_id=? ORDER BY id').all(c.id);
+  const access=built('modules/diaryProfileAccess'),readState=access.getDiaryProfileState;
+  access.getDiaryProfileState=()=>{throw new Error('fixture archive result read failure');};
+  try {await assert.rejects(js(diary,`electronAPI.ignoreArchivedDiaryProfile(${JSON.stringify(c.id)})`),/fixture archive result read failure/);}
+  finally {access.getDiaryProfileState=readState;}
+  assert.equal(store.database.prepare('SELECT 1 FROM diary_profile_meta WHERE key=?').get('unassigned-profile:'+c.id),undefined,'결과 snapshot 실패는 분류 변경도 rollback');
+  await js(diary,'window.diaryProfiles.refresh()');
+  await js(diary,`document.getElementById('diary-archives-open').click();document.querySelector('#diary-archives-list button').click()`);
+  assert.equal(await js(diary,`document.getElementById('diary-archives-status').textContent.includes('미배정')`),true);
+  await capture(diary,'archives-confirm.png');
+  await js(diary,`document.querySelector('#diary-archives-list button').click()`);
+  assert.deepEqual(store.database.prepare('SELECT * FROM activity_logs WHERE profile_id=? ORDER BY id').all(c.id),beforeArchive,'취소는 원본 보존');
+  const restoring=service.beginHistoricalRestore(b.id);
+  await js(diary,'window.diaryProfiles.refresh()');
+  assert.equal(await js(diary,`[...document.querySelectorAll('#diary-archives-list button')].every(button=>button.disabled)`),true,'복원/전환 중 정리 동작 잠금');
+  await assert.rejects(js(diary,`electronAPI.ignoreArchivedDiaryProfile(${JSON.stringify(c.id)})`),/다른 작업/);
+  restoring.finish(()=>{});await js(diary,'window.diaryProfiles.refresh()');
+  store.database.exec("CREATE TRIGGER reject_archive BEFORE INSERT ON diary_profile_meta WHEN NEW.key LIKE 'unassigned-profile:%' BEGIN SELECT RAISE(ABORT,'fixture archive failure');END");
+  const confirmArchive=()=>js(diary,`document.querySelector('#diary-archives-list button').click();[...document.querySelectorAll('#diary-archives-list button')].find(b=>b.textContent==='미배정으로 옮기기').click()`);
+  await confirmArchive();await until(diary,`document.getElementById('diary-archives-status').textContent.includes('기록을 정리하지 못했습니다')`);
+  assert.equal(db.getMonthlySummary(month,undefined,{kind:'unassigned'}).totalSeed,30);
+  store.database.exec('DROP TRIGGER reject_archive');
+  await filter(b.id);await until(diary,'currentSummary?.totalSeed===155');
+  const messaging=built('modules/windowMessaging'),broadcast=messaging.broadcastToAllWindows;
+  failProfileRead=true;messaging.broadcastToAllWindows=()=>{throw new Error('fixture notification failure');};
+  try {
+    await js(diary,`window.__filterChanges=0;[...document.querySelectorAll('#diary-archives-list button')].find(b=>b.textContent==='미배정으로 옮기기').click()`);
+    await until(diary,`document.getElementById('diary-archives-status').textContent.includes('2건을')`);
+    await until(diary,`document.querySelector('#diary-record-profile .ui-status').textContent.includes('불러오지 못')`);
+    assert.equal(await js(diary,'window.__filterChanges'),1);
+    assert.equal(await js(diary,`document.getElementById('diary-profile-note').textContent.startsWith('조회 중: 미배정')`),true);
+  } finally {messaging.broadcastToAllWindows=broadcast;failProfileRead=false;}
+  await until(diary,'currentSummary?.totalSeed===80');
+  assert.equal(await js(diary,`document.getElementById('diary-profile-filter').value`),'unassigned');
+  assert.equal(await js(diary,`document.getElementById('diary-archives-open').hidden`),true);
+  assert.deepEqual(store.database.prepare('SELECT * FROM activity_logs WHERE profile_id=? ORDER BY id').all(c.id),beforeArchive,'정리는 원문/소유자/UUID 보존');
+  assert.equal(db.getMonthlySummary(month,undefined,fb).totalSeed,155,'현재 대상 프로필로 보내지 않음');
+  await js(diary,'window.diaryProfiles.refresh()');
+  await capture(diary,'archives-complete.png');await js(diary,`document.getElementById('diary-archives-close').click()`);
+  // 정리 ACK가 늦게 도착해도 그 사이 선택한 현재 프로필과 작성 중인 입력은 되돌리지 않는다.
+  const delayed=store.create('늦은 정리 결과',7);
+  store.withRecordContext(delayed.id,null,()=>db.addManualActivityLog(date,'04:00:00','calc','늦은 정리',5));store.remove(delayed.id);
+  await js(diary,'window.diaryProfiles.refresh()');
+  const draftBeforeArchive=await js(diary,`[document.getElementById('manual-seed-desc').value,document.querySelector('#diary-record-profile select').value]`);
+  archiveGate=new Promise(resolve=>{archiveRelease=resolve;});
+  await js(diary,`document.getElementById('diary-archives-open').click()`);await confirmArchive();
+  for(let n=0;n<100 && !store.database.prepare('SELECT 1 FROM diary_profile_meta WHERE key=?').get('unassigned-profile:'+delayed.id);n++)await pause();
+  assert.ok(store.database.prepare('SELECT 1 FROM diary_profile_meta WHERE key=?').get('unassigned-profile:'+delayed.id));
+  assert.equal((await service.select(a.id,()=>{})).success,true);await js(diary,'window.diaryProfiles.refresh()');
+  archiveRelease!();archiveGate=undefined;
+  await until(diary,`document.getElementById('diary-archives-status').textContent.includes('1건을')`);
+  assert.equal(await js(diary,'window.diaryProfiles.state().activeProfileId'),a.id);
+  assert.deepEqual(await js(diary,`[document.getElementById('manual-seed-desc').value,document.querySelector('#diary-record-profile select').value]`),draftBeforeArchive);
+  await js(diary,`document.getElementById('diary-archives-close').click()`);
+  await diary.reload();await js(diary,'window.diaryProfiles.ready');
+  assert.equal(await js(diary,`document.getElementById('diary-archives-open').hidden`),true,'재시작해도 정리된 목록은 다시 나오지 않음');
   // 기능 활성화 전의 토스트도 같은 제품 경로로 저장하며 기존 완료 표시는 유지한다.
   for (const win of BrowserWindow.getAllWindows()) win.destroy();
   await pause(100);

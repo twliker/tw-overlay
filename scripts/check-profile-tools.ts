@@ -28,6 +28,12 @@ async function capture(win:BrowserWindow,name:string):Promise<void> {
 }
 async function main():Promise<void> {
   await app.whenReady();fs.mkdirSync(output,{recursive:true});
+  const cleanName=require('./parse-equipment').cleanEquipmentName;
+  for(const prefix of ['프시키','아크론','이클립스'])for(const kind of ['물리력','마참력','마력','신성','참력','자력']) {
+    const name=prefix+'의 '+kind;
+    assert.equal(cleanName(name+' - 디펜시오 피해 감소 +20%'),name+' - 디펜시오');
+    assert.equal(cleanName(name+' (공격력 +20%)'),name);
+  }
   const config=built('modules/config'),diary=built('modules/diaryDb'),defaults=built('modules/constants').DEFAULT_CONFIG;
   const storage=built('modules/rendererStorageBackup');
   const catalog=JSON.parse(fs.readFileSync(path.join(root,'dist/assets/data/buffs.json'),'utf8'));
@@ -53,6 +59,13 @@ async function main():Promise<void> {
   const coef=await page('coefficient-calculator.html'),buff=await page('buffs.html');
   await ready(coef,a.id);await ready(buff,a.id);
   assert.equal(await js(coef,`document.getElementById('stat-stab').value`),'111');
+  await until(coef,'gearData.artifacts && Object.keys(gearData.artifacts).length>0');
+  const artifactNames=await js(coef,'Object.values(gearData.artifacts).flat().map(item=>item.name)');
+  for(const prefix of ['프시키','아크론','이클립스'])for(const kind of ['물리력','마참력','마력','신성','참력','자력']) {
+    assert.equal(artifactNames.filter((name:string)=>name===prefix+'의 '+kind).length,1);
+    assert.equal(artifactNames.filter((name:string)=>name===prefix+'의 '+kind+' - 디펜시오').length,1);
+  }
+
   assert.equal(await js(coef,`document.querySelector('.profile-tool-context').textContent`),'입력 프로필: 사냥 <A>');
   assert.equal(await js(coef,`document.querySelector('.profile-tool-context a')`),null);
   await js(coef,`document.getElementById('stat-stab').value='333';document.getElementById('stat-stab').dispatchEvent(new Event('input',{bubbles:true}))`);

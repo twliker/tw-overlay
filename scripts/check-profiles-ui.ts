@@ -3,12 +3,16 @@ import assert = require('node:assert/strict');
 import fs = require('node:fs');
 import os = require('node:os');
 import path = require('node:path');
+import {spawnSync} from 'node:child_process';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 const fixture=fs.mkdtempSync(path.join(os.tmpdir(),'tw-profiles-ui-'));
 app.setPath('userData',fixture);
+// 실제 부팅의 숨은 저장소 이전 창이 닫혀도 검사 앱이 기본 종료(0)되지 않아야 한다.
+app.on('window-all-closed',()=>{});
+let verified=false;
+app.on('before-quit',event=>{if(!verified){event.preventDefault();console.error('프로필 UI 검증 완료 전 앱 종료');app.exit(1);}});
 const root=path.resolve(__dirname,'..');
-const {ApplicationData}=require(path.join(root,'dist/modules/applicationData.js'));
 const {ProfileService}=require(path.join(root,'dist/modules/profileService.js'));
 const {registerProfileIpc}=require(path.join(root,'dist/modules/profileIpc.js'));
 const {DEFAULT_CONFIG}=require(path.join(root,'dist/modules/constants.js'));
@@ -16,11 +20,28 @@ const config=require(path.join(root,'dist/modules/config.js'));
 
 async function run():Promise<void> {
   await app.whenReady();
+  const interrupted=spawnSync(process.execPath,[__filename,'--probe-incomplete-quit'],{windowsHide:true,encoding:'utf8',timeout:15000});
+  assert.equal(interrupted.status,1,'검증 완료 전 실제 앱 종료를 성공으로 처리하면 안 됨');
+  assert.match((interrupted.stdout || '')+(interrupted.stderr || ''),/프로필 UI 검증 완료 전 앱 종료/);
+  const productionItems=JSON.parse(fs.readFileSync(path.join(root,'dist/assets/data/contents.json'),'utf8'));
+  const copyItems=structuredClone(productionItems);
+  Object.assign(copyItems[0],{name:'숨긴 설정 복사 숙제',category:'사용자 분류',isVisible:false,maxCount:9,auto:false,resetRule:{type:'weekly',dayOfWeek:0,hour:6},
+    completedState:{A:{currentCount:4,isCompleted:true,isExcluded:true,lastCompletedAt:Date.now()}}});
+  copyItems.push({id:'custom-settings-import',name:'추가한 숙제',category:'주간',isVisible:true,isCustom:true,maxCount:3,resetRule:{type:'weekly',dayOfWeek:0,hour:6},completedState:{A:{currentCount:2,isCompleted:false,lastCompletedAt:Date.now()}}});copyItems.reverse();
   const legacy={...structuredClone(DEFAULT_CONFIG),userServer:7,pinnedNoteText:'설정 복사 확인',
-    characterPresets:[{id:'A',name:'기존 캐릭터'},{id:'B',name:'두 번째 캐릭터'}],selectedCharacterId:'A'};
+    analyticsEnabled:false,contentsCheckerItems:copyItems,characterPresets:[{id:'A',name:'기존 캐릭터'},{id:'B',name:'두 번째 캐릭터'}],selectedCharacterId:'A'};
   assert.equal(config.saveConfirmed(legacy),true);
-  const store=await ApplicationData.initialize({directory:fixture,deviceId:'ui-fixture',defaults:DEFAULT_CONFIG},legacy);
-  config.installPersistence({read:(value:any) => store.readConfiguration(value),commit:(value:any,previous:any) => store.commitConfiguration(value,previous)});
+  const clock=new (require(path.join(root,'dist/modules/profileClock.js')).ProfileClock)(async()=>{throw new Error('offline');});
+  const prepared=await require(path.join(root,'dist/modules/profileStartup.js')).initializePlayProfileStorage(clock),store=prepared.store;
+  const sourceA=store.list().find((p:any)=>p.name==='기존 캐릭터'),sourceB=store.list().find((p:any)=>p.name==='두 번째 캐릭터');
+  const dailyIds=store.homework(sourceA.id).filter((item:any)=>item.isVisible!==false && item.resetRule.type==='daily').slice(0,2).map((item:any)=>item.id);
+  const weeklyId=store.homework(sourceA.id).find((item:any)=>item.isVisible!==false && item.resetRule.type==='weekly' && item.maxCount>=3).id;
+  const complete=(id:string,itemIds:string[])=>{
+    const cfg=store.project(id,config.load());for(const item of cfg.contentsCheckerItems)if(itemIds.includes(item.id))item.completedState[id]={isCompleted:true,currentCount:item.maxCount || 1,lastCompletedAt:Date.now()};
+    store.saveProjection(id,cfg);config.refreshFromPersistence();
+  };
+  complete(sourceA.id,[dailyIds[0]]);complete(sourceB.id,[...dailyIds,weeklyId]);
+  const partial=store.project(sourceA.id,config.load());partial.contentsCheckerItems.find((item:any)=>item.id===weeklyId).completedState[sourceA.id]={isCompleted:false,currentCount:2,lastCompletedAt:Date.now()};store.saveProjection(sourceA.id,partial);config.refreshFromPersistence();
   let page:BrowserWindow | null=null;
   let closeRequests=0;
   let nicknameQueries=0;
@@ -28,15 +49,45 @@ async function run():Promise<void> {
   const replay=(payload:any) => store.database.prepare('INSERT INTO ui_applied VALUES(?)').run(payload.value);
   store.database.exec('CREATE TABLE ui_applied(value INTEGER)');
   service.beginSession('fixture-game');
-  store.enqueue('old-session',{value:1},1,'old-record');
+  const oldAt=new Date(2026,8,20,19,28,57).getTime();
+  store.enqueue('old-session',{value:1,kind:'parsed-profile-event',version:1,event:'ABANDONED_FEE',data:{date:'2026-09-20',timestamp:'19:28:57',amount:50000,message:'입장료 50,000 Seed를 지불하였습니다.'}},oldAt,'old-record');
   store.enqueue(service.status().sessionId,{value:2},2,'current-record');
+  const readDetails=require(path.join(root,'dist/modules/profilePendingPreview.js')).readProfilePendingDetails;
+  const itemNames=new Map(productionItems.map((item:any)=>[item.id,item.name]));
+  const modelEvent=(event:string,data:any)=>({kind:'parsed-profile-event',version:1,event,data});
+  store.enqueue('preview-model',modelEvent('ABANDONED_FEE',{amount:75000}),10,'preview-fee');
+  store.enqueue('preview-model',modelEvent('XP_CHANGED',{amount:12345}),11,'preview-xp');
+  store.enqueue('preview-model',{kind:'legacy-homework',value:{id:productionItems[0].id,count:2,isIncrement:true,timestamp:12}},12,'preview-legacy');
+  const changes=()=>store.database.prepare('SELECT total_changes() AS total').get().total;
+  const changesBefore=changes(),early=readDetails(store,store.pendingSessions(),itemNames)['preview-model'];
+  assert.deepEqual(early.samples.map((item:any)=>item.text),['어벤던로드 입장료 · -75,000 SEED','경험치 변동 · +12,345',`${productionItems[0].name} · 누적 보류 수량 +2회`]);
+  assert.equal(early.categories.find((item:any)=>item.label==='이전 버전 숙제').unit,'묶음');
+  assert.equal(changes(),changesBefore,'요약 읽기는 DB/배정/ACK/이력을 수정하지 않음');
+  store.enqueue('preview-model',modelEvent('ITEM_LOOTED',{message:'<img src=x onerror=alert(1)>'.repeat(20)}),13,'preview-long');
+  store.enqueue('preview-model',modelEvent('__proto__',{}),14,'preview-unknown');
+  store.enqueue('preview-model',{},15,'preview-invalid');
+  store.database.prepare('UPDATE pending_profile_events SET payload=? WHERE event_id=?').run('{','preview-invalid');
+  const later=readDetails(store,store.pendingSessions(),itemNames)['preview-model'];
+  assert.equal(later.samples.length,3,'최근 원문은 세션마다 3개만 전송');
+  assert.equal(later.samples[0].text.length,180);assert.ok(later.samples[0].text.endsWith('…'));
+  assert.equal(later.samples[2].text,'내용을 확인할 수 없는 이전 기록');
+  assert.equal(later.categories.reduce((sum:number,item:any)=>sum+item.count,0),6,'종류별 감지 수 합계 일치');
+  store.database.prepare('DELETE FROM pending_profile_events WHERE session_id=?').run('preview-model');
   let ready=true;
+  let blockedProgressReply:Promise<void> | undefined,progressReplyEntered=false;
+  const register=ipcMain.handle.bind(ipcMain);
+  ipcMain.handle=(channel,handler)=>register(channel,async(event,...args)=>{
+    const result=await handler(event,...args);
+    if(channel==='play-profiles-get' && blockedProgressReply) {progressReplyEntered=true;await blockedProgressReply;}
+    return result;
+  });
   registerProfileIpc({getRuntime:() => ready ? {service,replay} : null,close:() => {++closeRequests;}});
+  ipcMain.handle=register;
   ipcMain.on('get-default-config-sync',event => {event.returnValue=DEFAULT_CONFIG;});
   ipcMain.handle('nickname-info-get',() => {++nicknameQueries;throw new Error('프로필 이름으로 캐릭터를 조회하면 안 됩니다.');});
   const errors:string[]=[];
   const createPage=() => {
-    const win=new BrowserWindow({show:false,width:820,height:680,webPreferences:{preload:path.join(root,'dist/preload.js'),backgroundThrottling:false}});
+    const win=new BrowserWindow({show:false,frame:false,width:640,height:520,webPreferences:{preload:path.join(root,'dist/preload.js'),backgroundThrottling:false}});
     win.webContents.on('console-message',event => {if (event.level==='error') errors.push(event.message);});
     return win;
   };
@@ -58,6 +109,151 @@ async function run():Promise<void> {
     assert.equal(await js("document.getElementById('profile-eta')"),null,'프로필 이름으로 에타 조회 UI 없음');
     assert.match(await js("document.getElementById('selection-notice').textContent"),/선택 전 자동 기록/);
     assert.equal(await js("document.querySelectorAll('.pending-row').length"),1,'현재 세션은 별도 배정 없이 선택 시 반영');
+    assert.equal(await js("document.getElementById('profile-editor').hidden"),true,'일반 선택에서는 편집 폼을 숨김');
+    assert.match(await js("document.querySelector('.pending-summary').textContent"),/어벤던로드 입장료 1건/,'건수의 의미를 요약');
+    assert.equal(await js("document.querySelector('.pending-sample').textContent"),'입장료 50,000 Seed를 지불하였습니다.');
+    assert.equal(await js("document.querySelector('footer').getBoundingClientRect().height"),0,'빈 상태 안내가 높이를 차지하지 않음');
+    assert.equal(await js("document.querySelector('.profile-row').getBoundingClientRect().height<125"),true,'숙제 진행률과 동작을 유지한 작은 카드');
+    const compactOutput=path.join(root,'output/profiles-ui');fs.mkdirSync(compactOutput,{recursive:true});
+    await js('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))');
+    fs.writeFileSync(path.join(compactOutput,'compact-selection-640.png'),(await page.webContents.capturePage()).toPNG());
+    // 현재 감지 세션을 제외한 과거 세션에 새 기록이 들어오면 이전 요약을 계속 보여주지 않는다.
+    store.enqueue('old-session',modelEvent('XP_CHANGED',{message:'경험치 12,345를 얻었습니다.'}),oldAt+1000,'preview-ui-xp');
+    store.enqueue('old-session',modelEvent('ITEM_LOOTED',{message:'<img src=x onerror="window.previewInjected=true">'}),oldAt+2000,'preview-ui-safe');
+    page.webContents.send('play-profiles-changed',service.status());
+    await wait("document.querySelector('.pending-summary').textContent.includes('경험치 변동 1건')",'대기 개수 변경 뒤 내용 갱신');
+    await js("document.querySelector('.pending-preview summary').click()");
+    assert.equal(await js("document.querySelector('.pending-preview details').open"),true);
+    assert.equal(await js("document.querySelectorAll('.pending-preview li').length"),3);
+    assert.equal(await js("document.querySelectorAll('.pending-preview img').length"),0,'원문은 안전한 텍스트로 표시');
+    const pendingPrepare=store.database.prepare;
+    try {
+      store.database.prepare=function(sql:string){if(sql.includes('GROUP BY session_id,kind,event'))throw new Error('fixture pending preview read failure');return pendingPrepare.call(this,sql);};
+      await js("window.dispatchEvent(new Event('focus'))");
+      await wait("document.querySelector('.pending-summary').textContent.includes('불러오지 못')",'요약 실패 안내');
+      assert.equal(await js(`document.querySelector('[data-focus-key="use:${sourceA.id}"]').disabled`),false,'요약 실패도 프로필 선택을 막지 않음');
+    } finally {store.database.prepare=pendingPrepare;}
+    await js("window.dispatchEvent(new Event('focus'))");await wait("document.querySelector('.pending-summary').textContent.includes('경험치 변동 1건')",'요약 재조회 복구');
+    store.database.prepare("DELETE FROM pending_profile_events WHERE event_id IN ('preview-ui-xp','preview-ui-safe')").run();
+    page.webContents.send('play-profiles-changed',service.status());
+    await wait("document.querySelector('.pending-summary').textContent==='어벤던로드 입장료 1건'",'대표 1건 요약 복원');
+    // 실제 신고와 같은 누락된 ID/적용 방식 + 저장 수량 143. 사용자의 원본 대신 임시 대역으로 재현한다.
+    const missingIdentity={kind:'legacy-homework',value:{count:143,timestamp:oldAt,sourceEventIds:Array.from({length:128},(_,n)=>`fixture-source-${n}`)}};
+    store.enqueue('legacy-missing-identity',missingIdentity,oldAt,'preview-ui-missing');
+    page.webContents.send('play-profiles-changed',service.status());
+    await wait("Array.from(document.querySelectorAll('.pending-row')).some(row=>row.dataset.sessionId==='legacy-missing-identity' && row.textContent.includes('저장 수량: 143'))",'불완전한 원본을 완료 횟수로 오해시키지 않음');
+    await wait("document.querySelector('[data-pending-focus=\"ignore:legacy-missing-identity\"]')?.disabled===false",'프로필 선택 전에도 무시 가능');
+    assert.equal(await js("document.querySelector('[data-pending-focus=\"assign:legacy-missing-identity\"]')"),null,'동작 없는 배정 버튼을 남기지 않음');
+    assert.match(await js("document.querySelector('[data-session-id=legacy-missing-identity] .pending-summary').textContent"),/이전 버전 숙제 1묶음/);
+    assert.doesNotMatch(await js("document.querySelector('[data-session-id=legacy-missing-identity]').textContent"),/143회/);
+    await js("document.querySelector('[data-session-id=legacy-missing-identity]').scrollIntoView({block:'center'})");
+    await js('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))');
+    fs.writeFileSync(path.join(compactOutput,'legacy-incomplete-143.png'),(await page.webContents.capturePage()).toPNG());
+    assert.deepEqual(store.pending('legacy-missing-identity')[0].payload,missingIdentity,'조회로 불완전 원본을 수정하거나 배정하지 않음');
+    const ignoreButton=()=>js("document.querySelector('[data-pending-focus=\"ignore:legacy-missing-identity\"]').click()");
+    await ignoreButton();await wait("document.getElementById('profile-confirm').open",'무시 확인창');
+    assert.match(await js("document.getElementById('confirm-body').textContent"),/저장 수량: 143/);
+    await js("document.querySelector('#profile-confirm button[value=cancel]').click()");assert.equal(store.pending('legacy-missing-identity').length,1,'취소는 원본/대기 유지');
+    const tokenBeforeIgnore=(await js('electronAPI.getPlayProfiles()')).pendingDetails['legacy-missing-identity'].snapshotToken;
+    assert.equal((await js("electronAPI.ignorePlayProfileSession('legacy-missing-identity','bad-token')")).success,false);
+    const currentToken=store.pendingSessionSnapshot(service.status().sessionId).token;
+    assert.match((await js(`electronAPI.ignorePlayProfileSession(${JSON.stringify(service.status().sessionId)},${JSON.stringify(currentToken)})`)).error,/현재 플레이/);
+    store.database.exec("CREATE TRIGGER reject_ui_ignore BEFORE UPDATE OF resolved_at ON pending_profile_events WHEN OLD.session_id='legacy-missing-identity' BEGIN SELECT RAISE(ABORT,'검사 무시 저장 실패');END;");
+    await ignoreButton();await confirm();
+    await wait("document.getElementById('profile-status').textContent.includes('검사 무시 저장 실패')",'무시 실패 안내');
+    assert.equal(store.pending('legacy-missing-identity').length,1,'실패 후 대기/원본 유지');store.database.exec('DROP TRIGGER reject_ui_ignore');
+    await wait("!document.querySelector('[data-pending-focus=\"ignore:legacy-missing-identity\"]').disabled",'무시 실패 후 재시도');
+    await ignoreButton();await wait("document.getElementById('profile-confirm').open",'추가 기록 경합 확인');
+    store.enqueue('legacy-missing-identity',modelEvent('SEED_GAINED',{amount:12,message:'12 Seed를 얻었습니다.'}),oldAt+1,'preview-ui-arrived');
+    await confirm();await wait("document.getElementById('profile-status').textContent.includes('대기 기록이 변경')",'확인 중 새 기록은 전체 무시하지 않음');
+    assert.equal(store.pending('legacy-missing-identity').length,2);
+    await wait("document.querySelector('[data-session-id=legacy-missing-identity]').textContent.includes('SEED 수익 1건') && !document.querySelector('[data-pending-focus=\"ignore:legacy-missing-identity\"]').disabled",'변경된 내용을 다시 조회');
+    await ignoreButton();await confirm();
+    await wait("!document.querySelector('[data-session-id=legacy-missing-identity]') && document.getElementById('profile-status').textContent.includes('정리했습니다')",'확인 후 목록 정리와 피드백');
+    const ignoredOriginal=store.database.prepare('SELECT * FROM pending_profile_events WHERE event_id=?').get('preview-ui-missing');
+    assert.deepEqual(JSON.parse(ignoredOriginal.payload),missingIdentity);assert.equal(ignoredOriginal.assigned_profile_id,null);assert.ok(ignoredOriginal.resolved_at);
+    assert.equal(service.status().selectionRequired,true);assert.equal(store.pending('old-session').length,1);assert.equal(store.pending(service.status().sessionId).length,1,'다른 세션과 현재 플레이 기록 유지');
+    assert.deepEqual(store.database.prepare('SELECT value FROM ui_applied').all(),[],'무시로 숙제/일지를 재생하지 않음');
+    assert.equal((await js(`electronAPI.ignorePlayProfileSession('legacy-missing-identity',${JSON.stringify(tokenBeforeIgnore)})`)).success,true,'재전송도 원본을 다시 처리하지 않음');
+    await page.reload();await wait("document.querySelectorAll('.profile-row').length===2 && document.querySelectorAll('.pending-row').length===1",'다시 열어도 무시 상태 유지');
+    assert.equal(await js("document.querySelector('[data-session-id=legacy-missing-identity]')"),null);
+    await js("document.querySelector('.pending-row').scrollIntoView({block:'center'})");
+    await js('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))');
+    fs.writeFileSync(path.join(compactOutput,'pending-summary-640.png'),(await page.webContents.capturePage()).toPNG());
+    await page.setSize(560,400);await js("document.querySelector('.pending-row button').scrollIntoView({block:'center'})");
+    assert.equal(await js("(()=>{const r=document.querySelector('.pending-row button').getBoundingClientRect();return r.top>=0 && r.bottom<=innerHeight && document.documentElement.scrollWidth<=innerWidth})()"),true,'작은 창에서도 배정 버튼과 스크롤 접근');
+    await page.setSize(640,520);
+    assert.doesNotMatch(await js("document.querySelector('.profile-local-note').textContent"),/일시 중지|보류/,'새 Google 동기화와 모순되는 예전 중지 안내 제거');
+    const progress=(id:string,period:string)=>js(`(()=>{const row=document.querySelector('[data-profile-id="${id}"] [data-period="${period}"]');return {count:row?.querySelector('.profile-progress-count').textContent,percent:row?.querySelector('.profile-progress-percent').textContent,value:row?.querySelector('progress').value}})()`);
+    await wait(`document.querySelector('[data-profile-id="${sourceA.id}"] [data-period="daily"] .profile-progress-count')?.textContent.startsWith('1 / ')`,'실제 저장/IPC의 일일 현황');
+    for(const [id,period,done] of [[sourceA.id,'daily',1],[sourceB.id,'daily',2],[sourceA.id,'weekly',0],[sourceB.id,'weekly',1]] as const) {
+      const visible=store.homework(id).filter((item:any)=>item.isVisible!==false && item.resetRule.type===period && !item.completedState[id]?.isExcluded).length;
+      assert.deepEqual(await progress(id,period),{count:`${done} / ${visible}`,percent:`${Math.round(done/visible*100)}%`,value:Math.round(done/visible*100)},'프로필별 숫자/퍼센트/진행률 바 일치');
+    }
+    const originalB=store.homework(sourceB.id),excludedB=store.project(sourceB.id,config.load());
+    for(const item of excludedB.contentsCheckerItems)item.completedState[sourceB.id]={...item.completedState[sourceB.id],isExcluded:true};
+    store.saveProjection(sourceB.id,excludedB);config.refreshFromPersistence();await js("window.dispatchEvent(new Event('focus'))");
+    await wait(`document.querySelector('[data-profile-id="${sourceB.id}"] [data-period="daily"] .profile-progress-count').textContent==='대상 없음'`,'모두 N/A인 프로필의 대상 없음');
+    for(const period of ['daily','weekly'])assert.deepEqual(await progress(sourceB.id,period),{count:'대상 없음',percent:'—',value:0});
+    const restoredB=store.project(sourceB.id,config.load());restoredB.contentsCheckerItems=originalB;store.saveProjection(sourceB.id,restoredB);config.refreshFromPersistence();await js("window.dispatchEvent(new Event('focus'))");
+    await wait(`document.querySelector('[data-profile-id="${sourceB.id}"] [data-period="daily"] .profile-progress-count').textContent.startsWith('2 / ')`,'N/A 해제 후 현황 복원');
+    const selectionBefore=service.status();await js(`document.querySelector('[data-focus-key="edit:${sourceA.id}"]').click()`);
+    await wait("!document.getElementById('profile-editor').hidden",'수정할 때 폼 펼치기');await fill('현황 갱신 중 초안','7');
+    await click('close-editor');await wait("document.getElementById('profile-confirm').open",'편집 닫기도 초안 보호');
+    await js("document.querySelector('#profile-confirm button[value=cancel]').click()");
+    assert.equal(await js("document.getElementById('profile-editor').hidden"),false);
+    const orderBefore=store.list().map((profile:any)=>profile.id),orderAfter=[...orderBefore].reverse();
+    await click('reorder-profiles');
+    assert.equal(await js("document.getElementById('reorder-profiles').getAttribute('aria-pressed')"),'true');
+    assert.equal(await js(`document.querySelector('[data-focus-key="move:-1:${orderBefore[0]}"]').disabled`),true);
+    store.database.exec("CREATE TRIGGER reject_ui_profile_order BEFORE INSERT ON app_meta WHEN NEW.key='profile_display_order' BEGIN SELECT RAISE(ABORT,'검사 순서 저장 실패');END;");
+    await js(`document.querySelector('[data-focus-key="move:1:${orderBefore[0]}"]').click()`);
+    await wait("document.getElementById('profile-status').textContent.includes('검사 순서 저장 실패') && !document.getElementById('reorder-profiles').disabled",'순서 저장 실패와 재시도');
+    assert.deepEqual(store.list().map((profile:any)=>profile.id),orderBefore);store.database.exec('DROP TRIGGER reject_ui_profile_order');
+    await js(`document.querySelector('[data-focus-key="move:1:${orderBefore[0]}"]').click()`);
+    await wait(`document.querySelector('.profile-row').dataset.profileId===${JSON.stringify(orderAfter[0])} && !document.getElementById('reorder-profiles').disabled`,'위아래 버튼 순서 저장');
+    assert.deepEqual(store.list().map((profile:any)=>profile.id),orderAfter);
+    assert.equal(await js("document.getElementById('profile-name').value"),'현황 갱신 중 초안','순서 변경도 편집 초안 유지');
+    assert.equal(service.status().activeProfileId,selectionBefore.activeProfileId);assert.equal(service.status().sessionId,selectionBefore.sessionId);
+    await js(`document.querySelector('[data-focus-key="order:${orderAfter[0]}"]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}))`);
+    await wait(`document.querySelector('.profile-row').dataset.profileId===${JSON.stringify(orderBefore[0])} && !document.getElementById('reorder-profiles').disabled`,'키보드 순서 변경');
+    await js(`(()=>{const rows=Array.from(document.querySelectorAll('.profile-row')),from=rows[0].querySelector('.profile-drag-handle'),target=rows[1],dataTransfer=new DataTransfer();from.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,dataTransfer}));const y=target.getBoundingClientRect().bottom-1;target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer,clientY:y}));target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer,clientY:y}));})()`);
+    await wait(`document.querySelector('.profile-row').dataset.profileId===${JSON.stringify(orderAfter[0])} && !document.getElementById('reorder-profiles').disabled`,'드래그 순서 저장');
+    assert.equal((await js(`electronAPI.reorderPlayProfiles(${JSON.stringify([sourceA.id,sourceA.id])})`)).success,false);
+    assert.equal((await js(`electronAPI.reorderPlayProfiles(${JSON.stringify([sourceA.id])})`)).success,false);
+    assert.equal((await js(`electronAPI.reorderPlayProfiles(${JSON.stringify([sourceA.id,'unknown-profile'])})`)).success,false);
+    const orderOutput=path.join(root,'output/profile-order');fs.mkdirSync(orderOutput,{recursive:true});
+    await js("document.querySelector('main').scrollTop=0");await js('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))');
+    fs.writeFileSync(path.join(orderOutput,'reorder-640.png'),(await page.webContents.capturePage()).toPNG());
+    await click('reorder-profiles');
+    assert.equal(await js("document.querySelector('.profile-drag-handle')"),null,'일반 선택 화면에서는 순서 도구 숨김');
+    await js(`window.__progressUseButton=document.querySelector('[data-focus-key="use:${sourceA.id}"]');window.__progressUseButton.focus();`);
+    let releaseProgress:()=>void=()=>{};blockedProgressReply=new Promise<void>(resolve=>{releaseProgress=resolve;});
+    await js("window.dispatchEvent(new Event('focus'))");
+    for(let n=0;n<220 && !progressReplyEntered;n++)await new Promise(resolve=>setTimeout(resolve,25));assert.equal(progressReplyEntered,true);
+    complete(sourceA.id,[dailyIds[1]]);page.webContents.send('config-data',config.load());blockedProgressReply=undefined;releaseProgress();
+    await wait(`document.querySelector('[data-profile-id="${sourceA.id}"] [data-period="daily"] .profile-progress-count').textContent.startsWith('2 / ')`,'조회 중 추가 변경도 놓치지 않고 갱신');
+    assert.equal(await js("document.getElementById('profile-name').value"),'현황 갱신 중 초안');
+    assert.equal(await js(`window.__progressUseButton===document.querySelector('[data-focus-key="use:${sourceA.id}"]')`),true,'진행률 갱신은 사용 버튼 DOM/포커스를 재생성하지 않음');
+    assert.equal(service.status().activeProfileId,selectionBefore.activeProfileId);assert.equal(service.status().sessionId,selectionBefore.sessionId);
+    const maintenance=service.beginStorageMaintenance();
+    try {
+      store.close();const during=await js('electronAPI.getPlayProfiles()');
+      assert.equal(during.busy,true);assert.equal(during.homeworkProgress,null,'백업/복구로 DB가 닫힌 동안 현황만 보류');assert.equal(during.pendingDetails,null);
+      assert.equal((await js(`electronAPI.reorderPlayProfiles(${JSON.stringify(orderAfter)})`)).success,false,'복구 중 순서 저장도 차단');
+    } finally {store.reopen();maintenance.finish(replay);}
+    await wait("!document.getElementById('save-profile').disabled",'저장소 재연결 뒤 프로필 화면 유지');
+    const originalPrepare=store.database.prepare;
+    try {
+      store.database.prepare=function(sql:string){if(sql.includes('FROM profile_homework h'))throw new Error('fixture progress read failure');return originalPrepare.call(this,sql);};
+      await js("window.dispatchEvent(new Event('focus'))");await wait("Array.from(document.querySelectorAll('.profile-progress-count')).some(node=>node.textContent==='확인 불가')",'현황 실패만 별도 표시');
+      assert.equal(await js(`document.querySelector('[data-focus-key="use:${sourceA.id}"]').disabled`),false,'현황 조회 실패가 프로필 선택을 차단하지 않음');
+    } finally {store.database.prepare=originalPrepare;}
+    await js("window.dispatchEvent(new Event('focus'))");await wait(`document.querySelector('[data-profile-id="${sourceA.id}"] [data-period="daily"] .profile-progress-count').textContent.startsWith('2 / ')`,'현황 조회 실패 후 복구');
+    await fill('기존 캐릭터','7');page.setSize(800,600);
+    await js("document.querySelector('.profile-row').scrollIntoView({block:'start'})");await new Promise(resolve=>setTimeout(resolve,100));
+    const progressOutput=path.join(root,'output/profiles-ui');fs.mkdirSync(progressOutput,{recursive:true});fs.writeFileSync(path.join(progressOutput,'homework-progress-800.png'),(await page.webContents.capturePage()).toPNG());
+    assert.equal(await js("document.documentElement.scrollWidth>innerWidth"),false);
     await click('new-profile');
     await fill('사냥용','');
     await click('save-profile');
@@ -66,13 +262,41 @@ async function run():Promise<void> {
     await fill('사냥용','16');
     const initialId=service.status().activeProfileId;
     await js(`document.getElementById('profile-copy').value=${JSON.stringify(initialId)};`);
+    page.setSize(800,600);await js("document.getElementById('save-profile').scrollIntoView({block:'center'})");
+    assert.equal(await js(`(()=>{const r=document.getElementById('save-profile').getBoundingClientRect(),footer=document.querySelector('footer').getBoundingClientRect();return r.top>=0 && r.bottom<=(footer.height ? footer.top : innerHeight) && document.documentElement.scrollWidth<=innerWidth})()`),true,'최소 창에서도 설정 가져오기 설명 후 저장 버튼에 접근');
+    const createOutput=path.join(root,'output/profiles-ui');fs.mkdirSync(createOutput,{recursive:true});
+    await new Promise(resolve=>setTimeout(resolve,100));fs.writeFileSync(path.join(createOutput,'settings-import-800.png'),(await page.webContents.capturePage()).toPNG());
+    const beforeCreate=store.homework(initialId);
+    store.database.exec("CREATE TRIGGER reject_ui_create BEFORE INSERT ON profile_change_log WHEN NEW.scope='profile' AND NEW.field='settings' BEGIN SELECT RAISE(ABORT,'검사 생성 실패'); END;");
+    await click('save-profile');await wait("document.getElementById('profile-status').dataset.error==='true' && !document.getElementById('save-profile').disabled",'가져오기 생성 실패 안내');
+    assert.equal(store.list().length,2);assert.deepEqual(store.homework(initialId),beforeCreate,'생성 실패 시 원본 숙제 보존');
+    assert.equal(await js("document.getElementById('profile-name').value"),'사냥용');assert.equal(await js("document.getElementById('profile-copy').value"),initialId,'실패 뒤 가져올 프로필 선택도 유지');
+    store.database.exec('DROP TRIGGER reject_ui_create');
     await click('save-profile');
     await wait("document.querySelectorAll('.profile-row').length===3 && !document.getElementById('save-profile').disabled",'생성 저장');
     const created=store.list().find((p:any) => p.name==='사냥용');
     assert.ok(created);
     assert.equal(store.setting(created.id,'pinnedNoteText'),'설정 복사 확인');
+    const original=store.homework(initialId),imported=store.homework(created.id);
+    assert.equal(imported.length,productionItems.length+1,'설정 가져오기 UI로 실제 기본 숙제와 커스텀 숙제를 복사');
+    assert.deepEqual(imported.map(({completedState,...definition}:any)=>definition),original.map(({completedState,...definition}:any)=>definition),'숙제 이름·숨김·분류·순서·최대 횟수·초기화·자동 감지 설정 유지');
+    for(const item of imported) {
+      const state=item.completedState[created.id];assert.notEqual(state.isCompleted,true);assert.equal(state.currentCount,undefined);assert.equal(state.lastCompletedAt,undefined);
+      assert.equal(state.isExcluded===true,original.find((source:any)=>source.id===item.id).completedState[initialId].isExcluded===true,'N/A는 참여 설정으로 복사');
+    }
     assert.equal(service.status().activeProfileId,initialId,'저장만 하면 자동 전환하지 않음');
     assert.equal(closeRequests,0);
+    await click('new-profile');await fill('기본 목록 생성','7');assert.equal(await js("document.getElementById('profile-copy').value"),'');
+    await click('save-profile');await wait("document.querySelectorAll('.profile-row').length===4 && !document.getElementById('save-profile').disabled",'가져오기 없는 기본 프로필 생성');
+    const defaultProfile=store.list().find((p:any)=>p.name==='기본 목록 생성');assert.ok(defaultProfile);
+    const baseItems=store.homework(defaultProfile.id);assert.equal(baseItems.length,productionItems.length);
+    assert.deepEqual(baseItems.map((item:any)=>item.id).sort(),productionItems.map((item:any)=>item.id).sort());
+    assert.ok(baseItems.every((item:any)=>Object.keys(item.completedState[defaultProfile.id]).length===0));
+    const orderBeforeReload=store.list().map((profile:any)=>profile.id);
+    assert.deepEqual(orderBeforeReload.slice(0,2),orderAfter,'추가한 프로필은 수동 순서 뒤에 표시');
+    await page.reload();await wait("document.querySelectorAll('.profile-row').length===4",'순서 저장 후 새로 열기');
+    assert.deepEqual(await js("Array.from(document.querySelectorAll('.profile-row')).map(row=>row.dataset.profileId)"),orderBeforeReload);
+    await js(`document.querySelector('[data-focus-key="edit:${created.id}"]').click()`);await wait("document.getElementById('profile-name').value==='사냥용'",'복사 프로필 재편집');
     await fill('작성 중인 긴 이름','16');
     page.webContents.send('play-profiles-changed',service.status());
     await wait("document.getElementById('profile-name').value==='작성 중인 긴 이름'",'상태 알림 중 초안 보존');
@@ -98,7 +322,10 @@ async function run():Promise<void> {
     assert.equal(service.status().activeProfileId,created.id);
     assert.equal(closeRequests,1,'성공한 사용만 닫기 요청');
     assert.deepEqual(store.database.prepare('SELECT value FROM ui_applied').all(),[{value:2}]);
-    await js("document.querySelector('.pending-row button').click()");await confirm();
+    await js("document.querySelector('.pending-row button').click()");
+    await wait("document.getElementById('profile-confirm').open",'배정 내용 확인');
+    assert.match(await js("document.getElementById('confirm-body').textContent"),/어벤던로드 입장료 1건/);
+    await confirm();
     await wait("document.getElementById('pending-section').hidden",'이전 세션 명시 배정');
     assert.deepEqual(store.database.prepare('SELECT value FROM ui_applied ORDER BY value').all(),[{value:1},{value:2}]);
     await page.setSize(800,600);
@@ -107,7 +334,10 @@ async function run():Promise<void> {
     fs.writeFileSync(path.join(fixture,'profiles-800x600.png'),image.toPNG());
     const other=createPage();
     await other.loadFile(path.join(root,'dist/storage-bridge.html'));
+    const otherStatus=await other.webContents.executeJavaScript('electronAPI.getPlayProfiles()');assert.equal('homeworkProgress' in otherStatus,false,'현황 계산/전달은 로컬 프로필 화면에서만 수행');assert.equal('pendingDetails' in otherStatus,false,'대기 기록 내용은 로컬 프로필 화면 조회에서만 전달');
     assert.equal((await other.webContents.executeJavaScript("window.electronAPI.createPlayProfile('허용안됨',7)")).success,false,'다른 제품/외부 페이지에서 프로필 변경 불허');
+    assert.equal((await other.webContents.executeJavaScript(`electronAPI.reorderPlayProfiles(${JSON.stringify(store.list().map((profile:any)=>profile.id))})`)).success,false,'다른 화면에서 순서 변경 거부');
+    assert.equal((await other.webContents.executeJavaScript(`electronAPI.ignorePlayProfileSession('old-session',${JSON.stringify(store.pendingSessionSnapshot('old-session')?.token || tokenBeforeIgnore)})`)).success,false,'다른 화면에서 무시 요청 불허');
     other.destroy();
     const remainingIds=store.list().filter((p:any) => p.id!==created.id).map((p:any) => p.id);
     for (const id of remainingIds) assert.equal((await service.remove(id)).success,true);
@@ -127,7 +357,8 @@ async function run():Promise<void> {
     assert.deepEqual(errors,[],'제품 렌더러 오류 없음');
     assert.equal(nicknameQueries,0,'프로필 표시 이름은 에타 조회에 사용하지 않음');
     console.log(`PASS profiles UI: real preload/IPC/SQLite, validation, draft, failure/retry, selection, pending, deletion; screenshot ${path.join(fixture,'profiles-800x600.png')}`);
-  } finally {page?.destroy();store.close();}
+  } finally {page?.destroy();prepared.stopClock();config.flushPending();store.close();}
 }
 
-run().then(() => app.exit(0)).catch(error => {console.error(error);app.exit(1);});
+if(process.argv.includes('--probe-incomplete-quit'))void app.whenReady().then(()=>app.quit());
+else run().then(() => {verified=true;app.exit(0);}).catch(error => {console.error(error);app.exit(1);});

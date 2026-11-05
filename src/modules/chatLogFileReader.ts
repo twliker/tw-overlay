@@ -53,6 +53,8 @@ export function findLastCompleteChatLogOffset(filePath: string, snapshotSize?: n
     const endingProbeStart = Math.max(0, boundedSize - 32);
     const endingProbe = readRange(fd, endingProbeStart, boundedSize - endingProbeStart);
     const hasClosedTrailingRow = /<\/br>\s*$/i.test(endingProbe.toString('latin1'));
+    // 마지막 행만 개행이 없는 파일도 포함한다. 앞선 행의 개행을 먼저 반환하면 완전한 마지막 행이 빠진다.
+    if (hasClosedTrailingRow) return boundedSize;
     let end = boundedSize;
     while (end > 0) {
       const start = Math.max(0, end - CHAT_LOG_BOUNDARY_SCAN_BYTES);
@@ -62,8 +64,7 @@ export function findLastCompleteChatLogOffset(filePath: string, snapshotSize?: n
       end = start;
     }
 
-    // 일부 구형 로그는 마지막 HTML 행 뒤에 개행을 남기지 않습니다. 닫힌 </br> 행은 완전한 줄입니다.
-    return hasClosedTrailingRow ? boundedSize : 0;
+    return 0;
   } finally {
     fs.closeSync(fd);
   }

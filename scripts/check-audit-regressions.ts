@@ -255,6 +255,26 @@ async function checkMonitorsAndRuntime(): Promise<void> {
   const forced = monitor('trade', async url => { if (url.includes('cafesearch')) throw new Error('offline'); return htmlPost(110); });
   await forced.api.forceCheck();
   assert.equal(forced.api.auditState().lastSeenPostNo, 100);
+  const noSearch={tradeServer:'RyXp',tradeKeywords:[],tradeNotify:false};
+  for(const backToOriginal of [false,true]) {
+    let release!:()=>void;
+    const gate=new Promise<void>(resolve=>{release=resolve;});
+    const delayed=monitor('trade',async()=>{await gate;return htmlPost(111);},structuredClone(noSearch));
+    const pending=delayed.api.forceCheck();delayed.api.setServer('Siwv');
+    if(backToOriginal)delayed.api.setServer('RyXp');
+    release();assert.deepEqual(await pending,[]);
+    assert.equal(delayed.status.some(([channel,posts]:any[])=>channel==='trade-posts' && posts.some((post:any)=>post.no===111)),false,'이전 서버/세대 응답은 현재 서버 목록에 반영하지 않음');
+    assert.equal(delayed.api.auditState().lastSeenPostNo,0);
+  }
+  const responses:Array<(html:string)=>void>=[];
+  const reverse=monitor('trade',()=>new Promise<string>(resolve=>responses.push(resolve)),structuredClone(noSearch));
+  const first=reverse.api.forceCheck(),second=reverse.api.forceCheck();
+  responses[1](htmlPost(222));await second;responses[0](htmlPost(111));await first;
+  assert.deepEqual(reverse.status.filter(([channel]:any[])=>channel==='trade-posts').map(([,posts]:any[])=>posts.map((post:any)=>post.no)),[[222]],'같은 서버의 늦은 이전 응답도 최신 목록을 덮지 않음');
+  const visible=monitor('trade',async url=>htmlPost(url.includes('Siwv') ? 222 : 111),structuredClone(noSearch));
+  visible.api.auditSet({isDestroyed:()=>false,isVisible:()=>true,webContents:{send:(...args:any[])=>visible.status.push(args)}});
+  visible.api.setServer('Siwv');await new Promise<void>(resolve=>setImmediate(resolve));
+  assert.deepEqual(visible.status.filter(([channel]:any[])=>channel==='trade-posts').at(-1)[1].map((post:any)=>post.no),[222],'열린 창은 새 서버 목록을 자동 조회');
   const unchanged = monitor('trade', async () => htmlPost(110));
   unchanged.api.setServer('RyXp'); await unchanged.api.auditCheck();
   assert.equal(unchanged.notices.length, 1);

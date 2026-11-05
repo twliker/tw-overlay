@@ -11,6 +11,7 @@ import { registerProfileIpc } from './profileIpc';
 import {registerProfileSyncIpc,assertProfileSyncSettingsSender} from './profileSyncIpc';
 import {getProfileCloudSync} from './profileCloudSync';
 import {getDiaryProfileState,resolveDiaryProfileFilter,withManualDiaryProfile,getDiaryWeeklyTotal} from './diaryProfileAccess';
+import {registerDiaryArchiveIpc} from './diaryArchiveIpc';
 /**
  * IPC 이벤트 핸들러 모듈
  */
@@ -995,6 +996,7 @@ export function register(): void {
   const validActivityTypes = ['boss', 'calc', 'memo', 'loot', 'homework'] as const;
 
   ipcMain.handle('diary-profiles-get',() => getDiaryProfileState());
+  registerDiaryArchiveIpc();
   ipcMain.handle('diary-get-by-date', (_e,date:string,rawFilter:unknown) => {
     if (!isValidDateKey(date)) return { diary: null, homeworkLogs: [], activityLogs: [] };
     return diaryDb.getDiaryByDate(date,getDiaryLootKeywords(),resolveDiaryProfileFilter(rawFilter));

@@ -83,10 +83,45 @@ async function run():Promise<void> {
       assert.equal(store.list().length,1);const first=store.list()[0];assert.equal(first.name,'');assert.equal(first.userServer,null);assertDefaults(store,first.id);
       const service=controller.runtime.service;assert.equal(service.update(first.id,'기본 프로필',7).success,true);
       const created=service.create('추가 프로필',16);assert.equal(created.success,true,created.error);assertDefaults(store,created.profileId);
-      const cfg=store.project(first.id,config.load());cfg.contentsCheckerItems[0].completedState[first.id]={currentCount:1,isCompleted:true,lastCompletedAt:Date.now()};
-      cfg.contentsCheckerItems.push({id:'custom-copy-excluded',name:'복사 제외',category:'일일',isVisible:true,isCustom:true,resetRule:{type:'daily',hour:6},completedState:{}});store.saveProjection(first.id,cfg);
-      const copied=service.create('설정 복사',7,first.id);assert.equal(copied.success,true,copied.error);assertDefaults(store,copied.profileId);
-      assert.equal(store.homework(copied.profileId).length,catalog().length);assert.ok(store.homework(copied.profileId).every((item:any)=>Object.keys(item.completedState[copied.profileId]).length===0));
+      const cfg=store.project(first.id,config.load()),removed=catalog()[1].id;
+      Object.assign(cfg.contentsCheckerItems[0],{name:'변경한 기본 숙제',category:'내 분류',isVisible:false,maxCount:9,auto:false,resetRule:{type:'weekly',dayOfWeek:0,hour:6}});
+      cfg.contentsCheckerItems[0].completedState[first.id]={currentCount:1,isCompleted:true,isExcluded:true,lastCompletedAt:Date.now()};
+      cfg.contentsCheckerItems=cfg.contentsCheckerItems.filter((item:any)=>item.id!==removed);
+      cfg.contentsCheckerItems.push({id:'custom-copy-preserved',name:'사용자 숙제',category:'일일',isVisible:true,isCustom:true,resetRule:{type:'daily',hour:6},maxCount:3,completedState:{[first.id]:{currentCount:2,isCompleted:false,lastCompletedAt:Date.now()}}});
+      cfg.contentsCheckerItems.reverse();store.saveProjection(first.id,cfg);
+      const beforeCopyFailure={profiles:store.list(),homework:snapshot(store),deleted:store.database.prepare('SELECT key FROM profile_sync_tombstones ORDER BY key').all(),ids:store.database.prepare('SELECT * FROM profile_sync_ids ORDER BY local_id').all()};
+      store.database.exec("CREATE TRIGGER fail_copy_settings BEFORE INSERT ON profile_change_log WHEN NEW.scope='profile' AND NEW.field='settings' BEGIN SELECT RAISE(ABORT,'copy settings failure');END");
+      assert.throws(()=>store.create('미완료 복사',16,first.id),/copy settings failure/);
+      assert.deepEqual({profiles:store.list(),homework:snapshot(store),deleted:store.database.prepare('SELECT key FROM profile_sync_tombstones ORDER BY key').all(),ids:store.database.prepare('SELECT * FROM profile_sync_ids ORDER BY local_id').all()},beforeCopyFailure,'복사 실패 시 프로필·숙제·삭제 표식·동기화 ID 전체 rollback');
+      store.database.exec('DROP TRIGGER fail_copy_settings');
+      const sourceBefore=store.homework(first.id),copied=service.create('설정 복사',16,first.id);assert.equal(copied.success,true,copied.error);assertDefaults(store,copied.profileId,[removed]);
+      const definitions=(items:any[])=>items.map(({completedState,...definition}:any)=>definition);
+      assert.deepEqual(definitions(store.homework(copied.profileId)),definitions(sourceBefore),'실제 배포 목록의 수정·숨김·순서·커스텀 설정 복사');
+      assert.deepEqual(store.homework(first.id),sourceBefore,'설정 가져오기가 원본 숙제를 수정하지 않음');
+      for(const item of store.homework(copied.profileId)) {
+        const state=item.completedState[copied.profileId];assert.equal(state.currentCount,undefined);assert.equal(state.lastCompletedAt,undefined);assert.notEqual(state.isCompleted,true);
+        assert.equal(state.isExcluded===true,sourceBefore.find((original:any)=>original.id===item.id).completedState[first.id].isExcluded===true);
+      }
+      store.ensureDefaultHomework();assertDefaults(store,copied.profileId,[removed]);
+      const {ApplicationData}=built('modules/applicationData'),{ProfileSyncModel,localSyncProfileId}=built('modules/profileSyncModel');
+      const peer=await ApplicationData.initialize({directory:path.join(data,'receiver'),deviceId:'copy-receiver',defaults:{...defaults,contentsCheckerItems:catalog()}},{...defaults,characterPresets:[],contentsCheckerItems:[]});
+      try {
+        const sender=new ProfileSyncModel(store.database,store.syncDeviceId,()=>store.syncClock()),receiver=new ProfileSyncModel(peer.database,peer.syncDeviceId,()=>peer.syncClock()),envelope=sender.envelope();
+        peer.database.transaction(()=>{receiver.prepareRemoteImport([envelope]);receiver.merge(envelope);receiver.apply();peer.ensureDefaultHomework();})();
+        // 최초 수신은 빈 기본 프로필 ID를 재사용할 수 있다. 송신 PC의 local ID를 수신 PC에 가정하지 않는다.
+        const remote=store.database.prepare('SELECT remote_id FROM profile_sync_ids WHERE local_id=?').get(copied.profileId).remote_id;
+        const imported=localSyncProfileId(peer.database,remote);assert.ok(imported);
+        assert.equal(peer.list().length,store.list().length,'빈 기본 프로필 재사용으로 불필요한 프로필을 추가하지 않음');
+        for(const profile of store.list()) {
+          const remoteId=store.database.prepare('SELECT remote_id FROM profile_sync_ids WHERE local_id=?').get(profile.id).remote_id;
+          const peerId=localSyncProfileId(peer.database,remoteId);assert.ok(peerId);
+          assert.equal(peer.list().find((item:any)=>item.id===peerId)?.name,profile.name);
+          assert.deepEqual(definitions(peer.homework(peerId)),definitions(store.homework(profile.id)));
+        }
+        assertDefaults(peer,imported,[removed]);assert.deepEqual(definitions(peer.homework(imported)),definitions(sourceBefore),'복사한 숙제 설정과 삭제가 다른 PC에서도 유지');
+        peer.close();peer.reopen();assertDefaults(peer,imported,[removed]);
+      } finally {peer.close();}
+      store.close();store.reopen();assertDefaults(store,copied.profileId,[removed]);
       for(const profile of store.list())store.remove(profile.id);
       assert.equal(store.list().length,1);assert.equal(store.list()[0].name,'');assert.equal(store.list()[0].userServer,null);assertDefaults(store,store.list()[0].id);
       store.database.prepare('UPDATE play_profiles SET deleted_at=?').run(Date.now());store.ensureEmptyProfile();assertDefaults(store,store.list()[0].id);

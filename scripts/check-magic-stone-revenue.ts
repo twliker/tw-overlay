@@ -55,6 +55,12 @@ async function main(): Promise<void> {
   expect(db.getMonthlySummary(month).totalSeed === 772_500_000, '월간 요약 금액');
   expect(db.getMonthlyStatistics(month).totalSeed === 772_500_000, '월간 통계 금액');
   const diary = await page('diary.html');
+  for(const amount of [1,9999,10000,56800000,1181900000]) {
+    assert.equal(await js(diary,`formatSeedShort(-${amount})`),'-'+await js(diary,`formatSeedShort(${amount})`));
+  }
+  assert.equal(await js(diary,`window.diaryLogUtils.parseAutoLogAmount('[자동] 입장료 (-5680만)')`),-56800000);
+  assert.equal(await js(diary,`window.diaryLogUtils.parseAutoLogAmount('[자동] 입장료 (-56,800,000 SEED)')`),-56800000);
+
   await js(diary, `(async()=>{currentDate=new Date(${JSON.stringify(`${month}-01T12:00:00`)});await loadMonthData();await selectDate(${JSON.stringify(today)});})()`);
   expect(/7\.7억/.test(await js(diary, `document.getElementById('daily-summary-area').textContent`)), '실제 일간 화면 획득 시드');
   await js(diary, `selectWeek(1,[${JSON.stringify(today)}],null,0,0)`);
@@ -148,6 +154,11 @@ async function main(): Promise<void> {
   const amounts = ids.map(id => db.getStmt('SELECT amount FROM activity_logs WHERE id=?').get(id).amount);
   db.closeDb(); db.initDb();
   assert.deepEqual(ids.map(id => db.getStmt('SELECT amount FROM activity_logs WHERE id=?').get(id).amount), amounts, '과거 보정 반복 적용');
+  db.addManualActivityLog('2099-12-28','12:00:00','calc','순지출 표시 검사',-1181900000);
+  await js(diary,`(async()=>{currentDate=new Date('2099-12-01T12:00:00');await loadMonthData();await selectDate('2099-12-28');})()`);
+  assert.match(await js(diary,`document.getElementById('daily-summary-area').textContent`),/-11\.8억/);
+  await js(diary,`selectWeek(1,['2099-12-28'],null,0,0)`);
+  assert.match(await js(diary,`document.getElementById('daily-summary-area').textContent`),/-11\.8억/);
   db.closeDb();
   for (const win of BrowserWindow.getAllWindows()) win.destroy();
   assert.deepEqual(failures, [], failures.join('\n'));

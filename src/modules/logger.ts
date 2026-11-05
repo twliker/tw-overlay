@@ -10,14 +10,22 @@ import { get_LOG_PATH, LOG_MAX_SIZE, IS_DEV } from './constants';
 const SIZE_CHECK_INTERVAL = 100;
 let writeCount = 0;
 let isRotating = false;
+let consoleAvailable = true;
+
+// 기능 계약: 개발 터미널이 먼저 종료돼 stdout 파이프가 끊겨도 숙제/일지 저장이나
+// 오류 처리 자체를 실패시키지 않는다. 동기 throw와 비동기 stream error를 모두 격리하고
+// 고장 난 콘솔은 재사용하지 않으며 기존 파일 로그/회전/운영 필터는 유지한다.
+// 실제 화면에서 확인한 EPIPE 회귀: scripts/check-logger.ts.
+if (IS_DEV) process.stdout.on('error', () => { consoleAvailable = false; });
 
 export function log(message: string, forceInProd: boolean = false): void {
   const envString = IS_DEV ? 'DEV' : 'PROD';
   const timestamp = new Date().toISOString();
 
   // 개발 환경에서는 콘솔에 항상 출력
-  if (IS_DEV) {
-    console.log(`[${timestamp}][${envString}] ${message}`);
+  if (IS_DEV && consoleAvailable) {
+    try { console.log(`[${timestamp}][${envString}] ${message}`); }
+    catch { consoleAvailable = false; }
   }
 
   // 프로덕션 환경(실제 빌드)에서는 에러 및 예외 로그만 파일에 기록

@@ -22,7 +22,7 @@ interface Window {
   let owner:string | undefined,baseline='',pending=0,locked=false,transitionSave=false,failed:Request | null=null,uncertain=false;
   const enabled=() => !!state().config?.activePlayProfileId && !!api().mutateProfileChecklist;
   const statusElement=() => document.getElementById('checklist-profile-status');
-  const report=(message:string) => {const el=statusElement();if (el) el.textContent=message;};
+  const report=(message:string,success=false) => {const el=statusElement();if (el) {el.textContent=message;el.dataset.saveState=success ? 'success' : '';}};
   const updateBusy=() => {const table=document.getElementById('matrix-table');if (table) table.inert=locked || pending>0;};
   function retryUi():void {const button=document.getElementById('checklist-profile-retry');if (button) button.hidden=!failed;}
   async function invoke(kind:Action,args:unknown[],retry?:Request):Promise<Result> {
@@ -70,7 +70,7 @@ interface Window {
       const unchanged=signature()===serialized;
       if (unchanged) {host.resetForm();baseline=signature();}
       host.showCustomItemFeedback(`${snapshot.editingId ? '수정' : '추가'} 완료 · ‘${name.trim()}’ 숙제를 저장했습니다.`,true);
-      report(snapshot.editingId ? '✓ 수정 완료' : '✓ 추가 완료');
+      report(snapshot.editingId ? '✓ 수정 완료' : '✓ 추가 완료',true);
       if (!quiet && unchanged) document.getElementById('new-item-name')?.focus({preventScroll:true});
       if (!quiet && unchanged && result.itemId) reveal(result.itemId);
       return true;

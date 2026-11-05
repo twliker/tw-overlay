@@ -5,6 +5,10 @@ import type { PlayProfileResult } from '../shared/playProfiles';
 import { assertProfileName, isProfileServer } from '../shared/playProfiles';
 import { getProfileRuntime } from './profileRuntime';
 import type { ProfileRuntime } from './profileRuntime';
+import {readProfileHomeworkProgress} from './profileHomeworkProgress';
+import {readProfilePendingDetails} from './profilePendingPreview';
+import * as config from './config';
+import {log} from './logger';
 
 /** 기능 계약 — 관리 IPC는 제품의 로컬 프로필 화면에서만 변경을 허용한다.
  * 이름/서버/ID를 메인에서도 검증하며 임의 경로·설정 객체는 받지 않는다.
@@ -16,7 +20,19 @@ export function registerProfileIpc(options:{getRuntime?:() => ProfileRuntime | n
   const isProfilePage=(url:string):boolean => {
     try {return path.resolve(fileURLToPath(url)).toLowerCase()===expected.toLowerCase();} catch {return false;}
   };
-  ipcMain.handle('play-profiles-get',() => getRuntime()?.service.status() || null);
+  ipcMain.handle('play-profiles-get',event => {
+    const runtime=getRuntime();if(!runtime)return null;
+    const status=runtime.service.status();
+    if(event.senderFrame!==event.sender.mainFrame || !isProfilePage(event.senderFrame?.url || ''))return status;
+    if(runtime.service.isStorageMaintenanceActive() || !runtime.service.store.database.open)return {...status,homeworkProgress:null,pendingDetails:null};
+    let homeworkProgress:import('../shared/playProfiles').PlayProfileStatus['homeworkProgress']=null;
+    let pendingDetails:import('../shared/playProfiles').PlayProfileStatus['pendingDetails']=null;
+    try {homeworkProgress=readProfileHomeworkProgress(runtime.service.store,status.profiles);}
+    catch(error) {log(`[PROFILE] 숙제 현황 조회 실패, 프로필 선택 유지: ${String(error)}`);}
+    try {pendingDetails=readProfilePendingDetails(runtime.service.store,status.pendingSessions.filter(session=>session.sessionId!==status.sessionId),new Map((config.load().contentsCheckerItems || []).map(item=>[item.id,item.name])));}
+    catch(error) {log(`[PROFILE] 미배정 기록 요약 조회 실패: ${String(error)}`);}
+    return {...status,homeworkProgress,pendingDetails};
+  });
   const register=(channel:string,action:(runtime:ProfileRuntime,args:unknown[]) => PlayProfileResult | Promise<PlayProfileResult>) => {
     ipcMain.handle(channel,async (event,...args:unknown[]) => {
       const runtime=getRuntime();
@@ -40,6 +56,14 @@ export function registerProfileIpc(options:{getRuntime?:() => ProfileRuntime | n
   register('play-profiles-update',({service},[profileId,name,server]) => service.update(id(profileId),...input(name,server)));
   register('play-profiles-select',({service,replay},[profileId]) => service.select(id(profileId),replay));
   register('play-profiles-delete',({service},[profileId]) => service.remove(id(profileId)));
+  register('play-profiles-reorder',({service},[ids])=>{
+    if(!Array.isArray(ids) || !ids.length || ids.length>10000)throw new Error('프로필 순서가 올바르지 않습니다.');
+    return service.reorder(ids.map(value=>id(value)));
+  });
   register('play-profiles-assign',({service,replay},[session]) => service.assignSession(id(session),replay));
+  register('play-profiles-ignore',({service},[session,token])=>{
+    if(typeof token!=='string' || !/^[a-f0-9]{64}$/.test(token))throw new Error('대기 기록을 다시 확인해 주세요.');
+    return service.ignoreSession(id(session),token);
+  });
   ipcMain.on('play-profiles-close',event => {if (isProfilePage(event.senderFrame?.url || '')) options.close();});
 }

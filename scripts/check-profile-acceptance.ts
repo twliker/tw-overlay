@@ -35,7 +35,7 @@ async function run():Promise<void> {
   const id=new Date().toISOString().replace(/[:.]/g,'-'),directory=path.join(output,id);fs.mkdirSync(directory);
   const original=sourceSnapshot(),steps:any[]=[],report:any={status:'running',startedAt:new Date().toISOString(),source:original,
     commit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8',windowsHide:true}).trim(),
-    scope:'local-profile-functional-acceptance',realGameVerified:false,elevatedWindowsVerified:false,installerExecuted:false,steps};
+    scope:'local-profile-functional-acceptance',realGameVerified:false,elevatedWindowsVerified:false,administratorZOrderStatus:'user-verification-required',installerExecuted:false,steps};
   const save=()=>{const value=JSON.stringify(report,null,2);fs.writeFileSync(path.join(directory,'report.json'),value);fs.writeFileSync(latest,value);};
   save();
   const npm=process.env.npm_execpath;assert.ok(npm && fs.existsSync(npm),'npm run test:profiles:acceptance로 실행하세요.');
@@ -68,8 +68,8 @@ async function run():Promise<void> {
     await step('build',process.execPath,[npm,'run','build']);
     const suite=[
       ['window-visibility','check-window-visibility'],
-      ['storage','check-profile-storage'],['homework-defaults','check-profile-homework-defaults'],['diary','check-profile-diary'],['backup','check-profile-backup'],
-      ['recording','check-profile-recording'],['tools','check-profile-tools'],['settings','check-profile-settings'],
+      ['storage','check-profile-storage'],['homework-defaults','check-profile-homework-defaults'],['profile-placement','check-profile-placement'],['homework-progress','check-profile-homework-progress'],['diary','check-profile-diary'],['backup','check-profile-backup'],
+      ['game-exit-reminder','check-game-exit-reminder'],['recording','check-profile-recording'],['tools','check-profile-tools'],['settings','check-profile-settings'],
       ['settings-pages','check-profile-settings-pages'],['log-restore','check-profile-log-restore'],['lifecycle','check-profile-lifecycle'],
       ['checklist','check-profile-checklist'],['stopwatch','check-profile-stopwatch'],['diary-ui','check-diary-profiles-ui'],
       ['profiles-ui','check-profiles-ui'],['cloud-pause','check-profile-cloud-pause'],['crash-recovery','check-profile-crash'],
@@ -102,7 +102,8 @@ async function run():Promise<void> {
     const packagedRoot=path.join(archive,'dist');
     await local('packaged-windows-matrix','check-profile-windows',['--app-root',packagedRoot],300000);
     await local('packaged-release-upgrade','check-profile-upgrade',['--old-archive',legacyArchive,'--new-root',packagedRoot]);
-    await local('development-zorder','runtime-zorder-windows-probe',['--allow-unelevated',path.join(root,'output/profile-game-fixture/InphaseNXD-zorder-fixture.exe')]);
+    // 사용자 지시: 관리자 Z-order는 사용자가 직접 수행한다. 일반 검사에서 권한을
+    // 낮춰 대체 실행하지 않으며 위의 기능 검증을 관리자/실게임 게이트 통과로 취급하지 않는다.
     assert.equal(sourceSnapshot().fingerprint,original.fingerprint,'검증 중 소스가 변경되어 결과를 완료로 처리할 수 없습니다.');
     report.status='passed';report.completedAt=new Date().toISOString();save();
     console.log(`PASS profile functional acceptance: ${steps.length} gates; proof ${latest}`);

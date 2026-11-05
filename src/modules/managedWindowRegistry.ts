@@ -35,7 +35,7 @@ const STATIC_WINDOW_DEFINITIONS: readonly StaticWindowDefinition[] = [
   { key: 'magicStoneCalculator', html: 'magic-stone-calculator.html', width: 400, height: 800 },
   { key: 'customAlert', html: 'custom-alert.html', width: 580, height: 640 },
   { key: 'diary', html: 'diary.html', width: 1400, height: 920 },
-  { key: 'profiles', html: 'profiles.html', width: 820, height: 680 },
+  { key: 'profiles', html: 'profiles.html', width: 640, height: 520 },
   { key: 'uniformColor', html: 'uniform-color.html', width: 360, height: 800 },
   { key: 'swordEnhance', html: 'sword-enhance.html', width: 1300, height: 850 },
   { key: 'qteChallenge', html: 'qte-challenge.html', width: 980, height: 780 },

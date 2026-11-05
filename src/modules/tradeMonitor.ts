@@ -14,6 +14,8 @@
  * - 일부 검색이 실패해도 성공한 검색의 새 글은 기존처럼 알립니다. `tradeSearchState`에 키워드별
  *   확인 위치와 이미 알린 글을 저장하므로 실패한 키워드는 재시작 뒤에도 건너뛰거나 중복 알림 없이 재개합니다.
  * - 최초 기준점과 한 회차 최대 3건+나머지 요약 알림을 유지합니다. UI 목록 조회는 알림 확인 위치를 바꾸지 않습니다.
+ * - UI 응답은 요청 당시 서버와 최신 요청에만 반영한다. 서버를 바꾸면 이전 목록을 비우고 열린 창은
+ *   새 서버를 조회한다. A→B→A 전환이나 응답 역순도 이전 요청을 되살리지 않는다. 회귀: test:audit.
  */
 import { BrowserWindow, shell } from 'electron';
 import { log } from './logger';
@@ -67,6 +69,8 @@ let consecutiveErrors = 0;
 
 // ─── 상태 ───
 let currentServer = 'RyXp';
+let serverRevision = 0;
+let uiRequestVersion = 0;
 let tradeKeywords: string[] = [];
 let lastSeenPostNo = 0;
 let checkTimer: NodeJS.Timeout | null = null;
@@ -315,11 +319,13 @@ async function performKeywordSearch(): Promise<boolean> {
 
 // ─── UI 갱신용 최신글 20개 가져오기 ───
 async function checkNewPostsUI(): Promise<boolean> {
-    const server = SERVERS[currentServer];
+    const serverId=currentServer,revision=serverRevision,request=++uiRequestVersion;
+    const server = SERVERS[serverId];
     if (!server) return false;
 
     try {
         const html = await fetchPage(BASE_URL(server.fldid));
+        if(currentServer!==serverId || serverRevision!==revision || uiRequestVersion!==request)return false;
         const posts = parsePostList(html, server.fldid, false);
 
         // UI가 열려있을 때만 데이터를 보냄 (성능 최적화)
@@ -434,7 +440,9 @@ export function updateWindows(sidebarWin: BrowserWindow | null, tradeWin: Browse
 }
 
 export async function forceCheck(): Promise<TradePost[]> {
-    const server = SERVERS[currentServer];
+    const serverId=currentServer,revision=serverRevision,request=++uiRequestVersion;
+    const current=()=>currentServer===serverId && serverRevision===revision && uiRequestVersion===request;
+    const server = SERVERS[serverId];
     if (!server) return [];
 
     try {
@@ -443,8 +451,10 @@ export async function forceCheck(): Promise<TradePost[]> {
             await checkKeywordsSearch().catch(e => log(`[TRADE] 강제(검색) 에러: ${e.message}`));
         }
 
-        // 백그라운드 구동 중이 아니어도 UI 목록은 무조건 갱신
+        if(!current())return [];
+        // 백그라운드 구동 중이 아니어도 UI 목록은 갱신하되 최신 서버/요청만 반영한다.
         const html = await fetchPage(BASE_URL(server.fldid));
+        if(!current())return [];
         const posts = parsePostList(html, server.fldid, false);
         sendPostListToWindow(posts);
 
@@ -468,9 +478,12 @@ export function getNotifyEnabled(): boolean {
 export function setServer(serverId: string): void {
     if (SERVERS[serverId] && serverId !== currentServer) {
         currentServer = serverId;
+        serverRevision++;uiRequestVersion++;
         lastSeenPostNo = 0;
         searchState = createTradeSearchState(undefined, serverId, tradeKeywords, 0);
         config.save({ tradeServer: serverId, tradeLastSeen: 0, tradeSearchState: searchState });
+        sendPostListToWindow([]);
+        if(tradeWindowRef && !tradeWindowRef.isDestroyed() && tradeWindowRef.isVisible())void checkNewPostsUI();
         log(`[TRADE] 서버 변경: ${SERVERS[serverId].name}`);
     }
 }

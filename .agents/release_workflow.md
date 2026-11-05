@@ -6,7 +6,11 @@
 
 ## 0. 사용자가 요청한 실기 검증용 프리릴리즈
 
+**현재 푸시 승인 규칙:** 2026-11-04 사용자는 이후 작업에 대해 “바로 푸시하지 말고 나한테 허락받고 푸시해라”라고 지시했다. 아래 초기 프리릴리즈 승인은 이미 수행한 작업의 기록이다. 앞으로는 수정·검증을 먼저 완료하고 결과 및 미검증 범위를 제시한 뒤 명시적 승인을 받아야 브랜치/새 태그를 푸시한다. 로컬 수정·검수는 계속 진행한다.
+
 2026-11-04 사용자는 다른 PC에서 검증하려면 프리릴리즈 설치본이 먼저 필요하며, 로컬 설치 파일을 만들지 않고 푸시해 GitHub Actions로 생성하도록 지시했다. 과거 3.4.x 설치 사용자도 업데이트할 수 있도록 `3.5.0-beta.1`을 확정했다. 이 승인은 해당 테스트용 브랜치·태그 푸시와 CI 빌드를 위한 것이며 정식 배포나 미검증 항목의 통과 승인이 아니다.
+
+2026-11-05 사용자는 3.4.x가 있었다는 이전 인식을 정정하고 **3.3.5 베타 계열**을 요청했다. 현재 로컬 후보는 `3.3.5-beta.1`이며 원격에 같은 태그가 없음을 확인했다. 과거 3.5.0 태그는 보존한다. 3.5.0 설치본에서 낮은 버전으로 자동 업데이트되지 않으므로 수동 설치가 필요하며 실제 전환은 미검증이다. 이 버전 정정은 푸시 승인이 아니다.
 
 - 버전은 `X.Y.Z-beta.N` 등 프리릴리즈 형식으로 package.json·package-lock.json 루트·설정 화면·공지·README·릴리즈 노트를 맞춘다. `build.publish`의 GitHub `channel`도 베타는 `beta`, 정식은 `latest`(또는 생략)로 맞춘다. 기존 태그는 재사용하지 않는다.
 - 로컬에서는 이번 배포 변경의 타입 검사·빌드·관련 회귀와 비밀 파일/생성물 제외를 확인한다. 설치 파일 생성과 전체 자동 검사·부하·프로덕션 의존성 검사는 기존 Actions가 수행한다. 실패한 검사를 skip/continue-on-error로 우회하지 않는다.
@@ -50,7 +54,7 @@ Google 재개발 목표의 자동 검증은 `npm run test:profile-sync:acceptanc
 
 ### 3.1 일반 자동 게이트
 
-두 PC 동시 전송의 개별 회귀 명령은 `npm run test:profile-sync-concurrency`입니다. 독립 프로세스 2개와 운영 HTTP transport/coordinator에서 요청 겹침·응답 역순·전송/수신 중 저장·부분 실패·연결 해제·삭제 경합을 검사하며 전체 `npm test`와 Google 완료 acceptance에도 포함됩니다. 현재 Google 완료 묶음은 실제 배포 기본 숙제의 부팅/복구 검사 `test:profile-homework-defaults`를 포함한 24개 게이트입니다. 일상 수정에는 해당 개별 검사와 직접 영향받는 검사만 실행하며 이전 22/23개 완료 기록을 24개 통과로 소급해서 표시하지 않습니다.
+두 PC 동시 전송의 개별 회귀 명령은 `npm run test:profile-sync-concurrency`입니다. 독립 프로세스 2개와 운영 HTTP transport/coordinator에서 요청 겹침·응답 역순·전송/수신 중 저장·부분 실패·연결 해제·삭제 경합을 검사하며 전체 `npm test`와 Google 완료 acceptance에도 포함됩니다. 현재 Google 완료 묶음은 실제 기본 숙제 부팅/복구 `test:profile-homework-defaults`, 선택창 좌표 `test:profile-placement`, 읽기용 현황 `test:profile-homework-progress`, 종료 안내의 프로필 탭 `test:game-exit-reminder`를 포함한 27개 게이트입니다. 일상 수정에는 해당 개별 검사와 직접 영향받는 검사만 실행하며 이전 22/23/24/25/26개 완료 기록을 27개 통과로 소급해서 표시하지 않습니다.
 
 PowerShell에서는 아래 명령을 각각 한 줄씩 순서대로 실행합니다. 버전·문서 갱신을 모두 반영한 최종 릴리즈 후보 커밋에서 다시 실행해야 합니다.
 
@@ -101,7 +105,7 @@ npm audit --omit=dev --audit-level=critical
 
 프로필 개발의 별도 로컬 검사는 `npm run test:profile-windows`와 `npm run test:profile-upgrade`를 사용한다. 전자는 실제 main/tracker/폴링/제품 창을 일반 권한의 개발용 게임 대역으로 검사하며 `--app-root`로 패키지 내부 코드를 지정할 수 있다. 후자는 실제 3.2.2 패키지의 저장 API로 만든 임시 데이터를 이전하며 구버전 `app.asar` 추출본이 필요하다. 둘 다 아래 관리자 게이트 및 실제 설치 파일 실행을 대체하지 않는다. 준비 경로·결과·미완료 실기는 [`../docs/development/profile-completion-verification.md`](../docs/development/profile-completion-verification.md)를 따른다.
 
-관리자 권한으로 실행한 Codex 또는 PowerShell에서 다음 검사를 실행합니다.
+현재 사용자 지시에 따라 이 검사는 **사용자가 관리자 PowerShell에서 실행**합니다. 에이전트는 다른 검수 완료 후 아래 실행 방법과 결과 확인을 요청하고 전달받은 결과를 기록합니다. 일반 권한 재시도나 프로필 시작 12개 조합 검사를 관리자 Z-order 통과로 대체하지 않습니다.
 
 ```powershell
 npm run test:zorder:windows
@@ -340,3 +344,12 @@ Store 제출용 AppX는 로컬에서 의도적으로 서명하지 않으며 Micr
 * Store의 무음 설치는 Microsoft Store 자동 업데이트가 허용되고 데이터 통신 제한이 없을 때 사용합니다. 허용되지 않으면 Windows 동의 UI를 사용하고, 실패하거나 취소하면 재시도와 `ms-windows-store://downloadsandupdates` 진입 경로를 제공합니다.
 * Store 패키지에서 GitHub `electron-updater`는 계속 비활성화합니다. Store API만 사용해 NSIS 중복 설치와 패키지 ID 충돌을 방지합니다.
 
+
+
+## 2026-11-05 전체 검수의 의존성/실기 주의
+
+로컬 화면 표시와 주요 흐름의 실제 조작 결과는 `docs/development/manual-ux-review-2026-11-05.md`를 확인한다. 일반 창 검사는 전용 프로세스명으로 기존 앱과 격리한다. `test:profiles:acceptance`도 관리자 Z-order를 `--allow-unelevated`로 자동 대체 실행하지 않으며 결과에 `administratorZOrderStatus=user-verification-required`를 남긴다. 사용자의 직접 검사·실게임·설치 게이트는 그대로 필요하다.
+
+Electron 42.11.18 검수 이후 지원 중인 45.2.3, electron-builder 26.18.0으로 이전했다. minimatch는 7 이상 11 미만 소비자만 수정 계열로 제한 override하며 3/5의 함수 API는 유지한다. 전체 `npm test`에 `test:build-dependencies`와 `test:runtime-compatibility`를 추가했다. 런타임 주버전 변경 시 native 모듈·sandbox IPC·구버전 데이터 이전과 실제 unpacked 패키지의 파일/모듈을 확인한다. 상세 및 현재 실행 결과는 `docs/development/runtime-security-upgrade-2026-11-05.md`를 기준으로 하며 이전 검수 문서의 경고 수는 당시 기록이다. 설치 파일은 사용자 승인 후 기존 CI의 npm ci/검사/패키징 경로로 생성한다.
+
+실행 중인 관리자 개발 앱이 Electron 파일을 잠가 root node_modules 갱신이 거부되면 해당 앱을 임의로 우회 종료하지 않는다. 원래 폴더의 의존성/빌드를 그대로 두고 현재 미커밋 소스까지 복사한 별도 worktree에서 독립된 `npm ci`·빌드·검사를 수행한다. 검증 결과에는 worktree와 실행 버전을 기록한다. 이는 원래 개발 앱/폴더의 갱신이나 실제 설치/관리자 Z-order 완료를 대체하지 않는다. 앱 종료 뒤 검증한 변경을 원래 브랜치에 반영하거나 검증 worktree로 전환하고 `npm ci`로 실행 환경을 맞춘다. 관리자 Z-order는 새 런타임에서 사용자가 재검사한다.

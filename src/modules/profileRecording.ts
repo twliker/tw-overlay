@@ -13,6 +13,7 @@ import {digsiteTracker} from './digsiteTracker';
 import {getSupplyRun,restoreSupplyRun} from './supplyTracker';
 import {broadcastToAllWindows} from './windowMessaging';
 import type {ApplicationData} from './applicationData';
+import {readLegacyPendingHomework} from '../shared/legacyHomework';
 import {createProfileToolTransition} from './profileToolTransition';
 import {createProfileSettingsTransition} from './profileSettingsTransition';
 import {createProfileChecklistTransition} from './profileChecklistTransition';
@@ -104,9 +105,12 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
       restoreSupplyRun(sameSession ? saved?.supply || null : null);contents.restoreDetectedHomework(saved?.detected || null);
   };
   const replay=(payload:unknown):unknown => {
-    const legacy=payload as {kind?:string;value?:import('../shared/types').PendingHomework};
-    if (legacy?.kind==='legacy-homework' && legacy.value) {
-      const item=legacy.value;
+    const legacy=payload as {kind?:string;value?:unknown};
+    if (legacy?.kind==='legacy-homework') {
+      const item=readLegacyPendingHomework(legacy.value);
+      // queuePendingHomework는 없는 ID를 무시한다. 여기서 실패시켜 원본/ACK가 성공으로 소실되지 않게 한다.
+      if(!item)throw new Error('이전 숙제 기록의 필수 정보가 누락되어 배정할 수 없습니다. 원본 기록은 보관됩니다.');
+      if(!config.load().contentsCheckerItems?.some(candidate=>candidate.id===item.id))throw new Error('배정할 프로필에 해당 숙제가 없습니다. 원본 기록은 보관됩니다.');
       return collectRecordEffects(() => config.withConfirmedWrites(() => contents.queuePendingHomework(item.id,item.count,item.isIncrement,undefined,item.timestamp)),false);
     }
     return replayProfileParserEvent(payload);

@@ -209,6 +209,103 @@ async function run():Promise<void> {
   assert.equal(diary.getDiariesByMonth('2026-11',10,fb).find((row:any) => row.date===historyDate).weekly_done>=1,true);
   diary.cleanOldDiaryData(14);
   assert.equal(diary.getDiaryByDate(aggregateDate).activityLogs.length,0,'보존 기간 정리는 프로필별 날짜 요약도 함께 정리');
+  // 삭제/유실 프로필 무시: 현재 프로필로 추정하지 않고 미배정 조회만 확장한다.
+  const archive=built('modules/diaryArchivedProfiles');
+  const originalRows=store.database.prepare('SELECT record_uuid,profile_id FROM activity_logs ORDER BY id').all();
+  const changesBeforeArchive=count();
+  assert.throws(()=>archive.reclassifyArchivedDiaryProfile(store,b.id),/사용 중/);
+  archive.reclassifyArchivedDiaryProfile(store,a.id);
+  assert.equal(count(),changesBeforeArchive,'로컬 일지 정리는 Google 변경 이력을 만들지 않음');
+  archive.reclassifyArchivedDiaryProfile(store,a.id);
+  assert.equal(diary.getMonthlySummary('2026-11',undefined,fa).totalSeed,0);
+  for(const read of [()=>diary.getMonthlySummary('2026-11',undefined,unassigned).totalSeed,
+    ()=>diary.getMonthlyStatistics('2026-11',undefined,unassigned).totalSeed,
+    ()=>diary.getMonthlyRevenueData('2026-11',unassigned).reduce((sum:number,r:any)=>sum+r.amount,0),
+    ()=>diary.getDiaryExportSnapshot(date,historyDate,[],unassigned).totalSeed])assert.equal(read(),2545);
+  assert.equal(diary.getMonthlySummary('2026-11').totalSeed,3988);
+  assert.equal(diary.getMonthlySummary('2026-11',undefined,fb).totalSeed,1443);
+  assert.equal(diary.getDiaryByDate(historyDate,undefined,unassigned).activityLogs.every((r:any)=>r.profile_id===null),true);
+  assert.equal(diary.getAlarmLogs(10,unassigned).some((r:any)=>r.profile_id===a.id),true);
+  assert.equal(diary.getTimerRecords(unassigned).some((r:any)=>r.profile_id===a.id),true);
+  assert.deepEqual(store.database.prepare('SELECT record_uuid,profile_id FROM activity_logs ORDER BY id').all(),originalRows,'원본 UUID/소유자 보존');
+  assert.equal(archive.readArchivedDiaryProfiles(store).some((p:any)=>p.id===a.id),false);
+  const duplicateDate='2099-12-01';
+  store.withRecordContext(null,null,()=>diary.addHomeworkLog(duplicateDate,'same-archive-homework','동일 숙제','기타','weekly',Date.now()));
+  store.database.prepare("INSERT INTO homework_logs(date,content_id,content_name,category,type,completed_at,profile_id,record_uuid) SELECT date,content_id,content_name,category,type,completed_at,?,'archive-homework-original' FROM homework_logs WHERE date=?").run(a.id,duplicateDate);
+  assert.equal(diary.getDiaryByDate(duplicateDate,undefined,unassigned).homeworkLogs.length,2,'다른 이전 캐릭터의 같은 숙제를 잃지 않음');
+
+  // 실제 신고 형식: 구형 원문 + 새 과거 복원 문구. 반복/수동/다른 현재 프로필은 보존한다.
+  const feeDate='2099-12-02',other=store.create('다른 현재 프로필',7);
+  store.database.prepare('INSERT OR IGNORE INTO diaries(date) VALUES(?)').run(feeDate);
+  let rawNumber=0;
+  const rawFee=(ownerId:string|null,time:string,amount:number,source='automatic',device:string|null=null)=>{
+    const uuid=`legacy-fee-${++rawNumber}`;
+    store.database.prepare('INSERT INTO activity_logs(date,time,type,content,amount,source,profile_id,record_uuid,record_device_id) VALUES(?,?,\'calc\',?,?,?,?,?,?)')
+      .run(feeDate,time,`[자동] 입장료 ${Math.abs(amount)/10000}만 Seed를 지불 하였습니다. (${amount/10000}만)`,amount,source,ownerId,uuid,device);
+    return uuid;
+  };
+  const canonical=(id:string,time:string,amount:number)=>owner(id,'fee-restore',()=>diary.addActivityLog(feeDate,time,'calc',`[자동] 어벤던로드 입장료 (-${Math.abs(amount).toLocaleString('en-US')} SEED)`,amount));
+  const legacyFeeUuid=rawFee('profile-lost','0:7:37',-52800000);
+  canonical(b.id,'00:07:37',-52800000);
+  assert.equal(diary.getDiaryByDate(feeDate).activityLogs.length,1,'유실 소유자의 구형/복원 입장료 1회');
+  assert.equal(store.database.prepare('SELECT COUNT(*) n FROM activity_logs WHERE date=?').get(feeDate).n,2,'원본 2행 보존');
+  canonical(b.id,'00:07:37',-52800000);
+  assert.equal(diary.getDiaryByDate(feeDate).activityLogs.length,2,'같은 초 정상 반복은 1:1 대응으로 보존');
+  rawFee(other.id,'01:00:00',-54000000);canonical(b.id,'01:00:00',-54000000);
+  rawFee(null,'02:00:00',-54800000,'manual');canonical(b.id,'02:00:00',-54800000);
+  rawFee(null,'03:00:00',-56000000);canonical(b.id,'03:00:01',-56000000);
+  rawFee(null,'04:00:00',-56800000,'automatic','other-device');canonical(b.id,'04:00:00',-56800000);
+  assert.equal(diary.getDiaryByDate(feeDate).activityLogs.length,10,'다른 현재 프로필/수동/다른 초/기기 원본 보존');
+  const feeSum=diary.getDiaryByDate(feeDate).activityLogs.reduce((sum:number,r:any)=>sum+r.amount,0);
+  for(const read of [()=>diary.getMonthlySummary('2099-12').totalSeed,()=>diary.getMonthlyStatistics('2099-12').totalSeed,
+    ()=>diary.getMonthlyRevenueData('2099-12').reduce((sum:number,r:any)=>sum+r.amount,0),
+    ()=>diary.getDiaryExportSnapshot(feeDate,feeDate).totalSeed])assert.equal(read(),feeSum);
+  store.database.prepare('DELETE FROM activity_logs WHERE record_uuid IN (SELECT canonical_uuid FROM diary_fee_duplicates WHERE legacy_uuid=?)').run(legacyFeeUuid);
+  assert.equal(diary.getDiaryByDate(feeDate).activityLogs.some((r:any)=>r.record_uuid===legacyFeeUuid),true,'복원 원본 제거 시 보존한 구형 기록 재표시');
+  const beforeRollback=store.database.prepare('SELECT * FROM diary_fee_duplicates ORDER BY legacy_uuid').all();
+  assert.throws(()=>store.database.transaction(()=>{canonical(b.id,'00:07:37',-52800000);throw new Error('fee rollback');})(),/fee rollback/);
+  assert.deepEqual(store.database.prepare('SELECT * FROM diary_fee_duplicates ORDER BY legacy_uuid').all(),beforeRollback);
+  const batchFeeDate='2099-12-03';
+  store.database.prepare('INSERT OR IGNORE INTO diaries(date) VALUES(?)').run(batchFeeDate);
+  store.database.prepare("INSERT INTO activity_logs(date,time,type,content,amount,source,profile_id,record_uuid) VALUES(?,'0:8:30','calc','[자동] 입장료 5400만 Seed를 지불 하였습니다. (-5400만)',-54000000,'automatic','profile-lost','batch-legacy-fee')").run(batchFeeDate);
+  const restoredFee={eventId:'batch-fee-source-line',date:batchFeeDate,timeOnly:'00:08:30',content:'[자동] 어벤던로드 입장료 (-54,000,000 SEED)',amount:-54000000};
+  owner(b.id,'batch-fee',()=>{
+    assert.equal(diary.batchInsertSyncResults(batch([restoredFee])).seedsAdded,1);
+    assert.equal(diary.batchInsertSyncResults(batch([restoredFee])).seedsAdded,0);
+  });
+  assert.equal(diary.getDiaryByDate(batchFeeDate).activityLogs.length,1,'과거 배치 복원도 구형 원문과 중복 집계하지 않음');
+  assert.equal(diary.getDiaryExportSnapshot(batchFeeDate,batchFeeDate).totalSeed,-54000000);
+  const orphanFirst=rawFee('profile-lost','05:00:00',-58000000),sameOwner=rawFee(b.id,'05:00:00',-58000000);
+  canonical(b.id,'05:00:00',-58000000);
+  const ownerPairs=store.database.prepare('SELECT legacy_uuid FROM diary_fee_duplicates WHERE legacy_uuid IN (?,?)').all(orphanFirst,sameOwner);
+  assert.deepEqual(ownerPairs,[{legacy_uuid:sameOwner}],'같은 소유자의 대응을 먼저 확정해 미배정 자료가 가로채지 않음');
+  const beforeRead=store.database.prepare('SELECT total_changes() n').get().n;
+  diary.getMonthlySummary('2099-12');diary.getMonthlyStatistics('2099-12');diary.getDiaryByDate(batchFeeDate);
+  assert.equal(store.database.prepare('SELECT total_changes() n').get().n,beforeRead,'조회는 중복 메타데이터나 원본을 쓰지 않음');
+  const inconsistentDate='2099-12-04';
+  store.database.prepare('INSERT OR IGNORE INTO diaries(date) VALUES(?)').run(inconsistentDate);
+  const inconsistentFee=store.database.prepare("INSERT INTO activity_logs(date,time,type,content,amount,source,profile_id,record_uuid) VALUES(?,?,'calc',?,-54000000,'automatic',?,?)");
+  inconsistentFee.run(inconsistentDate,'00:00:00','[자동] 입장료 5400만 Seed를 지불 하였습니다. (-5400만)','profile-lost','inconsistent-old-1');
+  inconsistentFee.run(inconsistentDate,'00:00:00','[자동] 어벤던로드 입장료 (-1 SEED)',b.id,'inconsistent-new-1');
+  inconsistentFee.run(inconsistentDate,'01:00:00','[자동] 입장료 5280만 Seed를 지불 하였습니다. (-5400만)','profile-lost','inconsistent-old-2');
+  inconsistentFee.run(inconsistentDate,'01:00:00','[자동] 어벤던로드 입장료 (-54,000,000 SEED)',b.id,'inconsistent-new-2');
+  built('modules/diaryLegacyFees').reconcileDiaryFees(store.database,true,inconsistentDate);
+  assert.equal(diary.getDiaryByDate(inconsistentDate).activityLogs.length,4,'원문 지불액/복원 문구와 저장 amount가 다르면 추정해서 숨기지 않음');
+  const bufferedDate='2099-12-05',buffered=store.create('보류 금액 정리',7);
+  owner(buffered.id,'archive-buffer',()=>{
+    diary.addManualActivityLog(bufferedDate,'12:00:00','calc','정리 전 원본',1);
+    diary.addGoldPouchSeed(bufferedDate,'12:00:01',100);diary.addElsoPoints(bufferedDate,'12:00:02',55);
+  });
+  store.remove(buffered.id);archive.reclassifyArchivedDiaryProfile(store,buffered.id);
+  assert.equal(diary.getDiaryByDate(bufferedDate,undefined,{kind:'profile',profileId:buffered.id}).activityLogs.length,0,'미배정으로 정리한 메모리 버퍼도 이전 프로필 조회에 다시 섞이지 않음');
+  assert.equal(seed(bufferedDate,unassigned),101);
+  assert.equal(diary.getDiaryByDate(bufferedDate,undefined,unassigned).activityLogs.find((r:any)=>r.type==='elso').amount,55);
+  assert.equal(diary.flushPendingGoldPouchSeed(),true);assert.equal(diary.flushPendingElso(),true);
+  assert.equal(seed(bufferedDate,unassigned),101,'메모리/영구 저장 조회의 분류와 합계 일치');
+  assert.equal(store.database.prepare("SELECT profile_id FROM activity_logs WHERE date=? AND content=?").get(bufferedDate,diary.GOLD_POUCH_DAILY_CONTENT).profile_id,buffered.id,'버퍼 원래 귀속 보존');
+  diary.closeDb();diary.initDb();
+  assert.equal(diary.getMonthlySummary('2026-11',undefined,unassigned).totalSeed,2545,'미배정 정리 재시작 보존');
+  assert.equal(diary.getDiaryByDate(feeDate).activityLogs.length,11,'재시작 재계산은 남은 canonical과 1:1 대응');
   assert.equal(store.database.pragma('integrity_check',{simple:true}),'ok');
   assert.deepEqual(store.database.pragma('foreign_key_check'),[]);
   assert.equal(diary.closeDb(),true);

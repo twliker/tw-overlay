@@ -258,6 +258,22 @@ export class ProfileService {
     } catch (error) { return this.fail(error); }
   }
 
+  reorder(ids:readonly string[]):PlayProfileResult {
+    if(this.busy)return this.fail(this.busyError());
+    try {this.store.setProfileOrder(ids);this.notify();return {success:true,status:this.status()};}
+    catch(error) {return this.fail(error);}
+  }
+
+  /** 무시는 프로필 선택 전에도 가능하지만 현재 플레이 세션과 전환/복원 중인 기록은 건드리지 않는다. */
+  ignoreSession(sessionId:string,snapshotToken:string):PlayProfileResult {
+    if(this.busy)return this.fail(this.busyError());
+    if(sessionId===this.sessionId)return this.fail(new Error('현재 플레이의 기록은 무시할 수 없습니다.'));
+    try {
+      this.store.ignorePendingSession(sessionId,snapshotToken);this.notify();
+      return {success:true,status:this.status()};
+    } catch(error) {return this.fail(error);}
+  }
+
   assignSession(sessionId:string,apply:(payload:unknown,eventId:string) => unknown): PlayProfileResult {
     const status = this.status();
     if (this.busy || status.selectionRequired) return this.fail(new Error('기록을 배정할 프로필을 먼저 선택하세요.'));

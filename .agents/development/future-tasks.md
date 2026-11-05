@@ -9,3 +9,14 @@
 3. **환경설정 창 정리**: 메모 같은 기능을 별도 사이드바 메뉴로 분리한다.
 
 채팅 로그 압축·동기화 아이디어는 [기존 메모](./profile-sync-lifecycle.md#아이디어-메모--채팅-로그-압축동기화)를 참고한다.
+
+
+## 2026-11-05 전체 검수 후속
+
+**현재 UX 후속:** 로컬 화면 표시와 프로필·숙제·모험일지·환경설정의 주요 흐름을 검수했다. 실게임과 게임에 붙은 독 메뉴, 실제 Google 계정과 두 PC, 설치 업데이트, 사용자가 수행하는 관리자 Z-order는 [검수 기록](../../docs/development/manual-ux-review-2026-11-05.md)의 남은 실기 범위를 따른다.
+
+1. **구현·자동 검증 완료**: 독립 worktree에서 Electron 45.2.3·electron-builder 26.18.0으로 이전했다. 회귀 52단계, 부하·강제 종료 복구·3.2.2 데이터 이전 및 개발/패키지 Windows 대역 24조합을 확인했다. 원래 개발 앱/폴더 반영, 사용자의 새 런타임 관리자 Z-order, 실제 설치/업데이트 검증은 남는다.
+2. **완료**: minimatch 9/10 소비자만 11.0.4로 올려 GHSA-g3hv-75wg-m249를 처리했다. 새 `npm ci`와 전체/생산 audit은 0건이다. 실제 matcher·unpack/제외 규칙, 배포 파일 955개의 바이트 일치와 패키지 native/preload 호환성을 확인했다.
+3. **다음 런타임 주버전 이전**: Electron 45에서 deprecated인 safeStorage 동기 API가 제거되기 전에 Google 인증 저장/로드의 비동기 전환과 기존 암호화 토큰 호환성을 함께 검사한다.
+
+당시 기록: [프로젝트 전체 검수](../../docs/development/project-review-2026-11-05.md). 현재 후속 작업과 검증 상태: [런타임·빌드 보안 이전](../../docs/development/runtime-security-upgrade-2026-11-05.md).

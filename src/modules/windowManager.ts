@@ -33,11 +33,12 @@ import * as diaryDb from './diaryDb';
 import type { ConfigDataContext, EquipmentDictionaryItem, EvolutionCalculatorSelection, ScreenPosition, WindowPositionKey } from '../shared/types';
 import { copyDefaultWindowPosition } from '../shared/windowPositions';
 import { ACTIVITY_WINDOWS, captureActivitySettings } from '../shared/activityPresets';
-import { collectIncompleteContents } from './contentsSummary';
+import {collectProfileIncompleteContents} from './gameExitReminderContents';
+import {getProfileRuntime} from './profileRuntime';
 import { getStandardOptions, isValidCoordinate } from './windowOptions';
 import { createManagedWindowRegistry } from './managedWindowRegistry';
 import type { ManagedWindow } from './managedWindowRegistry';
-import { centerWindowInWorkArea, isWindowVisibleOnDisplays } from './windowPlacement';
+import { centerWindowInWorkArea, centerWindowOverGame, isWindowVisibleOnDisplays } from './windowPlacement';
 import { createManagedWindowSizePatch, resolveManagedWindowSizing } from './managedWindowSizing';
 import { WindowFocusController } from './windowFocusController';
 import { ProgrammaticMoveTracker } from './programmaticMoveTracker';
@@ -88,10 +89,14 @@ let swordEnhanceTool: EmbeddedWebTool | null = null;
 let gameOverlayWindow: BrowserWindow | null = null;
 let welcomeGuideWindow: BrowserWindow | null = null;
 let updateNoticeWindow: BrowserWindow | null = null;
+let gameExitReminderWindow: BrowserWindow | null = null;
 const userWindowVisibility = new UserWindowVisibility();
 const contentsWindowCollapse = new ContentsWindowCollapse((x, y) => setProgrammaticMove('contentsChecker', x, y));
 // 최초 위치 적용 전의 창만 등록한다. 로딩 중 프리셋/공유 배치는 마지막 요청으로 교체한다.
 const pendingManagedWindowLayouts = new WeakMap<BrowserWindow, (() => void) | null>();
+const centeredProfileWindows=new WeakSet<BrowserWindow>();
+const profileWindowShowReasons=new WeakMap<BrowserWindow,ManagedWindowShowReason>();
+const pendingProfilePlacements=new WeakMap<BrowserWindow,symbol>();
 
 export function setContentsCheckerCollapsed(sender: WebContents, collapsed: boolean): boolean {
   const win = windowRegistry.contentsChecker.ref;
@@ -121,6 +126,7 @@ export function showWindowUnlessHidden(win: BrowserWindow | null | undefined, ac
 
 function canRestoreUserWindow(win: BrowserWindow): boolean {
   if (appState.isQuitting || mandatoryUpdateLock) return false;
+  if(win===windowRegistry.profiles.ref && (pendingManagedWindowLayouts.has(win) || pendingProfilePlacements.has(win)))return false;
   const cfg = config.load();
   if (win === mainWindow) return !!gameRect && cfg.sidebarPosition !== 'dock' && cfg.sidebarPosition !== 'dock-top';
   if (win === gameOverlayWindow) return !!gameRect;
@@ -516,6 +522,7 @@ function saveUserWindowPosition(
   anchorRect: GameRect,
   immediate = false,
 ): void {
+  if(winType==='profiles' && windowRegistry.profiles.ref)centeredProfileWindows.delete(windowRegistry.profiles.ref);
   const currentCfg = config.load();
   const mode = getActiveMode();
   const relative = toRelativePosition(winType, anchorRect, screenPosition);
@@ -538,6 +545,10 @@ function resolveManagedWindowPosition(
   winCfg: ManagedWindow,
   calcPosition?: (gr: GameRect, pos: WindowPosition) => { x: number; y: number },
 ): ScreenPosition {
+  if(key==='profiles' && winCfg.ref && centeredProfileWindows.has(winCfg.ref)) {
+    const bounds=winCfg.ref.getBounds();
+    return centerWindowOverGame(bounds.width,bounds.height,anchorRect,screen.getDisplayMatching(anchorRect).workArea);
+  }
   const cfg = config.load();
   const fixed = cfg.followGameWindow === false && cfg.fixedWindowPositionsActive === true
     ? cfg.fixedWindowPositions?.[key]
@@ -1175,6 +1186,7 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     win.setIgnoreMouseEvents(true, { forward: true });
   }
   winCfg.ref = win;
+  if(key==='profiles') {centeredProfileWindows.add(win);profileWindowShowReasons.set(win,showReason);}
   // 창 생성 시 Windows가 기본 위치에 배치하면서 move 이벤트가 발생하므로,
   // ready-to-show에서 올바른 위치를 설정하기 전까지 위치 저장을 차단합니다.
   // 로딩 시간이 200ms를 넘을 수 있으므로 시간 기반 가드로 처리하면 안 됩니다.
@@ -1195,9 +1207,12 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
 
   // 최초 렌더링 뒤 한 번만 배치·표시합니다. reload/DevTools 연결 등으로
   // ready-to-show가 다시 발생해도 show/showInactive를 반복하지 않습니다.
-  win.once('ready-to-show', () => {
+  const finishInitialShow = (profilePosition?:ScreenPosition) => {
+    if(isClosing || win.isDestroyed())return;
     const placementAnchor = getStablePlacementAnchorRect();
-    if (placementAnchor) {
+    if(profilePosition) {
+      setProgrammaticMove(key,profilePosition.x,profilePosition.y);win.setPosition(profilePosition.x,profilePosition.y);
+    } else if (placementAnchor) {
       let { x, y } = resolveManagedWindowPosition(key, placementAnchor, winCfg, callbacks?.calcPosition);
 
       // 채팅 오버레이 창(Main/Sub1/Sub2)의 경우
@@ -1236,18 +1251,23 @@ function createToggleableWindow(key: WindowPositionKey, callbacks?: {
     isInitialPositionApplied = true;
     win.webContents.send('config-data', config.load());
     if (callbacks?.onReady || winCfg.onOpen) (callbacks?.onReady || winCfg.onOpen)!(win);
-    const shouldShowPreloadedDock = showReason === 'preload' && key === 'dock' && isDockVisible;
+    const effectiveShowReason=key==='profiles' ? profileWindowShowReasons.get(win) || showReason : showReason;
+    const shouldShowPreloadedDock = effectiveShowReason === 'preload' && key === 'dock' && isDockVisible;
     let showMethod = 'preload-hidden';
-    if (showReason === 'user-open' && !isPassiveOverlay) {
+    if (effectiveShowReason === 'user-open' && !isPassiveOverlay) {
       showWindowUnlessHidden(win, true);
       showMethod = 'show';
-    } else if (showReason !== 'preload' || shouldShowPreloadedDock) {
+    } else if (effectiveShowReason !== 'preload' || shouldShowPreloadedDock) {
       showWindowUnlessHidden(win);
       showMethod = 'showInactive';
     }
-    log(`[WINDOW_SHOW] ${key} reason=${showReason} method=${showMethod}`);
+    log(`[WINDOW_SHOW] ${key} reason=${effectiveShowReason} method=${showMethod}`);
     sendActiveWindowsStatus();
     if (SHOULD_AUTO_OPEN_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
+  };
+  win.once('ready-to-show', () => {
+    if(key==='profiles')void resolveProfileWindowPosition(win).then(finishInitialShow);
+    else finishInitialShow();
   });
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('config-data', config.load());
@@ -1608,11 +1628,51 @@ export function toggleSwordEnhanceWindow(): void {
 
 export function toggleShoutHistoryWindow(): boolean { return createToggleableWindow('shoutHistory'); }
 export function toggleDiaryWindow(): boolean { return createToggleableWindow('diary'); }
-export function toggleProfilesWindow(): boolean { return createToggleableWindow('profiles'); }
+/** 프로필 선택/관리 창은 표시 전에 최신 게임 HWND 좌표를 DIP로 바꿔 중앙에 놓는다.
+ * 저장 위치/고정 배치보다 열기 시 중앙을 우선하며, 사용자가 직접 옮기면 기존 이동 정책을 따른다.
+ * 게임이 없거나 최소화되면 기존 모니터 중앙 fallback을 사용하고 게임을 복원하지 않는다.
+ * 회귀: check-profile-windows.ts, check-profile-placement.ts, check-window-visibility.ts. */
+async function resolveProfileWindowPosition(win:BrowserWindow):Promise<ScreenPosition | undefined> {
+  let anchor=getStablePlacementAnchorRect();
+  try {
+    if(typeof tracker.queryGameRect==='function') {
+      const current=await tracker.queryGameRect();
+      if(current && 'x' in current)anchor=screen.screenToDipRect(null,current);
+      else if(current===null || current && 'notRunning' in current)anchor=null;
+    }
+  } catch(error) {log(`[PROFILE] 선택창 게임 좌표 조회 실패, 기존 배치 기준 사용: ${String(error)}`);}
+  if(win.isDestroyed())return;
+  const bounds=win.getBounds();
+  return anchor ? centerWindowOverGame(bounds.width,bounds.height,anchor,screen.getDisplayMatching(anchor).workArea)
+    : resolveFallbackWindowPosition(bounds.width,bounds.height);
+}
+export function toggleProfilesWindow(): boolean {
+  const win=windowRegistry.profiles.ref;
+  if(win && !win.isDestroyed() && (areAllWindowsHidden() || userWindowVisibility.owns(win) && !win.isVisible())) {
+    openProfilesWindow();return true;
+  }
+  return createToggleableWindow('profiles');
+}
 export function openProfilesWindow(reason:'user-open' | 'game-resync'='user-open'): void {
   const win=windowRegistry.profiles.ref;
-  if (reason==='user-open' && reopenUserHiddenWindow(win)) return;
-  if (win && !win.isDestroyed()) {showWindowUnlessHidden(win,reason==='user-open');return;}
+  if (win && !win.isDestroyed()) {
+    centeredProfileWindows.add(win);profileWindowShowReasons.set(win,reason);
+    if(pendingManagedWindowLayouts.has(win)) {
+      if(reason==='user-open')reopenUserHiddenWindow(win);
+      return;
+    }
+    const request=Symbol('profile-placement');pendingProfilePlacements.set(win,request);
+    // 명시적 열기의 숨김 해제는 요청 시 수행한다. 좌표 조회 뒤에 해제하면 그사이 새로 누른
+    // 전체 숨김까지 늦은 응답이 되돌린다. 위치 준비 중 이 창의 자동 복원/빈 화면 표시는 보류한다.
+    if(reason==='user-open')reopenUserHiddenWindow(win);
+    void resolveProfileWindowPosition(win).then(position=>{
+      if(win.isDestroyed() || windowRegistry.profiles.ref!==win || pendingProfilePlacements.get(win)!==request)return;
+      pendingProfilePlacements.delete(win);
+      if(position && centeredProfileWindows.has(win)) {setProgrammaticMove('profiles',position.x,position.y);win.setPosition(position.x,position.y);}
+      showWindowUnlessHidden(win,reason==='user-open');
+    });
+    return;
+  }
   createToggleableWindow('profiles',undefined,reason);
 }
 export function closeProfilesWindow(): void { windowRegistry.profiles.ref?.close(); }
@@ -2580,11 +2640,27 @@ export function resetGameSessionState(): void {
 export function isGameWindowModeTransitioning(): boolean {
   return gameWindowModeTransitioning;
 }
+/** 종료 감지가 반복돼도 안내 창 하나를 재사용한다. 최신 내용만 갱신하고 사용자가
+ * 보고 있는 프로필 탭은 렌더러의 기존 보존 정책을 따른다. 로딩 중 재호출도 중복 생성하지
+ * 않으며 ready 시점에 설정을 다시 확인한다. 검사: test:game-exit-reminder. */
 export function showGameExitReminder(): void {
   const cfg = config.load();
   if (!cfg.gameExitReminderEnabled || !cfg.gameExitReminderMessage?.trim()) return;
 
-  const incompleteItems = collectIncompleteContents(cfg);
+  const updateAndShow=(win:BrowserWindow)=>{
+    if(win.isDestroyed())return;
+    const latest=config.load();
+    if(!latest.gameExitReminderEnabled || !latest.gameExitReminderMessage?.trim()) {win.close();return;}
+    win.webContents.send('reminder-message',latest.gameExitReminderMessage);
+    win.webContents.send('incomplete-contents',collectProfileIncompleteContents(latest,getProfileRuntime()));
+    if(win.isMinimized())win.restore();
+    showWindowUnlessHidden(win,true);
+    if(userWindowVisibility.canShow(win))win.focus();
+  };
+  if(gameExitReminderWindow && !gameExitReminderWindow.isDestroyed()) {
+    if(!gameExitReminderWindow.webContents.isLoadingMainFrame())updateAndShow(gameExitReminderWindow);
+    return;
+  }
 
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
   const winWidth = 500, winHeight = 560;
@@ -2595,14 +2671,11 @@ export function showGameExitReminder(): void {
     x: Math.round((screenWidth - winWidth) / 2),
     y: Math.round((screenHeight - winHeight) / 2),
   }));
+  gameExitReminderWindow=reminderWin;
+  reminderWin.once('closed',()=>{if(gameExitReminderWindow===reminderWin)gameExitReminderWindow=null;});
 
   reminderWin.loadFile(path.join(__dirname, '..', 'game-exit-reminder.html'));
-  reminderWin.once('ready-to-show', () => {
-    reminderWin.webContents.send('reminder-message', cfg.gameExitReminderMessage);
-    reminderWin.webContents.send('incomplete-contents', incompleteItems);
-    showWindowUnlessHidden(reminderWin, true);
-    if (userWindowVisibility.canShow(reminderWin)) reminderWin.focus();
-  });
+  reminderWin.once('ready-to-show', () => updateAndShow(reminderWin));
 }
 
 /** 활동 프리셋은 관리 창을 재사용하며 편집기·브라우저·계산기 창과 측정 세션에는 손대지 않는다.

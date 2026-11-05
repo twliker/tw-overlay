@@ -122,7 +122,7 @@ export function start(): void {
                 _currentStatus = 'minimized';
                 lastRect = null;
             }
-            // 이미 최소화된 게임과 함께 앱을 켠 경우, 숨김 처리가 새 선택창을 닫지 않게 한다.
+            // 최소화/숨김 시작은 선택 전 기록 세션만 준비한다. 자동 선택창은 보이는 상태까지 보류한다.
             try {observeProfileGameState('minimized');}
             catch (error) {log(`[PROFILE] 프로필 선택 준비 실패: ${error}`);}
             stableCount = 0;

@@ -20,6 +20,7 @@ export interface DiaryProfileState {
   activeProfileId:string | null;
   selectionRequired:boolean;
   busy:boolean;
+  archivedProfiles?:Array<{id:string;name:string;recordCount:number;firstDate:string;lastDate:string}>;
 }
 
 export interface DiaryManualRecordsApi {
@@ -40,12 +41,14 @@ export function parseDiaryProfileFilter(value:unknown):DiaryProfileFilter {
 
 export const ALL_DIARY_PROFILES:DiaryProfileFilter=Object.freeze({kind:'all'});
 
-export function diaryProfilePredicate(filter:DiaryProfileFilter): {sql:string;params:Array<string | null>} {
+export function diaryProfilePredicate(filter:DiaryProfileFilter,includeArchived=false): {sql:string;params:Array<string | null>} {
   const column='profile_id';
+  const archived=`SELECT substr(m.key,length('unassigned-profile:')+1) FROM diary_profile_meta m
+    WHERE m.key LIKE 'unassigned-profile:%' AND NOT EXISTS(SELECT 1 FROM play_profiles p WHERE p.id=substr(m.key,length('unassigned-profile:')+1) AND p.deleted_at IS NULL)`;
   if (filter.kind==='all') return {sql:'',params:[]};
-  if (filter.kind==='unassigned') return {sql:` AND ${column} IS NULL`,params:[]};
+  if (filter.kind==='unassigned') return {sql:includeArchived ? ` AND (${column} IS NULL OR ${column} IN (${archived}))` : ` AND ${column} IS NULL`,params:[]};
   if (filter.kind!=='profile' || typeof filter.profileId!=='string' || !filter.profileId || filter.profileId.length>128) {
     throw new Error('조회할 프로필을 다시 선택하세요.');
   }
-  return {sql:` AND ${column} = ?`,params:[filter.profileId]};
+  return {sql:` AND ${column} = ?${includeArchived ? ` AND ${column} NOT IN (${archived})` : ''}`,params:[filter.profileId]};
 }

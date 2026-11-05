@@ -123,6 +123,20 @@ async function run():Promise<void> {
   assert.equal(service.assignSession(old,replay).success,true);assert.equal(store.pending(old).length,0);
   assert.equal(xp.getStats().total,34);assert.equal(abandoned.getState().totalFee,27);assert.equal(sounds.length,soundsBefore);
   assert.equal(net(b.id),462);
+  // 누락된 과거 숙제가 무시된 뒤 ACK만 완료되는 데이터 유실을 막는다. 앞의 정상 처리도 함께 rollback.
+  const brokenSession='broken-legacy-fixture',legacyId='weekly-eternal-floor',legacyBefore=stateCount(b.id),diaryBefore=rows();
+  store.enqueue(brokenSession,{kind:'legacy-homework',value:{id:legacyId,count:1,isIncrement:true,timestamp:Date.now()}},1,'legacy-valid-before-broken');
+  const malformedLegacy={kind:'legacy-homework',value:{count:143,timestamp:Date.now(),sourceEventIds:['fixture-source']}};
+  store.enqueue(brokenSession,malformedLegacy,2,'legacy-missing-identity');
+  const failedLegacy=service.assignSession(brokenSession,replay);
+  assert.equal(failedLegacy.success,false);assert.match(failedLegacy.error,/필수 정보/);
+  assert.equal(store.pending(brokenSession).length,2);assert.equal(stateCount(b.id),legacyBefore);assert.equal(rows(),diaryBefore);
+  assert.deepEqual(store.pending(brokenSession)[1].payload,malformedLegacy,'실패 시 원본/미배정 상태 유지');
+  assert.equal(store.database.prepare('SELECT resolved_at FROM pending_profile_events WHERE event_id=?').get('legacy-missing-identity').resolved_at,null);
+  store.database.prepare('DELETE FROM pending_profile_events WHERE session_id=?').run(brokenSession);
+  store.enqueue(brokenSession,{kind:'legacy-homework',value:{id:'no-such-homework',count:1,isIncrement:true,timestamp:Date.now()}},3,'legacy-unknown-homework');
+  assert.match(service.assignSession(brokenSession,replay).error,/해당 숙제가 없습니다/);assert.equal(store.pending(brokenSession).length,1);
+  store.database.prepare('DELETE FROM pending_profile_events WHERE session_id=?').run(brokenSession);
   // 고빈도 XP를 중복 리스너 없이 처리하고 현재 프로필만 갱신한다.
   const started=Date.now();for (let n=0;n<100;n++) gain(1);
   assert.equal(xp.getStats().total,134);assert.equal(store.pending().length,0);

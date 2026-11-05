@@ -48,6 +48,27 @@ export interface ProfileClockStamp {
   uncertaintyMs: number | null;
 }
 
+export interface ProfileHomeworkProgress {
+  daily:{done:number;total:number};
+  weekly:{done:number;total:number};
+}
+export interface ProfileHomeworkSnapshot {
+  generatedAt:number;
+  nextResetAt:number | null;
+  profiles:Record<string,ProfileHomeworkProgress>;
+}
+
+export interface ProfilePendingSessionDetails {
+  count:number;
+  firstOccurredAt:number;
+  lastOccurredAt:number;
+  categories:Array<{label:string;count:number;unit?:'건' | '묶음'}>;
+  samples:Array<{occurredAt:number;text:string}>;
+  unassignableCount?:number;
+  /** 확인창에서 본 원본 집합과 무시할 집합이 같은지 메인에서 검증한다. */
+  snapshotToken?:string;
+}
+
 export interface PlayProfileStatus {
   profiles: PlayProfile[];
   activeProfileId: string;
@@ -55,6 +76,10 @@ export interface PlayProfileStatus {
   sessionId: string | null;
   busy: boolean;
   pendingSessions: Array<{sessionId:string;count:number;firstOccurredAt:number;lastOccurredAt:number}>;
+  /** 프로필 화면의 명시적 조회에서만 계산한다. 조회 실패/복구 대기는 null, 일반 상태 알림은 생략한다. */
+  homeworkProgress?:ProfileHomeworkSnapshot | null;
+  /** 로컬 프로필 화면의 명시적 조회에서만 전달하는 요약. 원문 전체나 DB 상태는 보내지 않는다. */
+  pendingDetails?:Record<string,ProfilePendingSessionDetails> | null;
 }
 
 export interface PlayProfileResult { success:boolean; error?:string; profileId?:string; status:PlayProfileStatus }
@@ -66,6 +91,8 @@ export interface PlayProfilesApi {
   selectPlayProfile(id:string): Promise<PlayProfileResult>;
   deletePlayProfile(id:string): Promise<PlayProfileResult>;
   assignPlayProfileSession(sessionId:string): Promise<PlayProfileResult>;
+  ignorePlayProfileSession(sessionId:string,snapshotToken:string): Promise<PlayProfileResult>;
+  reorderPlayProfiles(profileIds:readonly string[]):Promise<PlayProfileResult>;
   onPlayProfilesChanged(callback:(status:PlayProfileStatus) => void): void;
   closePlayProfiles(): void;
 }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, DigsiteBoardState, ChatItem, StopwatchState, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentItem, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
+import type { QuickSlotItem, AppConfig, GalleryPost, GalleryActivity, WatchedPost, UpdateStatusInfo, EtaRankingParams, TradePost, TradeActivity, ScamAnalysisResult, ModelStatus, GpuDetectionResult, ServerStatus, SessionState, XpStats, ResetRule, AbandonedRoadState, DigsiteBoardState, ChatItem, StopwatchState, EquipmentDictionaryItem, EvolutionCalculatorSelection, IncompleteContentsPayload, BuffTimerState, TodaySummary, UpdateNoticeData, SyncProgressInfo, SyncResultReport, ChatLogValidationResult, GoogleSyncStatus, GoogleSyncResult, GoogleSyncPayload, GoogleSyncDataKind, GoogleSyncFileRestoreResult, GoogleSyncChangeSummary, GoogleDriveFileMeta } from './shared/types';
 import type { SyncTargetFile } from './modules/chatLogSyncManager';
 import type { ConfigDataContext } from './shared/types';
 import type { ShareGroup, ShareReview, DiaryExportReview, FileActionResult } from './shared/companionFiles';
@@ -81,6 +81,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectPlayProfile: (id:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-select',id),
   deletePlayProfile: (id:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-delete',id),
   assignPlayProfileSession: (session:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-assign',session),
+  ignorePlayProfileSession: (session:string,snapshotToken:string):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-ignore',session,snapshotToken),
+  reorderPlayProfiles: (profileIds:readonly string[]):Promise<PlayProfileResult> => ipcRenderer.invoke('play-profiles-reorder',profileIds),
   onPlayProfilesChanged: (callback:(status:PlayProfileStatus) => void) => bindIpcListener('play-profiles-changed',callback),
   getProfileToolContext: async ():Promise<import('./shared/profileTools').ProfileToolContext> => {
     const value=await ipcRenderer.invoke('get-config');
@@ -234,6 +236,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 일지 (Adventure Log) 시스템
   getDiaryProfileState: ():Promise<DiaryProfileState> => ipcRenderer.invoke('diary-profiles-get'),
+  ignoreArchivedDiaryProfile: (id:string):Promise<DiaryProfileState> => ipcRenderer.invoke('diary-archive-ignore',id),
   diaryGetByDate: (date:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-by-date',date) : ipcRenderer.invoke('diary-get-by-date',date,filter),
   getTodaySummary: (): Promise<TodaySummary> => ipcRenderer.invoke('today-summary-get'),
   diaryGetByMonth: (month:string,filter?:DiaryProfileFilter) => filter===undefined ? ipcRenderer.invoke('diary-get-by-month',month) : ipcRenderer.invoke('diary-get-by-month',month,filter),
@@ -397,7 +400,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     bindIpcListener('toolbar-hover', callback),
   onReminderMessage: (callback: (message: string) => void) =>
     bindIpcListener('reminder-message', callback),
-  onIncompleteContents: (callback: (items: IncompleteContentItem[]) => void) =>
+  onIncompleteContents: (callback: (items: IncompleteContentsPayload) => void) =>
     bindIpcListener('incomplete-contents', callback),
   onDiaryUpdated: (callback: () => void) =>
     bindIpcListener('diary-updated', callback),

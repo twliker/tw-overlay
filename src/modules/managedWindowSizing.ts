@@ -65,12 +65,12 @@ export function resolveManagedWindowSizing(
   const policy = getManagedWindowSizePolicy(key);
   const isResizable = policy === 'user-resizable';
   const isChatOverlay = key === 'chatOverlay' || key === 'chatOverlaySub' || key === 'chatOverlaySub2';
-  const requestedMinWidth = policy === 'game-fixed' ? undefined : (key === 'settings' || key === 'profiles' ? 800
+  const requestedMinWidth = policy === 'game-fixed' ? undefined : (key === 'profiles' ? 560 : key === 'settings' ? 800
     : (key === 'focusedChat' ? 360
       : (key === 'etaRanking' ? 520
         : (key === 'diary' ? 900
           : (isChatOverlay ? CHAT_OVERLAY_MIN_WIDTH : (fields ? 200 : Math.min(defaultWidth, 400)))))));
-  const requestedMinHeight = policy === 'game-fixed' ? undefined : (key === 'settings' || key === 'profiles' ? 600
+  const requestedMinHeight = policy === 'game-fixed' ? undefined : (key === 'profiles' ? 400 : key === 'settings' ? 600
     : (key === 'focusedChat' ? 360
       : (key === 'etaRanking' ? 560
         : (key === 'diary' ? 650

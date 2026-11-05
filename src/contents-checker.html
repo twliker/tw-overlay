@@ -297,6 +297,9 @@
             box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.2);
         }
 
+        select.form-input { color-scheme: dark; }
+        select.form-input option { background: #0f121e; color: var(--ui-text); }
+
         .manage-tag {
             background: #f59e0b;
             color: white;
@@ -311,6 +314,22 @@
 
         .win-title-main {
             white-space: nowrap; /* 제목 줄바꿈 방지 */
+        }
+
+        #checklist-profile-status[data-save-state="success"] { color: #86efac; font-weight: 800; }
+        @media (max-width: 450px) {
+            .win-header { padding-inline: 10px; gap: 4px; }
+            .win-title-area { min-width: 0; gap: 8px; }
+            .win-title-area .win-icon-box { width: 28px; height: 28px; flex: none; }
+            .win-title-text { min-width: 0; }
+            .win-title-main, .win-title-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .win-controls { flex: none; gap: 2px; }
+            .win-controls .win-btn { width: 28px; margin-inline: 0; }
+        }
+        @media (max-width: 330px) {
+            .win-header { padding-inline: 6px; }
+            .win-title-area .win-icon-box { display: none; }
+            .win-controls .win-btn { width: 24px; }
         }
 
         /* 캐릭터 관리 메뉴 전용 */

@@ -98,6 +98,12 @@ function remoteId(db:Database.Database,local:string):string {
   const value=local==='profile-default' ? randomUUID() : local;
   db.prepare('INSERT INTO profile_sync_ids VALUES(?,?)').run(local,value);return value;
 }
+/** 새 프로필의 설정 복사에서도 제외한 기본 숙제는 재시작/다른 PC에서 되살리지 않는다.
+ * 새 프로필에 원래 행이 없으면 snapshot 차이만으로 삭제를 감지할 수 없어 명시적으로 보존한다.
+ * 호출자는 프로필 생성/원본·outbox와 같은 transaction 안에서 사용한다. */
+export function rememberProfileHomeworkDeletion(db:Database.Database,local:string,item:string):void {
+  db.prepare('INSERT OR IGNORE INTO profile_sync_tombstones VALUES(?)').run(key('homework',remoteId(db,local),item,'deleted'));
+}
 export function localSyncProfileId(db:Database.Database,remote:string):string | undefined {
   return (db.prepare('SELECT local_id FROM profile_sync_ids WHERE remote_id=?').get(remote) as {local_id:string} | undefined)?.local_id;
 }
