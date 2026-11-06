@@ -2,6 +2,16 @@
 
 후속 상태: 이 문서의 소스/패키지 해시는 런타임 이전 검증 당시 기록이다. 이후 실제 UI 확인에서 추가 결함을 발견해 logger·종료 안내·일반 창 검사 격리와 화면 표시를 수정했다. 관련 재검증·기본 크기 조작·남은 실기 범위는 [후속 문서](./manual-ux-review-2026-11-05.md)를 기준으로 한다.
 
+2026-11-06 Defender 검사에서 회사 PC와 로컬 테스트 패키지의 `ffmpeg.dll`에 동일한 `Trojan:Win32/Posilod.EB!cl` 탐지가 확인됐다. 로컬에 저장된 [Electron 45.2.3 공식 Windows x64 ZIP](https://github.com/electron/electron/releases/tag/v45.2.3)은 공식 SHA-256 `489cd061908e697394b004298bf5ffd345c935d10e8ca197ba819f019ab2dec0`과 일치했다. Defender 엔진 `1.1.26100.4`, 탐지 정의 `1.463.147.0`에서 업데이트를 확인한 뒤 공식 ZIP을 다시 검사해 같은 DLL이 탐지됐다. 과거 [같은 탐지명과 파일의 보고](https://github.com/electron/electron/issues/51394)는 참고 자료이며 이번 탐지의 판정은 아직 없다. `v3.3.5-beta.2` 푸시와 게시를 보류한다. 45.2.3에 포함된 [추가 수정](https://github.com/electron/electron/pull/55592)을 확인하지 않은 채 이전 런타임으로 내리지 않는다.
+
+마지막 정식 릴리즈 `v3.2.2`는 태그의 잠금 파일 기준 Electron `42.9.0`을 사용한다. 공식 42.9.0 Windows x64 ZIP의 SHA-256을 검증했고 Defender 탐지는 없었다. 이 버전은 지원이 끝났으며 [취약 인증서 차단 수정](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9) 이전 버전이다. 비교용 검사에서만 사용했다.
+
+Electron 45.2.3이 별도 배포한 대체 FFmpeg ZIP의 SHA-256 `a9043f14dc95268c87e08938a77f27baa555a91b1e52266d27893bcbce416399`을 공식 릴리즈의 자산 digest와 대조했다. 테스트 폴더에서 공식 45.2.3에 같은 버전의 대체 DLL을 조합한 뒤 Defender로 전체 런타임을 검사해 탐지 없음이 확인됐다. 실제 런타임·SQLite·IPC, 화면 실패 진단, 업데이트 실패 처리와 내장 MP3 디코딩이 통과했다. [대체 FFmpeg](https://www.electron.build/docs/configuration/#downloadalternateffmpeg)는 독점 코덱이 제외된 빌드다. 외부 영상의 실제 재생, 설치 패키지와 회사 PC 검증은 남아 있으며 제품 빌드 설정에는 아직 반영하지 않았다.
+
+사용자가 공식 배포본을 그대로 사용하는 방향을 지정했다. [Electron 45.2.2 공식 Windows x64 ZIP](https://github.com/electron/electron/releases/tag/v45.2.2)의 SHA-256 `a234388419ccbcb18dd2feec856e4ae1832499e200837f23f8e653bd51ff3be5`를 검증했다. Defender에서 공식 ZIP, 원본을 푼 전체 폴더, 같은 런타임으로 만든 TW-Overlay 테스트 패키지가 모두 탐지 없이 통과했다. 패키지 안의 `ffmpeg.dll` SHA-256은 공식 원본과 일치했다. 실제 런타임 및 패키지 내부의 SQLite·IPC·토큰 암호화, 화면 실패 진단과 업데이트 실패 처리도 통과했다. 사용자 선택에 따라 `v3.3.5-beta.2`의 package.json과 잠금 파일을 공식 `45.2.2`로 고정했다. 최종 설치 파일과 회사 PC는 미검증이다.
+
+[45.2.3 변경 내역](https://github.com/electron/electron/pull/55592)에는 H.264 디코더 상태와 MP4/MOV 파서 메모리 초기화, Chromium의 교차 사이트 데이터 삭제 제한과 GPU 핸들 검증, PIP에서 해제된 메모리에 접근하는 문제를 포함한 수정이 있다. `45.2.2`에는 이 묶음이 포함되지 않는다. 앞서 [45.0.0-beta.6에서 적용된 취약 인증서 차단](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9)은 45.2.2에도 포함된다.
+
 ## 변경과 작업 경계
 
 전체 검수에서 남은 Electron 42 지원 종료와 minimatch 빌드 의존성 경고를 우선 처리한다. 사용 중인 관리자 개발 앱을 종료할 수 없어 `C:\Users\drt_0\.codex\worktrees\electron-security-upgrade\tw-overlay`, `codex/runtime-security-20261105`에서 작업한다. 원래 폴더의 당시 미커밋 변경 93개도 SHA-256을 확인하며 복사했다. 원래 앱/소스/의존성/빌드는 유지하며 실제 사용자 데이터를 읽거나 검사에 사용하지 않는다.
