@@ -116,7 +116,7 @@
 | 보조 창 크기 조절·저장 | `src/modules/managedWindowSizing.ts` | `windowManager.ts`, `assets/ui-utils.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
 | 창 드래그·최종 위치 저장 | `src/modules/windowMovePersistence.ts` | `programmaticMoveTracker.ts`, `windowManager.ts`, `scripts/check-window-move-persistence.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
 | 사용자 전체 창 숨김·복원 | `src/modules/userWindowVisibility.ts` | `windowManager.ts`, `tray.ts`, `shortcutManager.ts`, `scripts/check-window-visibility.ts`, `docs/settings.md` |
-| renderer 표시 실패 안전장치 | `src/modules/rendererHealthGuard.ts` | `main.ts`, `windowManager.ts`, `scripts/check-refactor-regressions.ts` |
+| renderer 표시 실패 안전장치 | `src/modules/rendererHealthGuard.ts` | `main.ts`, `windowManager.ts`, `scripts/check-renderer-health.ts`, `scripts/check-refactor-regressions.ts` |
 | 창모드↔창모드 전체화면 전환 | `src/modules/gameWindowModePolicy.ts`, `src/modules/windowManager.ts` | `tracker.ts`, `pollingLoop.ts`, `scripts/check-refactor-regressions.ts`, `docs/settings.md` |
 | HUD 위치 편집·손상 좌표 복구 | `src/renderer/game-overlay/edit-mode.ts`, `src/modules/gameOverlayEditSession.ts`의 종료 후 최신 설정 재적용, `src/shared/windowPositions.ts` | `game-overlay.html`의 콘텐츠 표시 상태, `settings.html`, `modules/config.ts`, `scripts/check-renderer-behavior.ts`, `scripts/check-hud-edit-settings.ts`(설정/공유/다른 창 저장·취소·실패·지연·창 닫기), `docs/settings.md` |
 | 전역 단축키 | `src/modules/shortcutManager.ts`, `src/modules/tracker.ts` | `settings.html`, `renderer/settings/shortcuts.ts`, `scripts/check-refactor-regressions.ts` |
@@ -124,6 +124,7 @@
 | Windows 자동 실행 | `src/modules/autoStart.ts`, `src/modules/storeAutoStart.ts` | `runtimeSettings.ts`, `native/store-update-helper/Program.cs`, `build/appx/appxmanifest.xml`, `scripts/check-auto-start.ts`, `scripts/check-audit-regressions.ts`, `scripts/verify-appx-package.ts`, `docs/settings.md`, `package.json` 관리자 권한 정책 |
 | Fast Ping | `src/modules/optimizer.ts` | `ipcHandlers.ts`, `docs/settings.md` |
 | 업데이트 공지 | `src/modules/noticeManager.ts` | `assets/notice/notice.json`, `updater.ts`, 릴리즈 체크리스트 |
+| GitHub 업데이트 확인과 앱 시작 | `src/modules/updater.ts`의 `checkGitHubForUpdates` 및 오류 처리 | `scripts/check-updater-network.ts`, `docs/settings.md`, `scripts/release-channel.ts` |
 
 ## 계산기·도구
 

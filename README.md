@@ -5,14 +5,14 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Version](https://img.shields.io/badge/version-3.3.5--beta.1-violet.svg)
+![Version](https://img.shields.io/badge/version-3.3.5--beta.2-violet.svg)
 
 ## 📸 스크린샷
 
 ![App Screenshot](./screenshot/screen1.png)
 
-## 🧪 테스트 프리릴리즈 v3.3.5-beta.1 (2026.11.05)
-프로필과 Google 동기화를 두 PC에서 확인하기 위한 베타 버전입니다. 기존 사용자도 설치 전에 **환경설정 → 시스템 & 관리 → 데이터 관리 → ZIP 백업**으로 데이터를 보관해 주세요.
+## 🧪 테스트 프리릴리즈 v3.3.5-beta.2 (2026.11.06)
+프로필과 Google 동기화를 두 PC에서 확인하기 위한 베타 버전입니다. 이번 버전은 화면이 열리지 않을 때 오류창에 화면 이름과 오류 코드를 표시합니다. 기존 사용자도 설치 전에 **환경설정 → 시스템 & 관리 → 데이터 관리 → ZIP 백업**으로 데이터를 보관해 주세요.
 
 - **프로필:** 숙제·환경설정·계수 계산기 입력을 프로필별로 관리하고 게임 시작 시 기록할 프로필을 선택합니다.
 - **Google 동기화:** 프로필·숙제·휴대 가능한 설정을 PC별 변경 파일로 동기화합니다. 모험일지와 채팅 원본은 각 PC에 보관합니다.
@@ -20,7 +20,7 @@
 - **프로필·일지 개선:** 프로필 순서 변경, 일일·주간 진행률, 종료 후 프로필별 남은 숙제, 이전 프로필 기록을 미배정으로 정리하는 기능을 추가했습니다. 입장료 중복 집계·음수 금액·아티팩트 이름도 수정했습니다.
 - **기본 숙제 누락 수정:** 새 프로필에 기본 목록을 넣고 이전 베타에서 누락된 항목은 기존 진행 상태와 커스텀 숙제를 유지하며 자동 복구합니다.
 
-자세한 내용과 미검증 항목은 [v3.3.5-beta.1 릴리즈 노트](release-note/CHANGELOG-v3.3.5-beta.1.md)를 확인해 주세요. 정식 배포 버전은 [v3.2.2](https://github.com/twliker/tw-overlay/releases/tag/v3.2.2)입니다.
+자세한 내용과 미검증 항목은 [v3.3.5-beta.2 릴리즈 노트](release-note/CHANGELOG-v3.3.5-beta.2.md)를 확인해 주세요. 정식 배포 버전은 [v3.2.2](https://github.com/twliker/tw-overlay/releases/tag/v3.2.2)입니다.
 
 *(이전 버전의 변경 사항은 [release-note](release-note/) 폴더의 릴리즈 노트를 참조해 주세요.)*
 
@@ -79,7 +79,7 @@
 ## 🚀 시작하기 (테일즈위버 오버레이 프로그램 설치 및 다운로드)
 
 ### 설치 방법
-[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 테스트 참여자는 프리릴리즈의 `twOverlay-Setup-3.3.5-beta.1.exe`를, 일반 사용자는 정식 버전의 설치 파일을 다운로드하여 실행하세요.
+[Releases](https://github.com/twliker/tw-overlay/releases) 페이지에서 테스트 참여자는 프리릴리즈의 `twOverlay-Setup-3.3.5-beta.2.exe`를, 일반 사용자는 정식 버전의 설치 파일을 다운로드하여 실행하세요.
 
 ### 단축키 및 팁
 - **단축키:** 

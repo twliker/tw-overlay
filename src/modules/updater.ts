@@ -167,6 +167,14 @@ function resetDefaultFeed() {
   }
 }
 
+// electron-updater emits 'error' before rejecting the check. The event handler
+// already publishes the status and releases startup, so consume the rejection
+// here for startup, manual checks and checks after switching to a mandatory tag.
+// Regression: scripts/check-updater-network.ts.
+async function checkGitHubForUpdates(): Promise<void> {
+  await autoUpdater.checkForUpdates().catch(() => undefined);
+}
+
 function showUpdateNotification(version?: string) {
   try {
     const notification = new Notification({
@@ -521,7 +529,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
           url: `https://github.com/twliker/tw-overlay/releases/download/${latestMandatory.tag}/`
         });
 
-        autoUpdater.checkForUpdates();
+        void checkGitHubForUpdates();
         return;
       }
 
@@ -595,7 +603,10 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     clearTimer();
     resetDefaultFeed();
     log(`Error in auto-updater: ${err}`);
-    broadcastStatus({ state: 'error', message: err.message });
+    const message = 'code' in err && err.code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND'
+      ? '업데이트 정보를 가져오지 못했습니다. 잠시 후 다시 확인해 주세요.'
+      : err.message;
+    broadcastStatus({ state: 'error', message });
 
     if (isMandatory) {
       import('./windowManager').then(wm => wm.setMandatoryUpdateLock(false));
@@ -640,7 +651,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
 
   // 초기 체크 실행
   log('Starting auto update check on splash...');
-  autoUpdater.checkForUpdates();
+  void checkGitHubForUpdates();
 }
 
 /** 현재 업데이트 상태 반환 */
@@ -666,7 +677,7 @@ export async function manualCheckForUpdate(mainWindow: BrowserWindow | null) {
   try {
     resetDefaultFeed();
     broadcastStatus({ state: 'checking' });
-    await autoUpdater.checkForUpdates();
+    await checkGitHubForUpdates();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log(`Manual update check error: ${msg}`);
