@@ -648,11 +648,19 @@ async function main():Promise<void> {
   await assert.rejects(sync.syncWeeklyChatLogs({profileId:b.id}),/종료/);
   assert.deepEqual(store.database.pragma('integrity_check'),[{integrity_check:'ok'}]);
   controller.dispose();config.beginExternalRestore();diary.suspendForRestore();
-  const restart=spawnSync(process.execPath,[__filename],{encoding:'utf8',timeout:30000,env:{...process.env,TW_PROFILE_LIFECYCLE_RESTART_FIXTURE:fixture}});
-  assert.equal(restart.status,0,restart.stdout+restart.stderr);
-  const fresh=spawnSync(process.execPath,[__filename,'--fresh'],{encoding:'utf8',timeout:20000});assert.equal(fresh.status,0,fresh.stdout+fresh.stderr);
-  const boundaries=spawnSync(process.execPath,[__filename,'--boundaries'],{encoding:'utf8',timeout:25000});
-  assert.equal(boundaries.status,0,boundaries.stdout+boundaries.stderr);
+  // 하위 검사 프로세스의 시간 제한은 멈춤을 끊기 위한 것이다. CI runner는 로컬보다 느려(경계 검사는 로컬 20~28초)
+  // 정상 진행 중에 끊기지 않도록 넉넉히 두고, 시간 초과로 끊기면 종료 코드 대신 그 사실을 알린다.
+  const SUBPROCESS_TIMEOUT_MS=120_000;
+  const runSubprocess=(label:string,args:string[],env?:NodeJS.ProcessEnv)=>{
+    const result=spawnSync(process.execPath,[__filename,...args],{encoding:'utf8',timeout:SUBPROCESS_TIMEOUT_MS,...(env ? {env} : {})});
+    const output=result.stdout+result.stderr;
+    assert.ok(result.status!==null,`${label} 하위 검사가 ${SUBPROCESS_TIMEOUT_MS/1000}초 안에 끝나지 않았습니다(${result.signal || result.error?.message || '시간 초과'}).\n${output}`);
+    assert.equal(result.status,0,output);
+    return result;
+  };
+  runSubprocess('restart',[],{...process.env,TW_PROFILE_LIFECYCLE_RESTART_FIXTURE:fixture});
+  runSubprocess('fresh',['--fresh']);
+  const boundaries=runSubprocess('boundaries',['--boundaries']);
   console.log(boundaries.stdout.split(/\r?\n/).find(value=>value.startsWith('PASS chat log boundaries')));
   console.log('PASS profile lifecycle: startup selection, actual CRLF live source/restore, periodic checkpoint, compact receipts, ZIP rollback/catch-up, shutdown and separate-process restart');
 }
