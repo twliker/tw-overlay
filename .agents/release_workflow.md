@@ -223,7 +223,7 @@ git push origin vX.Y.Z
 
 1. Windows runner에서 저장소 체크아웃
 2. Node.js 24 설치
-3. `npm ci`로 잠금 파일 기준 의존성 설치
+3. `npm ci`로 잠금 파일 기준 의존성 설치 후 runner 시간대를 한국 표준시(`tzutil /s "Korea Standard Time"`)로 맞춤. 검사는 사용자·개발 PC와 같은 KST에서 실행하며, 날짜를 다루는 새 검사는 현지 날짜로 기대값을 계산해 다른 시간대에서도 통과하게 작성한다.
 4. `npm run typecheck`, `npm test`, `npm run test:stress`, `npm audit --omit=dev --audit-level=critical` 검증
 5. GitHub Secrets의 Analytics 값을 `dist/env.json`에 주입
 6. `electron-builder --publish never`로 Windows 설치 파일만 생성

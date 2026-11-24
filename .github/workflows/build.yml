@@ -24,6 +24,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 사용자와 개발 PC는 한국 시간(KST)이다. 숙제 초기화·모험일지 날짜 검사를 같은 시간대에서 실행한다.
+      # 이후 단계의 새 프로세스(Node·Electron 검사)는 이 Windows 시간대를 쓴다.
+      - name: Use Korea Standard Time
+        run: tzutil /s "Korea Standard Time"
+
       - name: Validate TypeScript
         run: npm run typecheck
 

@@ -416,8 +416,10 @@ async function run():Promise<void> {
     line('[이터널 플로어 보상 상자] 아이템을 획득하였습니다.',`${logged.getHours()}시 ${logged.getMinutes()}분 ${logged.getSeconds()}초`);
     assert.equal(floorState().isCompleted,true,'보정 시각으로 리셋 뒤의 클리어를 이번 주 체크리스트에 반영');
     assert.equal(floorState().lastCompletedAt,skewReset+60_000,'진행 시각도 리셋 판정과 같은 보정 시간축');
-    assert.deepEqual(store.database.prepare("SELECT date,completed_at FROM homework_logs WHERE profile_id=? AND content_id=? AND date='2026-11-23'").get(a.id,`${floor}_${a.id}`),
-      {date:'2026-11-23',completed_at:skewReset+60_000});
+    // 일지 날짜는 이 PC의 현지 날짜다(KST에서는 2026-11-23). CI(UTC)에서도 같은 규칙으로 기대값을 계산한다.
+    const skewDay=dayKey(skewReset+60_000);
+    assert.deepEqual(store.database.prepare('SELECT date,completed_at FROM homework_logs WHERE profile_id=? AND content_id=? AND date=?').get(a.id,`${floor}_${a.id}`,skewDay),
+      {date:skewDay,completed_at:skewReset+60_000});
   } finally {Date.now=skewDate;parser.setCurrentDate(date);}
   store.syncClock=originalClock;
   // 리뷰 P3: 백업 복원 중 보류한 게임 상태는 실행 상태 복원이 실패해도 순서대로 끝까지 전달한다.
