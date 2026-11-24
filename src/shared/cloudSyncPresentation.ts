@@ -5,6 +5,7 @@ interface CloudSyncFileStatusLike {
 }
 
 interface CloudSyncStatusLike {
+  profileSync?:{connection:string;pending:number;reviews:unknown[];remoteDeferred?:string};
   isLinked?: boolean;
   reauthRequired?: boolean;
   isSyncing?: boolean;
@@ -49,6 +50,11 @@ interface Window {
     if (!status?.isLinked) {
       return { visible: false, state: 'normal', icon: null, label: '' };
     }
+    if (status.profileSync?.connection==='choice' || status.profileSync?.reviews.length) return {
+      visible:true,state:'error',icon:'circle-alert',label:status.profileSync.connection==='choice'
+        ? 'Google 첫 연결 · 데이터 선택 필요' : 'Google 동기화 · 확인할 변경 있음',
+    };
+    if (status.profileSync?.connection==='disconnected') return {visible:true,state:'normal',icon:null,label:'Google 동기화 꺼짐 · 이 PC에 저장 중'};
 
     if (status.isSyncing) {
       if (status.syncActivity === 'upload') {
@@ -76,6 +82,9 @@ interface Window {
           : '클라우드 동기화 오류 · 설정에서 확인',
       };
     }
+    // 계산기 편집 때문에 다른 PC 변경 반영만 미룬 상태는 오류가 아니다. 이 PC의 변경은 계속 전송한다.
+    if (status.profileSync?.remoteDeferred) return {visible:true,state:'checking',icon:'cloud-download',label:'편집 중 · 동기화 반영은 편집 후 진행'};
+    if (status.profileSync?.pending) return {visible:true,state:'checking',icon:'cloud-upload',label:'이 PC 저장 완료 · Google 전송 대기'};
 
     return {
       visible: true,

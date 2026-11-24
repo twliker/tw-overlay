@@ -47,7 +47,8 @@
     }
 
     .settings-sidebar {
-      width: 240px;
+      flex: 0 0 216px;
+      min-width: 0;
       background: rgba(20, 20, 35, 0.95);
       border-right: 1px solid var(--border);
       display: flex;
@@ -55,15 +56,90 @@
       padding: 0;
     }
 
+    @media (max-width: 880px) { .settings-sidebar { flex-basis: 184px; } .settings-wrapper .content-area { padding: 24px; } }
+    .settings-section [data-settings-pages][hidden] { display: none !important; }
+    :is(#hud-position-settings-card, #notification-position-settings-card) button:disabled {
+      cursor: not-allowed;
+      opacity: .5;
+    }
+    .settings-section .settings-group > h2 { display: none; }
+
+    .settings-wrapper input[type="checkbox"]:not(.ui-switch input) {
+      appearance: none;
+      display: inline-grid;
+      place-items: center;
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      border: 1px solid var(--ui-border-strong);
+      border-radius: 4px;
+      background: var(--ui-input);
+      vertical-align: middle;
+    }
+    .settings-wrapper input[type="checkbox"]:not(.ui-switch input):checked {
+      background: var(--ui-feature, var(--ui-primary));
+      border-color: transparent;
+    }
+    .settings-wrapper input[type="checkbox"]:not(.ui-switch input):checked::after {
+      content: '';
+      width: 5px;
+      height: 8px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: translateY(-1px) rotate(45deg);
+    }
+    .settings-wrapper input[type="checkbox"]:not(.ui-switch input):focus-visible {
+      outline: 2px solid var(--ui-brand);
+      outline-offset: 2px;
+    }
+    .settings-wrapper input[type="checkbox"]:not(.ui-switch input):disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .settings-page-header {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 20px;
+      padding: 16px 18px;
+      border: 1px solid var(--ui-border);
+      border-radius: var(--ui-radius-card);
+      background: linear-gradient(110deg, rgba(168, 85, 247, .09), transparent 70%), var(--ui-card);
+    }
+    .settings-page-identity { display: flex; align-items: center; gap: 12px; }
+    .settings-page-identity .win-icon-box { color: var(--ui-brand); background: rgba(168, 85, 247, .10); border-color: rgba(168, 85, 247, .22); }
+    .settings-page-identity .win-icon-box svg { width: 18px; height: 18px; }
+    #settings-page-group { color: var(--ui-secondary); font-size: 12px; }
+    #settings-page-title { color: var(--ui-text); font-size: 18px; font-weight: 800; }
+    #settings-profile-context { border-top: 1px solid var(--ui-border); padding-top: 10px; }
+    #settings-profile-status:empty { display: none; }
+    .settings-primary-options { display: grid; gap: 10px; }
+    .settings-primary-options > label {
+      min-height: 60px;
+      padding: 12px 14px;
+      border: 1px solid var(--ui-border);
+      border-radius: var(--ui-radius-control);
+      background: var(--ui-card);
+    }
+    .settings-primary-options > label:has(input:checked) {
+      border-color: rgba(168, 85, 247, .22);
+      background: rgba(168, 85, 247, .07);
+    }
+    .settings-primary-options .ui-heading svg { color: var(--ui-brand); }
+
     .nav-container {
       flex: 1;
+      /* Keep submenu layers below the search popup outside this scroll area. */
+      isolation: isolate;
       -webkit-app-region: no-drag;
       padding: 10px 0;
-      overflow-y: hidden;
+      overflow-y: auto;
+      overflow-anchor: none;
+      min-height: 0;
     }
 
     .nav-item {
-      padding: 12px 24px;
+      padding: 9px 20px;
       /* cursor: pointer removed, handled by style.css */
       color: var(--text-muted);
       font-size: 13px;
@@ -87,6 +163,7 @@
 
     .content-area {
       flex: 1;
+      min-width: 0;
       padding: 40px;
       overflow-y: auto;
       background: rgba(15, 18, 30, 0.98);
@@ -135,16 +212,6 @@
       background: rgba(168, 85, 247, 0.1);
     }
 
-    /* 드롭다운(select) 다크 모드 스타일 최적화 */
-    select {
-      color-scheme: dark;
-    }
-
-    select option {
-      background-color: #1a1b2e;
-      color: white;
-    }
-
     /* ─── 로딩 오버레이 ─── */
     .loading-overlay {
       position: fixed;
@@ -190,23 +257,22 @@
 
     .settings-context-tabs {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      max-width: 800px;
-      margin: -20px 0 24px;
-      padding: 20px 0 10px;
-      position: sticky;
-      top: -40px;
-      z-index: 60;
-      background: rgba(15, 18, 30, 0.98);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      flex-direction: column;
+      gap: 3px;
+      margin: 6px 12px 10px 25px;
+      padding: 0 0 0 8px;
+      border-left: 1px solid var(--ui-border);
     }
+
+    .settings-context-tabs.hidden { display: none; }
 
     .settings-context-item {
       display: inline-flex;
       align-items: center;
       gap: 7px;
+      min-height: 32px;
       padding: 8px 13px;
+      text-align: left;
       color: var(--text-muted);
       font-size: 12px;
       font-weight: 700;
@@ -333,7 +399,7 @@
       <div class="px-4 pb-3 relative z-30">
         <div class="relative flex items-center">
           <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none"></i>
-          <input type="text" id="settings-quick-search" placeholder="설정 빠른 검색... (Ctrl+F)" autocomplete="off"
+          <input type="text" id="settings-quick-search" placeholder="설정 검색" title="설정 검색 (Ctrl+F)" aria-label="설정 검색" autocomplete="off"
             class="w-full pl-8 pr-7 py-2 bg-black/40 border border-white/10 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500/60 transition-all">
           <button id="btn-clear-search" onclick="clearSettingsSearch()"
             class="hidden absolute right-2.5 text-slate-500 hover:text-white transition-colors">
@@ -347,19 +413,19 @@
       </div>
 
       <div class="nav-container custom-scroll">
-        <button type="button" class="nav-item active w-full text-left" data-settings-group="app" aria-current="page" onclick="showSettingsGroup('app', this)"><i
-            data-lucide="layout"></i>앱 & 런처</button>
-        <button type="button" class="nav-item w-full text-left" data-settings-group="game" onclick="showSettingsGroup('game', this)"><i
-            data-lucide="monitor-dot"></i>게임 HUD & 알림</button>
-        <button type="button" class="nav-item w-full text-left" data-settings-group="chat" onclick="showSettingsGroup('chat', this)"><i
-            data-lucide="messages-square"></i>채팅 & 로그</button>
-        <button type="button" class="nav-item w-full text-left" data-settings-group="alerts" onclick="showSettingsGroup('alerts', this)"><i
-            data-lucide="bell-ring"></i>모니터링 & 소리</button>
-        <button type="button" class="nav-item w-full text-left" data-settings-group="system" onclick="showSettingsGroup('system', this)"><i
-            data-lucide="settings-2"></i>시스템 & 관리</button>
-        <button type="button" class="nav-item relative w-full text-left" data-settings-group="about" onclick="showSettingsGroup('about', this)"><i
-            data-lucide="info"></i>앱 정보<span id="update-badge"
-            class="absolute top-1/2 right-4 -translate-y-1/2 w-2 h-2 bg-red-500 rounded-full hidden"></span></button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="app" onclick="showSettingsGroup('app', this)"><i data-lucide="power"></i>앱</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="launcher" onclick="showSettingsGroup('launcher', this)"><i data-lucide="panel-left"></i>런처</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="windows" onclick="showSettingsGroup('windows', this)"><i data-lucide="app-window"></i>창</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="game" onclick="showSettingsGroup('game', this)"><i data-lucide="monitor-dot"></i>HUD</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="chat" onclick="showSettingsGroup('chat', this)"><i data-lucide="messages-square"></i>채팅</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="logs" onclick="showSettingsGroup('logs', this)"><i data-lucide="file-text"></i>채팅 로그</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="alerts" onclick="showSettingsGroup('alerts', this)"><i data-lucide="bell-ring"></i>알림</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="sound" onclick="showSettingsGroup('sound', this)"><i data-lucide="volume-2"></i>소리</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="shortcuts" onclick="showSettingsGroup('shortcuts', this)"><i data-lucide="keyboard"></i>단축키</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="data" onclick="showSettingsGroup('data', this)"><i data-lucide="database"></i>데이터</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="optimize" onclick="showSettingsGroup('optimize', this)"><i data-lucide="zap"></i>최적화</button>
+        <button type="button" class="nav-item relative w-full text-left" data-settings-group="about" onclick="showSettingsGroup('about', this)"><i data-lucide="info"></i>앱 정보<span id="update-badge" class="absolute top-1/2 right-4 -translate-y-1/2 w-2 h-2 bg-red-500 rounded-full hidden"></span></button>
+        <div id="settings-context-tabs" class="settings-context-tabs hidden" aria-label="세부 설정"></div>
       </div>
 
       <div class="mt-auto p-4 space-y-2 mb-2">
@@ -373,36 +439,37 @@
     </div>
 
     <div class="content-area custom-scroll">
-      <div id="settings-context-tabs" class="settings-context-tabs" aria-label="세부 설정"></div>
+      <header class="settings-page-header">
+        <div class="settings-page-identity">
+          <span id="settings-page-icon" class="win-icon-box" aria-hidden="true"></span>
+          <div>
+            <p id="settings-page-group"></p>
+            <h1 id="settings-page-title"></h1>
+          </div>
+        </div>
+        <div id="settings-profile-context" hidden>
+          <p id="settings-profile-target" class="text-sm font-bold text-slate-200"></p>
+          <p class="ui-description">프로필별 설정은 이 프로필에, 창 배치·음량 등 공통 설정은 모든 프로필에 적용합니다.</p>
+          <p id="settings-profile-status" class="text-sm text-slate-200" role="status" aria-live="polite"></p>
+        </div>
+      </header>
       <!-- 0. 일반 설정 (앱 동작 & 사이드바) -->
       <div id="section-general" class="settings-section space-y-8">
-        <section id="activity-presets-card" class="settings-group" data-settings-view="general-app">
-          <h2 class="ui-section-heading"><i data-lucide="layout-template"></i>활동 프리셋</h2>
-          <div class="ui-card ui-stack">
-            <p class="ui-description">사냥·보스·거래 상황에 맞는 창 배치와 알림 설정을 저장해 한 번에 전환합니다.</p>
-            <div class="ui-actions"><input id="activity-preset-name" list="activity-preset-suggestions" maxlength="32" class="ui-input flex-1 min-w-0" placeholder="프리셋 이름 (예: 사냥)" aria-label="새 활동 프리셋 이름"><datalist id="activity-preset-suggestions"><option value="사냥"><option value="보스"><option value="거래"></datalist><button id="activity-preset-save" class="ui-button ui-button-primary"><i data-lucide="save"></i>현재 상태 저장</button></div>
-            <div id="activity-preset-list" class="ui-stack"></div>
-            <p class="ui-description">미저장 설정은 먼저 저장해 주세요. 캐릭터 기록과 메모 내용은 전환해도 유지됩니다.</p>
-            <p id="activity-preset-status" class="ui-status" role="status"></p>
-          </div>
-        </section>
         <div class="settings-group">
           <h2 class="text-lg font-bold mb-6 flex items-center gap-2"><i data-lucide="settings-2"
               class="w-5 h-5 text-purple-500"></i><span id="general-section-title">앱 동작 설정</span></h2>
 
           <div id="general-app-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-8">
-            <div class="grid grid-cols-2 gap-4" data-settings-view="general-app">
-              <label
-                class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
-                <input type="checkbox" id="auto-launch-input" class="w-5 h-5 accent-purple-600">
-                <div>
-                  <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">윈도우 시작 시
-                    실행</span>
-                  <p class="text-xs text-slate-500 mt-0.5">컴퓨터를 켜면 자동 실행</p>
-                </div>
+            <div data-settings-pages="startup statistics window-behavior" class="settings-primary-options" data-settings-view="general-app">
+              <label data-settings-pages="startup" class="ui-toggle-row">
+                <span>
+                  <span class="ui-heading"><i data-lucide="power" aria-hidden="true"></i>윈도우 시작 시 실행</span>
+                  <span class="ui-description block mt-1">컴퓨터를 켜면 TW-Overlay를 자동으로 실행합니다.</span>
+                </span>
+                <span class="ui-switch"><input type="checkbox" id="auto-launch-input"><span class="ui-switch-track"></span></span>
               </label>
 
-              <label
+              <label data-settings-pages="updates"
                 class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
                 <input type="checkbox" id="auto-update-input" class="w-5 h-5 accent-purple-600">
                 <div>
@@ -411,38 +478,33 @@
                 </div>
               </label>
 
-              <label
-                class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
-                <input type="checkbox" id="analytics-enabled-input" class="w-5 h-5 accent-purple-600">
-                <div>
-                  <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">사용 통계 전송</span>
-                  <p class="text-xs text-slate-500 mt-0.5">개인정보·채팅 없이 기능 사용 패턴을 Google Analytics로 전송</p>
-                </div>
+              <label data-settings-pages="statistics" class="ui-toggle-row">
+                <span>
+                  <span class="ui-heading"><i data-lucide="bar-chart-3" aria-hidden="true"></i>사용 통계 전송</span>
+                  <span class="ui-description block mt-1">개인정보·채팅 없이 기능 사용 패턴을 Google Analytics로 전송합니다.</span>
+                </span>
+                <span class="ui-switch"><input type="checkbox" id="analytics-enabled-input"><span class="ui-switch-track"></span></span>
               </label>
 
-              <label
-                class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
-                <input type="checkbox" id="follow-game-window-input" class="w-5 h-5 accent-purple-600">
-                <div>
-                  <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">게임창 따라가기
-                    (Follow)</span>
-                  <p class="text-xs text-slate-500 mt-0.5">켜면 게임창 기준 위치를 유지하고, 끄면 현재 화면 위치에 고정합니다.</p>
-                </div>
+              <label data-settings-pages="window-behavior" class="ui-toggle-row">
+                <span>
+                  <span class="ui-heading"><i data-lucide="move" aria-hidden="true"></i>게임창 따라가기</span>
+                  <span class="ui-description block mt-1">켜면 게임창 기준 위치를 유지하고, 끄면 현재 화면 위치에 고정합니다.</span>
+                </span>
+                <span class="ui-switch"><input type="checkbox" id="follow-game-window-input"><span class="ui-switch-track"></span></span>
               </label>
 
-              <label class="ui-toggle-row"><span><span class="ui-heading">창끼리 모서리 맞춤</span><span class="ui-description">창을 끌어 놓으면 가까운 다른 도구·채팅창의 모서리에 맞춥니다.</span></span><span class="ui-switch"><input type="checkbox" id="window-snap-enabled"><span class="ui-switch-track"></span></span></label>
-              <label
-                class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
-                <input type="checkbox" id="auto-open-contents-checker-input" class="w-5 h-5 accent-purple-600">
-                <div>
-                  <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">숙제창 상태 유지 및 자동
-                    복원</span>
-                  <p class="text-xs text-slate-500 mt-0.5">숙제창 열림 상태를 기억하여 게임 복원/기동 시 자동으로 켭니다.</p>
-                </div>
+              <label data-settings-pages="window-behavior" class="ui-toggle-row"><span><span class="ui-heading">창끼리 모서리 맞춤</span><span class="ui-description">창을 끌어 놓으면 가까운 다른 도구·채팅창의 모서리에 맞춥니다.</span></span><span class="ui-switch"><input type="checkbox" id="window-snap-enabled"><span class="ui-switch-track"></span></span></label>
+              <label data-settings-pages="startup" class="ui-toggle-row">
+                <span>
+                  <span class="ui-heading"><i data-lucide="list-checks" aria-hidden="true"></i>숙제창 상태 유지 및 자동 복원</span>
+                  <span class="ui-description block mt-1">숙제창을 열어둔 상태에서 게임을 종료하면 다음 실행 때 다시 엽니다.</span>
+                </span>
+                <span class="ui-switch"><input type="checkbox" id="auto-open-contents-checker-input"><span class="ui-switch-track"></span></span>
               </label>
             </div>
 
-            <div class="pt-6 border-t border-white/5 space-y-4" data-settings-view="general-app">
+            <div id="settings-guide-actions" data-settings-pages="help" class="space-y-4" data-settings-view="general-app">
               <label class="section-label flex items-center gap-2 mb-2">
                 <i data-lucide="help-circle" class="w-4 h-4 text-purple-400"></i> 앱 안내 및 가이드
               </label>
@@ -468,7 +530,7 @@
               </div>
             </div>
 
-            <div id="sidebar-settings-section" class="space-y-4" data-settings-view="display-sidebar">
+            <div data-settings-pages="launcher-layout" id="sidebar-settings-section" class="space-y-4" data-settings-view="display-sidebar">
               <label class="section-label flex items-center gap-2 mb-4">
                 <i data-lucide="layout" class="w-4 h-4 text-purple-400"></i> 사이드바 배치 설정
               </label>
@@ -531,7 +593,7 @@
               </div>
             </div>
 
-            <div id="game-exit-reminder-section" class="space-y-4" data-settings-view="general-app">
+            <div data-settings-pages="exit-reminder" id="game-exit-reminder-section" class="space-y-4" data-settings-view="general-app">
               <label class="section-label flex items-center gap-2 mb-4">
                 <i data-lucide="message-square-warning" class="w-4 h-4 text-purple-400"></i> 게임 종료 리마인더
               </label>
@@ -541,18 +603,17 @@
                   <div>
                     <span class="text-sm font-bold text-slate-200 group-hover:text-white transition-colors">게임 종료 시 리마인더
                       표시</span>
-                    <p class="text-xs text-slate-500 mt-0.5">게임 종료 시 아래 메시지를 알림창으로 보여줍니다.</p>
+                    <p class="text-xs text-slate-500 mt-0.5">게임 종료 시 프로필별 남은 숙제와 안내 메시지를 보여줍니다.</p>
                   </div>
                 </label>
                 <textarea id="game-exit-reminder-message"
                   class="input-field w-full text-sm py-3 px-4 bg-black/40 resize-none" rows="3"
                   placeholder="예: 일일퀘스트 했나요? 거래게시판 확인했나요?"></textarea>
-                <p class="text-xs text-slate-500 font-bold italic ml-1">* 게임 종료 시 위 메시지가 팝업으로 표시됩니다. 프로그램은 종료되지
-                  않습니다.</p>
+                <p class="text-xs text-slate-500 font-bold italic ml-1">메시지는 선택 사항입니다. 비워 두면 기본 안내가 표시됩니다.</p>
               </div>
             </div>
 
-            <div class="pt-6 border-t border-white/5 space-y-4" data-settings-view="display-sidebar">
+            <div data-settings-pages="launcher-menus" class="space-y-4" data-settings-view="display-sidebar">
               <label class="section-label flex items-center gap-2 mb-4">
                 <i data-lucide="list-checks" class="w-4 h-4 text-purple-400"></i> 사이드바 메뉴 관리
               </label>
@@ -576,7 +637,7 @@
           <div id="sub-tab-sound-settings" class="sub-tab-content active space-y-6">
             <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-8">
               <!-- 전역 음소거 토글 카드 -->
-              <div class="pb-6 border-b border-white/5">
+              <div data-settings-pages="volumes" class="pb-6 border-b border-white/5">
                 <label
                   class="flex items-center justify-between cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-red-500/30 transition-all">
                   <div class="flex items-center gap-3">
@@ -592,7 +653,7 @@
                 </label>
               </div>
 
-              <div class="space-y-4">
+              <div data-settings-pages="volumes" class="space-y-4">
                 <label class="section-label flex items-center justify-between mb-2">
                   <div class="flex items-center gap-2">
                     <i data-lucide="check-square" class="w-4 h-4 text-cyan-400"></i> 숙제 체크리스트 효과음 볼륨
@@ -612,7 +673,7 @@
                 <p class="text-xs text-slate-500 font-bold italic ml-1">* 개별 숙제 완료 시 재생되는 소리의 크기입니다.</p>
               </div>
 
-              <div class="space-y-4 pt-6 border-t border-white/5">
+              <div data-settings-pages="volumes" class="space-y-4 pt-6 border-t border-white/5">
                 <label class="section-label flex items-center justify-between mb-2">
                   <div class="flex items-center gap-2">
                     <i data-lucide="calculator" class="w-4 h-4 text-orange-400"></i> 계산기 및 일지 기록 효과음 볼륨
@@ -631,7 +692,7 @@
                 <p class="text-xs text-slate-500 font-bold italic ml-1">* 마정석/보스 일지 기록 시 재생되는 소리의 크기입니다.</p>
               </div>
 
-              <div class="pt-6 border-t border-white/5">
+              <div data-settings-pages="alarm-policy">
                 <label
                   class="flex items-center gap-4 cursor-pointer group p-4 bg-white/5 rounded-xl border border-white/5 hover:border-purple-500/30 transition-all">
                   <input type="checkbox" id="notify-when-game-closed-input" class="w-5 h-5 accent-purple-600">
@@ -644,7 +705,7 @@
             </div>
 
             <!-- 기능별 상세 설정 바로가기 -->
-            <div class="pt-6 border-t border-white/5 space-y-4">
+            <div data-settings-pages="alarm-policy" class="pt-6 border-t border-white/5 space-y-4">
               <label class="section-label flex items-center gap-2 mb-2">
                 <i data-lucide="link" class="w-4 h-4 text-purple-400"></i> 기능별 상세 설정
               </label>
@@ -764,43 +825,6 @@
             </div>
           </div> <!-- sub-tab-sound-settings 닫기 (정확히 3개 div 닫힘) -->
 
-          <!-- 서브 탭 2: 알림 기록 -->
-          <div id="sub-tab-alarm-log" class="sub-tab-content space-y-6">
-            <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
-              <!-- 상단 컨트롤러 (필터 & 삭제) -->
-              <div class="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-white/5">
-                <div class="flex items-center gap-3">
-                  <label class="text-sm font-bold text-slate-300">알림 종류 필터</label>
-                  <select id="alarm-log-filter" onchange="renderAlarmLogs()"
-                    class="bg-black/40 border border-white/10 text-white rounded-xl px-3 py-2 text-sm focus:border-purple-500 focus:outline-none transition-all cursor-pointer">
-                    <option value="all">전체 알림</option>
-                    <option value="boss">필드 보스</option>
-                    <option value="custom">커스텀 알림</option>
-                    <option value="word">지정 단어</option>
-                    <option value="wave">몬스터 웨이브</option>
-                    <option value="buff">버프 타이머</option>
-                    <option value="etc">기타</option>
-                  </select>
-                </div>
-                <button onclick="clearAllAlarmLogs()"
-                  class="px-4 py-2 bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 active:scale-95 shadow-md">
-                  <i data-lucide="trash-2" class="w-4 h-4"></i> 전체 삭제
-                </button>
-              </div>
-
-              <!-- 로그 목록 영역 -->
-              <div class="max-h-[440px] overflow-y-auto custom-scroll pr-2" id="alarm-log-list-scroll">
-                <div id="alarm-log-empty" class="text-center py-16 text-slate-500 font-bold hidden">
-                  <i data-lucide="bell-off" class="w-10 h-10 mx-auto mb-3 opacity-30 text-slate-400 animate-pulse"></i>
-                  기록된 알림이 없습니다.
-                </div>
-                <div id="alarm-log-list" class="space-y-3.5">
-                  <!-- JS에서 동적 삽입 -->
-                </div>
-              </div>
-            </div>
-          </div>
-
           <!-- 서브 탭 3: 커스텀 알림음 -->
           <div id="sub-tab-custom-sounds" class="sub-tab-content space-y-6">
             <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
@@ -811,12 +835,13 @@
                   </label>
                   <p class="text-xs text-slate-500">원하는 오디오 파일(.mp3, .wav 등)을 추가하여 다른 알림음에 연동할 수 있습니다.</p>
                 </div>
-                <button type="button" onclick="addCustomSound()"
+                <button type="button" id="btn-add-custom-sound" onclick="addCustomSound()"
                   class="text-xs font-bold text-white px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-900/20 transition-all flex items-center gap-1.5 active:scale-95">
                   <i data-lucide="plus" class="w-3.5 h-3.5"></i> 파일 선택 및 추가
                 </button>
               </div>
 
+              <p id="custom-sound-feedback" class="ui-status" role="status" hidden></p>
               <div id="custom-sounds-list" class="space-y-3 max-h-[350px] overflow-y-auto custom-scroll pr-1">
                 <p class="text-xs text-slate-500 font-bold italic py-2">추가된 커스텀 알림음이 없습니다.</p>
               </div>
@@ -833,15 +858,9 @@
           </h2>
 
           <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
-            <section class="ui-inset ui-stack">
-              <label class="ui-toggle-row"><span class="ui-heading"><i data-lucide="sticky-note"></i>게임 화면에 메모 고정</span><span class="ui-switch"><input type="checkbox" id="pinned-note-enabled"><span class="ui-switch-track"></span></span></label>
-              <div class="ui-two-column"><textarea id="pinned-note-text" maxlength="1000" rows="5" class="ui-input w-full" placeholder="오늘 목표, 도핑 체크, 거래할 물품 등을 적어 보세요." aria-label="고정 메모 내용"></textarea><div class="ui-preview"><div class="ui-preview-label">화면 예시</div><div id="pinned-note-preview" class="ui-hud-card ui-note-preview custom-scroll text-sm whitespace-pre-wrap break-words" tabindex="0" role="region" aria-label="메모 화면 예시"></div></div></div>
-              <div class="ui-actions"><label class="ui-field">글자 크기<select id="pinned-note-font-size" class="ui-input"><option value="12">12px</option><option value="13">13px</option><option value="14">14px</option><option value="15">15px</option><option value="16">16px</option><option value="17">17px</option><option value="18">18px</option><option value="19">19px</option><option value="20">20px</option><option value="21">21px</option><option value="22">22px</option><option value="23">23px</option><option value="24">24px</option><option value="25">25px</option><option value="26">26px</option><option value="27">27px</option><option value="28">28px</option></select></label><label class="ui-field">글자 색<input type="color" id="pinned-note-color" value="#ffffff" class="ui-color-input" style="width:64px" aria-label="메모 글자 색"></label><label class="ui-field"><span>배경 표시</span><span class="ui-switch"><input type="checkbox" id="pinned-note-background" checked><span class="ui-switch-track"></span></span></label></div>
-              <p class="ui-description">아래 HUD 위치 설정으로 옮길 수 있습니다. 긴 메모는 게임 화면에 일부만 표시되며, HUD 위치 설정 중 본문을 스크롤하면 전체를 읽을 수 있습니다. 내용은 이 PC에 저장됩니다.</p>
-              <div class="ui-actions"><button data-save-companion="pinnedNoteEnabled,pinnedNoteText,pinnedNoteFontSize,pinnedNoteColor,pinnedNoteBackground" class="ui-button ui-button-primary"><i data-lucide="save"></i>메모 저장</button><span class="ui-status" role="status"></span></div>
-            </section>
+
             <!-- HUD 위치 편집 컨트롤 카드 -->
-            <div id="hud-position-settings-card"
+            <div data-settings-pages="hud-position" id="hud-position-settings-card"
               class="p-5 bg-purple-950/20 rounded-xl border border-purple-500/30 space-y-4">
               <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0 flex-1">
@@ -884,7 +903,7 @@
             </div>
 
             <!-- 알림 위치 편집 컨트롤 카드 -->
-            <div id="notification-position-settings-card"
+            <div data-settings-pages="hud-position" id="notification-position-settings-card"
               class="p-5 bg-purple-950/20 rounded-xl border border-purple-500/30 space-y-4">
               <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0 flex-1">
@@ -927,7 +946,7 @@
             </div>
 
             <!-- HUD 표시 옵션 설정 카드 -->
-            <div class="p-5 bg-black/20 rounded-xl border border-white/5 space-y-4">
+            <div data-settings-pages="hud-widgets" class="p-5 bg-black/20 rounded-xl border border-white/5 space-y-4">
               <label class="flex items-center justify-between cursor-pointer group">
                 <div class="flex flex-col gap-0.5">
                   <span class="text-sm font-bold text-slate-200 group-hover:text-white flex items-center gap-2">
@@ -943,7 +962,7 @@
             </div>
 
             <!-- HUD 컴포넌트 목록 및 바로가기 -->
-            <div class="space-y-3 pt-2">
+            <div data-settings-pages="hud-widgets" class="space-y-3 pt-2">
               <label class="section-label flex items-center gap-2 mb-3">
                 <i data-lucide="layout-grid" class="w-4 h-4 text-purple-400"></i> 오버레이 HUD 컴포넌트 목록
               </label>
@@ -959,7 +978,7 @@
                   </div>
                   <div class="flex flex-col gap-1.5 shrink-0">
                     <button type="button"
-                      onclick="showSettingsGroup('system', document.querySelector('.nav-item[data-settings-group=\'system\']'), 0)"
+                      onclick="openShortcutSetting('toggleTimer')"
                       class="w-20 px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-semibold transition-all border border-white/5 text-center">
                       단축키
                     </button>
@@ -976,12 +995,12 @@
                   </div>
                   <div class="flex flex-col gap-1.5 shrink-0">
                     <button type="button"
-                      onclick="showSettingsGroup('system', document.querySelector('.nav-item[data-settings-group=\'system\']'), 0)"
+                      onclick="openShortcutSetting('toggleTodaySummaryHud')"
                       class="w-20 px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-semibold transition-all border border-white/5 text-center">
                       단축키
                     </button>
                     <button type="button"
-                      onclick="document.getElementById('today-summary-hud-settings-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' })"
+                      onclick="openSettingsPage('today-summary')"
                       class="w-20 px-2.5 py-1 bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 rounded-lg text-xs font-semibold transition-all border border-teal-500/30 text-center">
                       상세 설정
                     </button>
@@ -998,7 +1017,7 @@
                   </div>
                   <div class="flex flex-col gap-1.5 shrink-0">
                     <button type="button"
-                      onclick="showSettingsGroup('system', document.querySelector('.nav-item[data-settings-group=\'system\']'), 0)"
+                      onclick="openShortcutSetting('toggleXpSession')"
                       class="w-20 px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-semibold transition-all border border-white/5 text-center">
                       단축키
                     </button>
@@ -1020,7 +1039,7 @@
                   </div>
                   <div class="flex flex-col gap-1.5 shrink-0">
                     <button type="button"
-                      onclick="showSettingsGroup('system', document.querySelector('.nav-item[data-settings-group=\'system\']'), 0)"
+                      onclick="openShortcutSetting('toggleAbandonedHud')"
                       class="w-20 px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-semibold transition-all border border-white/5 text-center">
                       단축키
                     </button>
@@ -1042,7 +1061,7 @@
                   </div>
                   <div class="flex flex-col gap-1.5 shrink-0">
                     <button type="button"
-                      onclick="showSettingsGroup('system', document.querySelector('.nav-item[data-settings-group=\'system\']'), 0)"
+                      onclick="openShortcutSetting('toggleBuffHud')"
                       class="w-20 px-2.5 py-1 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg text-xs font-semibold transition-all border border-white/5 text-center">
                       단축키
                     </button>
@@ -1070,7 +1089,7 @@
             </div>
 
             <!-- 오늘의 요약 HUD 세부 설정 카드 -->
-            <div id="today-summary-hud-settings-card"
+            <div data-settings-pages="today-summary" id="today-summary-hud-settings-card"
               class="p-5 bg-black/20 rounded-xl border border-white/5 space-y-4">
               <div class="flex items-center justify-between pb-2 border-b border-white/5">
                 <div class="flex flex-col gap-0.5">
@@ -1199,73 +1218,6 @@
         </div>
       </div>
 
-      <!-- 2. 외부 모니터링 (거래 게시판 & 갤러리 알림) -->
-      <div id="section-external" class="settings-section space-y-8 hidden">
-        <div class="settings-group space-y-8">
-          <h2 class="text-lg font-bold mb-6 flex items-center gap-2"><i data-lucide="store"
-              class="w-5 h-5 text-emerald-500"></i> 외부 모니터링 & 키워드 알림</h2>
-
-          <!-- 1. 매직위버 거래 게시판 -->
-          <div class="space-y-6">
-            <div id="trade-settings-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
-              <label class="section-label flex items-center gap-2">
-                <i data-lucide="server" class="w-4 h-4 text-emerald-400"></i> 매직위버 거래 게시판 모니터링 서버
-              </label>
-              <div class="flex gap-6 mt-3">
-                <label class="flex items-center gap-2 cursor-pointer group">
-                  <input type="radio" name="trade-server" value="RyXp" class="w-4 h-4 accent-emerald-600">
-                  <span class="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">하이아칸</span>
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer group">
-                  <input type="radio" name="trade-server" value="Siwv" class="w-4 h-4 accent-emerald-600">
-                  <span class="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">네냐플</span>
-                </label>
-              </div>
-              <p class="text-xs text-slate-500 mt-2 italic flex items-center gap-1"><i data-lucide="info"
-                  class="w-3 h-3"></i> 둘 중 지정된 하나의 서버만 매 5분 모니터링합니다.</p>
-            </div>
-
-            <div class="p-6 bg-white/5 rounded-2xl border border-white/5">
-              <label class="section-label flex items-center gap-2 mb-4">
-                <i data-lucide="key" class="w-4 h-4 text-emerald-400"></i> 거래 게시판 알림 키워드 등록
-              </label>
-              <div class="flex gap-2 mb-4">
-                <input type="text" id="trade-keyword-input" class="input-field flex-1 py-3 px-4 bg-black/40"
-                  placeholder="예: 득템, 업데이트, 점검..." onkeypress="if(event.key==='Enter')addTradeKeyword()">
-                <button onclick="addTradeKeyword()"
-                  class="btn-primary !bg-emerald-600 hover:!bg-emerald-500 px-6 font-black shadow-lg shadow-emerald-900/20">추가</button>
-              </div>
-              <div id="trade-keyword-list"
-                class="flex flex-wrap gap-2 p-4 bg-black/30 rounded-2xl border border-white/5 min-h-[120px] align-content-start">
-              </div>
-              <p class="text-xs text-slate-500 mt-3 font-bold italic ml-1 flex items-center gap-1">
-                <i data-lucide="info" class="w-3 h-3 text-emerald-500"></i>
-                * <span class="text-emerald-500/80">부분 일치(포함 검색):</span> 제목에 키워드가 포함되기만 하면 알림이 발송됩니다.
-              </p>
-            </div>
-          </div>
-
-          <!-- 2. 디시 갤러리 알림 -->
-          <div id="gallery-keyword-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
-            <div>
-              <label class="section-label flex items-center gap-2 mb-4">
-                <i data-lucide="bell" class="w-4 h-4 text-purple-400"></i> 테일즈위버 갤러리 알림 키워드 등록
-              </label>
-              <div class="flex gap-2 mb-4">
-                <input type="text" id="keyword-input" class="input-field flex-1 py-3 px-4 bg-black/40"
-                  placeholder="예: 득템, 업데이트, 점검..." onkeypress="if(event.key==='Enter')addKeyword()">
-                <button onclick="addKeyword()"
-                  class="btn-primary px-6 font-black shadow-lg shadow-purple-900/20">추가</button>
-              </div>
-              <div id="keyword-list"
-                class="flex flex-wrap gap-2 p-4 bg-black/30 rounded-2xl border border-white/5 min-h-[120px] align-content-start">
-              </div>
-              <p class="text-xs text-slate-500 mt-3 font-bold italic ml-1">* 입력한 키워드가 갤러리 제목에 포함되면 알림이 발생합니다.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- 4-1. 채팅 로그 설정 (신설) -->
       <div id="section-chatlog" class="settings-section space-y-8 hidden">
         <div class="settings-group">
@@ -1275,14 +1227,18 @@
           <!-- 서브 탭 1: 채팅 로그 -->
           <div id="sub-tab-general" class="sub-tab-content active space-y-6">
             <!-- 로그 경로 설정 -->
-            <div id="chatlog-path-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
+            <div data-settings-pages="log-connection" id="chatlog-path-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
               <label class="section-label flex items-center gap-2">
                 <i data-lucide="folder-search" class="w-4 h-4 text-indigo-400"></i> 채팅 로그 폴더 경로
               </label>
-              <div class="flex gap-2">
+              <div class="flex flex-wrap gap-2">
                 <input type="text" id="chat-log-path-input"
-                  class="input-field flex-1 py-3 px-4 bg-black/40 text-xs text-slate-400" placeholder="자동 탐색 중..."
+                  class="input-field w-full min-w-0 py-3 px-4 bg-black/40 text-xs text-slate-400" placeholder="채팅 로그 폴더를 찾아주세요"
                   readonly>
+                <button id="find-running-game-path" onclick="findRunningGameLogFolder()"
+                  class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl transition-all text-xs flex items-center gap-2 shrink-0">
+                  <i data-lucide="folder-search" class="w-3.5 h-3.5"></i> 실행 중인 게임에서 찾기
+                </button>
                 <button onclick="selectLogFolder()"
                   class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl transition-all text-xs flex items-center gap-2 shrink-0">
                   <i data-lucide="folder-open" class="w-3.5 h-3.5"></i> 폴더 선택
@@ -1293,6 +1249,7 @@
                 </button>
               </div>
               <p class="text-xs text-slate-500 italic ml-1">* 테일즈위버가 설치된 폴더 내의 ChatLog 폴더를 선택해주세요.</p>
+              <p id="running-game-path-result" class="hidden text-sm text-slate-300 break-all" role="status" aria-live="polite"></p>
               <div id="settings-chatlog-status-badge"
                 class="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
                 <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400 shrink-0"></i>
@@ -1301,7 +1258,7 @@
             </div>
 
             <!-- 과거 데이터 수동 동기화 카드 -->
-            <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
+            <div data-settings-pages="log-restore" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
               <div class="flex items-center justify-between gap-4">
                 <div>
                   <label class="section-label flex items-center gap-2">
@@ -1319,17 +1276,23 @@
                   <i data-lucide="sparkles" class="w-4 h-4"></i> 과거 로그 동기화
                 </button>
               </div>
+              <div id="profile-log-restore-notice" class="hidden p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl text-sm text-slate-200 leading-relaxed" role="status">
+                <p id="profile-log-restore-target" class="font-bold mb-2"></p>
+                <p>채팅 로그에는 접속한 캐릭터 정보가 포함되어 있지 않아 프로필을 자동으로 구분할 수 없습니다. 선택한 프로필로 모든 기록을 복원합니다.</p>
+                <p class="text-xs text-slate-300 mt-2">이미 복원한 구간과 기존 미배정 기록은 원래 귀속을 유지합니다. 복원 중에는 프로필을 전환하거나 삭제할 수 없습니다.</p>
+                <p class="text-xs text-slate-300 mt-2">구버전 금화 주머니·엘소 포인트·마정석 합계는 같은 날짜의 복원 기록과 겹칠 수 있습니다. 겹치는 구버전 합계는 원본을 보존하고 일지와 내보내기에서 확인 필요로 별도 표시합니다.</p>
+              </div>
               <label class="flex items-start gap-3 p-4 bg-purple-500/5 border border-purple-500/20 rounded-xl cursor-pointer">
                 <input type="checkbox" id="reanalyze-completed-chat-logs"
                   class="w-5 h-5 mt-0.5 accent-purple-600 shrink-0">
                 <span>
-                  <span class="block text-sm font-bold text-slate-200">이미 동기화 완료된 로그도 다시 분석하여 자동 기록 재구성</span>
+                  <span class="block text-sm font-bold text-slate-200">이미 동기화한 로그도 다시 분석</span>
                   <span class="block text-xs text-slate-400 mt-1 leading-relaxed">
-                    체크하면 완료된 파일도 처음부터 분석합니다. 분석에 성공한 날짜만 기존 채팅 로그 기반 자동 모험일지·외치기 기록을 삭제한 뒤 새 결과로 교체하며, 직접 작성한 수동 기록은 유지합니다.
+                    체크하면 완료된 파일도 처음부터 분석합니다. 누락된 득템·SEED를 원본으로 확인해 복구하며, 기존 기록과 프로필 배정은 유지합니다.
                   </span>
                 </span>
               </label>
-              <div class="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-xs text-amber-200 flex items-start gap-2">
+              <div id="legacy-log-restore-character-notice" class="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-xs text-amber-200 flex items-start gap-2">
                 <i data-lucide="triangle-alert" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>
                 <span>과거 채팅 로그에는 수행 캐릭터 정보가 없으므로, 감지된 숙제는 모두 <strong class="text-amber-100">메인 캐릭터</strong>에 반영됩니다.</span>
               </div>
@@ -1341,7 +1304,7 @@
             </div>
 
             <!-- 채팅 로그 자동 삭제 -->
-            <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
+            <div data-settings-pages="log-retention" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
               <label class="section-label flex items-center gap-2">
                 <i data-lucide="trash-2" class="w-4 h-4 text-indigo-400"></i> 오래된 채팅 로그 자동 삭제
               </label>
@@ -1374,7 +1337,7 @@
             </div>
 
             <!-- 게임 내 채팅 로그 설정 가이드 -->
-            <div class="p-6 bg-indigo-500/5 rounded-2xl border border-indigo-500/20 space-y-4">
+            <div data-settings-pages="log-connection" class="p-6 bg-indigo-500/5 rounded-2xl border border-indigo-500/20 space-y-4">
               <h3 class="text-sm font-black text-indigo-400 flex items-center gap-2">
                 <i data-lucide="help-circle" class="w-4 h-4"></i> 채팅 로그가 작동하지 않나요?
               </h3>
@@ -1397,36 +1360,15 @@
               </label>
 
               <div class="space-y-4">
-                <!-- 주 사용 캐릭터 서버 선택 및 에타 URL (최상단 배치) -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
-                  <div class="grid grid-cols-3 gap-4 items-center">
-                    <div class="col-span-1">
-                      <h4 class="text-xs font-bold text-slate-400">주 사용 캐릭터 서버</h4>
-                      <p class="text-xs text-slate-500 mt-1">에타 랭커 배지 매칭 기준</p>
-                    </div>
-                    <div class="col-span-2">
-                      <select id="chat-overlay-user-server-input" class="input-field w-full py-2 px-3 bg-black/60">
-                        <option value="16">네냐플</option>
-                        <option value="7" selected>하이아칸</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div class="border-t border-white/5 pt-3 flex items-center justify-between">
-                    <div>
-                      <h4 class="text-xs font-bold text-slate-400">에타 랭킹 갱신</h4>
-                      <p id="eta-cache-status" class="text-xs text-slate-500 mt-1">로컬 캐시 확인 중...</p>
-                    </div>
-                    <button onclick="fetchRemoteEtaRankings()" id="btn-fetch-eta"
-                      class="px-2 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 rounded-lg text-xs font-bold transition-all active:scale-95">
-                      지금 즉시 갱신
-                    </button>
-                  </div>
-                </div>
-
                 <!-- 폰트 크기 및 투명도 -->
-                <div class="grid grid-cols-2 gap-4">
-                  <div id="chat-font-settings" class="ui-inset ui-stack col-span-2"><h4 class="ui-heading"><i data-lucide="type"></i>창별 글꼴과 크기</h4><p class="ui-description">보조 창은 기본적으로 메인 설정을 따릅니다. 바꾼 모습은 아래 예시에 바로 반영됩니다.</p><div class="ui-actions"><button type="button" id="chat-font-add" class="ui-button ui-button-small">글꼴 파일 추가</button><button type="button" id="chat-font-use-main" class="ui-button ui-button-small">모두 메인 글꼴로</button><span id="chat-font-status" class="ui-status" role="status"></span></div><p class="ui-description">추가한 글꼴은 창별로 선택한 뒤 설정을 저장하세요. 파일은 이 PC에 보관되며, 다른 PC에 없으면 기본 글꼴로 표시됩니다.</p><div class="ui-font-grid"><div class="ui-stack"><label class="ui-field" for="chat-overlay-fontfamily-input">메인<select id="chat-overlay-fontfamily-input" class="ui-input" aria-label="메인 글꼴"><option value="system">기본 글꼴</option><option value="malgun">맑은 고딕</option><option value="gulim">굴림</option><option value="dotum">돋움</option><option value="batang">바탕</option></select></label>
+                <div data-settings-pages="chat-windows" class="ui-inset ui-stack">
+                  <label class="ui-toggle-row"><span>메인 채팅 창</span><span class="ui-switch"><input type="checkbox" id="settings-chat-main-enabled"><span class="ui-switch-track"></span></span></label>
+                  <label class="ui-toggle-row"><span>보조 채팅 창 1</span><span class="ui-switch"><input type="checkbox" id="settings-chat-sub1-enabled"><span class="ui-switch-track"></span></span></label>
+                  <label class="ui-toggle-row"><span>보조 채팅 창 2</span><span class="ui-switch"><input type="checkbox" id="settings-chat-sub2-enabled"><span class="ui-switch-track"></span></span></label>
+                  <p class="ui-description">보조 창은 메인 채팅 창을 사용할 때 표시합니다.</p>
+                </div>
+                <div data-settings-pages="chat-fonts chat-windows" class="grid grid-cols-2 gap-4">
+                  <div data-settings-pages="chat-fonts" id="chat-font-settings" class="ui-inset ui-stack col-span-2"><h4 class="ui-heading"><i data-lucide="type"></i>창별 글꼴과 크기</h4><p class="ui-description">보조 창은 기본적으로 메인 설정을 따릅니다. 바꾼 모습은 아래 예시에 바로 반영됩니다.</p><div class="ui-actions"><button type="button" id="chat-font-add" class="ui-button ui-button-small">글꼴 파일 추가</button><button type="button" id="chat-font-use-main" class="ui-button ui-button-small">모두 메인 글꼴로</button><span id="chat-font-status" class="ui-status" role="status"></span></div><p class="ui-description">추가한 글꼴은 창별로 선택한 뒤 설정을 저장하세요. 파일은 이 PC에 보관되며, 다른 PC에 없으면 기본 글꼴로 표시됩니다.</p><div class="ui-font-grid"><div class="ui-stack"><label class="ui-field" for="chat-overlay-fontfamily-input">메인<select id="chat-overlay-fontfamily-input" class="ui-input" aria-label="메인 글꼴"><option value="system">기본 글꼴</option><option value="malgun">맑은 고딕</option><option value="gulim">굴림</option><option value="dotum">돋움</option><option value="batang">바탕</option></select></label>
  <!-- 사용자 채팅 글꼴은 기존 10~28px 선택을 보존한다. 설정 UI의 최소 글꼴 토큰과 별개다. -->
  <div class="flex gap-3 items-center h-11"><input type="range" id="chat-overlay-fontsize-input" min="10" max="28" value="14" class="min-w-0 w-full accent-indigo-500" aria-label="메인 글자 크기"><span id="chat-overlay-fontsize-val" class="ui-description whitespace-nowrap">14px</span></div>
  <div id="chat-font-preview-main" class="ui-preview" aria-label="메인 채팅 예시"><span style="color:#94ddfa">[클럽] 모험가</span><br>같이 사냥해요!</div></div>
@@ -1436,7 +1378,7 @@
 <div class="ui-stack"><label class="ui-field" for="chat-overlay-sub2-fontfamily-input">보조 2<select id="chat-overlay-sub2-fontfamily-input" class="ui-input" aria-label="보조 2 글꼴"><option value="">메인과 같게</option><option value="system">기본 글꼴</option><option value="malgun">맑은 고딕</option><option value="gulim">굴림</option><option value="dotum">돋움</option><option value="batang">바탕</option></select></label>
  <select id="chat-overlay-sub2-fontsize-input" class="ui-input w-full" aria-label="보조 2 글자 크기"><option value="0">메인 크기 따르기</option><option value="12">12px</option><option value="13">13px</option><option value="14">14px</option><option value="15">15px</option><option value="16">16px</option><option value="17">17px</option><option value="18">18px</option><option value="19">19px</option><option value="20">20px</option><option value="21">21px</option><option value="22">22px</option><option value="23">23px</option><option value="24">24px</option><option value="25">25px</option><option value="26">26px</option><option value="27">27px</option><option value="28">28px</option></select>
  <div id="chat-font-preview-sub2" class="ui-preview" aria-label="보조 2 채팅 예시"><span style="color:#94ddfa">[클럽] 모험가</span><br>같이 사냥해요!</div></div></div></div>
-                  <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4 col-span-2">
+                  <div data-settings-pages="chat-windows" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4 col-span-2">
                     <h4 class="text-xs font-bold text-slate-400">오버레이 기본 불투명도</h4>
                     <div class="grid grid-cols-3 gap-4">
                       <div class="space-y-1">
@@ -1470,20 +1412,38 @@
                   </div>
                 </div>
 
-<section class="ui-inset ui-stack"><h4 class="ui-heading"><i data-lucide="megaphone"></i>외치기 종류별 표시</h4><div class="ui-actions"><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-free-shout" checked>무료</label><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-paid-shout" checked>유료</label><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-notice-shout" checked>공지</label></div><p class="ui-description">통합·외치기·사용자 탭과 검색에 적용됩니다. 기록은 계속 수집됩니다.</p></section>
-<section id="chat-reading-settings" class="ui-inset ui-stack">
+<section data-settings-pages="chat-tabs" class="ui-inset ui-stack"><h4 class="ui-heading"><i data-lucide="megaphone"></i>외치기 종류별 표시</h4><div class="ui-actions"><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-free-shout" checked>무료</label><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-paid-shout" checked>유료</label><label class="ui-filter-choice"><input type="checkbox" id="chat-overlay-show-notice-shout" checked>공지</label></div><p class="ui-description">통합·외치기·사용자 탭과 검색에 적용됩니다. 기록은 계속 수집됩니다.</p></section>
+<section data-settings-pages="chat-reading" id="chat-reading-settings" class="ui-inset ui-stack">
   <label class="ui-toggle-row"><span class="ui-heading">채팅 간단 표시</span><span class="ui-switch"><input type="checkbox" id="chat-compact-display"><span class="ui-switch-track"></span></span></label>
   <p class="ui-description">시간과 에타 배지를 접어 본문을 넓게 봅니다. 채널·주의·메모 표시는 유지됩니다. 메인·보조·집중 채팅에 적용되며, 접힌 정보는 메시지 위에 마우스를 올려 확인합니다.</p>
   <div id="chat-reading-preview" class="ui-preview" aria-label="채팅 표시 예시"><span class="chat-timestamp">12:30</span> <span class="ui-chip">클럽</span> <span class="eta-badge ui-chip">에타 42</span> 모험가: 같이 사냥해요!</div>
 </section>
-<section id="eta-color-settings" class="ui-inset ui-stack" data-ui-accent="eta"><label class="ui-toggle-row"><span class="ui-heading"><i data-lucide="palette"></i>에타 레벨에 따라 배지 색상 표시</span><span class="ui-switch"><input type="checkbox" id="chat-eta-colors-enabled"><span class="ui-switch-track"></span></span></label><div class="grid grid-cols-5 gap-3"><label class="ui-field text-xs"><span>1~20</span><input type="color" id="chat-eta-color-0" value="#94a3b8" class="ui-color-input" aria-label="에타 1~20 색상"><span id="chat-eta-preview-0" class="ui-chip justify-center">에타 1</span></label>
+<section data-settings-pages="chat-fonts" id="eta-color-settings" class="ui-inset ui-stack" data-ui-accent="eta"><label class="ui-toggle-row"><span class="ui-heading"><i data-lucide="palette"></i>에타 레벨에 따라 배지 색상 표시</span><span class="ui-switch"><input type="checkbox" id="chat-eta-colors-enabled"><span class="ui-switch-track"></span></span></label><div class="grid grid-cols-5 gap-3"><label class="ui-field text-xs"><span>1~20</span><input type="color" id="chat-eta-color-0" value="#94a3b8" class="ui-color-input" aria-label="에타 1~20 색상"><span id="chat-eta-preview-0" class="ui-chip justify-center">에타 1</span></label>
 <label class="ui-field text-xs"><span>21~40</span><input type="color" id="chat-eta-color-1" value="#60a5fa" class="ui-color-input" aria-label="에타 21~40 색상"><span id="chat-eta-preview-1" class="ui-chip justify-center">에타 21</span></label>
 <label class="ui-field text-xs"><span>41~60</span><input type="color" id="chat-eta-color-2" value="#34d399" class="ui-color-input" aria-label="에타 41~60 색상"><span id="chat-eta-preview-2" class="ui-chip justify-center">에타 41</span></label>
 <label class="ui-field text-xs"><span>61~80</span><input type="color" id="chat-eta-color-3" value="#a78bfa" class="ui-color-input" aria-label="에타 61~80 색상"><span id="chat-eta-preview-3" class="ui-chip justify-center">에타 61</span></label>
 <label class="ui-field text-xs"><span>81 이상</span><input type="color" id="chat-eta-color-4" value="#facc15" class="ui-color-input" aria-label="에타 81 이상 색상"><span id="chat-eta-preview-4" class="ui-chip justify-center">에타 81</span></label></div></section>
-<section class="ui-inset ui-stack"><div class="ui-card-header"><h4 class="ui-heading"><i data-lucide="sticky-note"></i>닉네임 메모</h4><button id="nickname-note-add" class="ui-button ui-button-small"><i data-lucide="plus"></i>메모 추가</button></div><span id="nickname-note-server" class="ui-description"></span><p class="ui-description">위에서 선택한 서버의 개인 메모입니다. 채팅 닉네임을 우클릭해 바로 적을 수도 있습니다.</p><label class="ui-description"><input id="chat-nickname-notes-compact" type="checkbox"> 간단 표시 · 채팅에서 메모 본문 대신 ‘메모’만 표시</label><div id="nickname-note-list" class="max-h-56 overflow-y-auto custom-scroll space-y-2"></div></section>
+<section data-settings-pages="chat-reading" class="ui-inset">
+  <label class="ui-toggle-row">
+    <span><span class="ui-heading">닉네임 메모 간단 표시</span><span class="ui-description block mt-1">채팅에서 메모 본문 대신 ‘메모’ 배지만 표시합니다.</span></span>
+    <span class="ui-switch"><input id="chat-nickname-notes-compact" type="checkbox"><span class="ui-switch-track"></span></span>
+  </label>
+</section>
+<section data-settings-pages="chat-reading" class="ui-inset ui-stack">
+  <h4 class="ui-heading">채팅의 에타 랭커 배지</h4>
+  <p class="ui-description">조회 서버 <strong id="settings-current-profile-server" class="text-slate-200"></strong> · 이 서버의 랭킹과 채팅 닉네임을 대조해 배지를 표시합니다.</p>
+  <select id="chat-overlay-user-server-input" hidden aria-hidden="true">
+    <option value="">서버를 선택해 주세요 (필수)</option>
+    <option value="16">네냐플</option>
+    <option value="7" selected>하이아칸</option>
+  </select>
+  <div class="ui-actions">
+    <button type="button" class="ui-button ui-button-small" onclick="window.electronAPI.toggleEtaRanking()">에타 랭킹 열기</button>
+    <button type="button" class="ui-button ui-button-small" onclick="window.electronAPI.openProfiles()">프로필에서 서버 변경</button>
+  </div>
+</section>
                 <!-- 오버레이 크기 설정 그룹 (3열 컬럼) -->
-                <div class="grid grid-cols-3 gap-4 pt-2">
+                <div data-settings-pages="chat-windows" class="grid grid-cols-3 gap-4 pt-2">
                   <!-- MAIN 오버레이 설정 그룹 -->
                   <div
                     class="p-3 bg-black/30 rounded-2xl border border-white/5 space-y-3 flex flex-col justify-between">
@@ -1570,7 +1530,7 @@
                 </div>
 
                 <!-- 채팅 채널별 글자 색상 설정 (Pickr) -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-3">
+                <div data-settings-pages="chat-fonts" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-3">
                   <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
                     <i data-lucide="palette" class="w-3.5 h-3.5 text-indigo-400"></i> 채널별 글씨색 설정
                   </h4>
@@ -1599,7 +1559,7 @@
                 </div>
 
                 <!-- 닉네임 색상 설정 -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                <div data-settings-pages="chat-fonts" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <div class="flex items-center justify-between pb-2 border-b border-white/5">
                     <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
                       <i data-lucide="user" class="w-3.5 h-3.5 text-indigo-400"></i> 닉네임 글씨색 설정
@@ -1638,7 +1598,7 @@
                 </div>
 
                 <!-- 통합(Basic) 탭 노출 채널 선택 -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-3">
+                <div data-settings-pages="chat-tabs" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-3">
                   <h4 class="text-xs font-bold text-slate-400">통합 탭 노출 채널 선택</h4>
                   <div class="grid grid-cols-3 gap-2">
                     <div class="flex items-center gap-2.5 p-2 bg-black/10 rounded-lg border border-white/5">
@@ -1693,7 +1653,7 @@
                 </div>
 
                 <!-- 오버레이 상단 기본 탭 표시 -->
-                <div id="chat-overlay-visible-tabs-card" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-3">
+                <div data-settings-pages="chat-tabs" id="chat-overlay-visible-tabs-card" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-3">
                   <div>
                     <h4 class="text-xs font-bold text-slate-300">오버레이 상단 기본 탭 표시</h4>
                     <p class="text-xs text-slate-300 mt-1">체크한 기본 탭만 채팅 오버레이 상단에 표시합니다. 모두 해제하면 통합 탭이 자동으로 유지됩니다.</p>
@@ -1724,7 +1684,7 @@
                 </div>
 
                 <!-- 사용자 정의 탭 관리 -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                <div data-settings-pages="chat-tabs" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <div class="flex items-center justify-between">
                     <div>
                       <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
@@ -1737,7 +1697,7 @@
                   <!-- 탭 추가 입력 폼 -->
                   <div class="p-3.5 bg-black/30 rounded-xl border border-white/5 space-y-3">
                     <div class="flex items-center gap-2">
-                      <input type="text" id="custom-tab-name-input" maxlength="10" placeholder="새 탭 이름 입력 (예: 거래+귓, 사냥용)..."
+                      <input type="text" id="custom-tab-name-input" data-settings-draft-only maxlength="10" placeholder="새 탭 이름 입력 (예: 거래+귓, 사냥용)..."
                         class="input-field flex-1 py-1.5 px-3 bg-black/50 text-xs text-slate-200">
                       <button type="button" onclick="addCustomChatTab()"
                         class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1 shrink-0 shadow-sm">
@@ -1860,7 +1820,7 @@
                 </div>
 
                 <!-- NPC/몬스터 대사 표시 여부 토글 -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                <div data-settings-pages="chat-filters" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <h4 class="text-xs font-bold text-slate-400">NPC / 몬스터 대사 필터 설정</h4>
                   <div class="flex items-center gap-4 p-3 bg-black/10 rounded-lg border border-white/5">
                     <label class="flex items-center gap-3 cursor-pointer group w-full">
@@ -1876,7 +1836,7 @@
                 </div>
 
                 <!-- 경험치 및 엘소 습득 필터 설정 -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                <div data-settings-pages="chat-filters" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <h4 class="text-xs font-bold text-slate-400">경험치 / 엘소(Elso) 습득 필터 설정</h4>
                   <div class="space-y-3">
                     <div class="flex items-center gap-4 p-3 bg-black/10 rounded-lg border border-white/5">
@@ -1905,7 +1865,7 @@
                 </div>
 
                 <!-- 사칭 의심 닉네임 강조 설정 -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                <div data-settings-pages="chat-reading" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <h4 class="text-xs font-bold text-slate-400">사칭 의심 닉네임 강조 설정</h4>
                   <div class="flex items-center gap-4 p-3 bg-black/10 rounded-lg border border-white/5">
                     <label class="flex items-center gap-3 cursor-pointer group w-full">
@@ -1922,7 +1882,7 @@
                 </div>
 
                 <!-- 채팅 오버레이 제외 필터 -->
-                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                <div data-settings-pages="chat-filters" class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <div class="flex items-center justify-between">
                     <div>
                       <h4 class="text-xs font-bold text-slate-400 flex items-center gap-1.5">
@@ -1934,7 +1894,7 @@
                   </div>
 
                   <div class="flex gap-2">
-                    <input type="text" id="chat-overlay-filter-input"
+                    <input type="text" id="chat-overlay-filter-input" data-settings-draft-only
                       class="input-field flex-1 py-2 px-3 bg-black/40 text-xs text-slate-200"
                       placeholder="제외할 문구(5자 이상) 또는 정규식(/패턴/i) 입력..." onkeypress="if(event.key==='Enter')addChatOverlayFilter()">
                     <button type="button" onclick="addChatOverlayFilter()"
@@ -1964,7 +1924,7 @@
                 </div>
 
                 <!-- 즉시 적용 버튼 추가 -->
-                <div class="pt-2">
+                <div data-settings-pages="chat-fonts chat-reading chat-tabs chat-filters chat-windows" class="pt-2">
                   <button type="button" onclick="applyChatOverlaySettingsOnly()"
                     class="w-full py-2.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-950/20 active:scale-[0.98]">
                     <i data-lucide="refresh-cw" class="w-4 h-4"></i> 채팅 오버레이 설정 즉시 적용
@@ -1977,7 +1937,7 @@
           <!-- 서브 탭 3: 득템 & 외치기 -->
           <div id="sub-tab-loot" class="sub-tab-content space-y-6">
             <!-- 득템 알림 키워드 -->
-            <div id="loot-keyword-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
+            <div data-settings-pages="loot" id="loot-keyword-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
               <div class="flex items-center justify-between">
                 <label class="section-label flex items-center gap-2">
                   <i data-lucide="gem" class="w-4 h-4 text-indigo-400"></i> 득템 알림 및 모험일지 기록 키워드
@@ -2038,12 +1998,12 @@
             </div>
 
             <!-- 인게임 외치기 알림 키워드 (추가) -->
-            <div class="p-6 bg-white/5 rounded-2xl border border-white/5">
+            <div data-settings-pages="shout" class="p-6 bg-white/5 rounded-2xl border border-white/5">
               <label class="section-label flex items-center gap-2 mb-4">
                 <i data-lucide="message-square-more" class="w-4 h-4 text-purple-400"></i> 인게임 외치기(Shout) 알림 키워드
               </label>
               <div class="flex gap-2 mb-4">
-                <input type="text" id="shout-keyword-input" class="input-field flex-1 py-3 px-4 bg-black/40"
+                <input type="text" id="shout-keyword-input" data-settings-draft-only class="input-field flex-1 py-3 px-4 bg-black/40"
                   placeholder="예: 급처, 훈장, 수영석..." onkeypress="if(event.key==='Enter')addShoutKeyword()">
                 <button onclick="addShoutKeyword()"
                   class="btn-primary px-6 font-black shadow-lg shadow-purple-900/20">추가</button>
@@ -2078,6 +2038,8 @@
               </label>
 
               <div class="space-y-4">
+                <details class="ui-inset space-y-3" open><summary class="ui-heading cursor-pointer">보스 기믹</summary>
+
                 <!-- 1. 에토스 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <div class="flex items-center gap-4">
@@ -2233,6 +2195,8 @@
                   </div>
                 </div>
 
+                </details>
+                <details class="ui-inset space-y-3"><summary class="ui-heading cursor-pointer">콘텐츠 알림</summary>
                 <!-- 4. 웨이브 종료 대기 알림 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <label class="flex items-center justify-between gap-4 cursor-pointer group">
@@ -2407,6 +2371,7 @@
                   </div>
                 </div>
 
+                </details>
               </div>
             </div>
 
@@ -2597,7 +2562,7 @@
               <i data-lucide="keyboard" class="w-5 h-5 text-purple-500"></i> 단축키 설정
             </h2>
             <button type="button"
-              onclick="showSettingsGroup('display', document.querySelector('.nav-item[data-settings-group=\'display\']'), 1)"
+              onclick="openSettingsPage('launcher-layout')"
               class="px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 rounded-xl text-xs font-bold transition-all border border-purple-500/30 flex items-center gap-1.5">
               <i data-lucide="layers" class="w-3.5 h-3.5"></i> 게임 오버레이 설정으로 이동
             </button>
@@ -2863,7 +2828,7 @@
           </h2>
 
           <!-- Google Drive 클라우드 동기화 -->
-          <div id="google-sync-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-5 mb-6">
+          <div data-settings-pages="google-sync" id="google-sync-card" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-5 mb-6">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
@@ -2872,7 +2837,7 @@
                 <div>
                   <h3 class="text-sm font-bold text-slate-200">클라우드 동기화</h3>
                   <div class="flex items-center gap-2 mt-0.5">
-                    <p class="text-xs text-slate-400">설정과 숙제를 다른 PC에서도 그대로 이어서 사용합니다.</p>
+                    <p id="google-sync-description" class="text-xs text-slate-400">설정과 숙제를 다른 PC에서도 그대로 이어서 사용합니다.</p>
                     <span class="text-slate-600">|</span>
                     <a href="#" onclick="window.electronAPI.openExternal('https://twliker.github.io/tw-overlay/privacy/')" class="text-xs text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-1 font-semibold">
                       <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> 개인정보처리방침
@@ -2885,6 +2850,7 @@
               </div>
             </div>
 
+            <div id="google-sync-profile-paused" class="ui-inset space-y-2" hidden role="status"><p id="google-sync-profile-paused-text"></p><p id="google-sync-profile-paused-account" class="ui-description"></p></div>
             <!-- 미연동 상태 -->
             <div id="google-sync-unlinked-view" class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between gap-4">
               <div class="flex flex-col gap-1 min-w-0 flex-1">
@@ -3001,9 +2967,9 @@
             </div>
           </div>
 
-          <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
-            <div class="grid grid-cols-1 gap-4" data-settings-view="data-backup">
-              <section id="settings-share-card" class="ui-card ui-stack">
+          <div id="backup-settings-card" data-settings-pages="backup share diary-retention" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
+            <div data-settings-pages="backup share" class="grid grid-cols-1 gap-4" data-settings-view="data-backup">
+              <section data-settings-pages="share" id="settings-share-card" class="ui-card ui-stack">
                 <h3 class="ui-heading"><i data-lucide="share-2"></i>선택한 설정 공유</h3>
                 <p class="ui-description">현재 저장된 배치·외관·알림을 파일로 주고받습니다. 개인 메모·대화·계정 연동과 글꼴·소리 파일은 포함하지 않습니다.</p>
                 <div class="ui-actions" aria-label="저장할 설정">
@@ -3024,7 +2990,7 @@
                 <p id="settings-share-status" class="ui-status" role="status"></p>
               </section>
               <!-- 백업 -->
-              <div class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between group">
+              <div data-settings-pages="backup" class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between group">
                 <div class="flex flex-col gap-1">
                   <span class="text-sm font-bold text-slate-200">전체 데이터 백업</span>
                   <p class="text-xs text-slate-500">모든 설정과 일지 데이터를 하나의 압축 파일(.zip)로 저장합니다.</p>
@@ -3035,7 +3001,7 @@
               </div>
 
               <!-- 복구 -->
-              <div class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between group">
+              <div data-settings-pages="backup" class="p-5 bg-black/20 rounded-xl border border-white/5 flex items-center justify-between group">
                 <div class="flex flex-col gap-1">
                   <span class="text-sm font-bold text-slate-200">데이터 불러오기 (복구)</span>
                   <p class="text-xs text-slate-500">이전에 백업한 파일을 선택하여 모든 데이터를 복구합니다.</p>
@@ -3047,7 +3013,7 @@
               </div>
             </div>
 
-            <div class="p-4 bg-red-500/5 border border-red-500/10 rounded-xl flex items-start gap-3"
+            <div data-settings-pages="backup" class="p-4 bg-red-500/5 border border-red-500/10 rounded-xl flex items-start gap-3"
               data-settings-view="data-backup">
               <i data-lucide="alert-circle" class="w-4 h-4 text-red-400 shrink-0 mt-0.5"></i>
               <div>
@@ -3060,7 +3026,7 @@
             </div>
 
             <!-- 모험 일지 데이터 보관 정책 설정 -->
-            <div class="space-y-4" data-settings-view="data-retention">
+            <div data-settings-pages="diary-retention" class="space-y-4" data-settings-view="data-retention">
               <label class="section-label flex items-center gap-2 mb-2">
                 <i data-lucide="book-heart" class="w-4 h-4 text-purple-400"></i> 모험 일지 데이터 보관 설정
               </label>
@@ -3092,7 +3058,7 @@
         <div class="settings-group">
           <h2 class="text-lg font-bold mb-6 flex items-center gap-2"><i data-lucide="info" class="w-5 h-5"></i>
             TW-Overlay 정보</h2>
-          <div class="space-y-6">
+          <div data-settings-pages="updates" class="space-y-6">
             <div class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-4">
@@ -3104,7 +3070,7 @@
                   <div>
                     <h3 class="text-xl font-black text-white">TW-Overlay</h3>
                      <p class="text-xs text-slate-500 font-bold mt-1">현재 버전 <span id="app-version"
-                                class="text-purple-400">3.2.2</span></p>
+                                class="text-purple-400">3.3.5</span></p>
                   </div>
                 </div>
                 <div class="flex flex-col items-end gap-2">
@@ -3134,33 +3100,34 @@
               </div>
             </div>
 
-            <div class="space-y-4 pt-4 border-t border-white/5">
-              <div class="flex justify-between items-center text-xs">
-                <span class="text-slate-500 font-bold">개발자</span>
-                <span class="text-slate-300 font-bold">twliker</span>
-              </div>
-              <div class="flex justify-between items-center text-xs">
-                <span class="text-slate-500 font-bold">GitHub 리포지토리</span>
-                <a href="#" onclick="window.electronAPI.openExternal('https://github.com/twliker/tw-overlay')"
-                  class="text-purple-400 hover:text-purple-300 font-bold underline">바로가기</a>
-              </div>
-              <div class="flex justify-between items-center text-xs">
-                <span class="text-slate-500 font-bold">서비스 개선 제안 / 버그 제보</span>
-                <a href="#" onclick="window.electronAPI.openExternal('https://forms.gle/n5u4shgfF6unQR8N6')"
-                  class="text-purple-400 hover:text-purple-300 font-bold underline">의견 보내기</a>
-              </div>
-              <div class="flex justify-between items-center text-xs">
-                <span class="text-slate-500 font-bold">개인정보처리방침 (Privacy Policy)</span>
-                <a href="#" onclick="window.electronAPI.openExternal('https://twliker.github.io/tw-overlay/privacy/')"
-                  class="text-purple-400 hover:text-purple-300 font-bold underline">확인하기</a>
-              </div>
-              <div class="mt-4 pt-4 border-t border-white/5 p-4 bg-white/3 rounded-xl border border-white/5">
-                <p class="text-[11px] text-slate-500 font-bold leading-relaxed">
-                  <span class="text-slate-400 font-black">© NEXON Korea Corporation.</span><br>
-                  이 프로그램에서 사용되는 테일즈위버 관련 이미지, 사운드 등의 리소스에 대한 저작권은 ㈜넥슨코리아에 있습니다.<br>
-                  TW-Overlay는 넥슨과 무관한 비공식 팬 제작 도구이며, 해당 리소스를 상업적 목적으로 사용하지 않습니다.
-                </p>
-              </div>
+          </div>
+
+          <div data-settings-pages="help" class="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-4">
+            <div class="flex justify-between items-center text-xs">
+              <span class="text-slate-500 font-bold">개발자</span>
+              <span class="text-slate-300 font-bold">twliker</span>
+            </div>
+            <div class="flex justify-between items-center text-xs">
+              <span class="text-slate-500 font-bold">GitHub 리포지토리</span>
+              <a href="#" onclick="window.electronAPI.openExternal('https://github.com/twliker/tw-overlay')"
+                class="text-purple-400 hover:text-purple-300 font-bold underline">바로가기</a>
+            </div>
+            <div class="flex justify-between items-center text-xs">
+              <span class="text-slate-500 font-bold">서비스 개선 제안 / 버그 제보</span>
+              <a href="#" onclick="window.electronAPI.openExternal('https://forms.gle/n5u4shgfF6unQR8N6')"
+                class="text-purple-400 hover:text-purple-300 font-bold underline">의견 보내기</a>
+            </div>
+            <div class="flex justify-between items-center text-xs">
+              <span class="text-slate-500 font-bold">개인정보처리방침 (Privacy Policy)</span>
+              <a href="#" onclick="window.electronAPI.openExternal('https://twliker.github.io/tw-overlay/privacy/')"
+                class="text-purple-400 hover:text-purple-300 font-bold underline">확인하기</a>
+            </div>
+            <div class="mt-4 pt-4 border-t border-white/5 p-4 bg-white/3 rounded-xl border border-white/5">
+              <p class="text-[11px] text-slate-500 font-bold leading-relaxed">
+                <span class="text-slate-400 font-black">© NEXON Korea Corporation.</span><br>
+                이 프로그램에서 사용되는 테일즈위버 관련 이미지, 사운드 등의 리소스에 대한 저작권은 ㈜넥슨코리아에 있습니다.<br>
+                TW-Overlay는 넥슨과 무관한 비공식 팬 제작 도구이며, 해당 리소스를 상업적 목적으로 사용하지 않습니다.
+              </p>
             </div>
           </div>
         </div>
@@ -3237,6 +3204,8 @@
   <script src="shared/sidebarCategories.js"></script>
   <script src="shared/chatChannels.js"></script>
   <script src="renderer/settings/sound-preview.js"></script>
+  <script src="renderer/settings/profile-cloud-sync.js"></script>
+  <script src="renderer/settings/profile-cloud-pause.js"></script>
   <script src="renderer/settings/list-rendering.js"></script>
   <script src="renderer/settings/form-collection.js"></script>
   <script src="renderer/settings/shortcuts.js"></script>
@@ -3244,9 +3213,7 @@
   <script src="renderer/settings/audio-controls.js"></script>
   <script src="renderer/custom-chat-fonts.js"></script>
   <script src="renderer/settings/chat-preview.js"></script>
-  <script src="renderer/nickname-notes.js"></script>
   <script src="renderer/settings/companion-controls.js"></script>
-  <script src="renderer/settings/activity-presets.js"></script>
   <script src="renderer/settings/sharing.js"></script>
   <script src="renderer/settings/notification-layout.js"></script>
   <script src="renderer/settings/config-binding.js"></script>
@@ -3257,8 +3224,6 @@
 
   <script>
     let currentSlots = [];
-    let currentKeywords = [];
-    let tradeKeywordsList = [];
     let lootKeywordsList = [];
     let shoutKeywordsList = [];
     let chatOverlayFilterList = [];
@@ -3348,30 +3313,48 @@
       }
     }
 
-    async function validateSettingsChatLogPath(pathVal) {
+    let chatLogPathValidation = 0;
+    let lastCheckedChatLogPath;
+    async function validateSettingsChatLogPath() {
       const badge = document.getElementById('settings-chatlog-status-badge');
       const txt = document.getElementById('settings-chatlog-status-text');
-      if (!badge || !txt) return;
+      const input = document.getElementById('chat-log-path-input');
+      if (!badge || !txt || !input) return;
 
-      const pathToCheck = pathVal || document.getElementById('chat-log-path-input')?.value;
+      const request = ++chatLogPathValidation;
+      const pathToCheck = input.value.trim();
+      const isCurrent = () => request === chatLogPathValidation && pathToCheck === input.value.trim();
+      const pathChanged = lastCheckedChatLogPath !== pathToCheck;
+      lastCheckedChatLogPath = pathToCheck;
       if (!pathToCheck) {
         badge.className = 'p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-center gap-2';
         txt.textContent = '로그 폴더가 설정되지 않았습니다. [폴더 선택]을 눌러주세요.';
         return;
       }
 
+      if (pathChanged) {
+        badge.className = 'p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-center gap-2';
+        txt.textContent = '로그 폴더 상태 확인 중…';
+      }
       try {
         if (window.electronAPI && window.electronAPI.validateChatLogPath) {
           const res = await window.electronAPI.validateChatLogPath(pathToCheck);
+          if (!isCurrent()) return;
           if (res.valid) {
             badge.className = 'p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2';
-            txt.innerHTML = `<strong>정상 연동 완료</strong> — 테일즈위버 로그 파일 <strong>${res.fileCount}개</strong> 발견 (최신: ${res.latestFile || '확인됨'})`;
+            const isSavedPath = pathToCheck === (window.lastConfig?.chatLogPath || '').trim();
+            const title = document.createElement('strong');
+            title.textContent = isSavedPath ? '정상 연동 완료' : '로그 파일 확인 완료';
+            const count = document.createElement('strong');
+            count.textContent = `${res.fileCount}개`;
+            txt.replaceChildren(title, ' — 테일즈위버 로그 파일 ', count, ` 발견 (최신: ${res.latestFile || '확인됨'})`);
           } else {
             badge.className = 'p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-center gap-2';
             txt.textContent = res.message;
           }
         }
       } catch (e) {
+        if (!isCurrent()) return;
         badge.className = 'p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-center gap-2';
         txt.textContent = `검증 오류: ${e}`;
       }
@@ -3382,7 +3365,43 @@
       const result = await window.electronAPI.openChatLogFolderDialog();
       if (result) {
         document.getElementById('chat-log-path-input').value = result;
-        validateSettingsChatLogPath(result);
+        document.getElementById('chat-log-path-input').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('running-game-path-result').classList.add('hidden');
+        validateSettingsChatLogPath();
+      }
+    }
+
+    async function findRunningGameLogFolder() {
+      const button = document.getElementById('find-running-game-path');
+      if (button.disabled) return;
+      const input = document.getElementById('chat-log-path-input');
+      const before = input.value;
+      const resultText = document.getElementById('running-game-path-result');
+      const label = button.innerHTML;
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = '게임 경로 찾는 중…';
+      resultText.classList.remove('hidden');
+      resultText.textContent = '실행 중인 게임의 설치 폴더를 확인하고 있습니다.';
+      try {
+        const result = await window.electronAPI.findRunningGamePath();
+        if (input.value !== before) {
+          resultText.textContent = '선택한 폴더가 변경되어 찾은 경로를 적용하지 않았습니다. 필요하면 다시 찾아주세요.';
+          return;
+        }
+        resultText.textContent = (result.installPath ? `설치 경로: ${result.installPath}\n` : '') + result.message;
+        if (result.chatLogPath) {
+          input.value = result.chatLogPath;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          await validateSettingsChatLogPath();
+        }
+      } catch {
+        resultText.textContent = '게임 경로를 찾지 못했습니다. 잠시 후 다시 시도하거나 폴더를 직접 선택해 주세요.';
+      } finally {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.innerHTML = label;
+        if (window.lucide) lucide.createIcons();
       }
     }
 
@@ -3409,6 +3428,16 @@
 
     let manualChatLogSyncRunning = false;
 
+    function updateProfileLogRestoreNotice() {
+      const value=window.lastConfig,notice=document.getElementById('profile-log-restore-notice');
+      if (!notice) return;
+      notice.classList.toggle('hidden',!value?.activePlayProfileId);
+      document.getElementById('legacy-log-restore-character-notice')?.classList.toggle('hidden',!!value?.activePlayProfileId);
+      const name=value?.characterPresets?.[0]?.name || '기본 프로필';
+      const server=value?.userServer===7 ? '하이아칸' : value?.userServer===16 ? '네냐플' : '서버 선택 필요';
+      document.getElementById('profile-log-restore-target').textContent=value?.profileSelectionRequired ? '복원할 프로필을 먼저 선택해 주세요.' : `복원할 프로필: ${name} · ${server}`;
+    }
+
     function renderManualChatLogSyncProgress(info) {
       if (!manualChatLogSyncRunning || !info) return;
       const box = document.getElementById('settings-sync-status-box');
@@ -3433,6 +3462,8 @@
     }
 
     async function triggerManualSync() {
+      if (manualChatLogSyncRunning) return;
+      const restoreProfileId=window.lastConfig?.activePlayProfileId;
       const btn = document.getElementById('btn-manual-sync');
       const reanalyzeInput = document.getElementById('reanalyze-completed-chat-logs');
       const includeCompletedLogs = reanalyzeInput?.checked === true;
@@ -3456,29 +3487,31 @@
 
       try {
         if (window.electronAPI && window.electronAPI.startChatLogSync) {
-          const res = await window.electronAPI.startChatLogSync(includeCompletedLogs);
+          const res = await window.electronAPI.startChatLogSync(includeCompletedLogs,restoreProfileId);
           if (res && res.success) {
             if (txt) {
               const failedNames = (res.failedFiles || []).map(file => file.fileName).join(', ');
+              const targetNote=res.profileName ? ` · ${res.profileName}` : '';
               const prefix = res.partial
                 ? `⚠️ 일부 복원 완료 (실패: ${failedNames})`
-                : '✅ 과거 로그 복원 완료!';
+                : `✅ 과거 로그 복원 완료!${targetNote}`;
               const todayNote = res.todayRebuildDeferred
                 ? ' · 오늘 로그는 분석 중 새 기록이 생겨 기존 기록을 보존하며 병합했습니다.'
                 : (res.todayCatchUpProcessed
                   ? ' · 동기화 중 새로 들어온 오늘 로그까지 반영했습니다.'
                   : '');
-              const rebuiltNote = includeCompletedLogs
-                ? ` · 자동 기록 ${res.automaticRecordsRebuiltDates || 0}일 재구성`
-                : '';
+              const rebuiltNote = includeCompletedLogs ? ' · 완료된 로그도 다시 분석했습니다.' : '';
               const deferredFiles = res.automaticRecordRebuildDeferredFiles || [];
               const deferredNote = deferredFiles.length > 0
                 ? ` · 파일 변경으로 기존 기록 보존: ${deferredFiles.join(', ')}`
                 : '';
               txt.textContent = `${prefix}${rebuiltNote}${todayNote}${deferredNote} (파일 ${res.totalFiles - (res.failedFiles?.length || 0)}/${res.totalFiles}개 | 반영 결과: 득템 ${res.lootsAdded}건, 숙제 일지 ${res.homeworkLogsDetected || 0}건, 현재 주기 체크 ${res.homeworkUpdated}종, 외치기 ${res.shoutsAdded}건, SEED ${res.seedsAdded}건, 엘소 ${res.elsoPointsAdded.toLocaleString()}P, 정수 ${res.essencesAdded}개 | 총 검출: 득템 ${res.lootsDetected}건, 현재 주기 숙제 ${res.homeworkDetected}종, 외치기 ${res.shoutsDetected}건, SEED ${res.seedsDetected}건, 엘소 ${res.elsoPointsDetected.toLocaleString()}P, 정수 ${res.essencesDetected}개)`;
+              if (res.automaticRecordsRebuiltDates) txt.textContent+=` · 누락된 자동 기록을 ${res.automaticRecordsRebuiltDates}일에서 복구했습니다.`;
+              if (res.activityRecordsHeld) txt.textContent+=` · 출처를 확인할 수 없는 자동 기록 ${res.activityRecordsHeld}건은 기존 합계를 유지했습니다.`;
+              if (res.pendingReplayWarning) txt.textContent+=` · ${res.pendingReplayWarning}`;
             }
           } else {
-            if (txt) txt.textContent = `동기화 완료: ${res?.error || '로그 파일 없음'}`;
+            if (txt) txt.textContent = `복원하지 못했습니다: ${res?.error || '로그 파일 없음'}`;
           }
         }
       } catch (err) {
@@ -3829,6 +3862,9 @@
     }
 
     function getSettingsApplyErrorMessage(result) {
+      if (result?.error === 'profile-storage-busy') return '데이터 복구 중입니다. 완료 후 다시 저장해 주세요. 입력은 유지됩니다.';
+      if (result?.error === 'profile-restore-busy') return '과거 로그 복원 중입니다. 완료 후 다시 저장해 주세요. 입력은 유지됩니다.';
+      if (result?.error === 'profile-changed') return '입력 중인 프로필과 현재 프로필이 달라 저장하지 않았습니다. 프로필을 확인한 뒤 다시 저장해 주세요.';
       if (result && result.error === 'save-failed') {
         return '설정 파일을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
       }
@@ -4102,6 +4138,7 @@
 
     function updateGoogleSyncUI(status) {
       if (!status) return;
+      if (window.settingsProfileCloudPause?.render(status)) return;
       const unlinkedView = document.getElementById('google-sync-unlinked-view');
       const linkedView = document.getElementById('google-sync-linked-view');
       const badge = document.getElementById('google-sync-badge');
@@ -4459,15 +4496,6 @@
       window.settingsDraft.initializeNewFields();
       renderCustomSounds();
 
-      if (window.electronAPI && window.electronAPI.onAlarmLogsUpdated) {
-        window.electronAPI.onAlarmLogsUpdated(() => {
-          const section = document.getElementById('sub-tab-alarm-log');
-          if (section && section.classList.contains('active')) {
-            renderAlarmLogs();
-          }
-        });
-      }
-
       if (window.electronAPI && window.electronAPI.googleSyncGetStatus) {
         try {
           const syncStatus = await window.electronAPI.googleSyncGetStatus();
@@ -4517,18 +4545,23 @@
 
     async function addCustomSound() {
       if (!window.electronAPI || !window.electronAPI.selectCustomSound) return;
+      const button=document.getElementById('btn-add-custom-sound');
+      const feedback=document.getElementById('custom-sound-feedback');
+      if (button.disabled) return;
+      button.disabled=true;feedback.hidden=true;
       try {
-        const soundInfo = await window.electronAPI.selectCustomSound();
-        if (!soundInfo) return; // 취소된 경우
-
-        const customSounds = [...((lastConfig && lastConfig.customSounds) || [])];
-        customSounds.push(soundInfo);
-
-        await window.electronAPI.applySettings({ customSounds });
+        const result=await window.electronAPI.selectCustomSound();
+        if (!result) return;
+        if (result.error) throw new Error(getSettingsApplyErrorMessage(result));
+        if (lastConfig) lastConfig.customSounds=result.sounds;
+        renderCustomSounds();
         await window.settingsAudioControls.refreshAlertSoundSelects();
-      } catch (err) {
-        console.error('Failed to add custom sound:', err);
-      }
+        feedback.textContent=`‘${result.name}’ 알림음을 추가했습니다.`;
+        feedback.hidden=false;
+      } catch (error) {
+        feedback.textContent=error instanceof Error ? error.message : '알림음을 추가하지 못했습니다.';
+        feedback.hidden=false;
+      } finally {button.disabled=false;}
     }
 
     async function updateCustomSoundName(file, newName) {
@@ -4625,363 +4658,420 @@
 
     const SETTINGS_NAV_GROUPS = {
       app: [
-        { label: '앱 동작', icon: 'power', section: 'general', view: 'general-app' },
-        { label: '사이드바 & 독', icon: 'panel-left', section: 'general', view: 'display-sidebar' },
-        { label: '웹 브라우저 창', icon: 'globe-2', section: 'overlay' },
-        { label: '퀵슬롯 관리', icon: 'layout-grid', section: 'slots' },
+        { id: 'startup', label: '시작 동작', section: 'general' },
+        { id: 'statistics', label: '사용 통계', section: 'general' },
+      ],
+      launcher: [
+        { id: 'launcher-layout', label: '배치', section: 'general' },
+        { id: 'launcher-menus', label: '메뉴 표시', section: 'general' },
+      ],
+      windows: [
+        { id: 'window-behavior', label: '배치 동작', section: 'general' },
+        { id: 'browser', label: '웹 브라우저', section: 'overlay' },
+        { id: 'slots', label: '퀵슬롯', section: 'slots' },
       ],
       game: [
-        { label: 'HUD 위젯 관리', icon: 'layers', section: 'game-overlay' },
-        { label: '게임 진행 알림', icon: 'shield-alert', section: 'chatlog', subTab: 'sub-tab-gimmick' },
+        { id: 'hud-widgets', label: '위젯 표시', section: 'game-overlay' },
+        { id: 'hud-position', label: 'HUD 위치', section: 'game-overlay' },
+        { id: 'today-summary', label: '오늘 요약', section: 'game-overlay' },
       ],
       chat: [
-        { label: '채팅 로그 연동', icon: 'file-text', section: 'chatlog', subTab: 'sub-tab-general' },
-        { label: '채팅 오버레이', icon: 'message-square-more', section: 'chatlog', subTab: 'sub-tab-overlay' },
-        { label: '득템 & 외치기', icon: 'gem', section: 'chatlog', subTab: 'sub-tab-loot' },
+        { id: 'chat-windows', label: '창 구성', section: 'chatlog', subTab: 'sub-tab-overlay' },
+        { id: 'chat-fonts', label: '글꼴·색상', section: 'chatlog', subTab: 'sub-tab-overlay' },
+        { id: 'chat-reading', label: '읽기 표시', section: 'chatlog', subTab: 'sub-tab-overlay' },
+        { id: 'chat-tabs', label: '탭·채널', section: 'chatlog', subTab: 'sub-tab-overlay' },
+        { id: 'chat-filters', label: '필터', section: 'chatlog', subTab: 'sub-tab-overlay' },
+      ],
+      logs: [
+        { id: 'log-connection', label: '연결', section: 'chatlog', subTab: 'sub-tab-general' },
+        { id: 'log-restore', label: '과거 로그 복원', section: 'chatlog', subTab: 'sub-tab-general' },
+        { id: 'log-retention', label: '원본 보관', section: 'chatlog', subTab: 'sub-tab-general' },
       ],
       alerts: [
-        { label: '외부 모니터링', icon: 'store', section: 'external' },
-        { label: '공통 알림 & 소리', icon: 'volume-2', section: 'sound', subTab: 'sub-tab-sound-settings' },
-        { label: '커스텀 알림음', icon: 'music', section: 'sound', subTab: 'sub-tab-custom-sounds' },
-        { label: '알림 기록', icon: 'history', section: 'sound', subTab: 'sub-tab-alarm-log' },
+        { id: 'alarm-policy', label: '공통 정책', section: 'sound', subTab: 'sub-tab-sound-settings' },
+        { id: 'game-alarms', label: '게임 진행', section: 'chatlog', subTab: 'sub-tab-gimmick' },
+        { id: 'loot', label: '득템', section: 'chatlog', subTab: 'sub-tab-loot' },
+        { id: 'shout', label: '외치기', section: 'chatlog', subTab: 'sub-tab-loot' },
+        { id: 'exit-reminder', label: '종료 리마인더', section: 'general' },
       ],
-      system: [
-        { label: '단축키 설정', icon: 'keyboard', section: 'shortcuts' },
-        { label: '데이터 관리', icon: 'database', section: 'data' },
-        { label: '네트워크 최적화', icon: 'zap', section: 'optimize' },
+      sound: [
+        { id: 'volumes', label: '기능별 음량', section: 'sound', subTab: 'sub-tab-sound-settings' },
+        { id: 'sound-files', label: '알림음 관리', section: 'sound', subTab: 'sub-tab-custom-sounds' },
+      ],
+      shortcuts: [
+        { id: 'shortcut-app', label: '앱 조작', section: 'shortcuts' },
+        { id: 'shortcut-tools', label: '게임 도구', section: 'shortcuts' },
+        { id: 'shortcut-hud', label: 'HUD 편집', section: 'shortcuts' },
+      ],
+      data: [
+        { id: 'google-sync', label: 'Google 동기화', section: 'data' },
+        { id: 'backup', label: 'ZIP 백업·복구', section: 'data' },
+        { id: 'share', label: '설정 공유', section: 'data' },
+        { id: 'diary-retention', label: '일지 보관', section: 'data' },
+      ],
+      optimize: [
+        { id: 'optimize', label: '최적화', section: 'optimize' },
       ],
       about: [
-        { label: '앱 정보 & 업데이트', icon: 'info', section: 'about' },
+        { id: 'updates', label: '버전·업데이트', section: 'about' },
+        { id: 'help', label: '도움말', section: 'about' },
       ],
     };
 
+    document.querySelector('#section-about [data-settings-pages="updates"]')
+      .prepend(document.getElementById('auto-update-input').closest('label'));
+    document.querySelector('#section-about [data-settings-pages="help"]')
+      .prepend(document.querySelector('#section-general [data-settings-pages="help"]'));
+
+    const shortcutPages = {
+      toggleAllWindows: 'shortcut-app', toggleClickThrough: 'shortcut-app', toggleDock: 'shortcut-app',
+      toggleChatOverlaySync: 'shortcut-app', toggleContentsChecker: 'shortcut-tools', toggleTimer: 'shortcut-tools',
+      resetXpSession: 'shortcut-tools', toggleXpSession: 'shortcut-tools', clearAllBuffs: 'shortcut-tools',
+      toggleBuffHud: 'shortcut-hud', toggleTodaySummaryHud: 'shortcut-hud', toggleAbandonedHud: 'shortcut-hud',
+    };
+    for (const [key, page] of Object.entries(shortcutPages)) {
+      document.getElementById('shortcut-' + key)?.closest('.group')?.setAttribute('data-settings-pages', page);
+    }
+
     // ─── 빠른 검색 (Quick Search) 색인 데이터 ───
     const SETTINGS_SEARCH_INDEX = [
-      { title: '채팅 간단 표시', keywords: ['시간', '시각', '배지', '간단', '읽기'], category: '채팅 > 채팅 오버레이', groupId: 'chat', routeIndex: 1, targetId: 'chat-reading-settings' },
-      { title: '선택한 설정 공유', keywords: ['공유', '내보내기', '가져오기', '배치', '외관'], category: '시스템 & 관리 > 데이터 관리', groupId: 'system', routeIndex: 1, targetId: 'settings-share-card' },
-      { title: '활동 프리셋', keywords: ['사냥', '보스', '거래', '프리셋', '창 배치'], category: '앱 & 런처 > 앱 동작', groupId: 'app', routeIndex: 0, targetId: 'activity-presets-card' },
-      { title: '알림 마우스 드래그 위치 설정', keywords: ['알림', '위치', '드래그', '배치'], category: '게임 플레이 > HUD 위젯 관리', groupId: 'game', routeIndex: 0, targetId: 'notification-position-settings-card' },
-      { title: '화면 고정 메모', keywords: ['메모', '고정', '목표'], category: '게임 플레이 > HUD 위젯 관리', groupId: 'game', routeIndex: 0, targetId: 'pinned-note-enabled' },
-      { title: '보급품 발판 안내', keywords: ['보급품', '탈환', '발판', '색상', '암호'], category: '게임 플레이 > 게임 진행 알림', groupId: 'game', routeIndex: 1, targetId: 'supply-helper-enabled' },
-      { title: '채팅 창별 글꼴', keywords: ['폰트', '글꼴', '글자 크기', '서브'], category: '채팅 > 채팅 오버레이', groupId: 'chat', routeIndex: 1, targetId: 'chat-font-settings' },
-      { title: '에타 구간 색상', keywords: ['에타', '색상', '배지'], category: '채팅 > 채팅 오버레이', groupId: 'chat', routeIndex: 1, targetId: 'eta-color-settings' },
+      { title: '경험치 HUD 상세 설정', keywords: ['경험치', '경험의 정수', '사냥'], external: 'xp-hud' },
+      { title: '필드 보스 알림 설정', keywords: ['보스', '알림'], external: 'boss-settings' },
+      { title: '버프 타이머 상세 설정', keywords: ['버프', '도핑'], external: 'buff-timer' },
+      { title: '커스텀 알림 설정', keywords: ['커스텀', '반복'], external: 'custom-alert' },
+      { title: '게임 설치 경로와 채팅 로그 찾기', keywords: ['게임 경로', '설치 경로', '채팅 로그 폴더'], targetId: 'find-running-game-path' },
+      { title: '창끼리 모서리 맞춤', keywords: ['창 스냅', '창 붙이기', '모서리'], targetId: 'window-snap-enabled' },
+      { title: '모든 소리 음소거', keywords: ['음소거', '전체 소리', 'master mute'], targetId: 'master-mute-input' },
+      { title: '초기 사용 가이드 및 최근 공지', keywords: ['도움말', '가이드', '공지'], targetId: 'settings-guide-actions' },
+      { title: '닉네임 메모 간단 표시', keywords: ['메모', '닉네임'], targetId: 'chat-nickname-notes-compact' },
+      { title: '채팅 간단 표시', keywords: ['시간', '시각', '배지', '간단', '읽기'], targetId: 'chat-reading-settings' },
+      { title: '선택한 설정 공유', keywords: ['공유', '내보내기', '가져오기', '배치', '외관'], targetId: 'settings-share-card' },
+      { title: '알림 마우스 드래그 위치 설정', keywords: ['알림 위치', '알람 위치', '알림', '위치', '드래그', '배치'], targetId: 'notification-position-settings-card' },
+      { title: '화면 고정 메모', keywords: ['메모', '고정', '목표'], external: 'pinned-note' },
+      { title: '보급품 발판 안내', keywords: ['보급품', '탈환', '발판', '색상', '암호'], pageId: 'game-alarms', targetId: 'supply-helper-enabled' },
+      { title: '채팅 창별 글꼴', keywords: ['폰트', '글꼴', '글자 크기', '서브'], targetId: 'chat-font-settings' },
+      { title: '에타 구간 색상', keywords: ['에타', '색상', '배지'], targetId: 'eta-color-settings' },
       // 1. 앱 & 런처 (app)
       {
         title: '윈도우 시작 시 자동 실행',
         keywords: ['시작', '부팅', '자동실행', '윈도우', 'startup', 'launch', 'boot'],
-        category: '앱 & 런처 > 앱 동작',
-        groupId: 'app', routeIndex: 0, targetId: 'auto-launch-input'
+        targetId: 'auto-launch-input'
       },
       {
         title: '자동 업데이트 확인',
         keywords: ['업데이트', '버전', '체크', '패치', 'update'],
-        category: '앱 & 런처 > 앱 동작',
-        groupId: 'app', routeIndex: 0, targetId: 'auto-update-input'
+        targetId: 'auto-update-input'
       },
       {
         title: '사용 통계 전송',
         keywords: ['통계', '분석', '사용패턴', '구글', 'GA', 'analytics', 'privacy'],
-        category: '앱 & 런처 > 앱 동작',
-        groupId: 'app', routeIndex: 0, targetId: 'analytics-enabled-input'
+        targetId: 'analytics-enabled-input'
       },
       {
         title: '게임창 따라가기 (Follow)',
         keywords: ['게임창', '따라가기', 'follow', '이동', '부착', 'dock'],
-        category: '앱 & 런처 > 앱 동작',
-        groupId: 'app', routeIndex: 0, targetId: 'follow-game-window-input'
+        targetId: 'follow-game-window-input'
       },
       {
         title: '숙제창 상태 유지 및 자동 복원',
         keywords: ['숙제', '복원', '체크리스트', '기억', 'contents'],
-        category: '앱 & 런처 > 앱 동작',
-        groupId: 'app', routeIndex: 0, targetId: 'auto-open-contents-checker-input'
+        targetId: 'auto-open-contents-checker-input'
       },
       {
         title: '게임 종료 리마인더',
         keywords: ['종료', '리마인더', '알림', '메시지', 'exit', 'reminder'],
-        category: '앱 & 런처 > 앱 동작',
-        groupId: 'app', routeIndex: 0, targetId: 'game-exit-reminder-input'
+        targetId: 'game-exit-reminder-input'
       },
       {
         title: '사이드바 & 독 배치 설정 (좌/우/상/하)',
         keywords: ['사이드바', '독', 'dock', '배치', '왼쪽', '오른쪽', '하단독', '상단독', '위치'],
-        category: '앱 & 런처 > 사이드바 & 독',
-        groupId: 'app', routeIndex: 1, targetId: 'sidebar-layout-card'
+        targetId: 'sidebar-layout-card'
       },
       {
         title: '사이드바 메뉴 보이기/숨기기 관리',
         keywords: ['사이드바', '메뉴', '숨기기', '표시', '체크박스', 'menu'],
-        category: '앱 & 런처 > 사이드바 & 독',
-        groupId: 'app', routeIndex: 1, targetId: 'menu-management-grid'
+        targetId: 'menu-management-grid'
       },
       {
         title: '웹 브라우저 창 (Home URL / 크기)',
         keywords: ['브라우저', '웹사이트', '홈', 'url', '너비', '높이', 'overlay', 'browser'],
-        category: '앱 & 런처 > 웹 브라우저 창',
-        groupId: 'app', routeIndex: 2, targetId: 'home-url-input'
+        pageId: 'browser', targetId: 'home-url-input'
       },
       {
         title: '퀵슬롯 단축키 및 바로가기 관리',
         keywords: ['퀵슬롯', '슬롯', '바로가기', '단축키', 'slot', 'quickslot'],
-        category: '앱 & 런처 > 퀵슬롯 관리',
-        groupId: 'app', routeIndex: 3, targetId: 'edit-list'
+        pageId: 'slots', targetId: 'edit-list'
       },
 
       // 2. 게임 HUD & 알림 (game)
       {
         title: 'HUD 마우스 드래그 위치 설정',
         keywords: ['hud', '위치', '드래그', '편집', '이동', '위치조정', 'move'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'btn-start-hud-edit'
+        targetId: 'btn-start-hud-edit'
       },
       {
         title: 'HUD 컴포넌트 단축키 뱃지 표시',
         keywords: ['단축키뱃지', '뱃지', '단축키', 'badge', 'hud'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'show-hud-shortcuts-input'
+        targetId: 'show-hud-shortcuts-input'
       },
       {
         title: '오늘 요약 HUD 설정 (표시, 투명도 및 좌표)',
         keywords: ['오늘요약', '요약', 'hud', 'today', '일일요약', '숙제요약', '투명도', '불투명도', 'opacity'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'today-summary-hud-settings-card'
+        targetId: 'today-summary-hud-settings-card'
       },
       {
         title: '스톱워치 타이머 HUD',
         keywords: ['스톱워치', '타이머', '시간측정', '클리어타임', 'stopwatch'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'section-game-overlay'
+        pageId: 'hud-widgets', targetId: 'section-game-overlay'
       },
       {
         title: '실시간 경험치(XP) HUD',
         keywords: ['경험치', 'xp', 'epm', '사냥', '레벨업', 'hud'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'section-game-overlay'
+        pageId: 'hud-widgets', targetId: 'section-game-overlay'
       },
       {
         title: '어벤던로드 마정석 위젯 HUD',
         keywords: ['어벤던', '어벤던로드', '마정석', '수익', 'seed', 'hud'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'section-game-overlay'
+        pageId: 'hud-widgets', targetId: 'section-game-overlay'
       },
       {
         title: '발굴지 현황 HUD 표시',
         keywords: ['발굴지', '포탈', '미방문', '보상', '현황판', 'hud'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'digsite-hud-settings-card'
+        targetId: 'digsite-hud-settings-card'
       },
       {
         title: '지능형 버프 타이머 HUD',
         keywords: ['버프', '도핑', '타이머', 'buff', 'hud'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'section-game-overlay'
+        pageId: 'hud-widgets', targetId: 'section-game-overlay'
       },
       {
         title: '경험의 정수 알림 설정 (경험치 HUD)',
         keywords: ['경험의정수', '정수', '버프', '100억', 'essence', '경고', '알림음', '소리', '볼륨'],
-        category: '게임 HUD & 알림 > HUD 위젯 관리',
-        groupId: 'game', routeIndex: 0, targetId: 'xp-feature-settings-card'
+        targetId: 'xp-feature-settings-card'
       },
       {
         title: '몬스터 웨이브 종료 대기 알림 (경고 & 사운드)',
         keywords: ['웨이브', '몬스터', '대기', '웨이브경고', 'wave'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'wave-warning-enabled'
+        targetId: 'wave-warning-enabled'
       },
       {
         title: '공허 특별 몬스터 출현 알림 & 사운드',
         keywords: ['공허', '특별몬스터', '몬스터출현', '젠알림', 'specialmonster', '알림음', '소리'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'special-monster-alert-enabled'
+        targetId: 'special-monster-alert-enabled'
       },
       {
         title: '골고다 강력한 적(선봉대 부대장) 출현 알림 & 사운드',
         keywords: ['골고다', '강력한적', '부대장', '선봉대부대장', '몬스터출현', '젠알림', 'golgotha', '알림음', '소리'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'golgotha-alert-enabled'
+        targetId: 'golgotha-alert-enabled'
       },
       {
         title: '어벤던로드 10회 완료 알림',
         keywords: ['어벤던', '어벤던로드', '10회', '보석알림', 'abandoned'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'abandoned-alert-enabled'
+        targetId: 'abandoned-alert-enabled'
       },
       {
         title: '팔색조 언덕 5회 완료 알림',
         keywords: ['팔색조', '언덕', '5회', '완료알림', 'pitta'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'pitta-hill-alert-enabled'
+        targetId: 'pitta-hill-alert-enabled'
       },
       {
         title: '이클립스 에토스 기믹 알림 & 사운드',
         keywords: ['에토스', '기믹', '이클립스', '화살표', 'ethos', '보스기믹'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'ethos-alert-enabled'
+        targetId: 'ethos-alert-enabled'
       },
       {
         title: '심연의 제2사도 공격 반사 알림 & 사운드',
         keywords: ['제2사도', '사도', '반사', '심연', '공격반사', 'abyss', '기믹'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'abyss-apostle-alert-enabled'
+        targetId: 'abyss-apostle-alert-enabled'
       },
       {
         title: '이클립스 로카고스 기믹 알림 & 사운드',
         keywords: ['로카고스', '기믹', '이클립스', '안전구역', 'lokagos', '보스기믹'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'lokagos-alert-enabled'
+        targetId: 'lokagos-alert-enabled'
       },
       {
         title: '도전과제 완료 알림 및 채팅 가이드',
         keywords: ['도전과제', '대장간', '골고다', '공허', '완료알림', 'quest'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'challenge-tracker-card'
+        targetId: 'challenge-tracker-card'
       },
       {
         title: '도전과제 완료 알림음 설정',
         keywords: ['도전과제', '완료', '알림음', '소리', '볼륨', 'quest'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'quest-complete-alert-sound'
+        targetId: 'quest-complete-alert-sound'
       },
       {
         title: '심연의 보물창고 완료 알림',
         keywords: ['심연', '보물창고', '완료', '퇴장', '알림', 'treasure'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'abyss-treasure-alert-enabled'
+        targetId: 'abyss-treasure-alert-enabled'
       },
       {
         title: '심연의 보물창고 완료 알림음 설정',
         keywords: ['심연', '보물창고', '완료', '알림음', '소리', '볼륨', 'treasure'],
-        category: '게임 HUD & 알림 > 게임 진행 알림',
-        groupId: 'game', routeIndex: 1, targetId: 'abyss-treasure-alert-sound'
+        targetId: 'abyss-treasure-alert-sound'
       },
 
       // 3. 채팅 & 로그 (chat)
       {
         title: '채팅 로그 폴더 경로 및 검증',
         keywords: ['채팅로그', '로그경로', 'chatlog', '폴더', '인식', 'path'],
-        category: '채팅 & 로그 > 채팅 로그 연동',
-        groupId: 'chat', routeIndex: 0, targetId: 'chat-log-path-input'
+        targetId: 'chat-log-path-input'
       },
       {
         title: '과거 채팅 로그 데이터 수동 동기화',
         keywords: ['동기화', '주간동기화', '역추적', '수동동기화', 'sync'],
-        category: '채팅 & 로그 > 채팅 로그 연동',
-        groupId: 'chat', routeIndex: 0, targetId: 'btn-manual-sync'
+        targetId: 'btn-manual-sync'
       },
       {
-        title: '완료된 채팅 로그 다시 분석 및 자동 기록 재구성',
+        title: '이미 동기화한 채팅 로그 다시 분석',
         keywords: ['완료로그', '재분석', '다시동기화', '초기화', '중복방지', '메인캐릭터', 'rebuild'],
-        category: '채팅 & 로그 > 채팅 로그 연동',
-        groupId: 'chat', routeIndex: 0, targetId: 'reanalyze-completed-chat-logs'
+        targetId: 'reanalyze-completed-chat-logs'
       },
       {
         title: '오래된 채팅 로그 자동 삭제',
         keywords: ['로그삭제', '자동삭제', '보관기간', 'cleanup'],
-        category: '채팅 & 로그 > 채팅 로그 연동',
-        groupId: 'chat', routeIndex: 0, targetId: 'chat-log-auto-delete-input'
+        targetId: 'chat-log-auto-delete-input'
       },
       {
         title: '채팅 오버레이 글자 크기 및 투명도',
         keywords: ['폰트', '글자크기', '투명도', '불투명도', 'opacity', 'fontsize'],
-        category: '채팅 & 로그 > 채팅 오버레이',
-        groupId: 'chat', routeIndex: 1, targetId: 'chat-overlay-settings-card'
+        pageId: 'chat-windows', targetId: 'chat-overlay-settings-card'
       },
       {
         title: '채팅 채널별 & 닉네임 글씨 색상 설정',
         keywords: ['색상', '글씨색', '닉네임', '귓속말', '팀', '클럽', '외치기', 'color', 'picker'],
-        category: '채팅 & 로그 > 채팅 오버레이',
-        groupId: 'chat', routeIndex: 1, targetId: 'chat-picker-general'
+        targetId: 'chat-picker-general'
       },
       {
         title: '채팅 오버레이 창 크기 (MAIN/SUB1/SUB2)',
         keywords: ['채팅창크기', '너비', '높이', '가로', '세로', 'sub', 'size'],
-        category: '채팅 & 로그 > 채팅 오버레이',
-        groupId: 'chat', routeIndex: 1, targetId: 'chat-overlay-width-input'
+        targetId: 'chat-overlay-width-input'
       },
       {
         title: '채팅 오버레이 채널 및 NPC/경험치/사칭 필터',
         keywords: ['필터', 'npc', '경험치', '엘소', '사칭', '외치기', 'filter'],
-        category: '채팅 & 로그 > 채팅 오버레이',
-        groupId: 'chat', routeIndex: 1, targetId: 'chat-overlay-show-npc-chat'
+        targetId: 'chat-overlay-show-npc-chat'
       },
       {
         title: '득템 알림 및 모험일지 기록 키워드',
         keywords: ['득템', '아이템', '모험일지', '기록', 'loot', 'item'],
-        category: '채팅 & 로그 > 득템 & 외치기',
-        groupId: 'chat', routeIndex: 2, targetId: 'loot-keyword-card'
+        targetId: 'loot-keyword-card'
       },
       {
         title: '인게임 외치기(Shout) 알림 키워드',
         keywords: ['외치기', '샤우트', '키워드', 'shout', 'keyword'],
-        category: '채팅 & 로그 > 득템 & 외치기',
-        groupId: 'chat', routeIndex: 2, targetId: 'shout-keyword-input'
+        targetId: 'shout-keyword-input'
       },
 
       // 4. 모니터링 & 소리 (alerts)
       {
         title: '매직위버 거래 게시판 모니터링',
         keywords: ['거래', '거래게시판', '매직위버', '하이아칸', '네냐플', 'trade'],
-        category: '모니터링 & 소리 > 외부 모니터링',
-        groupId: 'alerts', routeIndex: 0, targetId: 'trade-settings-card'
+        external: 'trade'
       },
       {
         title: '디시인사이드 갤러리 알림 키워드',
         keywords: ['갤러리', '디시', 'dc', '키워드', '알림', 'gallery'],
-        category: '모니터링 & 소리 > 외부 모니터링',
-        groupId: 'alerts', routeIndex: 0, targetId: 'gallery-keyword-card'
+        external: 'gallery'
       },
       {
         title: '숙제 & 계산기 효과음 볼륨 믹서',
         keywords: ['볼륨', '효과음', '사운드', '음량', '음소거', 'mute', 'volume'],
-        category: '모니터링 & 소리 > 공통 알림 & 소리',
-        groupId: 'alerts', routeIndex: 1, targetId: 'volume-contents-checker'
+        targetId: 'volume-contents-checker'
       },
       {
         title: '커스텀 알림음 관리 (.mp3 / .wav)',
         keywords: ['커스텀알림음', 'mp3', 'wav', '음원', '사운드추가', 'customsound'],
-        category: '모니터링 & 소리 > 커스텀 알림음',
-        groupId: 'alerts', routeIndex: 2, targetId: 'custom-sounds-list'
+        pageId: 'sound-files', targetId: 'custom-sounds-list'
       },
       {
         title: '알림 발생 이력 기록 및 필터',
         keywords: ['알림기록', '로그', '히스토리', '내역', 'log', 'history'],
-        category: '모니터링 & 소리 > 알림 기록',
-        groupId: 'alerts', routeIndex: 3, targetId: 'alarm-log-filter'
+        external: 'alarm-log'
       },
 
       // 5. 시스템 & 관리 (system)
       {
         title: '글로벌 단축키 일괄 설정',
         keywords: ['단축키', '핫키', '투과', '열기', '단축키설정', 'shortcut', 'hotkey'],
-        category: '시스템 & 관리 > 단축키 설정',
-        groupId: 'system', routeIndex: 0, targetId: 'shortcuts-list-card'
+        pageId: 'shortcut-app', targetId: 'shortcuts-list-card'
       },
       {
         title: '전체 데이터 백업 및 복구',
         keywords: ['백업', '복구', '복원', '데이터', 'backup', 'restore'],
-        category: '시스템 & 관리 > 데이터 관리',
-        groupId: 'system', routeIndex: 1, targetId: 'section-data'
+        pageId: 'backup', targetId: 'backup-settings-card'
       },
       {
         title: '모험 일지 데이터 자동삭제 보관 기간',
         keywords: ['일지보관', '모험일지', '데이터보관', '보관기간', 'diary'],
-        category: '시스템 & 관리 > 데이터 관리',
-        groupId: 'system', routeIndex: 1, targetId: 'diary-keep-days-card'
+        targetId: 'diary-keep-days-card'
       },
       {
         title: '게임 네트워크 패스트핑 (Nagle 알고리즘 최적화)',
         keywords: ['패스트핑', '핑업', '최적화', '네트워크', 'fastping', 'nagle', 'optimize'],
-        category: '시스템 & 관리 > 네트워크 최적화',
-        groupId: 'system', routeIndex: 2, targetId: 'section-optimize'
+        pageId: 'optimize', targetId: 'section-optimize'
       },
       // 6. 앱 정보 (about)
       {
         title: 'TW-Overlay 버전 정보 및 업데이트 확인',
         keywords: ['버전', '업데이트', '릴리즈노트', '패치노트', 'about', 'version', '앱정보'],
-        category: '앱 정보',
-        groupId: 'about', routeIndex: 0, targetId: 'section-about'
+        pageId: 'updates', targetId: 'section-about'
       },
     ];
+
+    const SETTINGS_HIGHLIGHT_TARGETS = {
+      startup: 'general-app-card',
+      'launcher-layout': 'sidebar-layout-card',
+      'hud-position': 'hud-position-settings-card',
+      'alarm-position': 'notification-position-settings-card',
+      volumes: 'volume-contents-checker',
+      'log-connection': 'chat-log-path-input',
+      'log-restore': 'btn-manual-sync',
+      'chat-windows': 'chat-overlay-settings-card',
+      loot: 'loot-keyword-card',
+      'today-summary': 'today-summary-hud-settings-card',
+      'shortcut-app': 'shortcuts-list-card',
+      'google-sync': 'google-sync-card',
+      backup: 'backup-settings-card',
+      'diary-retention': 'diary-keep-days-card',
+      help: 'settings-guide-actions',
+      optimize: 'section-optimize',
+      updates: 'section-about',
+    };
+    const openSettingsFeature = {
+      'xp-hud': () => window.electronAPI.toggleXpHud(),
+      'boss-settings': () => window.electronAPI.toggleBossSettings(),
+      'buff-timer': () => window.electronAPI.toggleBuffTimer(),
+      'custom-alert': () => window.electronAPI.toggleCustomAlert(),
+    };
+
+    function getSearchRoute(targetId, pageId) {
+      const target = document.getElementById(targetId);
+      if (targetId && !target) return null;
+      const section = target?.closest('.sub-tab-content');
+      const page = target?.closest('[data-settings-pages]')?.dataset.settingsPages.split(' ')[0];
+      return resolveSettingsRoute(pageId || page ||
+        (section?.id === 'sub-tab-gimmick' ? 'game-alarms' : ''));
+    }
+
+    function getSearchItems() {
+      const pages = Object.values(SETTINGS_NAV_GROUPS).flat().map(route => ({
+        title: route.label, keywords: [], pageId: route.id, targetId: SETTINGS_HIGHLIGHT_TARGETS[route.id] || '',
+      }));
+      return [...SETTINGS_SEARCH_INDEX, ...pages].flatMap(item => {
+        if (item.external) return [{ ...item, category: '기능 창' }];
+        const route = getSearchRoute(item.targetId, item.pageId);
+        if (!route) return [];
+        const nav = document.querySelector(`[data-settings-group="${route.groupId}"]`);
+        const page = SETTINGS_NAV_GROUPS[route.groupId][route.routeIndex];
+        const groupLabel = nav.textContent.trim();
+        const category = groupLabel === page.label ? groupLabel : `${groupLabel} → ${page.label}`;
+        return [{ ...item, ...route, category }];
+      });
+    }
+
+    function normalizeSettingsSearch(text) {
+      return text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    }
 
     let _selectedSearchIndex = -1;
     let _quickSearchInitialized = false;
@@ -5014,6 +5104,7 @@
       });
 
       input.addEventListener('keydown', (e) => {
+        if (e.isComposing) return;
         const items = resultsDropdown.querySelectorAll('.search-result-item');
         if (e.key === 'ArrowDown') {
           e.preventDefault();
@@ -5024,7 +5115,7 @@
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
           if (items.length > 0) {
-            _selectedSearchIndex = (_selectedSearchIndex - 1 + items.length) % items.length;
+            _selectedSearchIndex = _selectedSearchIndex <= 0 ? items.length - 1 : _selectedSearchIndex - 1;
             updateSelectedSearchResult(items);
           }
         } else if (e.key === 'Enter') {
@@ -5066,18 +5157,20 @@
     function renderSearchResults(query) {
       const resultsDropdown = document.getElementById('settings-search-results');
       if (!resultsDropdown) return;
+      query = normalizeSettingsSearch(query);
 
-      const scored = SETTINGS_SEARCH_INDEX.map(item => {
+      const scored = (query ? getSearchItems() : []).map(item => {
         let score = 0;
-        const titleLower = item.title.toLowerCase();
-        const categoryLower = item.category.toLowerCase();
+        const titleLower = normalizeSettingsSearch(item.title);
+        const categoryLower = normalizeSettingsSearch(item.category);
+        const keywords = item.keywords.map(normalizeSettingsSearch);
 
         if (titleLower.startsWith(query)) score += 100;
         else if (titleLower.includes(query)) score += 60;
 
-        if (item.keywords.some(k => k.toLowerCase() === query)) score += 50;
-        else if (item.keywords.some(k => k.toLowerCase().startsWith(query))) score += 30;
-        else if (item.keywords.some(k => k.toLowerCase().includes(query))) score += 20;
+        if (keywords.includes(query)) score += 50;
+        else if (keywords.some(k => k.startsWith(query))) score += 30;
+        else if (keywords.some(k => k.includes(query))) score += 20;
 
         if (categoryLower.includes(query)) score += 15;
 
@@ -5099,15 +5192,28 @@
         return;
       }
 
-      resultsDropdown.innerHTML = scored.map((item, idx) => `
-        <div class="search-result-item flex flex-col gap-0.5" data-search-idx="${idx}"
-             onclick="selectSearchResult('${item.groupId}', ${item.routeIndex}, '${item.targetId || ''}')">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-200">${window.escapeHtml ? window.escapeHtml(item.title) : item.title}</span>
-            <span class="text-[10px] text-purple-400 font-bold px-1.5 py-0.5 rounded bg-purple-500/10">${window.escapeHtml ? window.escapeHtml(item.category) : item.category}</span>
-          </div>
-        </div>
-      `).join('');
+      resultsDropdown.replaceChildren(...scored.map((item, index) => {
+        const result = document.createElement('button');
+        result.type = 'button';
+        result.className = 'search-result-item flex flex-col gap-0.5 w-full text-left';
+        result.dataset.searchIdx = index;
+        const title = document.createElement('span');
+        title.className = 'text-xs font-bold text-slate-200';
+        title.textContent = item.title;
+        const category = document.createElement('span');
+        category.className = 'text-xs text-purple-300';
+        category.textContent = item.category;
+        result.append(title, category);
+        result.addEventListener('click', () => {
+          if (item.external) {
+            const open = openSettingsFeature[item.external];
+            if (open) open();
+            else window.electronAPI.toggleSettings(item.external);
+            clearSettingsSearch();
+          } else selectSearchResult(item.groupId, item.routeIndex, item.targetId);
+        });
+        return result;
+      }));
 
       _selectedSearchIndex = -1;
       resultsDropdown.classList.remove('hidden');
@@ -5140,31 +5246,16 @@
     window.selectSearchResult = selectSearchResult;
     window.clearSettingsSearch = clearSettingsSearch;
 
+    let settingsHighlightTimer;
     function clearAllHighlights() {
+      clearTimeout(settingsHighlightTimer);
       document.querySelectorAll('.highlight-pulse-effect').forEach(el => el.classList.remove('highlight-pulse-effect'));
     }
 
     function selectSearchResult(groupId, routeIndex, targetId) {
       openSettingsSubTabDirectly(groupId, routeIndex);
       clearSettingsSearch();
-
-      if (targetId) {
-        setTimeout(() => {
-          clearAllHighlights();
-          const el = document.getElementById(targetId);
-          if (el) {
-            const targetContainer = el.closest('label, .slot-card, .ui-card, .ui-inset, .p-6, .p-5, .p-4, .settings-group') || el;
-            targetContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            targetContainer.classList.remove('highlight-pulse-effect');
-            void targetContainer.offsetWidth;
-            targetContainer.classList.add('highlight-pulse-effect');
-
-            if (typeof el.focus === 'function' && el.tagName !== 'DIV') {
-              try { el.focus({ preventScroll: true }); } catch (_) { }
-            }
-          }
-        }, 120);
-      }
+      highlightSettingsTarget(targetId, true);
     }
 
     function openSettingsSubTabDirectly(groupId, routeIndex) {
@@ -5182,54 +5273,69 @@
     }
 
     function applySettingsRouteView(route) {
-      const section = document.getElementById(`section-${route.section}`);
-      if (!section) return;
-      section.querySelectorAll('[data-settings-view]').forEach(element => {
-        element.classList.toggle('hidden', Boolean(route.view) && element.dataset.settingsView !== route.view);
+      const section = document.getElementById('section-' + route.section);
+      section?.querySelectorAll('[data-settings-pages]').forEach(element => {
+        // Tailwind의 space-y는 hidden 속성이 있는 항목을 간격 계산에서 제외한다.
+        element.hidden = !element.dataset.settingsPages.split(' ').includes(route.id);
       });
-      const sectionTitle = route.section === 'general'
-        ? document.getElementById('general-section-title')
-        : route.section === 'data'
-          ? document.getElementById('data-section-title')
-          : null;
-      if (sectionTitle) sectionTitle.textContent = `${route.label} 설정`;
+      document.getElementById('settings-page-title').textContent = route.label;
     }
 
-    function renderSettingsContextTabs(groupId, activeRouteIndex) {
+    function renderSettingsContextTabs(groupId, activeRouteIndex, navEl) {
       const tabs = document.getElementById('settings-context-tabs');
+      navEl?.after(tabs);
       const routes = SETTINGS_NAV_GROUPS[groupId] || [];
-      if (!tabs) return;
-      if (routes.length <= 1) {
-        tabs.innerHTML = '';
-        tabs.classList.add('hidden');
-        return;
-      }
-      tabs.classList.remove('hidden');
-      tabs.innerHTML = routes.map((route, index) => `
-        <button type="button" class="settings-context-item ${index === activeRouteIndex ? 'active' : ''}"
-          data-settings-route="${groupId}:${index}" onclick="openSettingsRoute('${groupId}', ${index}, this)">
-          <i data-lucide="${route.icon}"></i>${route.label}
-        </button>
-      `).join('');
+      tabs.replaceChildren();
+      tabs.classList.toggle('hidden', routes.length <= 1);
+      routes.forEach((route, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'settings-context-item';
+        button.classList.toggle('active', index === activeRouteIndex);
+        button.textContent = route.label;
+        button.dataset.settingsRoute = groupId + ':' + index;
+        button.addEventListener('click', () => openSettingsRoute(groupId, index));
+        tabs.appendChild(button);
+      });
     }
 
-    function openSettingsRoute(groupId, routeIndex, contextEl = null) {
+    function revealSettingsMenu(group, selected) {
+      const nav = group.closest('.nav-container');
+      const submenu = document.getElementById('settings-context-tabs');
+      const viewport = nav.getBoundingClientRect();
+      const header = group.getBoundingClientRect();
+      const submenuBottom = submenu.classList.contains('hidden') ? header.bottom : submenu.getBoundingClientRect().bottom;
+      const inset = 6;
+      const availableHeight = nav.clientHeight - inset * 2;
+      const first = submenuBottom - header.top <= availableHeight ? header : selected.getBoundingClientRect();
+      const last = first === header ? submenuBottom : first.bottom;
+      if (first.top < viewport.top + inset) nav.scrollTop -= viewport.top + inset - first.top;
+      else if (last > viewport.top + nav.clientHeight - inset) nav.scrollTop += last - (viewport.top + nav.clientHeight - inset);
+    }
+
+    function openSettingsRoute(groupId, routeIndex) {
       const route = SETTINGS_NAV_GROUPS[groupId]?.[routeIndex];
       if (!route) return;
+      clearAllHighlights();
       const navEl = document.querySelector(`.nav-item[data-settings-group="${groupId}"]`);
       showSection(route.section, navEl);
-      document.querySelectorAll('.settings-context-item').forEach(item => item.classList.remove('active'));
-      const activeContextEl = contextEl || document.querySelector(`[data-settings-route="${groupId}:${routeIndex}"]`);
-      activeContextEl?.classList.add('active');
-
-      const chatlogTitle = document.getElementById('chatlog-section-title');
-      if (chatlogTitle && route.section === 'chatlog') {
-        chatlogTitle.textContent = groupId === 'game' ? '게임 진행 알림' : '채팅 & 로그 설정';
-      }
-      if (route.subTab) {
-        const section = document.getElementById(`section-${route.section}`);
-        showSubSection(route.subTab, section);
-      }
+      let activeNav = navEl;
+      document.querySelectorAll('.settings-context-item').forEach(item => {
+        const active = item.dataset.settingsRoute === groupId + ':' + routeIndex;
+        item.classList.toggle('active', active);
+        if (active) {
+          item.setAttribute('aria-current', 'page');
+          if (SETTINGS_NAV_GROUPS[groupId].length > 1) activeNav = item;
+        }
+        else item.removeAttribute('aria-current');
+      });
+      if (navEl && activeNav) revealSettingsMenu(navEl, activeNav);
+      if (route.subTab) showSubSection(route.subTab, document.getElementById('section-' + route.section));
+      const groupLabel = document.getElementById('settings-page-group');
+      groupLabel.textContent = navEl?.textContent.trim() || '';
+      groupLabel.hidden = groupLabel.textContent === route.label;
+      const icon = navEl?.querySelector('svg, i');
+      if (icon) document.getElementById('settings-page-icon').replaceChildren(icon.cloneNode(true));
       applySettingsRouteView(route);
       scrollSettingsToTop();
       window.refreshIcons();
@@ -5241,99 +5347,46 @@
         item.classList.remove('active');
         item.removeAttribute('aria-current');
       });
-      navEl?.classList.add('active');
       navEl?.setAttribute('aria-current', 'page');
-      renderSettingsContextTabs(groupId, routeIndex);
+      renderSettingsContextTabs(groupId, routeIndex, navEl);
       openSettingsRoute(groupId, routeIndex);
     }
 
+    const SETTINGS_ROUTE_ALIASES = {
+      app: 'startup', general: 'startup', 'general:app': 'startup', 'general:exit': 'exit-reminder',
+      'display:sidebar': 'launcher-layout', sidebar: 'launcher-layout', overlay: 'browser',
+      game: 'hud-position', 'game-overlay': 'hud-position', 'display:game-overlay': 'hud-position',
+      'alarm-position': 'hud-position',
+      'game:today-summary': 'today-summary', 'game:sub-tab-today-summary': 'today-summary',
+      'chatlog:sub-tab-today-summary': 'today-summary',
+      gimmick: 'game-alarms', 'game:gimmick': 'game-alarms', 'chatlog:sub-tab-gimmick': 'game-alarms',
+      chat: 'chat-windows', 'chat-overlay': 'chat-windows', 'chatlog:sub-tab-overlay': 'chat-windows',
+      chatlog: 'log-connection', 'chatlog:sub-tab-general': 'log-connection', community: 'log-connection',
+      'chatlog:history-sync': 'log-restore', 'chatlog:sub-tab-loot': 'loot',
+      alerts: 'alarm-policy', external: 'alarm-policy',
+      sound: 'volumes', 'sound:settings': 'volumes', 'sound:custom': 'sound-files',
+      system: 'shortcut-app', shortcuts: 'shortcut-app',
+      data: 'google-sync', 'data:google-sync': 'google-sync', 'data:retention': 'diary-retention',
+      'data:backup': 'backup', advanced: 'optimize', about: 'updates', info: 'updates', version: 'updates',
+    };
+
     function resolveSettingsRoute(tabId) {
-      if (!tabId) return null;
-      const directRoutes = {
-        // 앱 & 런처
-        'app': { groupId: 'app', routeIndex: 0 },
-        'general': { groupId: 'app', routeIndex: 0 },
-        'general:app': { groupId: 'app', routeIndex: 0 },
-        'general:exit': { groupId: 'app', routeIndex: 0 },
-        'display:sidebar': { groupId: 'app', routeIndex: 1 },
-        'sidebar': { groupId: 'app', routeIndex: 1 },
-        'overlay': { groupId: 'app', routeIndex: 2 },
-        'browser': { groupId: 'app', routeIndex: 2 },
-        'slots': { groupId: 'app', routeIndex: 3 },
-
-        // 게임 HUD & 알림
-        'game': { groupId: 'game', routeIndex: 0 },
-        'game-overlay': { groupId: 'game', routeIndex: 0 },
-        'display:game-overlay': { groupId: 'game', routeIndex: 0 },
-        'game:today-summary': { groupId: 'game', routeIndex: 0 },
-        'game:sub-tab-today-summary': { groupId: 'game', routeIndex: 0 },
-        'chatlog:sub-tab-today-summary': { groupId: 'game', routeIndex: 0 },
-        'gimmick': { groupId: 'game', routeIndex: 1 },
-        'game:gimmick': { groupId: 'game', routeIndex: 1 },
-        'chatlog:sub-tab-gimmick': { groupId: 'game', routeIndex: 1 },
-
-        // 채팅 & 로그
-        'chat': { groupId: 'chat', routeIndex: 0 },
-        'chatlog': { groupId: 'chat', routeIndex: 0 },
-        'chatlog:history-sync': { groupId: 'chat', routeIndex: 0 },
-        'chatlog:sub-tab-general': { groupId: 'chat', routeIndex: 0 },
-        'community': { groupId: 'chat', routeIndex: 0 },
-        'chat-overlay': { groupId: 'chat', routeIndex: 1 },
-        'chatlog:sub-tab-overlay': { groupId: 'chat', routeIndex: 1 },
-        'loot': { groupId: 'chat', routeIndex: 2 },
-        'chatlog:sub-tab-loot': { groupId: 'chat', routeIndex: 2 },
-
-        // 모니터링 & 소리
-        'alerts': { groupId: 'alerts', routeIndex: 0 },
-        'external': { groupId: 'alerts', routeIndex: 0 },
-        'gallery': { groupId: 'alerts', routeIndex: 0 },
-        'trade': { groupId: 'alerts', routeIndex: 0 },
-        'sound': { groupId: 'alerts', routeIndex: 1 },
-        'sound:settings': { groupId: 'alerts', routeIndex: 1 },
-        'sound:custom': { groupId: 'alerts', routeIndex: 2 },
-        'sound:log': { groupId: 'alerts', routeIndex: 3 },
-        'alarm-log': { groupId: 'alerts', routeIndex: 3 },
-
-        // 시스템 & 관리
-        'system': { groupId: 'system', routeIndex: 0 },
-        'shortcuts': { groupId: 'system', routeIndex: 0 },
-        'data': { groupId: 'system', routeIndex: 1 },
-        'data:google-sync': { groupId: 'system', routeIndex: 1 },
-        'data:retention': { groupId: 'system', routeIndex: 1 },
-        'data:backup': { groupId: 'system', routeIndex: 1 },
-        'optimize': { groupId: 'system', routeIndex: 2 },
-        'advanced': { groupId: 'system', routeIndex: 2 },
-
-        // 앱 정보
-        'about': { groupId: 'about', routeIndex: 0 },
-        'info': { groupId: 'about', routeIndex: 0 },
-        'version': { groupId: 'about', routeIndex: 0 },
-      };
-      if (directRoutes[tabId]) return directRoutes[tabId];
-
-      const [section, subTab] = tabId.split(':');
-      const preferredGroupBySection = {
-        general: 'app', overlay: 'app', slots: 'app',
-        'game-overlay': 'game',
-        chatlog: 'chat',
-        external: 'alerts', gallery: 'alerts', trade: 'alerts', sound: 'alerts',
-        shortcuts: 'system', data: 'system', optimize: 'system',
-        about: 'about',
-      };
-
-      if (subTab) {
-        for (const [groupId, routes] of Object.entries(SETTINGS_NAV_GROUPS)) {
-          const routeIndex = routes.findIndex(route => route.section === section && route.subTab === subTab);
-          if (routeIndex >= 0) return { groupId, routeIndex };
-        }
-      }
-
-      const preferredGroup = preferredGroupBySection[section];
-      if (preferredGroup) {
-        const routeIndex = SETTINGS_NAV_GROUPS[preferredGroup].findIndex(route => route.section === section);
-        if (routeIndex >= 0) return { groupId: preferredGroup, routeIndex };
+      const id = Object.hasOwn(SETTINGS_ROUTE_ALIASES, tabId) ? SETTINGS_ROUTE_ALIASES[tabId] : tabId;
+      for (const [groupId, routes] of Object.entries(SETTINGS_NAV_GROUPS)) {
+        const routeIndex = routes.findIndex(route => route.id === id);
+        if (routeIndex >= 0) return { groupId, routeIndex };
       }
       return null;
+    }
+
+    function openShortcutSetting(key) {
+      if (openSettingsPage(shortcutPages[key])) highlightSettingsTarget('shortcut-' + key);
+    }
+
+    function openSettingsPage(id) {
+      const target = resolveSettingsRoute(id);
+      if (target) openSettingsSubTabDirectly(target.groupId, target.routeIndex);
+      return Boolean(target);
     }
 
     function showSection(id, el) {
@@ -5358,11 +5411,6 @@
       window.refreshIcons();
       if (id === 'optimize') {
         ensureOptimizeStatus();
-      } else if (id === 'sound') {
-        const logSubTab = document.getElementById('sub-tab-alarm-log');
-        if (logSubTab && logSubTab.classList.contains('active')) {
-          renderAlarmLogs();
-        }
       } else if (id === 'chatlog') {
         const overlaySubTab = document.getElementById('sub-tab-overlay');
         if (overlaySubTab && overlaySubTab.classList.contains('active')) {
@@ -5388,9 +5436,7 @@
       if (target) target.classList.add('active');
       window.refreshIcons();
 
-      if (subTabId === 'sub-tab-alarm-log') {
-        renderAlarmLogs();
-      } else if (subTabId === 'sub-tab-overlay') {
+      if (subTabId === 'sub-tab-overlay') {
         ensureChatAndNicknameColorPickers();
       } else if (subTabId === 'sub-tab-loot') {
         ensureContentsItems();
@@ -5398,8 +5444,7 @@
     }
 
     function jumpToGimmickSettings() {
-      const navEl = document.querySelector('.nav-item[data-settings-group="game"]');
-      showSettingsGroup('game', navEl, 1);
+      openSettingsPage('game-alarms');
     }
 
     function toggleNicknameColorPickers() {
@@ -5556,13 +5601,16 @@
           colors[name][channel] = picker.getColor()?.toHEXA().toString(0).toUpperCase();
         }
       }
-      return { currentSlots, currentKeywords, tradeKeywordsList, lootKeywordsList, shoutKeywordsList,
+      return { currentSlots, lootKeywordsList, shoutKeywordsList,
         chatOverlayFilterList, customTabsList, hasCustomLootKeywords,
         shortcuts: window.settingsShortcuts.getShortcuts(), colors };
     }
 
     window.electronAPI.onConfigData((config, context) => {
-      window.nicknameNotes?.updateConfig(config);
+      window.dispatchEvent(new CustomEvent('settings-profile-changed', { detail: config.activePlayProfileId }));
+      document.getElementById('settings-current-profile-server').textContent =
+        config.userServer === 7 ? '하이아칸' : config.userServer === 16 ? '네냐플' : '서버 선택 필요';
+      window.settingsDraft.setOwner(config.activePlayProfileId || null);
       const hudPositionFields = {
         todaySummaryHudPos: ['today-summary-pos-left', 'today-summary-pos-top'],
         forgeQuestHudPos: ['forge-hud-pos-left', 'forge-hud-pos-bottom'],
@@ -5573,7 +5621,6 @@
       window.lastConfig = config;
       window.settingsConfigBinding.applyGeneralSettings(config, window.electronAPI.DEFAULT_CONFIG);
       window.settingsCompanion?.bind(config);
-      window.settingsActivityPresets?.bind(config);
       window.settingsNotificationLayout?.bind(config);
 
       // 체크박스 상태 적용 시도
@@ -5588,8 +5635,6 @@
       // 필드보스 설정은 boss-settings.html로 이전됨
 
       currentSlots = JSON.parse(JSON.stringify(config.quickSlots || []));
-      currentKeywords = JSON.parse(JSON.stringify(config.galleryKeywords || []));
-      tradeKeywordsList = JSON.parse(JSON.stringify(config.tradeKeywords || []));
       hasCustomLootKeywords = config.lootKeywords !== undefined;
       lootKeywordsList = JSON.parse(JSON.stringify(config.lootKeywords || []));
       shoutKeywordsList = JSON.parse(JSON.stringify(config.shoutKeywords || []));
@@ -5603,8 +5648,6 @@
         window.electronAPI.DEFAULT_CONFIG,
       );
       window.settingsConfigBinding.trackChatOverlaySizeInputs();
-
-      validateSettingsChatLogPath(config.chatLogPath);
 
       if (_pickrsInitialized) {
         initChatAndNicknameColorPickers(config);
@@ -5638,11 +5681,12 @@
       window.settingsConfigBinding.applyRadioSettings(config, window.electronAPI.DEFAULT_CONFIG);
 
       const draft = draftRefresh.restore(collectSettingsDraftExtras());
+      validateSettingsChatLogPath();
       for (const type of ['contents-checker', 'calculators']) {
         window.settingsAudioControls.bindVolumeControl(type, Number(document.getElementById(`volume-${type}`).value));
       }
       toggleNicknameColorPickers();
-      ({ currentSlots, currentKeywords, tradeKeywordsList, lootKeywordsList, shoutKeywordsList,
+      ({ currentSlots, lootKeywordsList, shoutKeywordsList,
         chatOverlayFilterList, customTabsList, hasCustomLootKeywords } = draft);
       window.settingsShortcuts.mergeShortcuts(draft.shortcuts);
       window.settingsShortcuts.renderInputs();
@@ -5654,8 +5698,6 @@
       renderChatOverlayFilterList();
       renderCustomTabsList();
       renderEditList();
-      renderKeywordList();
-      renderTradeKeywordList();
       renderLootKeywordList();
       renderShoutKeywordList();
 
@@ -5669,8 +5711,8 @@
 
       // config 로드 완료 (즉시 로딩 오버레이 닫고 ETA 캐시는 백그라운드 확인)
       _configReady = true;
+      window.settingsProfileTransition?.refreshLabel();
       hideLoading();
-      void updateEtaCacheStatusText();
     });
 
     // 초기화 실행
@@ -5681,180 +5723,31 @@
 
     // 설정 탭 강제 전환 IPC (다른 창에서 호출 시)
     window.electronAPI.onOpenSettingsTab((tabId) => {
-      const target = resolveSettingsRoute(tabId);
-      if (target) {
-        const navEl = document.querySelector(`.nav-item[data-settings-group="${target.groupId}"]`);
-        showSettingsGroup(target.groupId, navEl, target.routeIndex);
-        triggerSectionHighlight(tabId);
-      }
+      if (openSettingsPage(tabId)) triggerSectionHighlight(tabId);
     });
     // 초기 탭 요청은 리스너가 실제 등록된 뒤에만 전달받는다.
     window.electronAPI.sendRendererReady('settings');
 
-    // --- Alarm Logs JavaScript ---
-    let _alarmLogs = [];
-
-    async function renderAlarmLogs() {
-      if (!window.electronAPI || !window.electronAPI.getAlarmLogs) return;
-
-      try {
-        _alarmLogs = await window.electronAPI.getAlarmLogs(200);
-      } catch (e) {
-        console.error('Failed to get alarm logs:', e);
-        return;
-      }
-
-      const filterVal = document.getElementById('alarm-log-filter').value;
-      const listEl = document.getElementById('alarm-log-list');
-      const emptyEl = document.getElementById('alarm-log-empty');
-
-      if (!listEl) return;
-      listEl.innerHTML = '';
-
-      const filtered = _alarmLogs.filter(logItem => {
-        if (filterVal === 'all') return true;
-        return logItem.type === filterVal;
-      });
-
-      if (filtered.length === 0) {
-        emptyEl.classList.remove('hidden');
-        return;
-      }
-      emptyEl.classList.add('hidden');
-
-      filtered.forEach(logItem => {
-        const itemDiv = document.createElement('div');
-        itemDiv.className = 'flex items-start justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.06] hover:translate-x-1 transition-all gap-4';
-
-        let badgeText = '알림';
-        let badgeClass = 'bg-slate-400/5 text-slate-400 border-slate-500/20';
-
-        switch (logItem.type) {
-          case 'boss':
-            badgeText = '필드보스';
-            badgeClass = 'bg-red-400/5 text-red-400 border-red-500/20';
-            break;
-          case 'custom':
-            badgeText = '커스텀';
-            badgeClass = 'bg-pink-400/5 text-pink-400 border-pink-500/20';
-            break;
-          case 'word':
-            badgeText = '지정단어';
-            badgeClass = 'bg-sky-400/5 text-sky-400 border-sky-500/20';
-            break;
-          case 'wave':
-            badgeText = '웨이브';
-            badgeClass = 'bg-violet-400/5 text-violet-400 border-violet-500/20';
-            break;
-          case 'buff':
-            badgeText = '버프';
-            badgeClass = 'bg-orange-400/5 text-orange-400 border-orange-500/20';
-            break;
-        }
-
-        const scheduledTimeStr = formatTimestamp(logItem.scheduledAt ?? logItem.timestamp);
-        const recordedTimeStr = formatTimestamp(logItem.recordedAt ?? logItem.timestamp);
-        const missedSleepBadge = logItem.deliveryStatus === 'missed-sleep'
-          ? '<span class="px-2 py-1 text-[10px] font-bold border rounded-lg shrink-0 bg-amber-400/5 text-amber-300 border-amber-500/20">절전 중 놓침</span>'
-          : '';
-        const timeDescription = logItem.deliveryStatus === 'missed-sleep'
-          ? `예정 ${scheduledTimeStr} · 복귀 기록 ${recordedTimeStr}`
-          : recordedTimeStr;
-
-        itemDiv.innerHTML = `
-          <div class="flex items-start gap-4 w-full">
-            <span class="px-2.5 py-1 text-xs font-bold border rounded-lg shrink-0 ${badgeClass}">${badgeText}</span>
-            ${missedSleepBadge}
-            <div class="space-y-1.5 flex-1 min-w-0">
-              <p class="text-[13px] sm:text-sm font-semibold text-slate-100 leading-snug break-all">${window.escapeHtmlAttribute(logItem.message)}</p>
-              <div class="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
-                <i data-lucide="clock" class="w-3.5 h-3.5 opacity-60"></i>
-                <span>${timeDescription}</span>
-              </div>
-            </div>
-          </div>
-        `;
-        listEl.appendChild(itemDiv);
-      });
-
-      window.refreshIcons();
-    }
-
-    async function clearAllAlarmLogs() {
-      if (!confirm('모든 알림 기록을 삭제하시겠습니까?')) return;
-      if (window.electronAPI && window.electronAPI.clearAlarmLogs) {
-        window.electronAPI.clearAlarmLogs();
-        _alarmLogs = [];
-        renderAlarmLogs();
-      }
-    }
-
-    function formatTimestamp(ts) {
-      const d = new Date(ts);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const date = String(d.getDate()).padStart(2, '0');
-      const hours = String(d.getHours()).padStart(2, '0');
-      const minutes = String(d.getMinutes()).padStart(2, '0');
-      const seconds = String(d.getSeconds()).padStart(2, '0');
-      return `${year}-${month}-${date} ${hours}:${minutes}:${seconds}`;
-    }
-
     function triggerSectionHighlight(tabId) {
+      const route = resolveSettingsRoute(tabId);
+      const page = route && SETTINGS_NAV_GROUPS[route.groupId][route.routeIndex];
+      highlightSettingsTarget(SETTINGS_HIGHLIGHT_TARGETS[tabId] || (page && SETTINGS_HIGHLIGHT_TARGETS[page.id]));
+    }
+
+    function highlightSettingsTarget(targetId, focus = false) {
       clearAllHighlights();
-
-      let targetId = null;
-      if (tabId === 'general' || tabId === 'app') {
-        targetId = 'general-app-card';
-      } else if (tabId === 'display:sidebar' || tabId === 'sidebar') {
-        targetId = 'sidebar-layout-card';
-      } else if (tabId === 'display:game-overlay' || tabId === 'game-overlay' || tabId === 'game') {
-        targetId = 'hud-position-settings-card';
-      } else if (tabId === 'sound') {
-        targetId = 'volume-contents-checker';
-      } else if (tabId === 'chatlog' || tabId === 'chat') {
-        targetId = 'chat-log-path-input';
-      } else if (tabId === 'chatlog:history-sync') {
-        targetId = 'btn-manual-sync';
-      } else if (tabId === 'chatlog:sub-tab-overlay') {
-        targetId = 'chat-overlay-settings-card';
-      } else if (tabId === 'chatlog:sub-tab-loot') {
-        targetId = 'loot-keyword-card';
-      } else if (tabId === 'chatlog:sub-tab-today-summary' || tabId === 'game:today-summary') {
-        targetId = 'today-summary-hud-settings-card';
-      } else if (tabId === 'shortcuts') {
-        targetId = 'shortcuts-list-card';
-      } else if (tabId === 'gallery') {
-        targetId = 'gallery-keyword-card';
-      } else if (tabId === 'trade') {
-        targetId = 'trade-settings-card';
-      } else if (tabId === 'data:google-sync') {
-        targetId = 'google-sync-card';
-      } else if (tabId === 'data' || tabId === 'data:retention') {
-        targetId = 'diary-keep-days-card';
-      } else if (tabId === 'optimize') {
-        targetId = 'section-optimize';
-      } else if (tabId === 'about') {
-        targetId = 'section-about';
-      }
-
-      if (targetId) {
-        setTimeout(() => {
-          clearAllHighlights();
-          const targetEl = document.getElementById(targetId);
-          if (targetEl) {
-            const targetContainer = targetEl.closest('label, .slot-card, .ui-card, .ui-inset, .p-6, .p-5, .p-4, .settings-group') || targetEl;
-            targetContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            targetContainer.classList.remove('highlight-pulse-effect');
-            void targetContainer.offsetWidth; // reflow trigger
-            targetContainer.classList.add('highlight-pulse-effect');
-
-            setTimeout(() => {
-              targetContainer.classList.remove('highlight-pulse-effect');
-            }, 5000);
-          }
-        }, 120);
-      }
+      if (!targetId) return;
+      settingsHighlightTimer = setTimeout(() => {
+        const target = document.getElementById(targetId);
+        if (!target || target.closest('[hidden], .settings-section.hidden, .sub-tab-content:not(.active)')) return;
+        target.closest('details')?.setAttribute('open', '');
+        if (!target.getClientRects().length) return;
+        const card = target.closest('label, .slot-card, .ui-card, .ui-inset, .p-6, .p-5, .p-4, .settings-group') || target;
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.add('highlight-pulse-effect');
+        if (focus) target.focus({ preventScroll: true });
+        settingsHighlightTimer = setTimeout(() => card.classList.remove('highlight-pulse-effect'), 5000);
+      }, 120);
     }
 
     // --- 업데이트 UI 로직 ---
@@ -5980,69 +5873,9 @@
       window.refreshIcons();
     });
 
-    function renderKeywordList() {
-      const list = document.getElementById('keyword-list');
-      list.innerHTML = '';
-      if (currentKeywords.length === 0) {
-        list.innerHTML = '<span class="text-xs text-slate-600 p-2">등록된 키워드가 없습니다.</span>';
-        return;
-      }
-      currentKeywords.forEach((kw, i) => {
-        list.appendChild(window.settingsListRendering.createKeywordTag(
-          kw,
-          'keyword-tag',
-          () => removeKeyword(i)
-        ));
-      });
-      window.refreshIcons();
-    }
 
-    function addKeyword() {
-      const input = document.getElementById('keyword-input');
-      const val = input.value.trim();
-      if (val && !currentKeywords.includes(val)) {
-        currentKeywords.push(val);
-        renderKeywordList();
-        input.value = '';
-      }
-    }
 
-    function removeKeyword(index) {
-      currentKeywords.splice(index, 1);
-      renderKeywordList();
-    }
 
-    function renderTradeKeywordList() {
-      const list = document.getElementById('trade-keyword-list');
-      list.innerHTML = '';
-      if (tradeKeywordsList.length === 0) {
-        list.innerHTML = '<span class="text-xs text-slate-600 p-2">등록된 거래 게시판 키워드가 없습니다.</span>';
-        return;
-      }
-      tradeKeywordsList.forEach((kw, i) => {
-        list.appendChild(window.settingsListRendering.createKeywordTag(
-          kw,
-          'keyword-tag !border-emerald-500/30 !text-emerald-400 !bg-emerald-500/10',
-          () => removeTradeKeyword(i)
-        ));
-      });
-      window.refreshIcons();
-    }
-
-    function addTradeKeyword() {
-      const input = document.getElementById('trade-keyword-input');
-      const val = input.value.trim();
-      if (val && !tradeKeywordsList.includes(val)) {
-        tradeKeywordsList.push(val);
-        renderTradeKeywordList();
-        input.value = '';
-      }
-    }
-
-    function removeTradeKeyword(index) {
-      tradeKeywordsList.splice(index, 1);
-      renderTradeKeywordList();
-    }
 
     function renderEditList() {
       const list = document.getElementById('edit-list');
@@ -6174,7 +6007,8 @@
       content.scrollTo({ top: content.scrollHeight, behavior: 'smooth' });
     }
 
-    async function saveSettings() {
+    async function saveSettings(keepOpen = false) {
+      const expectedProfileId = lastConfig?.activePlayProfileId;
       // HUD 편집 중 일반 설정을 먼저 적용하면 비활성 HUD가 display:none으로 돌아가 위치를
       // 잃을 수 있다. 사용자가 전용 완료/취소 동작을 선택하기 전에는 전체 저장을 실행하지 않는다.
       if (isHudEditing) {
@@ -6182,8 +6016,17 @@
         card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         card?.classList.add('highlight-pulse-effect');
         setTimeout(() => card?.classList.remove('highlight-pulse-effect'), 1600);
-        return;
+        return false;
       }
+      const pendingEntry = ['shout-keyword-input', 'chat-overlay-filter-input']
+        .some(id => document.getElementById(id)?.value.trim());
+      if (pendingEntry || hasPendingCustomChatTabDraft()) {
+        const message = '작성 중인 키워드나 탭을 먼저 추가하거나 입력을 지운 뒤 저장해 주세요. 작성 내용은 유지됩니다.';
+        if (keepOpen) window.settingsProfileTransition?.report(message); else alert(message);
+        return false;
+      }
+      const release = window.settingsProfileTransition?.beginSave();
+      if (release === false) return false;
       try {
         try {
           const latestConfig = await window.electronAPI.getConfig();
@@ -6197,11 +6040,6 @@
         const homeUrlInput = document.getElementById('home-url-input').value.trim();
 
         const hiddenMenuIds = window.settingsMenuManagement.collectHiddenMenuIds();
-
-        const tradeServerParams = document.querySelector('input[name="trade-server"]:checked');
-        const tradeServerValue = tradeServerParams
-          ? tradeServerParams.value
-          : window.electronAPI.DEFAULT_CONFIG.tradeServer;
 
         const sidebarPosParams = document.querySelector('input[name="sidebar-position"]:checked');
         const sidebarPosValue = sidebarPosParams
@@ -6223,9 +6061,6 @@
           showSidebarToastOnOverlay: document.getElementById('show-sidebar-toast-on-overlay-input').checked,
 
           quickSlots: validSlots,
-          galleryKeywords: currentKeywords,
-          tradeKeywords: tradeKeywordsList,
-          tradeServer: tradeServerValue,
 
           gameExitReminderEnabled: document.getElementById('game-exit-reminder-input').checked,
           gameExitReminderMessage: document.getElementById('game-exit-reminder-message').value.trim(),
@@ -6258,20 +6093,34 @@
             }
             : { ...window.electronAPI.DEFAULT_CONFIG.forgeQuestHudPos }
         };
-        const result = await window.electronAPI.applySettingsConfirmed(settings);
+        const savedDraft = window.settingsDraft.beforeSave(window.settingsDraft.fieldIds(), collectSettingsDraftExtras(), collectSettingsDraftExtras);
+        const result = await window.electronAPI.applySettingsConfirmed(settings, expectedProfileId);
         if (!result?.success) throw new Error('설정을 저장하지 못했습니다. 입력을 유지했습니다. 다시 저장해 주세요.');
-        window.close();
-      } catch (e) { console.error(e); alert(e instanceof Error ? e.message : '설정을 저장하지 못했습니다. 다시 저장해 주세요.'); }
+        savedDraft.commit();
+        if (!keepOpen) window.close();
+        return true;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : '설정을 저장하지 못했습니다. 다시 저장해 주세요.';
+        if (keepOpen) window.settingsProfileTransition?.report(message); else {console.error(e);alert(message);}
+        return false;
+      } finally {release?.();}
     }
 
-    async function applySettingsWithDraft(settings, fieldIds = [], extras = {}) {
+    async function applySettingsWithDraft(settings, fieldIds = [], extras = {}, expectedProfileId = lastConfig?.activePlayProfileId) {
+      const release = window.settingsProfileTransition?.beginSave();
+      if (release === false) return { success: false, error: 'profile-changed' };
       const savedDraft = window.settingsDraft.beforeSave(fieldIds, extras, collectSettingsDraftExtras);
-      const result = await window.electronAPI.applySettingsConfirmed(settings);
-      if (result?.success) savedDraft.commit();
-      return result;
+      try {
+        const result = await window.electronAPI.applySettingsConfirmed(settings, expectedProfileId);
+        if (result?.success) {savedDraft.commit();window.settingsProfileTransition?.report('');}
+        return result;
+      } finally {release?.();}
     }
 
     async function applyChatOverlaySettingsOnly() {
+      const expectedProfileId = lastConfig?.activePlayProfileId;
+      const release = window.settingsProfileTransition?.beginSave();
+      if (release === false) return;
       const btn = document.querySelector('button[onclick="applyChatOverlaySettingsOnly()"]');
       const origHtml = btn ? btn.innerHTML : '';
       try {
@@ -6294,7 +6143,7 @@
         const result = await applySettingsWithDraft(chatSettings, fieldIds, {
           chatOverlayFilterList, customTabsList, lootKeywordsList, shoutKeywordsList,
           colors: collectSettingsDraftExtras().colors,
-        });
+        }, expectedProfileId);
         if (!result || !result.success) {
           if (btn) {
             btn.innerHTML = `<i data-lucide="circle-alert" class="w-4 h-4 text-rose-400"></i> <span class="text-rose-400">적용하지 못했습니다</span>`;
@@ -6320,6 +6169,7 @@
         }
         alert('채팅 오버레이 설정을 적용하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       } finally {
+        release?.();
         if (btn) {
           btn.disabled = false;
           if (btn.innerHTML.includes('적용하지 못했습니다')) {
@@ -6344,7 +6194,18 @@
     }
 
     let isHudEditing = false;
+    let isNotifEditing = false;
+    let positionEditStarting = false;
     let hudSavedTimer = null;
+
+    function updatePositionEditControls() {
+      for (const id of ['btn-start-hud-edit', 'btn-reset-hud-positions']) {
+        document.getElementById(id).disabled = positionEditStarting || isNotifEditing;
+      }
+      for (const id of ['btn-start-notif-edit', 'btn-reset-notif-positions']) {
+        document.getElementById(id).disabled = positionEditStarting || isHudEditing;
+      }
+    }
 
     function updateHudEditSaveUi(editing) {
       const saveAllBtn = document.getElementById('btn-save-all-settings');
@@ -6368,6 +6229,7 @@
     function renderHudEditState(editing, outcomeOrMessage) {
       isHudEditing = editing;
       updateHudEditSaveUi(editing);
+      updatePositionEditControls();
       const statusBadge = document.getElementById('hud-edit-status-badge');
       if (statusBadge) {
         if (editing) {
@@ -6404,9 +6266,9 @@
     window.electronAPI?.onGameOverlayEditState?.(editing => renderHudEditState(editing));
 
     async function startHudEditMode() {
-      if (typeof isNotifEditing !== 'undefined' && isNotifEditing) {
-        await stopNotificationEditMode(false);
-      }
+      if (positionEditStarting || isProfileSettingsEditing()) return;
+      positionEditStarting = true;
+      updatePositionEditControls();
       try {
         const success = await window.electronAPI?.setGameOverlayEditMode(true);
         if (!success) {
@@ -6415,6 +6277,7 @@
         }
         renderHudEditState(true);
       } catch { renderHudEditState(false, '편집 모드를 열지 못했습니다. 다시 시도하세요.'); }
+      finally { positionEditStarting = false; updatePositionEditControls(); }
     }
 
     async function stopHudEditMode(save = true) {
@@ -6464,7 +6327,7 @@
       }
     }
 
-    let isNotifEditing = false;
+    function isProfileSettingsEditing() { return isHudEditing || isNotifEditing; }
     let notifSavedTimer = null;
 
     function updateNotifEditSaveUi(editing) {
@@ -6489,6 +6352,7 @@
     function renderNotificationEditState(editing, outcomeOrMessage) {
       isNotifEditing = editing;
       updateNotifEditSaveUi(editing);
+      updatePositionEditControls();
       const statusBadge = document.getElementById('notif-edit-status-badge');
       if (statusBadge) {
         if (editing) {
@@ -6525,9 +6389,9 @@
     window.electronAPI?.onNotificationEditState?.((editing, outcome) => renderNotificationEditState(editing, outcome));
 
     async function startNotificationEditMode() {
-      if (typeof isHudEditing !== 'undefined' && isHudEditing) {
-        await stopHudEditMode(false);
-      }
+      if (positionEditStarting || isProfileSettingsEditing()) return;
+      positionEditStarting = true;
+      updatePositionEditControls();
       try {
         const success = await window.electronAPI?.setNotificationEditMode(true);
         if (!success) {
@@ -6536,6 +6400,7 @@
         }
         renderNotificationEditState(true);
       } catch { renderNotificationEditState(false, '편집 모드를 열지 못했습니다. 다시 시도하세요.'); }
+      finally { positionEditStarting = false; updatePositionEditControls(); }
     }
 
     async function stopNotificationEditMode(save = true) {
@@ -6554,13 +6419,16 @@
       }
     }
 
-    function resetNotificationPositionsToDefault() {
-      if (window.electronAPI && window.electronAPI.resetNotificationPositions) {
-        window.electronAPI.resetNotificationPositions();
-      }
+    async function resetNotificationPositionsToDefault() {
       if (notifSavedTimer) {
         clearTimeout(notifSavedTimer);
         notifSavedTimer = null;
+      }
+      let result;
+      try { result = await window.electronAPI?.resetNotificationPositions?.(); } catch { /* 연결 오류도 같은 위치에 표시합니다. */ }
+      if (!result?.success) {
+        renderNotificationEditState(isNotifEditing, result?.error || '알림 위치를 초기화하지 못했습니다. 다시 시도해 주세요.');
+        return;
       }
       const statusBadge = document.getElementById('notif-edit-status-badge');
       if (statusBadge) {
@@ -6580,13 +6448,6 @@
         stopNotificationEditMode(false);
       }
     });
-
-    function openSettingsSubTabDirectly(groupId, routeIndex) {
-      const navEl = document.querySelector(`.nav-item[data-settings-group="${groupId}"]`);
-      if (navEl) {
-        showSettingsGroup(groupId, navEl, routeIndex);
-      }
-    }
 
     function resetTodaySummaryHudPosition() {
       const defaultPosition = window.electronAPI.DEFAULT_CONFIG.todaySummaryHudPos;
@@ -6672,52 +6533,6 @@
       window.settingsSoundPreview.previewAlertSound({ soundElementId: 'lokagos-alert-sound', volumeElementId: 'lokagos-alert-volume', label: '로카고스 기믹 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.lokagosAlertSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.lokagosAlertVolume });
     }
 
-    async function updateEtaCacheStatusText() {
-      const statusEl = document.getElementById('eta-cache-status');
-      if (!statusEl) return;
-      try {
-        const status = await window.electronAPI.getEtaCacheStatus();
-        if (status.exists) {
-          statusEl.innerText = status.collectDate
-            ? `로컬 캐시: 존재함 (${status.collectDate})`
-            : '로컬 캐시: 존재함';
-          statusEl.className = 'text-xs text-emerald-400 mt-1 font-semibold';
-        } else {
-          statusEl.innerText = '로컬 캐시: 없음 (갱신 필요)';
-          statusEl.className = 'text-xs text-rose-400 mt-1 font-semibold';
-        }
-      } catch (e) {
-        statusEl.innerText = '로컬 캐시 상태 확인 실패';
-        statusEl.className = 'text-xs text-slate-500 mt-1';
-      }
-    }
-
-    async function fetchRemoteEtaRankings() {
-      const btn = document.getElementById('btn-fetch-eta');
-      if (btn) {
-        btn.disabled = true;
-        btn.innerText = '갱신 중...';
-      }
-      try {
-        const success = await window.electronAPI.fetchEtaRankings();
-        if (success) {
-          alert('에타 랭킹 데이터를 성공적으로 갱신했습니다.');
-          await updateEtaCacheStatusText();
-        } else {
-          alert('에타 랭킹 데이터 갱신에 실패했습니다. URL을 확인해 주세요.');
-        }
-      } catch (e) {
-        alert('에러 발생: ' + e.message);
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerText = '지금 즉시 갱신';
-        }
-      }
-    }
-
-
-
     window.addEventListener('keydown', (e) => {
       if (window.settingsShortcuts.handleKeyDown(e)) return;
       if (e.key === 'Escape') {
@@ -6762,6 +6577,7 @@
       });
     })();
   </script>
+  <script src="renderer/settings/profile-transition.js"></script>
 </body>
 
 </html>

@@ -127,6 +127,12 @@ interface Window {
     open(target.dataset.noteNickname);
   });
   document.getElementById('nickname-note-add')?.addEventListener('click', () => open());
+  const notesPanel = document.getElementById('nickname-notes-panel') as HTMLDialogElement | null;
+  document.getElementById('open-nickname-notes')?.addEventListener('click', () => {
+    refreshList();
+    if (notesPanel && !notesPanel.open) notesPanel.showModal();
+  });
+  document.getElementById('nickname-notes-close')?.addEventListener('click', () => notesPanel?.close());
   function refreshList(): void {
     const list = document.getElementById('nickname-note-list');
     if (!list) return;

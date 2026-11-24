@@ -1,5 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron';
 import { load as loadConfig } from './config';
+import { setWindowMouseMode } from './rendererHealthGuard';
 
 let overlay: BrowserWindow | null = null;
 let requestId = 0;
@@ -13,7 +14,7 @@ function broadcast(editing: boolean): void {
 }
 function restoreInput(): void {
   if (overlay && !overlay.isDestroyed()) {
-    overlay.setIgnoreMouseEvents(true);
+    setWindowMouseMode(overlay,true);
     overlay.setFocusable(false);
     overlay.setAlwaysOnTop(false);
     // 편집 중 받은 설정은 드래그 좌표를 덮지 않는다. renderer의 편집 정리가 끝난 뒤
@@ -39,7 +40,7 @@ export function beginGameOverlayEdit(win: BrowserWindow): void {
     win.once('closed', () => { if (overlay === win) cancelGameOverlayEdit(); });
   }
   win.setFocusable(true);
-  win.setIgnoreMouseEvents(false);
+  setWindowMouseMode(win,false);
   win.setAlwaysOnTop(false);
   win.show();
   const enter = () => { if (overlay === win && !win.isDestroyed()) win.webContents.send('game-overlay-edit-mode', true); };

@@ -1,6 +1,20 @@
 import fs = require('fs');
 import path = require('path');
 
+/** 공격력/저항 부가 설명을 제거하되 아티팩트의 실제 디펜시오 이름은 보존한다. */
+export function cleanEquipmentName(itemName:string):string {
+  let name=itemName;
+  const isDefensio=itemName.includes('디펜시오');
+  name = name.replace(/\s*\([^)]*?\d+%\s*\)/g, '');
+  name = name.replace(/\s*-\s*[^-\n]*?\d+%\s*/g, '');
+  name = name.replace(/\s*(?:찌르기|베기|물리\s*복합|마법|마법\s*베기|신성)?\s*공격력\s*\+?\s*\d+%\s*/g, '');
+  name = name.replace(/\s*-\s*$/g, '');
+  name = name.trim();
+  if(isDefensio && !name.includes('디펜시오'))name+=' - 디펜시오';
+
+  return name;
+}
+
 const RAW_DIR = path.join(__dirname, '..', '.gemini', 'planning', 'equipment_dic');
 const RAW_RESOURCES_DIR = path.join(RAW_DIR, 'resources');
 const OUT_JSON_PATH = path.join(__dirname, '..', 'src', 'assets', 'data', 'equipment_dic.json');
@@ -381,12 +395,7 @@ function parseEquipmentGrid(
       const dmgMatch = name.match(/(?:찌르기|베기|물리\s*복합|마법|마법\s*베기|신성)?\s*공격력\s*\+?\s*(\d+)%/);
       if (dmgMatch) dmgPct = dmgMatch[1];
 
-      // Clean up names
-      name = name.replace(/\s*\([^)]*?\d+%\s*\)/g, '');
-      name = name.replace(/\s*-\s*[^-\n]*?\d+%\s*/g, '');
-      name = name.replace(/\s*(?:찌르기|베기|물리\s*복합|마법|마법\s*베기|신성)?\s*공격력\s*\+?\s*\d+%\s*/g, '');
-      name = name.replace(/\s*-\s*$/g, '');
-      name = name.trim();
+      name = cleanEquipmentName(itemName);
 
       const item: ParsedItem = {
         name: name,
@@ -671,4 +680,4 @@ function run() {
   console.log(`\n🎉 Success! Extracted ${allItems.length} items to ${OUT_JSON_PATH}`);
 }
 
-run();
+if(require.main===module)run();

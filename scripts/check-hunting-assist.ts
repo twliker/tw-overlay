@@ -210,7 +210,8 @@ async function main(): Promise<void> {
   try {
     const { xpTracker: tracker } = require(moduleFile('xpTracker'));
     const { chatParser } = require(moduleFile('chatParser'));
-    const gain = (amount: number) => chatParser.emit('XP_CHANGED', { amount, message: '테스트', timestamp: '00시 00분 00초' });
+    const gain = (amount: number) => chatParser.emit('XP_CHANGED', { amount,
+      message:amount<0 ? `경험치가 ${-amount} 감소했습니다.` : `경험치가 ${amount} 올랐습니다.`,timestamp:'00시 00분 00초' });
     tracker.start();
     tracker.startSession();
     gain(500);

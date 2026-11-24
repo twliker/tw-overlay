@@ -38,6 +38,7 @@ async function main(): Promise<void> {
   });
   ipcMain.on('get-default-config-sync', event => { event.returnValue = defaults; });
   ipcMain.handle('get-config', () => config.load());
+  ipcMain.handle('diary-profiles-get', () => ({enabled:false,profiles:[],activeProfileId:null,selectionRequired:true,busy:false}));
   ipcMain.handle('check-chat-log-status', () => ({ isValid: true, isMonitoring: true }));
   ipcMain.handle('diary-get-by-date', (_e, date) => db.getDiaryByDate(date, config.load().lootKeywords));
   ipcMain.handle('diary-get-by-month', (_e, month) => db.getDiariesByMonth(month));
@@ -81,6 +82,12 @@ async function main(): Promise<void> {
   assert.equal(review.changes.length, 2);
   config.saveConfirmed({ chatOverlayFontSize: 20 });
   assert.match((await js(`electronAPI.applySettingsShare(${JSON.stringify(opened.token)})`)).error, /다시 비교/);
+  config.saveConfirmed({ activePlayProfileId: 'profile-a' });
+  await js(`electronAPI.previewSettingsShare(${JSON.stringify(opened.token)},['appearance'])`);
+  config.saveConfirmed({ activePlayProfileId: 'profile-b' });
+  assert.match((await js(`electronAPI.applySettingsShare(${JSON.stringify(opened.token)})`)).error, /프로필이 바뀌었습니다/);
+  assert.equal(applied, 0);
+  config.saveConfirmed({ activePlayProfileId: undefined });
   review = await js(`electronAPI.previewSettingsShare(${JSON.stringify(opened.token)},['appearance'])`);
   config.saveConfirmed({ pinnedNoteText: '다른 창에서 바꾼 개인 메모' });
   failSave = true; assert.equal((await js(`electronAPI.applySettingsShare(${JSON.stringify(opened.token)})`)).success, false); assert.equal(config.load().chatOverlayFontSize, 20);
@@ -95,6 +102,11 @@ async function main(): Promise<void> {
   await js(`document.getElementById('settings-share-compare').click()`);
   await until(settings, `!document.getElementById('settings-share-apply').disabled`);
   await capture(settings, 'settings-share-review.png');
+  await js(`window.dispatchEvent(new CustomEvent('settings-profile-changed', {detail:'profile-b'}))`);
+  assert.equal(await js(`document.getElementById('settings-share-apply').disabled`), true);
+  assert.match(await js(`document.getElementById('settings-share-status').textContent`), /다시 비교/);
+  await js(`document.getElementById('settings-share-compare').click()`);
+  await until(settings, `!document.getElementById('settings-share-apply').disabled`);
   await js(`document.getElementById('settings-share-import-groups').querySelector('input').click()`);
   assert.equal(await js(`document.getElementById('settings-share-apply').disabled`), true);
   await js(`document.getElementById('settings-share-cancel').click()`);

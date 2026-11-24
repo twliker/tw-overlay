@@ -3,6 +3,12 @@
 
 interface Equipment { name: string; series: string; part?: string; stab?: number; hack?: number; def?: number; mag_atk?: number; mag_def?: number; hit?: number; }
 interface ProfileData { id: string; name: string; data: any; }
+const coefficientStorage=window.profileToolStorage || window.localStorage;
+let storedPresets: string | null = null;
+let storedSelection: string | null = null;
+let renderedPresetData = '';
+let presetRefresh: number | undefined;
+let defaultPresetData: ReturnType<typeof captureCurrentData>;
 
 let gearData: any = { armors: {}, weapons: {}, defense: {}, wrists: {}, artifacts: {} };
 let activeBuffs: any[] = [];
@@ -119,6 +125,7 @@ let isGlobalClickRegistered = false;
 
 async function init() {
   try {
+    await window.profileToolStorage?.ready;
     const [eqDic, buffs] = await Promise.all([
       fetch('./assets/data/equipment_dic.json').then(r => r.json()),
       fetch('./assets/data/buffs.json').then(r => r.json())
@@ -184,9 +191,15 @@ async function init() {
     activeBuffs = buffs;
     renderEquipmentOptions();
     initBuffPresets();
+    defaultPresetData = captureCurrentData();
     initProfiles();
     updateLabels();
-    calculate();
+    window.profileToolStorage?.setFlusher(() => {
+      const modal=document.getElementById('modal-overlay');
+      if (modal && !modal.classList.contains('hidden')) return '계수 계산기의 이름 입력을 완료하거나 취소한 뒤 프로필을 전환해 주세요.';
+      saveCurrentProfile();
+      return true;
+    });
     if ((window as any).lucide) (window as any).lucide.createIcons();
   } catch (e) { console.error('Data Load Failed', e); }
 
@@ -205,17 +218,27 @@ async function init() {
   document.getElementById('profile-select')?.addEventListener('change', (e) => switchProfile((e.target as HTMLSelectElement).value));
   document.getElementById('buff-preset-select')?.addEventListener('change', () => { calculate(); saveCurrentProfile(); });
   window.addEventListener('storage', event => {
-    if (event.storageArea !== localStorage || (event.key !== 'buff_presets' && event.key !== null)) return;
+    if (event.storageArea !== localStorage) return;
+    if (event.key === PROFILES_KEY || event.key === PROFILES_KEY + '_last' || event.key === SAVE_KEY || event.key === null) {
+      // 목록과 선택 ID는 따로 전송된다. 렌더링 전에 둘 다 최신 값으로 읽는다.
+      if (presetRefresh === undefined) presetRefresh = window.setTimeout(() => {
+        presetRefresh = undefined;
+        initProfiles();
+      }, 0);
+      if (event.key !== null) return;
+    }
+    if (event.key !== 'buff_presets' && event.key !== null) return;
     const selectionChanged = initBuffPresets();
     calculate();
-    if (selectionChanged) saveCurrentProfile();
+    if (selectionChanged && !window.profileToolStorage?.profileId()) saveCurrentProfile();
+    else if (selectionChanged) renderedPresetData = JSON.stringify(captureCurrentData());
   });
   document.getElementById('btn-toggle-buff-info')?.addEventListener('click', () => {
     showBuffTooltip = !showBuffTooltip;
     updateBuffTooltipIcon();
     updateBuffTooltipVisibility();
   });
-  document.getElementById('btn-add-profile')?.addEventListener('click', async () => { const n = await showPrompt('새 프로필', '이름 입력:'); if (n?.trim()) addProfile(n.trim()); });
+  document.getElementById('btn-add-profile')?.addEventListener('click', async () => { const n = await showPrompt('새 계산 프리셋', '이름 입력:'); if (n?.trim()) addProfile(n.trim()); });
   document.getElementById('btn-rename-profile')?.addEventListener('click', async () => { const p = profiles[currentProfileId]; if (p) { const n = await showPrompt('이름 변경', '새 이름:', p.name); if (n?.trim() && n !== p.name) renameProfile(currentProfileId, n.trim()); } });
   document.getElementById('btn-delete-profile')?.addEventListener('click', async () => { if (Object.keys(profiles).length > 1 && await showConfirm('삭제', '정말 삭제할까요?')) deleteProfile(currentProfileId); else if (Object.keys(profiles).length <= 1) showAlert('알림', '최소 1개는 유지해야 합니다.'); });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { const m = document.getElementById('modal-overlay'); if (m && !m.classList.contains('hidden')) document.getElementById('modal-cancel')?.click(); else window.close(); } });
@@ -243,7 +266,7 @@ function initBuffPresets(): boolean {
   const selectedId = select.value || 'none';
   const options = [new Option('없음', 'none'), new Option('기본 도핑 세트', 'standard')];
   const seen = new Set(['none', 'standard']);
-  const savedPresets = localStorage.getItem('buff_presets');
+  const savedPresets = coefficientStorage.getItem('buff_presets');
   if (savedPresets) {
     try {
       const presets = JSON.parse(savedPresets);
@@ -283,7 +306,7 @@ function calculate() {
     let buffIds: string[] = [];
     if (presetId === 'standard') buffIds = (window as any).buffConstants.STANDARD_BUFFS;
     else if (presetId !== 'none') {
-      const savedPresets = localStorage.getItem('buff_presets');
+      const savedPresets = coefficientStorage.getItem('buff_presets');
       if (savedPresets) {
         try {
           const presets = JSON.parse(savedPresets);
@@ -598,19 +621,24 @@ const showAlert = (t: string, m: string) => { const ca = document.getElementById
 
 function initProfiles() {
   try {
-    const s = localStorage.getItem(PROFILES_KEY), last = localStorage.getItem(PROFILES_KEY + '_last');
+    const s = coefficientStorage.getItem(PROFILES_KEY), last = coefficientStorage.getItem(PROFILES_KEY + '_last');
+    storedPresets = s;
+    storedSelection = last;
     let loaded = false;
     if (s) {
       try {
-        profiles = JSON.parse(s);
-        currentProfileId = last && profiles[last] ? last : Object.keys(profiles)[0];
-        loaded = true;
+        const parsed = JSON.parse(s) as typeof profiles;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length) {
+          profiles = parsed;
+          currentProfileId = last && Object.hasOwn(profiles,last) ? last : Object.keys(profiles)[0];
+          loaded = true;
+        }
       } catch (e) {
         console.error('Failed to parse profiles from storage', e);
       }
     }
     if (!loaded) {
-      const d = localStorage.getItem(SAVE_KEY);
+      const d = coefficientStorage.getItem(SAVE_KEY);
       let parsedData = null;
       if (d) {
         try {
@@ -619,11 +647,13 @@ function initProfiles() {
           console.error('Failed to parse legacy save data', e);
         }
       }
-      profiles = { 'default': { id: 'default', name: '기본 프로필', data: parsedData } };
+      profiles = { 'default': { id: 'default', name: '기본 계산 프리셋', data: parsedData } };
       currentProfileId = 'default';
     }
     renderProfileSelect(); 
     loadProfileData(currentProfileId);
+    calculate();
+    renderedPresetData = JSON.stringify(captureCurrentData());
   } catch (err) {
     console.error('Profile Init Failed:', err);
   }
@@ -640,12 +670,52 @@ function renderProfileSelect(): void {
   });
   select.replaceChildren(...options);
 }
-function addProfile(n: string) { const id = 'p' + Date.now(); profiles[id] = { id, name: n, data: captureCurrentData() }; saveProfilesToStorage(); switchProfile(id); }
-function renameProfile(id: string, n: string) { if (profiles[id]) { profiles[id].name = n; saveProfilesToStorage(); renderProfileSelect(); } }
-function deleteProfile(id: string) { delete profiles[id]; saveProfilesToStorage(); switchProfile(Object.keys(profiles)[0]); }
-function switchProfile(id: string) { if (!profiles[id]) return; saveCurrentProfile(); currentProfileId = id; localStorage.setItem(PROFILES_KEY + '_last', id); loadProfileData(id); renderProfileSelect(); calculate(); }
-function saveCurrentProfile() { if (profiles[currentProfileId]) { profiles[currentProfileId].data = captureCurrentData(); saveProfilesToStorage(); } }
-function saveProfilesToStorage() { localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles)); localStorage.setItem(PROFILES_KEY + '_last', currentProfileId); }
+function addProfile(name: string) {
+  const id = 'p' + Date.now();
+  saveProfilesToStorage({...profiles,[id]:{id,name,data:captureCurrentData()}});
+  switchProfile(id);
+}
+function renameProfile(id: string, name: string) {
+  if (!profiles[id]) return;
+  saveProfilesToStorage({...profiles,[id]:{...profiles[id],name}});
+  renderProfileSelect();
+}
+function deleteProfile(id: string) {
+  const {[id]:_removed,...remaining} = profiles;
+  if (!Object.keys(remaining).length) return;
+  saveProfilesToStorage(remaining);
+  switchProfile(Object.keys(remaining)[0]);
+}
+function switchProfile(id: string) {
+  if (!profiles[id]) return;
+  try {
+    saveCurrentProfile();
+    if (id !== storedSelection) writePresetValue(PROFILES_KEY + '_last',id,storedSelection);
+    storedSelection = id;
+    currentProfileId = id;
+    loadProfileData(id);
+    calculate();
+    renderedPresetData = JSON.stringify(captureCurrentData());
+  } finally {
+    renderProfileSelect();
+  }
+}
+function saveCurrentProfile() {
+  const data = captureCurrentData(), snapshot = JSON.stringify(data);
+  if (isLoadingProfile || !profiles[currentProfileId] || snapshot === renderedPresetData) return;
+  saveProfilesToStorage({...profiles,[currentProfileId]:{...profiles[currentProfileId],data}});
+  renderedPresetData = snapshot;
+}
+function saveProfilesToStorage(next: typeof profiles) {
+  const value = JSON.stringify(next);
+  writePresetValue(PROFILES_KEY,value,storedPresets);
+  storedPresets = value;
+  profiles = next;
+}
+function writePresetValue(key: string,value: string,expected: string | null) {
+  if (window.profileToolStorage?.setItemIfUnchanged) window.profileToolStorage.setItemIfUnchanged(key,value,expected);
+  else coefficientStorage.setItem(key,value);
+}
 
 function captureCurrentData() {
   const d: any = { 
@@ -695,11 +765,13 @@ function captureCurrentData() {
 function loadProfileData(id: string) {
   isLoadingProfile = true;
   try {
-    const p = profiles[id]; if (!p?.data) return; const d = p.data;
+    const p = profiles[id];
+    const d = p?.data || defaultPresetData;
+    if (!d) return;
     
-    if (d.stats) Object.keys(d.stats).forEach(k => { 
+    Object.keys(defaultPresetData?.stats || d.stats || {}).forEach(k => {
       const el = document.getElementById(`stat-${k}`) as HTMLInputElement; 
-      if (el) el.value = d.stats[k] || ''; 
+      if (el) el.value = d.stats?.[k] ?? defaultPresetData?.stats?.[k] ?? '';
     });
     
     // Reset all bonus inputs to HTML defaults to prevent state leakage

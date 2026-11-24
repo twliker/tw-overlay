@@ -136,7 +136,7 @@ export function getBossEntryWindows(now = new Date(Date.now())) {
     .filter(entry => !dismissedEntryWindows.has(entry.id));
 }
 
-function publishEntryWindows(): void {
+export function publishEntryWindows(): void {
   broadcastToAllWindows('boss-entry-update', getBossEntryWindows());
 }
 

@@ -3,7 +3,8 @@
  *
  * - 이 모듈은 채팅 로그를 다시 해석하지 않고, 모험일지 DB에서 조회한 해당 날짜 활동과 현재 숙제
  *   설정을 읽기 전용으로 요약합니다. 원본 기록 누락을 여기서 추정값으로 보정하지 않습니다.
- * - SEED·ELSO·보스·득템은 activity type별로 합산합니다. 경험의 정수는 일반 득템 키워드 등록 여부와
+ * - IPC는 현재 프로필의 일지만 전달합니다. SEED는 음수 지출을 포함한 순수익으로 합산합니다.
+ * - ELSO·보스·득템은 activity type별로 합산합니다. 경험의 정수는 일반 득템 키워드 등록 여부와
  *   무관하게 loot 활동의 실제 수량을 합산하되, 일반 득템 수·종류·목록에는 다시 포함하지 않는
  *   별도 지표입니다. 요약 HUD에서 전용 합계와 일반 득템 목록에 이중 표시하지 않습니다.
  * - 아이템 이름은 현재 형식과 과거 `[득템]` 저장 형식을 모두 읽을 수 있어야 합니다. 저장 문자열
@@ -75,6 +76,8 @@ export function buildTodaySummary(
   const lootCounts = new Map<string, number>();
 
   for (const activity of diaryData.activityLogs || []) {
+    // 복원과 겹칠 수 있는 구버전 일합계(금화·엘소·마정석)는 일지와 같이 합계에서 뺀다(diaryLegacyFees).
+    if (activity.legacy_review || activity.legacy_gold_review) continue;
     const amount = Number.isFinite(activity.amount) ? activity.amount : 0;
     if (activity.type === 'calc') totalSeed += amount;
     else if (activity.type === 'elso') totalElso += amount;

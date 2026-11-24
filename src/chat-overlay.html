@@ -483,6 +483,7 @@
         <button id="btnSettings" class="new-win-btn p-1 rounded hover:bg-white/10 text-slate-400 hover:text-emerald-400" title="채팅 오버레이 설정">
           <i data-lucide="settings" class="w-3.5 h-3.5"></i>
         </button>
+        <button type="button" id="open-nickname-notes" class="new-win-btn p-1 rounded hover:bg-white/10" title="닉네임 메모" aria-label="닉네임 메모"><i data-lucide="sticky-note" class="w-3.5 h-3.5"></i></button>
         <div class="w-[1px] h-3 bg-white/10 mx-0.5"></div>
         <button id="btnOpenSub1" class="new-win-btn text-xs font-bold px-1.5 py-0.5 rounded border border-white/10" title="Sub 1 창 열기" style="display: none;">
           SUB 1
@@ -553,6 +554,14 @@
   <script src="renderer/custom-chat-fonts.js"></script>
   <script src="assets/request-generation.js"></script>
   <script src="assets/virtual-list.js"></script>
+  <dialog id="nickname-notes-panel" class="nickname-note-dialog" aria-label="닉네임 메모">
+    <div class="ui-stack">
+      <div class="ui-card-header"><h2 class="ui-heading">닉네임 메모</h2><button type="button" id="nickname-notes-close" class="ui-button">닫기</button></div>
+      <p id="nickname-note-server" class="ui-description"></p>
+      <button type="button" id="nickname-note-add" class="ui-button">메모 추가</button>
+      <div id="nickname-note-list" class="max-h-56 overflow-auto custom-scroll space-y-2"></div>
+    </div>
+  </dialog>
   <script src="renderer/nickname-notes.js"></script>
   <script src="chatOverlayRenderer.js"></script>
   <script>

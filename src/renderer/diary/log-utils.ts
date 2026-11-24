@@ -17,6 +17,7 @@
       [/([\d,]+)\s*억/u, 100_000_000],
       [/([\d,]+)\s*만/u, 10_000],
     ];
+    const sign = /^\s*-/.test(amountText) ? -1 : 1;
     let amount = 0;
     let matchedUnit = false;
     for (const [pattern, multiplier] of unitValues) {
@@ -25,10 +26,10 @@
       amount += parseInt(matched.replace(/,/g, ''), 10) * multiplier;
       matchedUnit = true;
     }
-    if (matchedUnit) return amount;
+    if (matchedUnit) return sign * amount;
 
     const rawNumber = amountText.match(/([\d,]+)/)?.[1];
-    return rawNumber ? parseInt(rawNumber.replace(/,/g, ''), 10) : 0;
+    return rawNumber ? sign * parseInt(rawNumber.replace(/,/g, ''), 10) : 0;
   }
 
   /**

@@ -16,6 +16,13 @@
  * - 최대 횟수에서 다시 누르는 등 횟수·완료 상태가 그대로인 입력은 완료 일시나 일지를 갱신하지 않습니다.
  * - 초기화 규칙 수정은 원래 수행 시각으로 만료 여부를 먼저 판정하고 유효한 횟수만 최대값에 맞춥니다.
  *   주기 만료는 과거 완료 일지를 취소하거나 오늘 완료로 다시 기록하지 않습니다.
+ * - 프로필 모드의 수동 조작은 profileChecklistIpc에서 원래 프로필·설정/일지/요약/ACK를 함께 확정합니다.
+ *   실패한 편집값은 화면에 남기고 응답 유실 재확인은 같은 요청 ID를 사용합니다. 기존 내부 일지 재시도도
+ *   프로필별 키/당시 귀속을 유지합니다. check-profile-checklist.ts, check-renderer-behavior.ts --checklist,
+ *   check-window-visibility.ts, check-audit-regressions.ts를 함께 확인합니다.
+ * - 프로필 이전 전 deferRuntime 준비는 설정의 정규화/만료 처리만 수행합니다. 기존 diary.db를
+ *   열거나 일지 집계·창 갱신·리셋 타이머를 시작하지 않습니다. 새 DB 연결 뒤 일반 검사를 시작합니다.
+ *   실제 구버전 패키지 이전 회귀: check-profile-upgrade.ts.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,11 +30,26 @@ import { app } from 'electron';
 import * as config from './config';
 import { AppConfig, ContentsCheckerItem, ResetRule, MAIN_CHAR_ID, DEFAULT_CHAR_NAME, PendingHomework, TodaySummaryDetectedHomework } from '../shared/types';
 import { log } from './logger';
+import {deferRecordEffect,isCollectingRecordEffects} from './recordEffects';
 import * as diaryDb from './diaryDb';
 import { formatLocalDateKey as getLocalDateKey } from '../shared/localDate';
-import { getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
+import { getHomeworkCycleEnd,getHomeworkCycleStart,getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
+import {getProfileRuntime} from './profileRuntime';
+import {createCorrectedTimeline} from './profileClock';
 
 export { getHomeworkResetCycleKey } from '../shared/homeworkResetCycle';
+
+// 리셋 판정과 감지 기록의 주기 분류는 같은 보정 시간축을 쓴다(profileClock.createCorrectedTimeline 계약).
+// PC 시계는 이 모듈의 Date.now로 명시한다(v3.2.2의 homeworkNow와 같은 기준, 시간을 고정하는 검사 포함).
+const homeworkTimeline=createCorrectedTimeline(() => getProfileRuntime()?.service.store.syncClock(),() => Date.now());
+function homeworkNow():number {
+  return homeworkTimeline.now();
+}
+
+function stampHomeworkProgress(state:ContentsCheckerItem['completedState'][string],rule:ResetRule,completedAt=homeworkNow()):void {
+  state.lastCompletedAt=completedAt;
+  state.progressExpiresAt=getHomeworkCycleEnd(rule,state.lastCompletedAt);
+}
 
 type LegacyContentsCheckerItem = ContentsCheckerItem & {
   isCompleted?: boolean;
@@ -131,7 +153,7 @@ function validateResourceMeta(value: unknown): ContentsResourceMeta {
 }
 
 /** 기본 컨텐츠와 동반 메타데이터를 모두 검증한 뒤에만 반환한다. */
-function loadDefaultItems(): ContentsCheckerItem[] | null {
+export function loadDefaultItems(): ContentsCheckerItem[] | null {
   try {
     const dataDirectoryCandidates = [
       path.join(app.getAppPath(), 'dist', 'assets', 'data'),
@@ -187,6 +209,7 @@ const PENDING_HOMEWORK_CONFIG_KEYS = [
 ] as const;
 const DIARY_WRITE_RETRY_DELAYS_MS = [250, 1000, 4000] as const;
 const RESET_TIMER_MIN_DELAY_MS = 250;
+const RESET_TIMER_MAX_DELAY_MS = 60_000;
 let resetCheckTimer: NodeJS.Timeout | null = null;
 
 /**
@@ -199,12 +222,14 @@ let resetCheckTimer: NodeJS.Timeout | null = null;
  * - check-companion-features.ts, check-renderer-behavior.ts와 docs/contents-checker.md를 함께 확인한다.
  */
 let latestDetectedHomework: { id: string; count: number; timestamp: number } | null = null;
+export const captureDetectedHomework=() => structuredClone(latestDetectedHomework);
+export function restoreDetectedHomework(value:ReturnType<typeof captureDetectedHomework>):void {latestDetectedHomework=structuredClone(value);refreshUI();}
 
 function rememberDetectedHomework(id: string, count: number, timestamp: number): boolean {
   if (latestDetectedHomework && (timestamp < latestDetectedHomework.timestamp
     || (id === latestDetectedHomework.id && count === latestDetectedHomework.count
       && timestamp === latestDetectedHomework.timestamp))) return false;
-  latestDetectedHomework = { id, count, timestamp };
+  deferRecordEffect(() => {if (!latestDetectedHomework || latestDetectedHomework.timestamp<=timestamp) latestDetectedHomework = {id,count,timestamp};});
   return true;
 }
 
@@ -260,6 +285,24 @@ function getStateCount(state: HomeworkCompletedState | undefined, max: number): 
 
 /** 일시적인 DB 쓰기 실패는 최신 작업만 제한적으로 재시도한다. */
 function runDiaryWriteWithRetry(key: string, write: () => boolean): boolean {
+  const runtime=getProfileRuntime();
+  if (runtime?.service.store.database.inTransaction && isCollectingRecordEffects()) {
+    if (!write()) throw new Error('숙제 일지 기록을 저장하지 못했습니다.');
+    return true;
+  }
+  const owner=runtime ? config.load().activePlayProfileId || null : null;
+  const session=runtime?.service.store.getRecordContext().sessionId || null;
+  const originalWrite=write;
+  if (runtime) {
+    key=`${owner}:${key}`;
+    write=() => {
+      // 이전 프로필의 재시도는 현재 선택으로 재배정하지 않는다. 복원/삭제로 원본이 없으면 쓰지 않는다.
+      try {
+        if (!runtime.service.store.database.open || owner && !runtime.service.store.list().some(profile => profile.id===owner)) return false;
+        return runtime.service.store.withRecordContext(owner,session,originalWrite);
+      } catch {return false;}
+    };
+  }
   const previous = pendingDiaryWriteRetries.get(key);
   if (previous?.timer) clearTimeout(previous.timer);
   const state: DiaryWriteRetryState = { generation: (previous?.generation || 0) + 1 };
@@ -271,6 +314,7 @@ function runDiaryWriteWithRetry(key: string, write: () => boolean): boolean {
       pendingDiaryWriteRetries.delete(key);
       return true;
     }
+    if (isCollectingRecordEffects()) {pendingDiaryWriteRetries.delete(key);throw new Error('숙제 일지 기록을 저장하지 못했습니다.');}
     if (retryIndex >= DIARY_WRITE_RETRY_DELAYS_MS.length) {
       pendingDiaryWriteRetries.delete(key);
       log(`[Contents Checker] 일지 DB 쓰기 재시도 소진 - ${key}`);
@@ -442,24 +486,15 @@ export function getNextHomeworkResetAt(
   items: ContentsCheckerItem[],
   nowTimestamp: number = Date.now(),
 ): number | undefined {
-  const now = new Date(nowTimestamp);
   let nextResetAt: number | undefined;
 
   for (const item of items) {
-    const rule = item.resetRule;
-    const candidate = new Date(now);
-    candidate.setHours(rule.hour ?? 0, 0, 0, 0);
-
-    if (rule.type === 'daily') {
-      if (candidate.getTime() <= nowTimestamp) candidate.setDate(candidate.getDate() + 1);
-    } else {
-      const resetDay = rule.dayOfWeek ?? 1;
-      const daysAhead = (resetDay - now.getDay() + 7) % 7;
-      candidate.setDate(candidate.getDate() + daysAhead);
-      if (candidate.getTime() <= nowTimestamp) candidate.setDate(candidate.getDate() + 7);
+    let candidateTimestamp=getHomeworkCycleEnd(item.resetRule,nowTimestamp);
+    for (const state of Object.values(item.completedState || {})) {
+      if (state.progressExpiresAt !== undefined && state.progressExpiresAt>nowTimestamp) {
+        candidateTimestamp=Math.min(candidateTimestamp,state.progressExpiresAt);
+      }
     }
-
-    const candidateTimestamp = candidate.getTime();
     if (nextResetAt === undefined || candidateTimestamp < nextResetAt) {
       nextResetAt = candidateTimestamp;
     }
@@ -484,12 +519,13 @@ export function resetExpiredHomeworkItems(
 
   for (const item of items) {
     for (const [characterId, state] of Object.entries(item.completedState || {})) {
-      if (!state.isCompleted && !(state.currentCount && state.currentCount > 0)) continue;
+      if (!state.isCompleted && !(state.currentCount && state.currentCount > 0) && !state.lastCompletedAt) continue;
       const lastCompleted = state.lastCompletedAt ? new Date(state.lastCompletedAt) : new Date(0);
-      if (!shouldReset(item.resetRule, lastCompleted, now)) continue;
+      if (!shouldReset(item.resetRule, lastCompleted, now) && !(state.progressExpiresAt !== undefined && state.progressExpiresAt<=nowTimestamp)) continue;
 
       state.isCompleted = false;
       state.lastCompletedAt = undefined;
+      delete state.progressExpiresAt;
       state.currentCount = 0;
       resetEntries.push({
         itemName: item.name,
@@ -507,11 +543,12 @@ function scheduleNextResetCheck(items: ContentsCheckerItem[] = config.load().con
   if (resetCheckTimer) clearTimeout(resetCheckTimer);
   resetCheckTimer = null;
 
-  const nowTimestamp = Date.now();
+  const nowTimestamp = homeworkNow();
   const nextResetAt = getNextHomeworkResetAt(items, nowTimestamp);
   if (nextResetAt === undefined) return;
 
-  const delay = Math.max(RESET_TIMER_MIN_DELAY_MS, nextResetAt - nowTimestamp + 50);
+  // Windows 시계 보정이나 인터넷 시간 기준 변경 뒤 긴 리셋 예약을 다시 계산한다.
+  const delay = Math.min(RESET_TIMER_MAX_DELAY_MS,Math.max(RESET_TIMER_MIN_DELAY_MS,nextResetAt-nowTimestamp+50));
   resetCheckTimer = setTimeout(() => {
     resetCheckTimer = null;
     checkReset();
@@ -519,8 +556,10 @@ function scheduleNextResetCheck(items: ContentsCheckerItem[] = config.load().con
   resetCheckTimer.unref?.();
 }
 
+export function stopResetChecks():void {if (resetCheckTimer) clearTimeout(resetCheckTimer);resetCheckTimer=null;}
+
 /** 초기화 및 병합 (앱 시작 시 호출) */
-export function init(): boolean {
+export function init(options:{deferRuntime?:boolean}={}): boolean {
   if (initializationCompleted) {
     log('[Contents Checker] 초기화가 이미 완료되어 중복 실행을 건너뜁니다.');
     return true;
@@ -897,18 +936,19 @@ export function init(): boolean {
       log('[Contents Checker] 초기화 결과 저장 실패로 완료 처리하지 않습니다.');
       return false;
     }
-    import('./windowManager').then(wm => wm.applySettings({}));
+    if (!options.deferRuntime) import('./windowManager').then(wm => wm.applySettings({}));
   }
   
-  checkReset();
+  if (options.deferRuntime) config.withConfirmedWrites(() => checkReset(options));
+  else checkReset();
   initializationCompleted = true;
   return true;
 }
 
 /** 초기화 로직 (정기적으로 또는 수동 호출) */
-export function checkReset(): boolean {
+export function checkReset(options:{deferRuntime?:boolean}={}): boolean {
   const cfg = config.load();
-  const nowTs = Date.now();
+  const nowTs = homeworkNow();
   const lastCheck = cfg.lastContentsResetCheck || 0;
   const resetResult = resetExpiredHomeworkItems(cfg.contentsCheckerItems, nowTs);
   const changed = resetResult.resetEntries.length > 0;
@@ -922,54 +962,20 @@ export function checkReset(): boolean {
       contentsCheckerItems: resetResult.items,
       lastContentsResetCheck: nowTs 
     });
-    syncDiaryStats(resetResult.items);
-    refreshUI();
+    if (!options.deferRuntime) {
+      syncDiaryStats(resetResult.items);
+      refreshUI();
+    }
   }
 
-  scheduleNextResetCheck(resetResult.items);
+  if (!options.deferRuntime) deferRecordEffect(() => scheduleNextResetCheck(resetResult.items));
 
   return changed;
 }
 
 /** 특정 규칙에 따라 초기화 여부 판단 (직전 리셋 시점 기준 안전 판정) */
 function shouldReset(rule: ResetRule, lastCompleted: Date, now: Date): boolean {
-  const resetHour = rule.hour ?? 0;
-
-  if (rule.type === 'daily') {
-    // 현재 시점(now) 기준 가장 최근에 지난 일일 리셋 시점 계산
-    const mostRecentReset = new Date(now);
-    mostRecentReset.setHours(resetHour, 0, 0, 0);
-
-    // 아직 오늘의 리셋 시각에 도달하지 않은 경우 어제의 리셋 시각이 기준
-    if (now < mostRecentReset) {
-      mostRecentReset.setDate(mostRecentReset.getDate() - 1);
-    }
-
-    // 마지막 완료 시점이 직전 리셋 시점 이전이면 초기화 대상
-    return lastCompleted < mostRecentReset;
-  }
-
-  if (rule.type === 'weekly') {
-    const resetDay = rule.dayOfWeek ?? 1; // 기본 월요일 (1)
-
-    // 현재 시점(now) 기준 가장 최근에 지난 주간 리셋 시점 계산
-    const mostRecentReset = new Date(now);
-    mostRecentReset.setHours(resetHour, 0, 0, 0);
-
-    // 요일 차이 계산 (0 ~ 6)
-    const dayDiff = (now.getDay() - resetDay + 7) % 7;
-    mostRecentReset.setDate(mostRecentReset.getDate() - dayDiff);
-
-    // 요일은 같으나 아직 오늘의 resetHour 이전인 경우 지난주(7일 전)가 직전 리셋 시점
-    if (dayDiff === 0 && now < mostRecentReset) {
-      mostRecentReset.setDate(mostRecentReset.getDate() - 7);
-    }
-
-    // 마지막 완료 시점이 직전 주간 리셋 시점 이전이면 초기화 대상
-    return lastCompleted < mostRecentReset;
-  }
-
-  return false;
+  return lastCompleted.getTime()<getHomeworkCycleStart(rule,now.getTime());
 }
 
 export interface DiaryHomeworkStats {
@@ -1031,8 +1037,10 @@ function syncDiaryStats(items: ContentsCheckerItem[]): boolean {
 
 /** 화면 갱신 알림 유틸리티 */
 function refreshUI() {
-  scheduleNextResetCheck();
-  import('./windowManager').then(wm => wm.applySettings({}));
+  deferRecordEffect(() => {
+    scheduleNextResetCheck();
+    import('./windowManager').then(wm => wm.applySettings({}));
+  });
 }
 
 function syncHomeworkDiary(
@@ -1043,8 +1051,8 @@ function syncHomeworkDiary(
   previousCompleted?: boolean,
   previousCompletedAt?: number,
 ): boolean {
-  const date = !state.isCompleted && previousCompletedAt
-    ? getLocalDateKey(new Date(previousCompletedAt)) : getLocalDateKey();
+  const recordedAt=(state.isCompleted ? state.lastCompletedAt : previousCompletedAt) || homeworkNow();
+  const date=getLocalDateKey(new Date(recordedAt));
   const characterName =
     cfg.characterPresets?.find(preset => preset.id === characterId)?.name
     || '알수없음';
@@ -1054,28 +1062,34 @@ function syncHomeworkDiary(
     && (previousCompleted === undefined || !previousCompleted);
   const shouldRemove = !state.isCompleted
     && (previousCompleted === undefined || previousCompleted);
+  const completion = (completedAt:number) => ({
+    itemId:item.id,completedAt,cycleStart:getHomeworkCycleStart(item.resetRule,completedAt),
+  });
 
-  if (shouldAdd) {
-    return runDiaryWriteWithRetry(`homework-log:${date}:${contentId}`, () => diaryDb.addHomeworkLog(
-      date,
-      contentId,
-      contentName,
-      item.category,
-      item.resetRule.type,
-      state.lastCompletedAt || Date.now(),
-    ));
-  } else if (shouldRemove) {
-    return runDiaryWriteWithRetry(
-      `homework-log:${date}:${contentId}`,
-      () => diaryDb.removeHomeworkLog(date, contentId),
-    );
+  const key=`homework-log:${date}:${contentId}`;
+  const profiled=!!getProfileRuntime();
+  // 주기별 누적 장부의 기준값: 이 주기에 체크리스트가 가진 마지막 횟수. 주기가 지난 뒤 들어온
+  // 기록은 이 값 위에 더해 완료 여부를 판단한다(recordLateHomeworkProgress). 주기 초기화는 이
+  // 함수를 거치지 않으므로 지난 주기의 기준값을 0으로 덮지 않는다.
+  if (profiled) {
+    const progressAt=state.lastCompletedAt ?? homeworkNow();
+    diaryDb.snapshotHomeworkCycleBase(item.id,getHomeworkCycleStart(item.resetRule,progressAt),getStateCount(state,item.maxCount || 1));
+  }
+  if (shouldAdd) return runDiaryWriteWithRetry(key,profiled
+    ? () => diaryDb.recordHomeworkCompletion(date,completion(recordedAt),contentName,item.category,item.resetRule.type)
+    : () => diaryDb.addHomeworkLog(date,contentId,contentName,item.category,item.resetRule.type,recordedAt));
+  if (shouldRemove) {
+    const cancelledAt=Math.max(homeworkNow(),previousCompletedAt ?? 0);
+    return runDiaryWriteWithRetry(key,profiled && previousCompletedAt
+      ? () => diaryDb.cancelHomeworkCompletion(completion(previousCompletedAt),cancelledAt)
+      : () => diaryDb.removeHomeworkLog(date,contentId));
   }
   return true;
 }
 
 function getItemStateContext(id: string, characterId?: string) {
   const cfg = config.load();
-  const items = cloneItems(cfg.contentsCheckerItems);
+  const items = resetExpiredHomeworkItems(cfg.contentsCheckerItems,homeworkNow()).items;
   const targetCharId = characterId || cfg.selectedCharacterId || MAIN_CHAR_ID;
   const item = items.find(candidate => candidate.id === id);
   if (!item) return null;
@@ -1108,7 +1122,8 @@ export function toggleItem(id: string, characterId?: string): void {
     const previousCompletedAt = state.lastCompletedAt;
     state.isCompleted = !state.isCompleted;
     state.currentCount = state.isCompleted ? max : 0;
-    state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
+    // 수동 완료 취소도 현재 주기의 진행 수정이다. 자동 리셋은 시각을 비운다.
+    stampHomeworkProgress(state,item.resetRule);
 
     config.saveImmediate({ contentsCheckerItems: items });
 
@@ -1124,7 +1139,7 @@ export function toggleItem(id: string, characterId?: string): void {
 /** 캐릭터별 숙제 제외(N/A) 토글 */
 export function toggleExcludeItem(id: string, characterId: string): void {
   const cfg = config.load();
-  const items = cloneItems(cfg.contentsCheckerItems);
+  const items = resetExpiredHomeworkItems(cfg.contentsCheckerItems,homeworkNow()).items;
   const item = items.find(i => i.id === id);
   
   if (item) {
@@ -1135,21 +1150,16 @@ export function toggleExcludeItem(id: string, characterId: string): void {
 
     const state = item.completedState[characterId];
     const previousCompletedAt = state.lastCompletedAt;
+    const previousCompleted=state.isCompleted;
     state.isExcluded = !state.isExcluded;
     
     // 제외 처리 시 완료 상태는 해제
     if (state.isExcluded) {
+      if (state.isCompleted || (state.currentCount || 0) > 0) stampHomeworkProgress(state,item.resetRule);
       state.isCompleted = false;
       state.currentCount = 0;
-      state.lastCompletedAt = undefined;
       
-      // 일지에서도 제거
-      const diaryContentId = `${item.id}_${characterId}`;
-      const diaryDate = previousCompletedAt ? getLocalDateKey(new Date(previousCompletedAt)) : getLocalDateKey();
-      runDiaryWriteWithRetry(
-        `homework-log:${diaryDate}:${diaryContentId}`,
-        () => diaryDb.removeHomeworkLog(diaryDate, diaryContentId),
-      );
+      syncHomeworkDiary(cfg,item,characterId,state,getProfileRuntime() ? previousCompleted : undefined,previousCompletedAt);
     }
 
     config.saveImmediate({ contentsCheckerItems: items });
@@ -1238,48 +1248,73 @@ export function toggleVisibility(id: string): void {
   }
 }
 
+type ChecklistEditValues=import('../shared/profileChecklist').ChecklistEditValues;
+export class ChecklistEditConflict extends Error {
+  constructor(message:string,readonly current:ChecklistEditValues,readonly fields:Array<0|1|2>) {super(message);}
+}
+
+/** 편집을 열었을 때의 값과 최신 DB를 비교해 사용자가 바꾼 값만 적용한다. */
+export function editItem(id:string,before:ChecklistEditValues,after:ChecklistEditValues):void {
+  const item=config.load().contentsCheckerItems?.find(candidate=>candidate.id===id);
+  if (!item) throw new Error('이 숙제가 삭제되었습니다. 입력을 확인해 주세요.');
+  const oldRule=item.resetRule;
+  const latestValues:ChecklistEditValues=[item.name,item.category,oldRule,oldRule.type==='weekly' ? item.maxCount ?? 1 : 1];
+  const compare=([name,category,rule,max]:typeof before)=>[name,category,[rule.type,rule.hour ?? 0,rule.type==='weekly' ? rule.dayOfWeek : null,max]];
+  const original=compare(before),submitted=compare(after),current=compare(latestValues);
+  const fields=['이름','분류','초기화 규칙과 최대 횟수'];
+  const conflicts:Array<0|1|2>=[];
+  const changed=([0,1,2] as const).map(index=>{
+    const latest=JSON.stringify(current[index]),next=JSON.stringify(submitted[index]);
+    if (next===JSON.stringify(original[index]) || next===latest) return false;
+    if (latest!==JSON.stringify(original[index])) conflicts.push(index);
+    return true;
+  });
+  if (conflicts.length) {
+    const show=(value:unknown)=>Array.isArray(value) ? value.map(part=>part==='daily' ? '일일' : part==='weekly' ? '주간' : part ?? '해당 없음').join(' / ') : String(value);
+    const summary=conflicts.map(index=>`${fields[index]} (최신: ${show(current[index])} · 내 입력: ${show(submitted[index])})`).join(', ');
+    throw new ChecklistEditConflict(`다른 곳에서 숙제를 수정했습니다. ${summary}`,latestValues,conflicts);
+  }
+  if (!changed.some(Boolean)) return;
+  const name=changed[0] ? after[0] : item.name,category=changed[1] ? after[1] : item.category;
+  if (changed[2]) {updateItem(id,name,category,after[2],after[3]);return;}
+  // 이름과 분류 편집만으로는 초기화 계산이나 과거 완료 기록을 다시 쓰지 않는다.
+  const items=cloneItems(config.load().contentsCheckerItems);
+  const edited=items.find(candidate=>candidate.id===id)!;
+  edited.name=name;edited.category=category;
+  if (config.saveImmediate({contentsCheckerItems:items})) refreshUI();
+}
+
 /** 항목 수정 (이름, 카테고리, 초기화 규칙, 주간 최대 횟수) */
 export function updateItem(id: string, name: string, category: string, rule: ResetRule, maxCount?: number): void {
   const cfg = config.load();
   const items = cloneItems(cfg.contentsCheckerItems);
   const item = items.find(i => i.id === id);
   if (item) {
-    item.name = name;
-    item.category = category;
-    item.resetRule = rule;
+    const now=homeworkNow();
+    const oldReset=resetExpiredHomeworkItems([item],now);
+    item.completedState=oldReset.items[0].completedState;
+    for (const state of Object.values(item.completedState || {})) {
+      if (state.lastCompletedAt) state.progressExpiresAt ??= getHomeworkCycleEnd(item.resetRule,state.lastCompletedAt);
+    }
+    const previousMax=item.maxCount || 1;
+    item.name=name;
+    item.category=category;
+    item.resetRule=rule;
 
-    // 새 최대값 도달로 완료 시각을 바꾸기 전에, 변경된 규칙의 지난 주기를 비운다.
-    const resetResult = resetExpiredHomeworkItems([item]);
-    item.completedState = resetResult.items[0].completedState;
-    const resetCharacterIds = new Set(resetResult.resetEntries.map(entry => entry.characterId));
-    
-    if (rule.type === 'weekly') {
-      const newMax = Math.max(1, Math.trunc(maxCount !== undefined ? maxCount : 1));
-      item.maxCount = newMax;
-      
-      // 캐릭터별 완료 횟수가 새로운 maxCount를 초과하는 경우 한도 내로 자동 조정
-      if (item.completedState) {
-        Object.keys(item.completedState).forEach(charId => {
-          const state = item.completedState[charId];
-          const wasCompleted = state.isCompleted;
-          const previousMax = cfg.contentsCheckerItems?.find(candidate => candidate.id === id)?.maxCount || 1;
-          state.currentCount = state.isExcluded ? 0 : Math.max(0, Math.min(newMax, state.currentCount ?? (wasCompleted ? previousMax : 0)));
-          state.isCompleted = !state.isExcluded && state.currentCount === newMax;
-          if (state.isCompleted && !wasCompleted) state.lastCompletedAt = Date.now();
-          if (state.currentCount === 0) state.lastCompletedAt = undefined;
-        });
-      }
-    } else {
-      // daily일 경우 maxCount 제거
-      delete item.maxCount;
-      if (item.completedState) {
-        Object.keys(item.completedState).forEach(charId => {
-          const state = item.completedState[charId];
-          state.currentCount = state.isCompleted ? 1 : 0;
-        });
+    const newReset=resetExpiredHomeworkItems([item],now);
+    item.completedState=newReset.items[0].completedState;
+    const resetCharacterIds=new Set([...oldReset.resetEntries,...newReset.resetEntries].map(entry=>entry.characterId));
+    const newMax=rule.type==='weekly' ? Math.max(1,Math.trunc(maxCount ?? 1)) : 1;
+    if (rule.type==='weekly') item.maxCount=newMax;
+    else delete item.maxCount;
+    for (const state of Object.values(item.completedState || {})) {
+      state.currentCount=state.isExcluded ? 0 : Math.min(newMax,getStateCount(state,previousMax));
+      state.isCompleted=!state.isExcluded && state.currentCount===newMax;
+      if (state.lastCompletedAt && state.progressExpiresAt !== undefined) {
+        state.progressExpiresAt=Math.min(state.progressExpiresAt,getHomeworkCycleEnd(rule,state.lastCompletedAt));
       }
     }
-    
+
     // 규칙이 변경되었을 수 있으므로 초기화 체크 수행
     if (!config.saveImmediate({ contentsCheckerItems: items })) return;
     const previousItem = cfg.contentsCheckerItems?.find(candidate => candidate.id === id);
@@ -1319,11 +1354,11 @@ export function updateName(id: string, newName: string): void {
 }
 
 /** 커스텀 항목 추가 */
-export function addCustomItem(name: string, category: string, rule: ResetRule, maxCount?: number): void {
+export function addCustomItem(name: string, category: string, rule: ResetRule, maxCount?: number, requestItemId?:string): void {
   const cfg = config.load();
   const items = cloneItems(cfg.contentsCheckerItems);
   const newItem: ContentsCheckerItem = {
-    id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
+    id: requestItemId || `custom-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`,
     name,
     category,
     isVisible: true,
@@ -1500,7 +1535,7 @@ export function reorderCategory(
 }
 
 /** 특정 숙제의 완료 횟수 직접 업데이트 */
-export function updateItemCount(id: string, characterId: string, count: number): void {
+export function updateItemCount(id: string, characterId: string, count: number, eventTimestamp?:number): void {
   const context = getItemStateContext(id, characterId);
   if (context) {
     const { cfg, items, targetCharId, item, state } = context;
@@ -1515,7 +1550,7 @@ export function updateItemCount(id: string, characterId: string, count: number):
     const previousCompletedAt = state.lastCompletedAt;
     state.currentCount = nextCount;
     state.isCompleted = nextCompleted;
-    state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
+    stampHomeworkProgress(state,item.resetRule,eventTimestamp);
 
     config.saveImmediate({ contentsCheckerItems: items });
 
@@ -1532,7 +1567,7 @@ export function updateItemCount(id: string, characterId: string, count: number):
  * 과거 로그에는 수행 캐릭터 정보가 없으므로 호출자가 캐릭터를 주지 않으면 반드시 메인 캐릭터를 사용합니다.
  * 선택 중인 캐릭터나 프리셋 배열 첫 항목으로 추정하면 PC·정렬 상태에 따라 다른 캐릭터가 체크됩니다.
  */
-export function mergeHomeworkCountFromSync(id: string, detectedCount: number, characterId?: string): boolean {
+export function mergeHomeworkCountFromSync(id: string, detectedCount: number, characterId?: string, completedAt?:number): boolean {
   const cfg = config.load();
   const targetCharId = characterId || MAIN_CHAR_ID;
 
@@ -1550,7 +1585,7 @@ export function mergeHomeworkCountFromSync(id: string, detectedCount: number, ch
     const prevCompleted = state.isCompleted;
     state.currentCount = targetCount;
     state.isCompleted = (state.currentCount === max);
-    state.lastCompletedAt = Date.now();
+    stampHomeworkProgress(state,item.resetRule,state.isCompleted ? completedAt : undefined);
 
     config.saveImmediate({ contentsCheckerItems: items });
     syncHomeworkDiary(cfg, item, targetCharId, state, prevCompleted);
@@ -1564,7 +1599,7 @@ export function mergeHomeworkCountFromSync(id: string, detectedCount: number, ch
 /** 특정 숙제의 완료 횟수 증감 (채팅 로그 등 외부 연동용) */
 export function incrementItemCount(id: string, characterId: string, amount: number = 1): void {
   const cfg = config.load();
-  const items = cloneItems(cfg.contentsCheckerItems);
+  const items = resetExpiredHomeworkItems(cfg.contentsCheckerItems,homeworkNow()).items;
   const targetCharId = characterId || cfg.selectedCharacterId || MAIN_CHAR_ID;
   
   const item = items.find(i => i.id === id);
@@ -1574,31 +1609,41 @@ export function incrementItemCount(id: string, characterId: string, amount: numb
   }
 }
 
-/** 채팅 로그 감지 시 캐릭터 개수에 따라 즉시 반영 또는 보류 대기열 추가 */
+/** 채팅 감지를 반영 또는 보류한다. 미배정 재생에서 숨김/N/A 사유(기존 모드는 만료 포함)는 사용자에게
+ * 전달하며 원문을 보존한다. 프로필 모드의 지난 주기 기록은 주기별 누적 장부로 완료 일지만 판단한다.
+ * 적용된 완료 일지는 배정일과 무관하게 원본 로그 시각을 쓴다. 원본 로그 시각(PC 시계)은 리셋 판정과 같은
+ * 보정 시간축으로 옮긴 뒤 주기 분류·진행 시각·일지에 쓴다(PC 시계가 정확하면 같은 값).
+ * 직접 체크리스트 편집은 조작 시각을 유지한다. 회귀: check-profile-recording.ts. */
 export function queuePendingHomework(
   id: string,
   count: number,
   isIncrement: boolean,
   sourceEventId?: string,
-  eventTimestamp: number = Date.now()
-): void {
+  loggedAt: number = Date.now()
+): string | undefined {
+  const eventTimestamp=homeworkTimeline.fromLocal(loggedAt);
   const cfg = config.loadFields(PENDING_HOMEWORK_CONFIG_KEYS);
   const presets = cfg.characterPresets || [];
 
   log(`[Contents Checker] queuePendingHomework 호출 - ID: ${id}, Count: ${count}, isIncrement: ${isIncrement}`);
 
-  const items = cfg.contentsCheckerItems || [];
+  const items = resetExpiredHomeworkItems(cfg.contentsCheckerItems,homeworkNow()).items;
   const targetItem = items.find(i => i.id === id);
 
   // 1. 해당 숙제가 존재하지 않거나 숨김 처리(isVisible: false)된 경우 감지 및 보류 대기열 추가 무시
+  const profileId=getProfileRuntime()?.service.store.getRecordContext().profileId;
+  if (profileId && diaryDb.isHomeworkReplayExcluded(profileId,id,eventTimestamp)) {
+    return '이미 취소한 숙제 완료 이전의 기록입니다.';
+  }
   if (!targetItem || targetItem.isVisible === false) {
     log(`[Contents Checker] 감지된 숙제(${id})가 숨김 상태이거나 존재하지 않아 적립을 무시합니다.`);
-    return;
+    return targetItem ? "숨김 처리된 숙제입니다." : "배정할 프로필에 해당 숙제가 없습니다.";
   }
 
-  if (shouldReset(targetItem.resetRule, new Date(eventTimestamp), new Date())) {
+  const expiredCycle=shouldReset(targetItem.resetRule, new Date(eventTimestamp), new Date(homeworkNow()));
+  if (expiredCycle && !profileId) {
     log(`[Contents Checker] 이전 리셋 주기의 채팅 이벤트 무시 - ID: ${id}`);
-    return;
+    return "이미 종료된 숙제 주기의 기록입니다.";
   }
 
   // 2. 등록된 캐릭터 중 해당 숙제에 참여하는(isExcluded: false) 캐릭터 목록 추출
@@ -1609,6 +1654,27 @@ export function queuePendingHomework(
 
   if (activeCharacters.length === 0) {
     log(`[Contents Checker] 모든 캐릭터가 이 숙제(${id})에 참여하지 않도록 설정되어 있어 적립을 무시합니다.`);
+    return "선택한 프로필이 이 숙제에 참여하지 않습니다.";
+  }
+
+  // 지난 주기 기록 계약(프로필 모드): 리셋이 지난 뒤 배정·감지된 기록은 현재 체크리스트를 바꾸지 않고
+  // 그 주기의 누적 장부에 더한다. 그 주기의 체크리스트 기준값과 이전 지난 기록을 합쳐 최대 횟수에 처음
+  // 도달하면 원래 수행 시각의 날짜로 완료 일지를 남긴다(과거 로그 복원과 같은 집계 규칙).
+  // 이 기록은 처리 완료로 보고 대기열에서 내린다. 회귀: check-profile-recording.ts.
+  if (expiredCycle) {
+    if (activeCharacters.length !== 1) return "이미 종료된 숙제 주기의 기록입니다.";
+    const rule=targetItem.resetRule;
+    const completed=diaryDb.recordLateHomeworkProgress({
+      itemId:id,
+      // 보정량은 시간이 지나며 바뀔 수 있으므로 원본 키는 원래 로그 시각으로 만든다.
+      sourceKey:sourceEventId ?? `${id}:${loggedAt}:${isIncrement ? '+' : '='}${count}`,
+      count,isIncrement,occurredAt:eventTimestamp,
+      cycleStart:getHomeworkCycleStart(rule,eventTimestamp),cycleEnd:getHomeworkCycleEnd(rule,eventTimestamp),
+      maxCount:targetItem.maxCount || 1,
+      name:`[${activeCharacters[0].name || '알수없음'}] ${targetItem.name}`,category:targetItem.category,type:rule.type,
+    });
+    log(`[Contents Checker] 지난 주기 숙제 기록을 장부에 반영 - ID: ${id}${completed ? ' (완료 일지 기록)' : ''}`);
+    if (completed) refreshUI();
     return;
   }
 
@@ -1625,7 +1691,7 @@ export function queuePendingHomework(
       timestamp: eventTimestamp,
     }, maxCount);
     const stateBelongsToCurrentCycle = typeof currentState?.lastCompletedAt === 'number'
-      && !shouldReset(targetItem.resetRule, new Date(currentState.lastCompletedAt), new Date());
+      && !shouldReset(targetItem.resetRule, new Date(currentState.lastCompletedAt), new Date(homeworkNow()));
     const detectionChanged = rememberDetectedHomework(id, nextCount, eventTimestamp);
     if (nextCount === currentCount
       && currentState?.isCompleted === (nextCount === maxCount)
@@ -1635,7 +1701,7 @@ export function queuePendingHomework(
       return;
     }
     log(`[Contents Checker] 단일 참여 캐릭터 감지 - '${activeCharacters[0].name}' (${targetCharId})에게 즉시 반영`);
-    updateItemCount(id, targetCharId, nextCount);
+    updateItemCount(id,targetCharId,nextCount,getProfileRuntime() && Number.isFinite(eventTimestamp) ? eventTimestamp : undefined);
     return;
   }
 
@@ -1726,7 +1792,7 @@ export function applyPendingHomeworks(characterId: string): void {
   if (pendingList.length === 0) return;
 
   const items = cloneItems(cfg.contentsCheckerItems);
-  const now = new Date();
+  const now = new Date(homeworkNow());
   const appliedPending = new Set<PendingHomework>();
   const expiredPending = new Set<PendingHomework>();
 
@@ -1768,7 +1834,7 @@ export function applyPendingHomeworks(characterId: string): void {
     if (nextCount === current && (nextCount === max) === prevCompleted) return;
     state.currentCount = nextCount;
     state.isCompleted = (state.currentCount === max);
-    state.lastCompletedAt = state.currentCount > 0 ? Date.now() : undefined;
+    stampHomeworkProgress(state,item.resetRule);
 
     log(`[Contents Checker] 반영 완료 - 숙제: ${item.name}, 카운트: ${current} -> ${state.currentCount} (${state.isCompleted ? '완료' : '진행중'})`);
 

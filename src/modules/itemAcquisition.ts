@@ -38,6 +38,7 @@ const EXPLICIT_ITEM_RE = new RegExp(`(?:^|보상으로\\s+)(.{1,80}?)\\s+아이�
 const ITEM_COUNT_AFTER_PARTICLE_RE = new RegExp(`(?:^|보상으로\\s+)(.{1,60}?)(?:을\\(를\\)|을|를)\\s+([\\d,]+)개\\s+더\\s+${ACQUISITION_VERB}`);
 const MIXED_REWARD_RE = new RegExp(`보상으로\\s+(.{1,60}?)\\s+([\\d,]+)개와\\s+.+?Seed를\\s+${ACQUISITION_VERB}`, 'i');
 const PASS_RE = new RegExp(`^테일즈\\s*패스\\s*보상을\\s+${ACQUISITION_VERB}\\s*:\\s*(?:\\[테일즈\\s*패스\\]\\s*)?(.+)$`);
+const ETA_ESSENCE_REWARD_RE = /^에타\s*성장\s*지원\s*이벤트로\s*보상을\s*추가\s*획득\s*(?:하였|했)습니다\.?\s*\(\s*경험의\s*정수\s+([\d,]+)개\s*\)$/u;
 const BONUS_ITEM_RE = new RegExp(`^앞서\\s+획득한\\s+(.+?)(?:\\s+아이템)?은\\s+\\[1\\+1\\]\\s+이벤트를\\s+통해\\s+${ACQUISITION_VERB}`);
 const DOUBLE_REWARD_RE = new RegExp(
   '^더블\\s*리워드\\s*추가\\s*보상으로\\s*\\[(.+?)\\]\\s*아이템(?:을\\(를\\)|을|를)?\\s*\\[?([\\d,]+)\\]?\\s*개\\s*추가\\s*획득\\s*(?:하였|했)습니다\\.?$',
@@ -72,6 +73,10 @@ export function parseItemAcquisition(
 ): ItemAcquisition | null {
   const normalized = message.replace(/\s+/g, ' ').trim();
   if (!normalized) return null;
+
+  // 에타 추가 보상은 획득 동사 뒤의 괄호에 수량을 기록한다. 실시간과 과거 복원이 공유한다.
+  const etaEssence=normalized.match(ETA_ESSENCE_REWARD_RE);
+  if (etaEssence) return {itemName:'경험의 정수',count:countValue(etaEssence[1]),source:'direct',isOwn:true};
 
   // 자동 교환은 앞선 "경험치가 100억 감소" 로그에서 집계하므로 뒤따르는 획득 안내는 중복 파싱하지 않습니다.
   if (/^경험치\s*[\d,억만\s]+(?:이|가)?\s*차감되고.*경험의\s*정수.*획득/i.test(normalized)) {

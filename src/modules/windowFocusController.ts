@@ -16,7 +16,7 @@ export class WindowFocusController {
   private focusDebounceTimer: NodeJS.Timeout | null = null;
   private focusRestoreTimer: NodeJS.Timeout | null = null;
   private restoreSuppressed = false;
-  private interactiveLauncher: BrowserWindow | null = null;
+  private interactiveDock: BrowserWindow | null = null;
 
   constructor(private readonly options: WindowFocusControllerOptions) {}
 
@@ -64,12 +64,12 @@ export class WindowFocusController {
     }, this.options.focusRestoreDelayMs);
   }
 
-  /** 메뉴/버튼 위에 포인터가 있는 런처만 보조 창 앞으로 둔다. 포커스는 이동하지 않는다. */
-  setLauncherInteractive(win: BrowserWindow, active: boolean): boolean {
+  /** 독 입력 영역 위에서는 독의 메뉴를 보조 창 앞으로 둔다. */
+  setDockInteractive(win: BrowserWindow, active: boolean): boolean {
     if (win.isDestroyed()) return false;
-    const next = active ? win : (this.interactiveLauncher === win ? null : this.interactiveLauncher);
-    if (next === this.interactiveLauncher) return false;
-    this.interactiveLauncher = next;
+    const next = active ? win : (this.interactiveDock === win ? null : this.interactiveDock);
+    if (next === this.interactiveDock) return false;
+    this.interactiveDock = next;
     return true;
   }
 
@@ -84,13 +84,13 @@ export class WindowFocusController {
         && win !== dockWindow
         && win !== gameOverlayWindow)
       .reverse();
-    const launcher = this.interactiveLauncher;
-    const foregroundLauncher = launcher && (launcher === mainWindow || launcher === dockWindow)
-      && this.isVisible(launcher) ? launcher : null;
-    const orderedWindows = foregroundLauncher ? [foregroundLauncher, ...subWindows] : [...subWindows];
+    const foregroundDock = dockWindow && dockWindow === this.interactiveDock && this.isVisible(dockWindow)
+      ? dockWindow : null;
+    // 사이드바 메뉴가 펼쳐져도 설정·체크리스트 같은 보조 창이 사이드바 앞에 남는다.
+    const orderedWindows = foregroundDock ? [foregroundDock, ...subWindows] : subWindows;
 
     for (const win of [mainWindow, dockWindow, gameOverlayWindow]) {
-      if (win && win !== foregroundLauncher && this.isVisible(win)) orderedWindows.push(win);
+      if (win && win !== foregroundDock && this.isVisible(win)) orderedWindows.push(win);
     }
 
     return orderedWindows.flatMap(win => {
@@ -140,7 +140,7 @@ export class WindowFocusController {
   }
 
   private remove(win: BrowserWindow): void {
-    if (this.interactiveLauncher === win) this.interactiveLauncher = null;
+    if (this.interactiveDock === win) this.interactiveDock = null;
     this.activeWindows = this.activeWindows.filter(item => item !== win);
   }
 }

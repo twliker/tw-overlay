@@ -7,6 +7,7 @@
  *   설정 담당 화면을 함께 갱신해야 하며, 전체 AppConfig 복사로 되돌려 성능을 악화시키지 않습니다.
  * - 일반 득템은 `lootKeywords`에 따르지만 경험의 정수 직접 획득과 정확한 100억 경험치 감소 교환은
  *   항상 일지에 기록합니다. 자동 교환 뒤의 복합 획득 안내는 파서에서 제외되어 한 번만 집계됩니다.
+ * - 여러 보상이 든 원문은 표시용 REWARD_CHAT 한 건으로 전달하고, 기록은 아이템·SEED별로 보존합니다.
  * - 심연의 보물창고·도전과제·경험의 정수 등 기능별 알림은 서로 독립된 enabled/sound/volume 설정을
  *   사용합니다. 범용 HUD 표시나 득템 설정 하나로 다른 기능 알림을 대신 제어하지 않습니다.
  * - 과거 로그 worker와 결과가 달라지면 재시작 전후 기록이 달라지므로, 파싱 정책 변경은 worker와
@@ -15,6 +16,10 @@
 import { chatParser } from './chatParser';
 import { createHash } from 'crypto';
 import * as diaryDb from './diaryDb';
+import {claimProfileLogPublication,shouldPublishProfileLogReward} from './profileLogSource';
+import {MECHANIC_ALERT_EVENTS,onProfileEvent,profileEventTimestamp} from './profileParserEvents';
+import {getProfileRuntime} from './profileRuntime';
+import {deferTransientEffect,isCollectingRecordEffects} from './recordEffects';
 import * as config from './config';
 import { log } from './logger';
 import { getEssenceExchangeCount, xpTracker } from './xpTracker';
@@ -30,7 +35,7 @@ import {
   sendToAllWindowsByPage,
   sendToFirstWindowByPage,
 } from './windowMessaging';
-import type { ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from '../shared/types';
+import type { AppConfig, ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from '../shared/types';
 import { showSupportedDesktopNotification } from './desktopNotification';
 import { formatLootDiaryContent, getGoldPouchSeedAmount, parseElsoMessage } from './itemAcquisition';
 import { normalizeNotificationKeyword, normalizeNotificationKeywords } from '../shared/keywordSanitizer';
@@ -63,33 +68,76 @@ const TRADE_SHOUT_CONFIG_KEYS = [
   'discordRules',
 ] as const;
 const SPECIAL_MONSTER_CONFIG_KEYS = [
-  'specialMonsterAlertEnabled',
   'specialMonsterAlertSound',
   'specialMonsterAlertVolume',
 ] as const;
 const GOLGOTHA_ALERT_CONFIG_KEYS = [
-  'golgothaAlertEnabled',
   'golgothaAlertSound',
   'golgothaAlertVolume',
 ] as const;
 const ABYSS_TREASURE_CONFIG_KEYS = [
-  'abyssTreasureAlertEnabled',
   'abyssTreasureAlertSound',
   'abyssTreasureAlertVolume',
 ] as const;
-const ETHOS_CONFIG_KEYS = ['ethosAlertEnabled', 'ethosAlertSound', 'ethosAlertVolume'] as const;
-const ABYSS_APOSTLE_CONFIG_KEYS = [
-  'abyssApostleAlertEnabled',
+const ETHOS_SOUND_KEYS = ['ethosAlertSound', 'ethosAlertVolume'] as const;
+const ABYSS_APOSTLE_SOUND_KEYS = [
   'abyssApostleStartSound',
   'abyssApostleEndSound',
   'abyssApostleVolume',
 ] as const;
-const WAVE_WARNING_CONFIG_KEYS = [
-  'waveMonsterWarningEnabled',
+const WAVE_WARNING_SOUND_KEYS = [
   'waveMonsterWarningSound',
   'waveMonsterWarningVolume',
 ] as const;
-const LOKAGOS_CONFIG_KEYS = ['lokagosAlertEnabled', 'lokagosAlertSound', 'lokagosAlertVolume'] as const;
+const ABYSS_REFLECTION_MS=6500;
+const LOKAGOS_SOUND_KEYS = ['lokagosAlertSound', 'lokagosAlertVolume'] as const;
+
+/** 반응 시간이 짧은 기믹은 감지 즉시 처리한다. 과거 로그 인계에서도 지난 경고는 생략한다.
+ * 선택 대기 중에는 이 PC에서 마지막으로 사용한 프로필의 켜기/끄기를 읽는다.
+ * 사용 이력이 없거나 마지막 프로필이 삭제되었으면 기본값을 사용한다.
+ * 숙제·모험일지 기록은 onProfileEvent의 대기/저장 흐름을 유지한다. 회귀: check-profile-recording.ts.
+ */
+function isCurrentMechanicAlert(data: { date: string; timestamp: string }): boolean {
+  const age=Date.now()-profileEventTimestamp(data);
+  return age>=-5000 && age<10000;
+}
+
+type MechanicAlertEvent = {
+  [K in keyof ChatParserEventMap]: ChatParserEventMap[K] extends { date: string; timestamp: string } ? K : never
+}[keyof ChatParserEventMap];
+
+/** 순간 알림(기믹·출현·완료 안내) 등록의 단일 진입점. 저장할 기록이 없는 알림은 프로필 선택이나
+ * DB 저장 대기열을 기다리지 않고 파서 이벤트에서 바로 화면·소리를 낸다.
+ * - 최신성: 기본 10초(isCurrentMechanicAlert). 과거 로그 인계·늦은 재파싱의 지난 알림은 생략한다.
+ * - 중복: 같은 원본 줄은 이벤트 종류별로 한 번만 알린다(claimProfileLogPublication).
+ * - 대기열 차단: 등록한 이벤트는 MECHANIC_ALERT_EVENTS에 있어야 하며, onProfileEvent는 이 이벤트를 거부한다.
+ * 회귀: check-profile-recording.ts. */
+function onMechanicAlert<K extends MechanicAlertEvent>(
+  event: K,
+  alert: (data: ChatParserEventMap[K]) => void,
+  isFresh: (data: ChatParserEventMap[K]) => boolean = isCurrentMechanicAlert,
+): void {
+  if (!MECHANIC_ALERT_EVENTS.has(event)) throw new Error(`${event}를 순간 알림 이벤트 목록에 먼저 등록해야 합니다.`);
+  chatParser.on(event, (data: ChatParserEventMap[K]) => {
+    if (!isFresh(data) || !claimProfileLogPublication(event, data.date, data.timestamp)) return;
+    alert(data);
+  });
+}
+
+type MechanicAlertEnabled = 'ethosAlertEnabled' | 'abyssApostleAlertEnabled' | 'waveMonsterWarningEnabled' | 'lokagosAlertEnabled'
+  | 'specialMonsterAlertEnabled' | 'golgothaAlertEnabled' | 'abyssTreasureAlertEnabled';
+
+function loadMechanicAlertConfig<E extends MechanicAlertEnabled,K extends keyof AppConfig>(
+  enabled: E, keys: readonly K[],
+): Pick<AppConfig,E | K | 'profileSelectionRequired' | 'activePlayProfileId'> {
+  const cfg=config.loadFields([...keys,enabled,'profileSelectionRequired','activePlayProfileId'] as const);
+  if (cfg.profileSelectionRequired) {
+    const store=getProfileRuntime()?.service.store;
+    const last=store?.database.open ? store.lastUsedProfileSetting(enabled,cfg.activePlayProfileId) : null;
+    cfg[enabled]=typeof last==='boolean' ? last : DEFAULT_CONFIG[enabled];
+  }
+  return cfg;
+}
 
 /** 동일한 채팅 줄을 재처리해도 같은 숙제 이벤트 ID가 생성되도록 한다. */
 export function createHomeworkSourceEventId(
@@ -130,6 +178,8 @@ export function parseHomeworkSourceTimestamp(data: HomeworkSourceEvent): number 
  */
 class ChatLogProcessor {
   private _started = false;
+  private _lastAbyssReflectionLogAt=0;
+  private _lastAbyssTreasureLogAt=0;
   private _chatContextCache: Array<{ timestamp: number; sender: string; message: string; color: string }> = [];
   private _activeTrackingAlarms: Array<{ alarmId: number; endTime: number }> = [];
 
@@ -231,6 +281,9 @@ class ChatLogProcessor {
 
   /** 게임 오버레이가 열려 있을 때만 렌더러 이벤트를 전달합니다. */
   private sendGameOverlayEvent(channel: string, data: unknown): void {
+    deferTransientEffect(() => this.sendCommittedGameOverlayEvent(channel,data));
+  }
+  private sendCommittedGameOverlayEvent(channel:string,data:unknown):void {
     const gameOverlay = wm.getGameOverlayWindow();
     if (gameOverlay && !gameOverlay.isDestroyed()) {
       gameOverlay.webContents.send(channel, data);
@@ -247,14 +300,15 @@ class ChatLogProcessor {
     allowNone?: boolean;
   }): void {
     if (!options.soundFile || (!options.allowNone && options.soundFile === 'none')) return;
+    const soundFile=options.soundFile;
 
-    wm.sendPlaySound({
+    deferTransientEffect(() => wm.sendPlaySound({
       label: options.label,
-      soundFile: options.soundFile,
+      soundFile,
       volume: options.volume !== undefined ? options.volume : options.defaultVolume,
       isCustom: true,
       logMessage: options.logMessage
-    });
+    }));
   }
 
   /** 동일한 구조로 렌더링되는 채팅 항목을 생성합니다. */
@@ -440,10 +494,14 @@ class ChatLogProcessor {
     }
     this._started = true;
     log('[CHAT_PROCESSOR] 시작됨 - 이벤트 리스너 등록');
+    // 표시는 원본 파서에서 한 번만 받아 프로필 미선택·DB 실패와 독립적으로 처리한다.
+    chatParser.on('REWARD_CHAT',data => {
+      if (shouldPublishProfileLogReward(data.date,data.timestamp)) this.publishChatItem(this.createChatItem({type:'system',sender:'시스템',...data}),['Basic','System']);
+    });
 
     const queueFixedHomework = (event: keyof ChatParserEventMap, homeworkId: string): void => {
-      chatParser.on(event, (data) => {
-        contentsChecker.queuePendingHomework(
+      onProfileEvent(event, (data) => {
+        return contentsChecker.queuePendingHomework(
           homeworkId,
           1,
           true,
@@ -453,10 +511,10 @@ class ChatLogProcessor {
       });
     };
     const queueCountHomework = (event: keyof ChatParserEventMap, homeworkId: string): void => {
-      chatParser.on(event, (data) => {
+      onProfileEvent(event, (data) => {
         const count = (data as { count?: number }).count;
         if (typeof count === 'number') {
-          contentsChecker.queuePendingHomework(
+          return contentsChecker.queuePendingHomework(
             homeworkId,
             count,
             false,
@@ -468,8 +526,8 @@ class ChatLogProcessor {
     };
 
     // 0. 공허 특별 몬스터 출현 알림
-    chatParser.on('SPECIAL_MONSTER_SPAWN', (data) => {
-      const cfg = config.loadFields(SPECIAL_MONSTER_CONFIG_KEYS);
+    onMechanicAlert('SPECIAL_MONSTER_SPAWN',(data)=>{
+      const cfg = loadMechanicAlertConfig('specialMonsterAlertEnabled',SPECIAL_MONSTER_CONFIG_KEYS);
       if (cfg.specialMonsterAlertEnabled === false) return;
       log(`[CHAT_PROCESSOR] 특별 몬스터 출현 감지: ${data.message}`);
       this.sendGameOverlayEvent('special-monster-alert', data);
@@ -483,8 +541,8 @@ class ChatLogProcessor {
     });
 
     // 0-0. 골고다 강력한 적(선봉대 부대장) 출현 알림
-    chatParser.on('GOLGOTHA_SPECIAL_MONSTER_SPAWN', (data) => {
-      const cfg = config.loadFields(GOLGOTHA_ALERT_CONFIG_KEYS);
+    onMechanicAlert('GOLGOTHA_SPECIAL_MONSTER_SPAWN',(data)=>{
+      const cfg = loadMechanicAlertConfig('golgothaAlertEnabled',GOLGOTHA_ALERT_CONFIG_KEYS);
       if (cfg.golgothaAlertEnabled === false) return;
       log(`[CHAT_PROCESSOR] 골고다 강력한 적 출현 감지: ${data.message}`);
       this.sendGameOverlayEvent('golgotha-special-monster-alert', data);
@@ -498,12 +556,14 @@ class ChatLogProcessor {
     });
 
     // 0-1. 심연의 보물창고 종료 안내 계약
-    // 완료 문구는 실시간 HUD·소리만 발생시키며 기존 입장 횟수 기반 숙제 반영을 다시 올리지 않습니다.
-    // 도전과제·경험의 정수와 설정을 공유하지 않고 abyssTreasureAlert* 3개 필드만 사용합니다.
-    // 과거 로그 워커에는 이 알림 리스너가 없으므로 재탐색 중 오래된 완료 알림도 재생하지 않습니다.
-    chatParser.on('ABYSS_TREASURE_COMPLETE', (data) => {
-      const cfg = config.loadFields(ABYSS_TREASURE_CONFIG_KEYS);
+    // HUD·소리만 내는 완료 안내는 프로필 선택이나 DB 기록을 기다리지 않는다.
+    // 오래된 원문과 실시간 파일 재읽기에서 같은 안내를 다시 표시하지 않는다.
+    onMechanicAlert('ABYSS_TREASURE_COMPLETE', (data) => {
+      const logAt=profileEventTimestamp(data);
+      if (logAt<=this._lastAbyssTreasureLogAt) return;
+      const cfg = loadMechanicAlertConfig('abyssTreasureAlertEnabled', ABYSS_TREASURE_CONFIG_KEYS);
       if (cfg.abyssTreasureAlertEnabled === false) return;
+      this._lastAbyssTreasureLogAt=logAt;
 
       this.sendGameOverlayEvent('abyss-treasure-complete-alert', data);
       this.playAlertSound({
@@ -518,24 +578,29 @@ class ChatLogProcessor {
     // 0-2. 이터널 플로어 보상 상자 획득 처리
     queueFixedHomework('ETERNAL_FLOOR_CLEAR', 'weekly-eternal-floor');
 
+    /** 기능 계약 — 어벤던로드 입장료 지출
+     * 파서가 확정한 입장료 지불 로그만 음수 calc.amount로 기록한다. HUD 설정과 독립적이며
+     * 지역 진입 이벤트에서는 재기록하지 않는다. 일/주/월/내보내기는 저장 금액을 합산한다.
+     * 과거 복원은 chatLogSyncWorker의 동일 문구/부호와 동기화 정책 fingerprint를 함께 유지한다.
+     * check-magic-stone-revenue 및 전체 회귀 검사로 수익과 지출 합산을 검증한다.
+     */
+    onProfileEvent('ABANDONED_FEE', (data) => {
+      if (!Number.isSafeInteger(data.amount) || data.amount <= 0) return;
+      const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
+      diaryDb.addActivityLog(data.date, timeOnly, 'calc',
+        `[자동] 어벤던로드 입장료 (-${data.amount.toLocaleString('en-US')} SEED)`, -data.amount);
+    });
+
     // 1. SEED 획득 처리
-    chatParser.on('SEED_GAINED', (data) => {
+    onProfileEvent('SEED_GAINED', (data) => {
       const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       const content = `[자동] ${data.message} (${this.formatNumber(data.amount)})`;
       diaryDb.addActivityLog(data.date, timeOnly, 'calc', content, data.amount);
 
-      const chatItem = this.createChatItem({
-        type: 'system',
-        timestamp: data.timestamp,
-        sender: '시스템',
-        message: data.message,
-        color: CHAT_COLORS.system
-      });
-      this.publishChatItem(chatItem, ['Basic', 'System']);
     });
 
     // 2. 아이템 획득 처리
-    chatParser.on('ITEM_LOOTED', (data) => {
+    onProfileEvent('ITEM_LOOTED', (data) => {
       const cfg = config.loadFields(ITEM_LOOT_CONFIG_KEYS);
 
       // 엘소 포인트 누적 획득 체크 및 DB 반영
@@ -548,6 +613,7 @@ class ChatLogProcessor {
         }
       } catch (err) {
         log(`[Processor] Elso parse/save error: ${err}`);
+        if (isCollectingRecordEffects()) throw err;
       }
 
       const goldPouchSeed = getGoldPouchSeedAmount(data);
@@ -563,8 +629,8 @@ class ChatLogProcessor {
       // 수동·자동 교환은 이 ITEM_LOOTED 경로가 아니라 아래 XP_CHANGED 경로가 담당합니다.
       const isAlwaysTrackedItem = isAlwaysTrackedLoot(data.itemName);
       const shouldRecordItem = isAlwaysTrackedItem || matchesRegisteredLoot(keywords, data.itemName);
-      if (data.isOwn && shouldRecordItem) {
-        if (!data.itemName.includes('마정석') && !data.message.includes('마정석')) {
+      const recordLoot = data.isOwn && shouldRecordItem && !data.itemName.includes('마정석') && !data.message.includes('마정석');
+      if (recordLoot) {
           const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
           const diaryContent = formatLootDiaryContent(data.itemName);
           diaryDb.addActivityLog(
@@ -575,23 +641,16 @@ class ChatLogProcessor {
             data.count,
           );
           if (!isAlwaysTrackedItem) {
-            showSupportedDesktopNotification('아이템 획득 알림', data.message, { itemName: data.itemName, count: data.count });
+            deferTransientEffect(() => showSupportedDesktopNotification('아이템 획득 알림', data.message, { itemName: data.itemName, count: data.count }));
           }
-        }
       }
-
-      const chatItem = this.createChatItem({
-        type: 'system',
-        timestamp: data.timestamp,
-        sender: '시스템',
-        message: data.message,
-        color: '#ffd700'
-      });
-      this.publishChatItem(chatItem, ['Basic', 'System']);
+      // 이터널 플로어 보상 등 한 줄에서 숙제 이벤트도 나올 수 있다. 기록하지 않은
+      // 일반 아이템 이벤트가 그 줄을 먼저 점유하면 건너뛴 숙제를 다른 프로필에 배정할 수 없다.
+      if (!recordLoot && !elsoPoints && !goldPouchSeed) return false;
     });
 
     // 2-1. 마정석 획득 처리 (모험일지 일일 누적 기록)
-    chatParser.on('MAGIC_STONE_GAIN', (data) => {
+    onProfileEvent('MAGIC_STONE_GAIN', (data) => {
       const cfg = config.loadFields(ITEM_LOOT_CONFIG_KEYS);
       if (!matchesRegisteredLoot(cfg.lootKeywords, `${data.grade} 마정석`)) return;
       const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
@@ -599,7 +658,7 @@ class ChatLogProcessor {
     });
 
     // 2-2. 경험의 정수 수동·자동 교환 처리
-    chatParser.on('XP_CHANGED', (data) => {
+    onProfileEvent('XP_CHANGED', (data) => {
       // 두 교환 방식에 공통으로 존재하는 정확한 100억 감소 이벤트만 사용합니다.
       // 자동 교환의 뒤따르는 획득 안내는 파서에서 무시하므로 여기서 한 번만 기록됩니다.
       // 전용 재화 집계이므로 lootKeywords와 essenceAlertEnabled의 영향을 받지 않습니다.
@@ -616,14 +675,6 @@ class ChatLogProcessor {
         );
       }
 
-      const chatItem = this.createChatItem({
-        type: 'system',
-        timestamp: data.timestamp,
-        sender: '시스템',
-        message: data.message,
-        color: '#ff64ff'
-      });
-      this.publishChatItem(chatItem, ['Basic', 'System']);
     });
 
     // 3. 외치기 처리
@@ -835,8 +886,8 @@ class ChatLogProcessor {
     });
 
     // 4. 에토스 기믹 알림 처리
-    chatParser.on('ETHOS_PASSWORD', (data) => {
-      const cfg = config.loadFields(ETHOS_CONFIG_KEYS);
+    onMechanicAlert('ETHOS_PASSWORD', (data) => {
+      const cfg = loadMechanicAlertConfig('ethosAlertEnabled', ETHOS_SOUND_KEYS);
       if (!cfg.ethosAlertEnabled) return;
 
       this.sendGameOverlayEvent('ethos-alert', data);
@@ -849,12 +900,19 @@ class ChatLogProcessor {
       });
     });
 
-    // 4-2. 심연의 제2사도 기믹 알림 처리
-    chatParser.on('ABYSS_APOSTLE_PATTERN', (data) => {
-      const cfg = config.loadFields(ABYSS_APOSTLE_CONFIG_KEYS);
+    /** 반사 경고는 대사를 실제로 감지한 시점부터 6.5초를 유지한다. 초 단위 로그 시각은
+     * 지난 로그와 중복 판정에만 사용한다. 회귀: check-profile-recording.ts, check-profile-lifecycle.ts. */
+    onMechanicAlert('ABYSS_APOSTLE_PATTERN', (data) => {
+      const detectedAt = Date.now();
+      const logAt = profileEventTimestamp(data);
+      const age = detectedAt - logAt;
+      if (!Number.isFinite(age) || age < -5000 || age >= ABYSS_REFLECTION_MS || logAt <= this._lastAbyssReflectionLogAt) return;
+      const cfg = loadMechanicAlertConfig('abyssApostleAlertEnabled', ABYSS_APOSTLE_SOUND_KEYS);
       if (!cfg.abyssApostleAlertEnabled) return;
 
-      this.sendGameOverlayEvent('abyss-apostle-alert', data);
+      this._lastAbyssReflectionLogAt = logAt;
+      const endsAt = detectedAt + ABYSS_REFLECTION_MS;
+      this.sendGameOverlayEvent('abyss-apostle-alert', {message:data.message,endsAt});
       this.playAlertSound({
           label: '심연의 제2사도 반사 시작',
           soundFile: cfg.abyssApostleStartSound,
@@ -865,7 +923,8 @@ class ChatLogProcessor {
 
       if (cfg.abyssApostleEndSound && cfg.abyssApostleEndSound !== 'none') {
         setTimeout(() => {
-          const currentCfg = config.loadFields(ABYSS_APOSTLE_CONFIG_KEYS);
+          if (this._lastAbyssReflectionLogAt !== logAt || Date.now() >= endsAt + 2000) return;
+          const currentCfg = loadMechanicAlertConfig('abyssApostleAlertEnabled', ABYSS_APOSTLE_SOUND_KEYS);
           if (currentCfg.abyssApostleAlertEnabled) {
             this.playAlertSound({
               label: '심연의 제2사도 반사 종료',
@@ -875,13 +934,13 @@ class ChatLogProcessor {
               logMessage: `[제2사도] 반사 패턴 종료`
             });
           }
-        }, 6500);
+        }, Math.max(0,endsAt-Date.now())).unref();
       }
     });
 
     // 4-3. 몬스터 웨이브 종료 대기 알림 처리
-    chatParser.on('WAVE_MONSTER_WARNING', (data) => {
-      const cfg = config.loadFields(WAVE_WARNING_CONFIG_KEYS);
+    onMechanicAlert('WAVE_MONSTER_WARNING', (data) => {
+      const cfg = loadMechanicAlertConfig('waveMonsterWarningEnabled', WAVE_WARNING_SOUND_KEYS);
       if (!cfg.waveMonsterWarningEnabled) return;
 
       this.sendGameOverlayEvent('wave-warning-alert', data);
@@ -895,8 +954,8 @@ class ChatLogProcessor {
     });
 
     // 4-4. 로카고스 기믹 알림 처리
-    chatParser.on('LOKAGOS_PATTERN', (data) => {
-      const cfg = config.loadFields(LOKAGOS_CONFIG_KEYS);
+    onMechanicAlert('LOKAGOS_PATTERN', (data) => {
+      const cfg = loadMechanicAlertConfig('lokagosAlertEnabled', LOKAGOS_SOUND_KEYS);
       if (!cfg.lokagosAlertEnabled) return;
 
       this.sendGameOverlayEvent('lokagos-alert', data);
@@ -910,7 +969,7 @@ class ChatLogProcessor {
     });
 
     // 5. 이클립스 보스 클리어 처리
-    chatParser.on('ECLIPSE_BOSS_CLEAR', (data) => {
+    onProfileEvent('ECLIPSE_BOSS_CLEAR', (data) => {
       const bossMapping: Record<string, string> = {
         '에토스': 'weekly-eclipse-boss-ethos',
         '마티아': 'weekly-eclipse-boss-matias',
@@ -921,12 +980,12 @@ class ChatLogProcessor {
       };
       const id = bossMapping[data.bossName];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ECLIPSE_BOSS_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
+        return contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ECLIPSE_BOSS_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
  
     // 6. 머큐리얼 보스 클리어 처리
-    chatParser.on('MERCURIAL_BOSS_CLEAR', (data) => {
+    onProfileEvent('MERCURIAL_BOSS_CLEAR', (data) => {
       const bossMapping: Record<string, string> = {
         '실반': 'weekly-mur-sylvan',
         '샐리온': 'weekly-mur-salion',
@@ -938,12 +997,12 @@ class ChatLogProcessor {
       };
       const id = bossMapping[data.bossName];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('MERCURIAL_BOSS_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
+        return contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('MERCURIAL_BOSS_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
  
     // 7. 코어 마스터 클리어 처리
-    chatParser.on('CORE_MASTER_CLEAR', (data) => {
+    onProfileEvent('CORE_MASTER_CLEAR', (data) => {
       const coreMapping: Record<string, string> = {
         '심층Ⅰ': 'weekly-abyss-core-master-1',
         '심층Ⅱ': 'weekly-abyss-core-master-2',
@@ -957,7 +1016,7 @@ class ChatLogProcessor {
       };
       const id = coreMapping[data.contentName];
       if (id) {
-        contentsChecker.queuePendingHomework(
+        return contentsChecker.queuePendingHomework(
           id,
           data.count,
           data.isIncrement !== false,
@@ -984,17 +1043,14 @@ class ChatLogProcessor {
     ].forEach(([event, homeworkId]) => queueFixedHomework(event as keyof ChatParserEventMap, homeworkId));
  
     // 15. 발굴지 입장 처리
-    chatParser.on('DIGSITE_ENTRY', (data) => {
+    onProfileEvent('DIGSITE_ENTRY', (data) => {
       const sourceEventId = createHomeworkSourceEventId('DIGSITE_ENTRY', 'weekly-digsite', data);
-      if (typeof data.count === 'number') {
-        contentsChecker.queuePendingHomework('weekly-digsite', data.count, false, sourceEventId, parseHomeworkSourceTimestamp(data));
-      } else {
-        contentsChecker.queuePendingHomework('weekly-digsite', 1, true, sourceEventId, parseHomeworkSourceTimestamp(data));
-      }
+      const hasCount=typeof data.count === 'number';
+      return contentsChecker.queuePendingHomework('weekly-digsite',hasCount ? data.count! : 1,!hasCount,sourceEventId,parseHomeworkSourceTimestamp(data));
     });
  
     // 17. 어비스 보스 (심층 1~3) 클리어 처리
-    chatParser.on('ABYSS_DUNGEON_CLEAR', (data) => {
+    onProfileEvent('ABYSS_DUNGEON_CLEAR', (data) => {
       const depthMap: Record<string, string> = {
         '심층Ⅰ': 'weekly-abyss-dungeon-1',
         '심층Ⅱ': 'weekly-abyss-dungeon-2',
@@ -1002,7 +1058,7 @@ class ChatLogProcessor {
       };
       const id = depthMap[data.depth];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ABYSS_DUNGEON_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
+        return contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ABYSS_DUNGEON_CLEAR', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
  
@@ -1034,7 +1090,7 @@ class ChatLogProcessor {
     ].forEach(([event, homeworkId]) => queueFixedHomework(event as keyof ChatParserEventMap, homeworkId));
 
     // 어벤던로드 지역별 도전 횟수 감지 및 숙제 리스트 연동
-    chatParser.on('ABANDONED_ENTRY', (data) => {
+    onProfileEvent('ABANDONED_ENTRY', (data) => {
       const regionMapping: Record<string, string> = {
         '필멸의 땅': 'weekly-abandon-road-mortal',
         '카디프': 'weekly-abandon-road-cardiff',
@@ -1042,12 +1098,12 @@ class ChatLogProcessor {
       };
       const id = regionMapping[data.region];
       if (id) {
-        contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ABANDONED_ENTRY', id, data), parseHomeworkSourceTimestamp(data));
+        return contentsChecker.queuePendingHomework(id, data.count, false, createHomeworkSourceEventId('ABANDONED_ENTRY', id, data), parseHomeworkSourceTimestamp(data));
       }
     });
 
     // 팔색조 언덕 (갈망하는 즐거움) 진입 처리
-    chatParser.on('PITTA_ENTRY', (data) => {
+    onProfileEvent('PITTA_ENTRY', (data) => {
       const energy = typeof data.energy === 'number' && !isNaN(data.energy) ? data.energy : 0;
       const computedCount = (20 - energy) + 1;
       const grade = data.grade ? data.grade.trim().toUpperCase() : '';
@@ -1055,9 +1111,10 @@ class ChatLogProcessor {
 
       log(`[CHAT_PROCESSOR] PITTA_ENTRY 수신: grade="${data.grade}" (정규화="${grade}"), energy=${energy}, computedCount=${computedCount}, pittaHillAlertEnabled=${cfg.pittaHillAlertEnabled}`);
       
+      let skipped:string | undefined;
       // 유효 범위(1~5회)인 경우에만 숙제 카운팅 동기화
       if (computedCount >= 1 && computedCount <= 5) {
-        contentsChecker.queuePendingHomework(
+        skipped=contentsChecker.queuePendingHomework(
           'daily-pitta',
           computedCount,
           false,
@@ -1082,6 +1139,7 @@ class ChatLogProcessor {
       } else {
         log(`[CHAT_PROCESSOR] 팔색조 언덕 알림 조건 미충족: grade="${grade}" (SS 필요), energy=${energy} (16 필요)`);
       }
+      return skipped;
     });
 
     // XP 추적 (xpTracker에 위임)

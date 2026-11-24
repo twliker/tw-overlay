@@ -33,9 +33,9 @@
       <div class="win-controls flex items-center">
         <div class="flex items-center mr-4 bg-purple-500/10 rounded-xl border border-purple-500/20 p-0.5" style="-webkit-app-region: no-drag;">
           <select id="instant-rank-select" class="bg-transparent border-none text-sm font-bold px-2 py-1 text-purple-300 focus:outline-none">
-            <option value="3" class="bg-slate-900">3단계로</option>
-            <option value="7" class="bg-slate-900">7단계로</option>
-            <option value="10" class="bg-slate-900" selected>10단계로</option>
+            <option value="3">3단계로</option>
+            <option value="7">7단계로</option>
+            <option value="10" selected>10단계로</option>
           </select>
           <button onclick="instantSetRank()" id="btn-instant-rank" class="px-2 py-1 hover:bg-purple-500/30 text-purple-200 rounded-lg flex items-center transition-all active:scale-95 text-xs font-black">
             즉시 설정
@@ -309,7 +309,6 @@
     }
     .animate-fail { animation: fail-shake 0.3s ease-in-out; }
     
-    select option { background: #0f121e; color: white; }
     button:disabled { opacity: 0.4; pointer-events: none; }
     
     .panel-glass {

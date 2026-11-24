@@ -14,6 +14,8 @@
  * - 일부 검색이 실패해도 성공한 검색의 새 글은 기존처럼 알립니다. `tradeSearchState`에 키워드별
  *   확인 위치와 이미 알린 글을 저장하므로 실패한 키워드는 재시작 뒤에도 건너뛰거나 중복 알림 없이 재개합니다.
  * - 최초 기준점과 한 회차 최대 3건+나머지 요약 알림을 유지합니다. UI 목록 조회는 알림 확인 위치를 바꾸지 않습니다.
+ * - UI 응답은 요청 당시 서버와 최신 요청에만 반영한다. 서버를 바꾸면 이전 목록을 비우고 열린 창은
+ *   새 서버를 조회한다. A→B→A 전환이나 응답 역순도 이전 요청을 되살리지 않는다. 회귀: test:audit.
  */
 import { BrowserWindow, shell } from 'electron';
 import { log } from './logger';
@@ -67,6 +69,8 @@ let consecutiveErrors = 0;
 
 // ─── 상태 ───
 let currentServer = 'RyXp';
+let serverRevision = 0;
+let listRequestVersion = 0;
 let tradeKeywords: string[] = [];
 let lastSeenPostNo = 0;
 let checkTimer: NodeJS.Timeout | null = null;
@@ -74,7 +78,10 @@ let isRunning = false;
 let notifyEnabled = true;
 let sidebarWindowRef: BrowserWindow | null = null;
 let tradeWindowRef: BrowserWindow | null = null;
-let keywordSearchInFlight: Promise<boolean> | null = null;
+/** 키워드 검색 결과. 검색은 목록을 직접 조회하지 않고, 목록을 새로 받아야 하는지만 알린다.
+ * 목록 조회는 호출자(주기 체크·수동 새로고침)가 refreshPostList로 한 번만 실행한다. */
+interface KeywordSearchResult { success: boolean; listChanged: boolean }
+let keywordSearchInFlight: Promise<KeywordSearchResult> | null = null;
 let searchState: TradeSearchState | null = null;
 let monitorGeneration = 0;
 
@@ -231,7 +238,7 @@ function notify(title: string, body: string, url?: string): void {
 }
 
 // ─── 새 글 알림용 카페 검색 감지 ───
-async function checkKeywordsSearch(): Promise<boolean> {
+async function checkKeywordsSearch(): Promise<KeywordSearchResult> {
     if (keywordSearchInFlight) return keywordSearchInFlight;
     const pending = performKeywordSearch().finally(() => {
         if (keywordSearchInFlight === pending) keywordSearchInFlight = null;
@@ -240,14 +247,14 @@ async function checkKeywordsSearch(): Promise<boolean> {
     return pending;
 }
 
-async function performKeywordSearch(): Promise<boolean> {
+async function performKeywordSearch(): Promise<KeywordSearchResult> {
     const serverId = currentServer;
     const keywords = [...tradeKeywords];
     const server = SERVERS[currentServer];
-    if (!server) return false;
+    if (!server) return { success: false, listChanged: false };
 
     // 키워드가 없으면 검색하지 않음
-    if (tradeKeywords.length === 0) return true;
+    if (tradeKeywords.length === 0) return { success: true, listChanged: false };
 
     const activeState = searchState = createTradeSearchState(
         searchState || config.load().tradeSearchState, serverId, keywords, lastSeenPostNo,
@@ -280,7 +287,7 @@ async function performKeywordSearch(): Promise<boolean> {
         }
 
         if (!isRunning || !notifyEnabled || searchState !== activeState || currentServer !== serverId
-            || JSON.stringify(keywords) !== JSON.stringify(tradeKeywords)) return false;
+            || JSON.stringify(keywords) !== JSON.stringify(tradeKeywords)) return { success: false, listChanged: false };
 
         pruneTradeNotifications(nextState);
         searchState = nextState;
@@ -304,33 +311,39 @@ async function performKeywordSearch(): Promise<boolean> {
 
         }
 
-        if (toNotify.length > 0 || (initializing && successfulKeywords > 0)) await checkNewPostsUI();
-        return !hasError;
+        return { success: !hasError, listChanged: toNotify.length > 0 || (initializing && successfulKeywords > 0) };
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRADE] 검색 체크 (알림루프) 실패: ${msg}`);
-        return false;
+        return { success: false, listChanged: false };
     }
 }
 
 // ─── UI 갱신용 최신글 20개 가져오기 ───
-async function checkNewPostsUI(): Promise<boolean> {
-    const server = SERVERS[currentServer];
-    if (!server) return false;
+/** 거래 게시판 최신 목록 조회의 단일 진입점(가장 늦게 시작한 요청만 반영).
+ * - 요청 번호는 이 함수와 서버 변경만 올린다. 다른 흐름 안에서 이 함수를 중첩 호출하지 않으므로
+ *   자신이 시작한 내부 조회 때문에 바깥 요청이 무효가 되는 일이 없다.
+ * - onlyWhenVisible이면 창이 보일 때만 목록을 보낸다(주기 체크). 수동 새로고침은 항상 보낸다.
+ * - 서버가 바뀌었거나 더 새로운 조회가 시작된 응답은 버리고 null을 돌려준다.
+ * 회귀: check-audit-regressions.ts. */
+async function refreshPostList(onlyWhenVisible: boolean): Promise<TradePost[] | null> {
+    const serverId=currentServer,revision=serverRevision,request=++listRequestVersion;
+    const server = SERVERS[serverId];
+    if (!server) return null;
 
     try {
         const html = await fetchPage(BASE_URL(server.fldid));
+        if(currentServer!==serverId || serverRevision!==revision || listRequestVersion!==request)return null;
         const posts = parsePostList(html, server.fldid, false);
 
-        // UI가 열려있을 때만 데이터를 보냄 (성능 최적화)
-        if (tradeWindowRef && !tradeWindowRef.isDestroyed() && tradeWindowRef.isVisible()) {
+        if (!onlyWhenVisible || (tradeWindowRef && !tradeWindowRef.isDestroyed() && tradeWindowRef.isVisible())) {
             sendPostListToWindow(posts);
         }
-        return true;
+        return posts;
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`[TRADE] UI 목록 체크 실패: ${msg}`);
-        return false;
+        return null;
     }
 }
 
@@ -351,7 +364,9 @@ async function doCheck(): Promise<void> {
     }
 
     // bbs_list가 아닌, 알림용으로 등록된 모든 키워드를 순회하며 각각 cafesearch
-    const success = await checkKeywordsSearch();
+    const { success, listChanged } = await checkKeywordsSearch();
+    if (!isRunning || monitorGeneration !== generation) return;
+    if (listChanged) await refreshPostList(true);
     if (!isRunning || monitorGeneration !== generation) return;
 
     if (success) {
@@ -433,27 +448,19 @@ export function updateWindows(sidebarWin: BrowserWindow | null, tradeWin: Browse
     notifyEnabled = cfg.tradeNotify !== false;
 }
 
+/** 수동 새로고침: 알림용 키워드 검색(알림 포함)을 마친 뒤 목록을 정확히 한 번 조회한다.
+ * 검색 결과가 목록 변경을 알려도 여기서 한 번만 조회하므로 검색과 목록 조회가 서로를 무효화하지 않는다.
+ * 검색 중 서버가 바뀌면 서버 변경이 시작한 조회에 맡기고 빈 결과를 돌려준다. */
 export async function forceCheck(): Promise<TradePost[]> {
-    const server = SERVERS[currentServer];
-    if (!server) return [];
+    const revision=serverRevision;
+    if (!SERVERS[currentServer]) return [];
 
-    try {
-        if (tradeKeywords.length > 0 && isRunning && notifyEnabled) {
-            // 강제 체크 시 백그라운드 카페 검색 로직 수행 (알림 포함)
-            await checkKeywordsSearch().catch(e => log(`[TRADE] 강제(검색) 에러: ${e.message}`));
-        }
-
-        // 백그라운드 구동 중이 아니어도 UI 목록은 무조건 갱신
-        const html = await fetchPage(BASE_URL(server.fldid));
-        const posts = parsePostList(html, server.fldid, false);
-        sendPostListToWindow(posts);
-
-        return posts;
-    } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        log(`[TRADE] 강제 체크 실패: ${msg}`);
-        return [];
+    if (tradeKeywords.length > 0 && isRunning && notifyEnabled) {
+        await checkKeywordsSearch().catch(e => log(`[TRADE] 강제(검색) 에러: ${e instanceof Error ? e.message : String(e)}`));
     }
+    if (serverRevision !== revision) return [];
+    // 백그라운드 구동 중이 아니어도 UI 목록은 갱신한다.
+    return await refreshPostList(false) ?? [];
 }
 
 export function setNotifyEnabled(enabled: boolean): void {
@@ -468,9 +475,12 @@ export function getNotifyEnabled(): boolean {
 export function setServer(serverId: string): void {
     if (SERVERS[serverId] && serverId !== currentServer) {
         currentServer = serverId;
+        serverRevision++;listRequestVersion++;
         lastSeenPostNo = 0;
         searchState = createTradeSearchState(undefined, serverId, tradeKeywords, 0);
         config.save({ tradeServer: serverId, tradeLastSeen: 0, tradeSearchState: searchState });
+        sendPostListToWindow([]);
+        void refreshPostList(true);
         log(`[TRADE] 서버 변경: ${SERVERS[serverId].name}`);
     }
 }

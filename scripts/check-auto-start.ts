@@ -7,7 +7,9 @@ import { app, shell } from 'electron';
 
 const root = path.resolve(__dirname, '..');
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tw-autostart-'));
-app.setPath('userData', fixtureRoot);
+// Chromium은 ready 전후에도 userData를 쓸 수 있다. 완료한 사례 폴더의 정리가
+// 실행 중인 Electron 캐시와 경합하지 않도록 별도 임시 경로를 사용한다.
+app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'tw-autostart-runtime-')));
 const { StoreAutoStartQueue, parseStoreStartupResult } = require(path.join(root, 'dist', 'modules', 'storeAutoStart.js')) as {
     StoreAutoStartQueue: new () => { enqueue(operation: () => Promise<void>): Promise<void> };
     parseStoreStartupResult(output: string): string;
@@ -179,5 +181,5 @@ async function main(): Promise<void> {
         nativeShortcut: true, unicodeShortcut: true, shortcutFailure: true }));
 }
 
-main().then(() => { fs.rmSync(fixtureRoot, { recursive: true, force: true }); process.exit(0); })
+main().then(() => { fs.rmSync(fixtureRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); process.exit(0); })
     .catch(error => { console.error(error); process.exit(1); });

@@ -120,9 +120,21 @@
   };
 
   function collectChatOverlayDisplaySettings(blacklistFilters?: string[], customTabs?: unknown[]): Record<string, unknown> {
+    const legacyServer=window.lastConfig?.activePlayProfileId ? undefined : integerValue('chat-overlay-user-server-input',defaultConfig.userServer);
     const visibleTabs = window.chatChannels.OVERLAY_BUILT_IN_TABS
       .filter(tab => checkedValue(`chat-overlay-visible-tab-${tab}`, false));
+    const chatWindowFields = [
+      ['chatOverlayEnabled', 'settings-chat-main-enabled'],
+      ['chatOverlaySubEnabled', 'settings-chat-sub1-enabled'],
+      ['chatOverlaySub2Enabled', 'settings-chat-sub2-enabled'],
+    ] as const;
+    const changedWindows: Record<string, boolean> = {};
+    for (const [key, id] of chatWindowFields) {
+      const input = document.getElementById(id) as HTMLInputElement | null;
+      if (input && input.checked !== (window.lastConfig?.[key] === true)) changedWindows[key] = input.checked;
+    }
     return {
+      ...changedWindows,
       chatOverlayShowFreeShout: checkedValue('chat-overlay-show-free-shout', true),
       chatOverlayShowPaidShout: checkedValue('chat-overlay-show-paid-shout', true),
       chatOverlayShowNoticeShout: checkedValue('chat-overlay-show-notice-shout', true),
@@ -165,7 +177,7 @@
       chatOverlayShowElsoGain: checkedValue('chat-overlay-show-elso-gain', defaultConfig.chatOverlayShowElsoGain),
       chatOverlayHighlightScamNicknames: checkedValue('chat-overlay-highlight-scam-nicknames', defaultConfig.chatOverlayHighlightScamNicknames),
       chatOverlayCustomTabs: Array.isArray(customTabs) ? customTabs : (defaultConfig.chatOverlayCustomTabs || []),
-      userServer: integerValue('chat-overlay-user-server-input', defaultConfig.userServer),
+      ...(legacyServer===undefined ? {} : {userServer:legacyServer}),
     };
   }
 

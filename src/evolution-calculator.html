@@ -36,11 +36,10 @@
     .tier-card { min-width: 0; height: 78px; padding: 10px 12px; border: 1px solid #334155; border-radius: 12px; background: linear-gradient(135deg, rgba(30,41,59,.92), rgba(15,23,42,.72)); }
     .tier-card small { display: block; color: #64748b; font-size: 11px; font-weight: 900; letter-spacing: .08em; }
     .tier-select-wrap { position: relative; margin-top: 6px; }
-    .tier-select { width: 100%; height: 36px; appearance: none; border: 1px solid #334155; border-radius: 8px; outline: 0; padding: 0 34px 0 10px; color: #d9f99d; background: linear-gradient(180deg, #111c2e, #0b1322); font-size: 14px; font-weight: 900; cursor: pointer; }
+    .tier-select { width: 100%; height: 36px; border: 1px solid #334155; border-radius: 8px; outline: 0; padding: 0 10px; color: #d9f99d; background: linear-gradient(180deg, #111c2e, #0b1322); font-size: 14px; font-weight: 900; cursor: pointer; }
     .tier-select:hover { border-color: #4d6334; background: #132033; }
     .tier-select:focus { border-color: rgba(163,230,53,.65); box-shadow: 0 0 0 2px rgba(132,204,22,.1); }
-    .tier-select option { color: #e2e8f0; background: #0f172a; }
-    .tier-select-chevron { position: absolute; top: 50%; right: 10px; width: 15px; height: 15px; color: #a3e635; pointer-events: none; transform: translateY(-50%); }
+    .tier-select::picker-icon { color: var(--lime); }
     .route-arrow { display: grid; place-items: center; color: #a3e635; }
     .material-header, .material-row { display: grid; grid-template-columns: minmax(0,1fr) 50px 105px 110px; align-items: center; gap: 8px; }
     .material-header { padding: 0 10px 7px; color: #64748b; font-size: 11px; font-weight: 900; }
@@ -152,9 +151,9 @@
       </div>
 
       <div class="evolution-route">
-        <article class="tier-card"><small>EVOLUTION START</small><div class="tier-select-wrap"><select id="step-from" class="tier-select" aria-label="진화 시작 단계"></select><i class="tier-select-chevron" data-lucide="chevron-down"></i></div></article>
+        <article class="tier-card"><small>EVOLUTION START</small><div class="tier-select-wrap"><select id="step-from" class="tier-select" aria-label="진화 시작 단계"></select></div></article>
         <div class="route-arrow"><i data-lucide="arrow-right"></i></div>
-        <article class="tier-card"><small>EVOLUTION TARGET</small><div class="tier-select-wrap"><select id="step-to" class="tier-select" aria-label="진화 목표 단계"></select><i class="tier-select-chevron" data-lucide="chevron-down"></i></div></article>
+        <article class="tier-card"><small>EVOLUTION TARGET</small><div class="tier-select-wrap"><select id="step-to" class="tier-select" aria-label="진화 목표 단계"></select></div></article>
       </div>
 
       <div class="scroll-area">

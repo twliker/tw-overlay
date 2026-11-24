@@ -12,6 +12,9 @@
  *   또는 Win32 z-order 호출을 바꿀 때는 관리자 PowerShell의 실제 fixture 검증을 먼저 통과해야 합니다.
  * - Koffi 콜백과 native handle은 앱 종료까지 수명이 유지되어야 하며, 재시작 시 이전 hook/handle을
  *   해제해 중복 콜백과 메모리 누수를 만들지 않습니다.
+ * - 창 닫힘 뒤 지연된 자동 포커스 복구는 실행 직전에도 최소화/숨김 여부를 확인합니다.
+ *   사용자가 감춘 게임은 펼치지 않습니다. 명시적인 HUD 편집의 focusGameWindow와 구분합니다.
+ *   회귀: check-profile-windows.ts, check-refactor-regressions.ts의 창 포커스 계약.
  */
 import { GAME_PROCESS_NAME, GameQueryResult, TITLE_BUFFER_LENGTH } from './constants';
 import { log } from './logger';
@@ -27,13 +30,13 @@ let hMinimizeEventHook: bigint | null = null;
 let onWindowEventCallback: (() => void) | null = null;
 let onForegroundChangeCallback: ((isGameFocused: boolean, focusedHwnd: string) => void) | null = null;
 let lastNotifiedForegroundHwnd: bigint | null = null;
+/** 마지막 포커스 통지 때 게임 판정에 쓴 게임 창(HWND:PID). null은 게임 창 없음. */
+let lastNotifiedGameIdentity: string | null = null;
 
 // --- 메모리 최적화를 위한 재사용 버퍼 ---
 const titleBuffer = Buffer.alloc(TITLE_BUFFER_LENGTH * 2);
 const classNameBuffer = Buffer.alloc(256 * 2);
-const nameBuffer = Buffer.alloc(512);
 const pidPtr = Buffer.alloc(4);
-const sizePtr = Buffer.alloc(4);
 const rectOut = { left: 0, top: 0, right: 0, bottom: 0 };
 
 /** hwnd 값을 안전하게 bigint로 변환하는 헬퍼 함수 */
@@ -85,25 +88,11 @@ const enumCallback = koffi.register((hwnd: any, _lParam: bigint) => {
         win32.GetWindowThreadProcessId(safeHwnd, pidPtr);
         const pid = pidPtr.readUInt32LE(0);
 
-        let hProcess = 0n;
-        try {
-            hProcess = win32.OpenProcess(win32.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-            if (hProcess !== 0n) {
-                sizePtr.writeUInt32LE(TITLE_BUFFER_LENGTH, 0);
-                if (win32.QueryFullProcessImageNameW(hProcess, 0, nameBuffer, sizePtr)) {
-                    const nameLen = sizePtr.readUInt32LE(0);
-                    const fullPath = nameBuffer.toString('utf16le', 0, nameLen * 2);
-                    if (fullPath.toLowerCase().includes(GAME_PROCESS_NAME.toLowerCase())) {
-                        _tempFoundHwnd = safeHwnd;
-                        _tempFoundPid = pid;
-                        return false;
-                    }
-                }
-            }
-        } catch {
-            // 프로세스 접근 실패 시 무시
-        } finally {
-            if (hProcess !== 0n) win32.CloseHandle(hProcess);
+        const fullPath = queryProcessExecutablePath(pid);
+        if (fullPath?.toLowerCase().includes(GAME_PROCESS_NAME.toLowerCase())) {
+            _tempFoundHwnd = safeHwnd;
+            _tempFoundPid = pid;
+            return false;
         }
     }
     return true;
@@ -142,14 +131,36 @@ const winEventProcInstance = koffi.register((_hWinEventHook: bigint, event: numb
 // --- 내부 함수 ---
 
 /**
+ * 기능 계약 — 포커스 통지 중복 제거는 (전경 HWND, 게임 창 HWND:PID) 쌍으로 판단한다.
+ * 게임 판정(isGameFocused)은 전경 창과 캐시된 게임 창을 함께 보고 계산하므로, 전경이 같아도
+ * 게임 창이 새로 잡히거나 바뀌면 리스너에 다시 알린다. 캐시를 누가 채웠는지(폴링의 queryGameRect,
+ * 채팅 로그 경로 자동 탐색의 isGameRunning, IPC 조회 등)와 무관하게 같은 규칙이 적용되어,
+ * 다른 경로가 먼저 게임 창을 캐시해도 포커스 상태가 "게임 아님"에 머물지 않는다.
+ * 회귀: check-game-path.ts.
+ */
+export function shouldNotifyForegroundChange(
+    last: { foregroundHwnd: bigint; gameIdentity: string | null } | null,
+    next: { foregroundHwnd: bigint; gameIdentity: string | null },
+    force = false,
+): boolean {
+    return force || last === null || last.foregroundHwnd !== next.foregroundHwnd || last.gameIdentity !== next.gameIdentity;
+}
+
+/**
  * WinEventHook 누락과 앱 시작 시점의 스플래시/UAC 포커스 경쟁을 폴링이 보완할 수 있도록
  * 모든 포커스 통지는 이 경로에서 중복 제거합니다. 게임이 먼저 실행된 경우에도 첫 안정 폴링에서
  * 현재 foreground를 다시 평가해야 전역 단축키가 등록됩니다.
  */
 function notifyForegroundChange(foregroundHwnd: bigint, force = false): void {
     if (!onForegroundChangeCallback) return;
-    if (!force && lastNotifiedForegroundHwnd === foregroundHwnd) return;
+    const gameIdentity = cachedHwnd !== null ? `${cachedHwnd}:${lastProcessId ?? ''}` : null;
+    if (!shouldNotifyForegroundChange(
+        lastNotifiedForegroundHwnd === null ? null : { foregroundHwnd: lastNotifiedForegroundHwnd, gameIdentity: lastNotifiedGameIdentity },
+        { foregroundHwnd, gameIdentity },
+        force,
+    )) return;
     lastNotifiedForegroundHwnd = foregroundHwnd;
+    lastNotifiedGameIdentity = gameIdentity;
     const isGameFocused = cachedHwnd !== null && foregroundHwnd === cachedHwnd;
     onForegroundChangeCallback(isGameFocused, foregroundHwnd.toString());
 }
@@ -229,11 +240,39 @@ export function getGameHwnd(): string | undefined {
     return cachedHwnd ? cachedHwnd.toString() : undefined;
 }
 
+/** 창 모드가 바뀌어도 같은 PID를 사용한다. 마지막 검출 결과만 읽는다. */
+export function getDetectedGameProcessId():number | undefined {return cachedHwnd ? lastProcessId ?? undefined : undefined;}
+
+export function isGameProcessCurrent(id:number):boolean {return lastProcessId===id && isHwndValid(cachedHwnd);}
+
 export function isGameRunning(): boolean {
     if (!cachedHwnd || !isHwndValid(cachedHwnd)) {
         cachedHwnd = findGameWindow();
     }
     return cachedHwnd !== null;
+}
+
+/** 현재 게임 창의 프로세스 경로만 조회한다. 최소화된 창도 조회하며 창 배치/포커스는 바꾸지 않는다. */
+export function getRunningGameExecutablePath(): string | null {
+    if (!isGameRunning() || !lastProcessId) return null;
+    return queryProcessExecutablePath(lastProcessId);
+}
+
+export function queryProcessExecutablePath(processId: number): string | null {
+    let handle = 0n;
+    try {
+        handle = win32.OpenProcess(win32.PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+        if (!handle) return null;
+        const capacity = 32_768;
+        const buffer = Buffer.alloc(capacity * 2), size = Buffer.alloc(4);
+        size.writeUInt32LE(capacity);
+        if (!win32.QueryFullProcessImageNameW(handle, 0, buffer, size)) return null;
+        return buffer.toString('utf16le', 0, size.readUInt32LE() * 2);
+    } catch {
+        return null;
+    } finally {
+        if (handle) win32.CloseHandle(handle);
+    }
 }
 
 export function start(): void {
@@ -280,7 +319,7 @@ export async function queryGameRect(): Promise<GameQueryResult> {
         // 값이 바뀐 경우에만 콜백하므로 안정 상태에서는 중복 등록/Win32 작업을 만들지 않습니다.
         const foregroundHwnd = notifyCurrentForeground(gameWindowRedetected);
 
-        if (win32.IsIconic(cachedHwnd)) return null;
+        if (win32.IsIconic(cachedHwnd) || !win32.IsWindowVisible(cachedHwnd)) return null;
 
         let res = win32.DwmGetWindowAttribute(cachedHwnd, win32.DWMWA_EXTENDED_FRAME_BOUNDS, rectOut, 16);
         if (res !== 0 && !win32.GetWindowRect(cachedHwnd, rectOut)) {
@@ -319,6 +358,7 @@ export function stop() {
     }
     cachedHwnd = null;
     lastNotifiedForegroundHwnd = null;
+    lastNotifiedGameIdentity = null;
 }
 
 /**
@@ -481,9 +521,12 @@ export function isGameOrAppForeground(): boolean {
     return false;
 }
 
-/** 자동 포커스 복구가 외부 프로그램의 포커스를 빼앗지 않는 상태인지 확인한다. */
+/** 지연된 자동 복구가 사용자의 최소화/숨김 또는 외부 프로그램의 포커스를 되돌리지 않게 한다. */
 export function canAutomaticallyRestoreGameFocus(): boolean {
     try {
+        if (!cachedHwnd || !isHwndValid(cachedHwnd)) return false;
+        if (win32.IsIconic && win32.IsIconic(cachedHwnd)) return false;
+        if (win32.IsWindowVisible && !win32.IsWindowVisible(cachedHwnd)) return false;
         if (!win32.GetForegroundWindow) return false;
         const fgHwnd = parseHwnd(win32.GetForegroundWindow());
         // 창 닫힘 직후 Windows가 잠시 foreground를 비운 과도기는 복구를 허용하되,

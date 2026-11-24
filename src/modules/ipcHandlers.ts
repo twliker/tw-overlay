@@ -1,14 +1,21 @@
 import { registerStopwatchIpc } from './stopwatchSession';
+import {registerProfileToolsIpc} from './profileToolsIpc';
+import {validateSettingsProfileWrite} from './profileSettingsAccess';
+import {registerProfileChecklistIpc} from './profileChecklistIpc';
+import {canControlProfileXp,checkpointManualProgress,getProfileRuntime} from './profileRuntime';
 import { beginGameOverlayEdit, requestGameOverlayEditExit, finishGameOverlayEdit, cancelGameOverlayEdit, isGameOverlayEditRequest } from './gameOverlayEditSession';
-import { beginNotificationEdit, requestNotificationEditExit, finishNotificationEdit, cancelNotificationEdit } from './notificationEditSession';
+import { beginNotificationEdit, requestNotificationEditExit, finishNotificationEdit, cancelNotificationEdit, canSaveNotificationEdit } from './notificationEditSession';
 import { importChatFont, listChatFonts, readChatFont } from './customChatFonts';
 import { registerCompanionFiles } from './companionFiles';
+import { registerProfileIpc } from './profileIpc';
+import {registerProfileSyncIpc,assertProfileSyncSettingsSender} from './profileSyncIpc';
+import {getProfileCloudSync} from './profileCloudSync';
+import {getDiaryProfileState,resolveDiaryProfileFilter,withManualDiaryProfile,getDiaryWeeklyTotals} from './diaryProfileAccess';
+import {registerDiaryArchiveIpc} from './diaryArchiveIpc';
 /**
  * IPC 이벤트 핸들러 모듈
  */
 import { ipcMain, shell, app, BrowserWindow, dialog, screen, Menu } from 'electron';
-import { randomUUID } from 'crypto';
-import { isActivityPresets, mergeActivitySettings } from '../shared/activityPresets';
 import type { WebContents } from 'electron';
 import * as path from 'path';
 import * as config from './config';
@@ -18,14 +25,19 @@ import { DEFAULT_HUD_POSITIONS } from '../shared/windowPositions';
 import * as fs from 'fs';
 import { resolveSafeChildFile } from './safePath';
 import { chatLogManager } from './chatLogManager';
+import { findRunningGamePath } from './chatLogPathFinder';
+import { pathToFileURL } from 'url';
+import {randomUUID} from 'node:crypto';
 import * as wm from './windowManager';
 import * as gallery from './galleryMonitor';
 import * as trade from './tradeMonitor';
 import * as optimizer from './optimizer';
 import { fetchEtaRanking } from './etaRanking';
-import { MAIN_CHAR_ID } from '../shared/types';
-import type { EtaRankingParams, EvolutionCalculatorSelection } from '../shared/types';
+import { ALARM_LOG_TYPES, MAIN_CHAR_ID, type AlarmLogType } from '../shared/types';
+import type { EtaRankingParams, EvolutionCalculatorSelection, SetupWizardInput, SetupWizardResult } from '../shared/types';
+import { isProfileServer } from '../shared/playProfiles';
 import { applyRuntimeSettings } from './runtimeSettings';
+import { setWindowMouseMode } from './rendererHealthGuard';
 import * as sm from './shortcutManager';
 import { analytics } from './analytics';
 import * as tracker from './tracker';
@@ -222,6 +234,8 @@ function triggerGameOverlayEffect(
 export function register(): void {
   if (_registered) return;
   _registered = true;
+  registerProfileIpc({close:wm.closeProfilesWindow});
+  registerProfileSyncIpc();
 
   ipcMain.handle('contents-collapse', (event, collapsed: boolean) => {
     if (!isBoolean(collapsed)) return false;
@@ -236,8 +250,8 @@ export function register(): void {
     if (!isBoolean(ignore) || (options !== undefined && (typeof options !== 'object' || options === null || (options.forward !== undefined && !isBoolean(options.forward))))) return;
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) {
-      win.setIgnoreMouseEvents(ignore, options || {});
-      wm.setLauncherInteractive(win, !ignore);
+      setWindowMouseMode(win,ignore,options || {});
+      wm.setDockInteractive(win, !ignore);
     }
   });
 
@@ -287,12 +301,13 @@ export function register(): void {
   });
 
   // ── 과거 채팅 로그 동기화 & 온보딩 마법사 IPC ──
-  ipcMain.handle('start-chat-log-sync', async (_event, includeCompletedLogs: unknown = false) => {
+  ipcMain.handle('start-chat-log-sync', async (_event, includeCompletedLogs: unknown = false,profileId?:unknown) => {
     try {
       if (!isBoolean(includeCompletedLogs)) {
         throw new Error('완료된 로그 재분석 옵션이 올바르지 않습니다.');
       }
-      return await syncWeeklyChatLogs({ reanalyzeCompletedLogs: includeCompletedLogs });
+      if (profileId!==undefined && !isSafeId(profileId)) throw new Error('복원할 프로필을 확인해 주세요.');
+      return await syncWeeklyChatLogs({ reanalyzeCompletedLogs: includeCompletedLogs,profileId:profileId as string | undefined });
     } catch (e) {
       log(`[IPC] start-chat-log-sync error: ${e}`);
       return {
@@ -328,47 +343,67 @@ export function register(): void {
     );
   });
 
-  ipcMain.on('complete-setup-wizard', (_e, wizardConfig?: { chatLogPath?: string; userServer?: number; chatLogAutoDeleteDays?: number; diaryKeepDays?: number; lootKeywords?: string[] }) => {
-    if (wizardConfig !== undefined && (!wizardConfig || typeof wizardConfig !== 'object' || Array.isArray(wizardConfig))) return;
-    const updates: Record<string, unknown> = {
+  // 시작 안내는 열었을 때 읽은 프로필만 대상으로 삼는다. 저장을 확정한 뒤 창을 닫는다.
+  ipcMain.handle('complete-setup-wizard', (event, wizardConfig: SetupWizardInput): SetupWizardResult => {
+    const guideWin = wm.getWelcomeGuideWindow();
+    if (event.sender !== guideWin?.webContents || event.senderFrame !== event.sender.mainFrame
+      || !wizardConfig || typeof wizardConfig !== 'object' || Array.isArray(wizardConfig)) {
+      return { success: false, error: '시작 안내에서 다시 시도해 주세요.' };
+    }
+    const runtime = getProfileRuntime();
+    if (runtime?.service.isStorageMaintenanceActive() || runtime?.service.status().busy) {
+      return { success: false, error: '프로필 작업을 마친 뒤 다시 시도해 주세요.' };
+    }
+    const previous = config.load();
+    if (wizardConfig.profileId !== previous.activePlayProfileId) {
+      return { success: false, error: '프로필이 바뀌었습니다. 시작 안내를 다시 열어 주세요.' };
+    }
+    const updates: Partial<AppConfig> = {
       setupCompleted: true,
       hasSeenWelcomeGuide: true
     };
     if (wizardConfig?.chatLogPath && isLimitedString(wizardConfig.chatLogPath, 32_767)) {
       updates.chatLogPath = wizardConfig.chatLogPath;
     }
-    if (wizardConfig?.userServer !== undefined && Number.isInteger(wizardConfig.userServer) && isFiniteInRange(wizardConfig.userServer, 1, 10_000)) {
+    if (isProfileServer(wizardConfig.userServer)
+      && (wizardConfig.userServerEdited === true || !isProfileServer(previous.userServer))) {
       updates.userServer = wizardConfig.userServer;
     }
     if (wizardConfig?.chatLogAutoDeleteDays !== undefined && Number.isInteger(wizardConfig.chatLogAutoDeleteDays) && isFiniteInRange(wizardConfig.chatLogAutoDeleteDays, 0, 3_650)) {
       updates.chatLogAutoDeleteDays = wizardConfig.chatLogAutoDeleteDays;
     }
-    if (wizardConfig?.diaryKeepDays !== undefined && Number.isInteger(wizardConfig.diaryKeepDays) && isFiniteInRange(wizardConfig.diaryKeepDays, 1, 3_650)) {
+    if (wizardConfig?.diaryKeepDays !== undefined && Number.isInteger(wizardConfig.diaryKeepDays) && isFiniteInRange(wizardConfig.diaryKeepDays, 0, 3_650)) {
       updates.diaryKeepDays = wizardConfig.diaryKeepDays;
     }
-    if (wizardConfig?.lootKeywords !== undefined && isStringArray(wizardConfig.lootKeywords)) {
+    if (!previous.setupCompleted && !previous.lootKeywords?.length && isStringArray(wizardConfig.lootKeywords)) {
       updates.lootKeywords = wizardConfig.lootKeywords;
       updates.lootKeywordsMigratedV2 = true;
     }
-    config.saveImmediate(updates);
+    if (!config.saveConfirmed(updates)) {
+      return { success: false, error: '설정을 저장하지 못했습니다. 다시 시도해 주세요.' };
+    }
     log('[SETUP_WIZARD] 초기 설정 마법사 완료 처리');
 
-    // 가이드 창 닫기
-    const guideWin = wm.getWelcomeGuideWindow();
-    if (guideWin && !guideWin.isDestroyed()) {
-      guideWin.close();
-    }
-
-    if (config.load().overlayVisible !== false) {
-      wm.setOverlayVisible(true);
-    }
+    // UI 갱신 실패가 이미 확정된 저장의 결과를 바꾸지 않게 한다.
+    try {
+      const applied=config.load();
+      broadcastToAllWindows('config-data',applied);
+      if (applied.chatLogPath !== previous.chatLogPath) {
+        chatLogManager.applyConfiguredPath();
+        broadcastChatLogStatus();
+      }
+      if (runtime) broadcastToAllWindows('play-profiles-changed',runtime.service.status());
+      if (applied.overlayVisible !== false) wm.setOverlayVisible(true);
+    } catch (error) {log('[SETUP_WIZARD] 저장 후 창 갱신 실패: '+String(error));}
+    return { success: true };
   });
 
   ipcMain.handle('get-update-notice-data', () => {
     return noticeManager.getNoticeData();
   });
 
-  ipcMain.on('update-notice-close', () => {
+  ipcMain.handle('update-notice-close', event => {
+    if (wm.getUpdateNoticeWindow()?.webContents !== event.sender) return;
     noticeManager.markNoticeAsRead();
     wm.closeUpdateNoticeWindow();
   });
@@ -486,7 +521,7 @@ export function register(): void {
     wm.setOverlayVisible(true, cfg.homeUrl);
   });
 
-  type ApplySettingsResult = { success: true } | { success: false; error: 'invalid-settings' | 'save-failed' };
+  type ApplySettingsResult = { success: true } | { success: false; error: 'invalid-settings' | 'save-failed' | 'profile-changed' };
   const applyExternalSettings = (value: unknown, sourceWebContents?: WebContents): ApplySettingsResult => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return { success: false, error: 'invalid-settings' };
@@ -539,12 +574,32 @@ export function register(): void {
     return { success: true };
   };
 
-  ipcMain.on('apply-settings', (event, newSettings: unknown) => {
-    applyExternalSettings(newSettings, event.sender);
+  ipcMain.on('apply-settings', (event, newSettings: unknown, expectedProfileId?:unknown) => {
+    if (!validateSettingsProfileWrite(event.sender,expectedProfileId)) applyExternalSettings(newSettings, event.sender);
   });
-  ipcMain.handle('apply-settings-confirmed', (event, newSettings: unknown) => (
-    applyExternalSettings(newSettings, event.sender)
-  ));
+  ipcMain.handle('apply-settings-confirmed', (event, newSettings: unknown, expectedProfileId?:unknown) => {
+    const error=validateSettingsProfileWrite(event.sender,expectedProfileId);
+    return error ? {success:false,error} : applyExternalSettings(newSettings, event.sender);
+  });
+  const monitorUrls = new Map(['trade','gallery'].map(kind =>
+    [pathToFileURL(path.resolve(__dirname,'..',`${kind}.html`)).href,kind]));
+  ipcMain.handle('save-monitor-preferences',(event,added:unknown,removed:unknown,serverChange:unknown) => {
+    const kind=monitorUrls.get(event.senderFrame?.url.split(/[?#]/)[0] || '');
+    if (!kind || event.senderFrame!==event.sender.mainFrame || !isStringArray(added,2000) || !isStringArray(removed,2000)) {
+      return {success:false,error:'invalid-settings'};
+    }
+    const cfg=config.load(),key=kind==='trade' ? 'tradeKeywords' : 'galleryKeywords';
+    const removals=new Set(removed),patch:Partial<AppConfig>={};
+    if (added.length || removed.length) patch[key]=[...new Set([...(cfg[key] || []).filter(value=>!removals.has(value)),...added])];
+    if (serverChange!==undefined) {
+      if (kind!=='trade' || !Array.isArray(serverChange) || serverChange.length!==2
+        || serverChange.some(server=>server!=='RyXp' && server!=='Siwv')) return {success:false,error:'invalid-settings'};
+      const current=cfg.tradeServer ?? 'RyXp';
+      if (current!==serverChange[0] && current!==serverChange[1]) return {success:false,error:'server-changed'};
+      patch.tradeServer=serverChange[1];
+    }
+    return applyExternalSettings(patch,event.sender);
+  });
   ipcMain.handle('save-game-overlay-positions', (event, requestId: unknown, positions: unknown) => {
     if (!isGameOverlayEditRequest(event.sender, requestId)) return { success: false };
     const keys = ['xpWidgetPos', 'buffTimerHudPos', 'abandonedWidgetPos', 'digsiteWidgetPos', 'forgeQuestHudPos', 'todaySummaryHudPos', 'pinnedNotePos'];
@@ -572,44 +627,6 @@ export function register(): void {
     return wm.applySettings({ nicknameNotes: next }) ? { success: true } : { success: false, error: '메모를 저장하지 못했습니다.' };
   });
 
-  // 기능 계약: 현재 저장 설정만 스냅샷하고 적용 시 최신 비활동 설정을 보존한다. 저장 실패 때 창/런타임을 전환하지 않는다.
-  // 성공 시 어벤던 수집 활성·마우스 투과도 즉시 일치시키며 측정 기록은 유지한다. check-companion-features로 검증한다.
-  const getActivityPresets = () => {
-    const presets = config.loadFields(['activityPresets']).activityPresets || [];
-    return isActivityPresets(presets) ? presets : [];
-  };
-  const applyActivityPreset = (id: unknown) => {
-    const preset = getActivityPresets().find(value => value.id === id);
-    if (!preset) return { success: false, error: '프리셋을 찾을 수 없습니다.' };
-    if (wm.isAnyUserDragging()) return { success: false, error: '창 이동을 마친 뒤 적용해 주세요.' };
-    const patch = mergeActivitySettings(config.load(), preset.settings);
-    // 실제 열림 목록이 표시 플래그의 기준이다. 숨겨진 게임 창을 닫힘으로 오인하지 않는다.
-    patch.chatOverlayEnabled = preset.openWindows.includes('chatOverlay');
-    patch.chatOverlaySubEnabled = preset.openWindows.includes('chatOverlaySub');
-    patch.chatOverlaySub2Enabled = preset.openWindows.includes('chatOverlaySub2');
-    patch.contentsCheckerEnabled = preset.openWindows.includes('contentsChecker');
-    const result = applyExternalSettings(patch);
-    if (result.success) wm.restoreActivityLayout(preset.openWindows);
-    return result;
-  };
-  ipcMain.handle('activity-preset-save', (_event, name: unknown, id: unknown, renameOnly: unknown) => {
-    if (typeof name !== 'string' || !name.trim() || name.trim().length > 32
-      || (id !== undefined && typeof id !== 'string') || (renameOnly !== undefined && typeof renameOnly !== 'boolean')) return { success: false, error: '이름은 1~32자로 입력해 주세요.' };
-    const presets = getActivityPresets();
-    const existing = presets.find(value => value.id === id);
-    if (id && !existing) return { success: false, error: '프리셋을 찾을 수 없습니다.' };
-    if (!existing && presets.length >= 12) return { success: false, error: '최대 12개까지 저장할 수 있습니다.' };
-    if (presets.some(value => value.id !== id && value.name === name.trim())) return { success: false, error: '같은 이름의 프리셋이 있습니다.' };
-    const preset = { ...(existing && renameOnly ? existing : wm.captureActivityLayout()), id: existing?.id || randomUUID(), name: name.trim(), updatedAt: Date.now() };
-    const next = existing ? presets.map(value => value.id === existing.id ? preset : value) : [...presets, preset];
-    return wm.applySettings({ activityPresets: next }) ? { success: true } : { success: false, error: '저장하지 못했습니다.' };
-  });
-  ipcMain.handle('activity-preset-delete', (_event, id: unknown) => {
-    const presets = getActivityPresets();
-    if (!presets.some(value => value.id === id)) return { success: false, error: '프리셋을 찾을 수 없습니다.' };
-    return wm.applySettings({ activityPresets: presets.filter(value => value.id !== id) }) ? { success: true } : { success: false, error: '삭제하지 못했습니다.' };
-  });
-  ipcMain.handle('activity-preset-apply', (_event, id: unknown) => applyActivityPreset(id));
   ipcMain.handle('notification-positions-preview', (_event, positions: unknown) => {
     const valid = config.sanitizeExternalConfigPatch({ notificationPositions: positions });
     if (!valid) return { success: false, error: '알림 위치를 확인해 주세요.' };
@@ -647,10 +664,13 @@ export function register(): void {
     reconcileGameAttachedWindows();
     return true;
   });
-  ipcMain.handle('save-notification-positions', (_e, positions: unknown) => {
+  ipcMain.handle('save-notification-positions', (event, positions: unknown, requestId: unknown) => {
+    if (!canSaveNotificationEdit(event.sender, requestId)) return { success: false, error: '알림 위치 편집을 다시 시작해 주세요.' };
     const valid = config.sanitizeExternalConfigPatch({ notificationPositions: positions });
     if (!valid || !valid.notificationPositions) return { success: false, error: '알림 위치를 확인해 주세요.' };
-    config.saveImmediate({ notificationPositions: valid.notificationPositions });
+    if (!config.saveConfirmed({ notificationPositions: valid.notificationPositions })) {
+      return { success: false, error: '알림 위치를 저장하지 못했습니다.' };
+    }
     broadcastToAllWindows('config-data', config.load());
     return { success: true };
   });
@@ -659,24 +679,18 @@ export function register(): void {
     if (accepted && success) reconcileGameAttachedWindows();
     return accepted;
   });
-  ipcMain.on('reset-notification-positions', () => {
+  ipcMain.handle('reset-notification-positions', () => {
     const defaults = { center: 'default', buff: 'default', hunting: 'default', toast: 'default' } as const;
-    config.saveImmediate({ notificationPositions: defaults });
+    if (!config.saveConfirmed({ notificationPositions: defaults })) {
+      return { success: false, error: '알림 위치를 초기화하지 못했습니다. 다시 시도해 주세요.' };
+    }
     broadcastToAllWindows('config-data', config.load());
     const overlayWin = wm.getGameOverlayWindow();
     if (overlayWin && !overlayWin.isDestroyed()) {
       overlayWin.webContents.send('notification-reset-positions');
     }
+    return { success: true };
   });
-  ipcMain.on('activity-preset-menu', event => {
-    const parent = BrowserWindow.fromWebContents(event.sender);
-    if (!parent) return;
-    Menu.buildFromTemplate(getActivityPresets().map(preset => ({ label: preset.name, click: () => {
-      const result = applyActivityPreset(preset.id);
-      if (!result.success) void dialog.showMessageBox(parent, { type: 'error', message: '활동 프리셋을 적용하지 못했습니다.', detail: result.error });
-    } }))).popup({ window: parent });
-  });
-
   function broadcastChatLogStatus(): void {
     const cfg = config.load();
     const chatLogPath = cfg.chatLogPath;
@@ -726,6 +740,7 @@ export function register(): void {
     'toggle-sword-enhance': wm.toggleSwordEnhanceWindow,
     'toggle-qte-challenge': wm.toggleQteChallengeWindow,
     'toggle-diary': wm.toggleDiaryWindow,
+    'toggle-profiles': wm.toggleProfilesWindow,
     'toggle-buff-timer': wm.toggleBuffTimerWindow,
     'toggle-xp-hud': wm.toggleXpHudWindow,
     'toggle-siena-aura': wm.toggleSienaAuraWindow,
@@ -739,6 +754,8 @@ export function register(): void {
     'toggle-update-notice': wm.toggleUpdateNoticeWindow,
     'toggle-shout-history': wm.toggleShoutHistoryWindow,
     'toggle-stopwatch': wm.toggleStopwatchWindow,
+    'toggle-pinned-note': wm.togglePinnedNoteWindow,
+    'toggle-alarm-history': wm.toggleAlarmHistoryWindow,
     'toggle-master-mute': wm.toggleMasterMute,
   };
 
@@ -748,6 +765,7 @@ export function register(): void {
       handler();
     });
   });
+  ipcMain.on('open-profiles', () => wm.openProfilesWindow());
 
   ipcMain.on('open-and-highlight', (_e, key: string) => {
     if (!isLimitedString(key, 128, false)) return;
@@ -763,87 +781,109 @@ export function register(): void {
   });
 
   // 컨텐츠 체크 리스트 조작 핸들러
+  registerProfileChecklistIpc();
   ipcMain.on('contents-toggle-item', (_e, id: string, characterId?: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || (characterId !== undefined && !isSafeId(characterId))) return;
     import('./contentsChecker').then(mod => mod.toggleItem(id, characterId));
   });
   ipcMain.on('contents-apply-pending', (_e, characterId: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(characterId)) return;
     import('./contentsChecker').then(mod => mod.applyPendingHomeworks(characterId));
   });
   ipcMain.on('contents-clear-pending', () => {
+    if (getProfileRuntime()) return;
     import('./contentsChecker').then(mod => mod.clearPendingHomeworks());
   });
   ipcMain.on('contents-update-count', (_e, id: string, characterId: string, count: number) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || !isSafeId(characterId) || !Number.isInteger(count) || !isFiniteInRange(count, 0, 10_000)) return;
     import('./contentsChecker').then(mod => mod.updateItemCount(id, characterId, count));
   });
   ipcMain.on('contents-toggle-exclude', (_e, id: string, characterId: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || !isSafeId(characterId)) return;
     import('./contentsChecker').then(mod => mod.toggleExcludeItem(id, characterId));
   });
   ipcMain.on('contents-toggle-visibility', (_e, id: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.toggleVisibility(id));
   });
   ipcMain.on('contents-update-category', (_e, id: string, category: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || !isLimitedString(category, 100, false)) return;
     import('./contentsChecker').then(mod => mod.updateCategory(id, category));
   });
   ipcMain.on('contents-update-name', (_e, id: string, name: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || !isLimitedString(name, 200, false)) return;
     import('./contentsChecker').then(mod => mod.updateName(id, name));
   });
   ipcMain.on('contents-update-item', (_e, id: string, name: string, category: string, rule: any, maxCount?: number) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || !isLimitedString(name, 200, false) || !isLimitedString(category, 100, false) || !isValidResetRule(rule)) return;
     if (maxCount !== undefined && (!Number.isInteger(maxCount) || !isFiniteInRange(maxCount, 1, 10_000))) return;
     import('./contentsChecker').then(mod => mod.updateItem(id, name, category, rule, maxCount));
   });
   ipcMain.on('contents-add-custom', (_e, name: string, category: string, rule: any, maxCount?: number) => {
+    if (getProfileRuntime()) return;
     if (!isLimitedString(name, 200, false) || !isLimitedString(category, 100, false) || !isValidResetRule(rule)) return;
     if (maxCount !== undefined && (!Number.isInteger(maxCount) || !isFiniteInRange(maxCount, 1, 10_000))) return;
     import('./contentsChecker').then(mod => mod.addCustomItem(name, category, rule, maxCount));
   });
   ipcMain.on('contents-remove-item', (_e, id: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.removeItem(id));
   });
   ipcMain.on('contents-move-item', (_e, id: string, direction: 'up' | 'down') => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || (direction !== 'up' && direction !== 'down')) return;
     import('./contentsChecker').then(mod => mod.moveItem(id, direction));
   });
   ipcMain.on('contents-move-category', (_e, resetType: 'daily' | 'weekly', category: string, direction: 'up' | 'down') => {
+    if (getProfileRuntime()) return;
     if ((resetType !== 'daily' && resetType !== 'weekly') || !isLimitedString(category, 100, false) || (direction !== 'up' && direction !== 'down')) return;
     import('./contentsChecker').then(mod => mod.moveCategory(resetType, category, direction));
   });
   ipcMain.on('contents-reorder-item', (_e, sourceId: string, targetId: string, position: 'before' | 'after') => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(sourceId) || !isSafeId(targetId) || (position !== 'before' && position !== 'after')) return;
     import('./contentsChecker').then(mod => mod.reorderItem(sourceId, targetId, position));
   });
   ipcMain.on('contents-reorder-category', (_e, resetType: 'daily' | 'weekly', sourceCategory: string, targetCategory: string, position: 'before' | 'after') => {
+    if (getProfileRuntime()) return;
     if ((resetType !== 'daily' && resetType !== 'weekly') || !isLimitedString(sourceCategory, 100, false) || !isLimitedString(targetCategory, 100, false) || (position !== 'before' && position !== 'after')) return;
     import('./contentsChecker').then(mod => mod.reorderCategory(resetType, sourceCategory, targetCategory, position));
   });
   ipcMain.on('contents-manual-reset', () => {
+    if (getProfileRuntime()) return;
     import('./contentsChecker').then(mod => mod.checkReset());
   });
   ipcMain.on('contents-add-character', (_e, name: string) => {
+    if (getProfileRuntime()) return;
     if (!isLimitedString(name, 100, false)) return;
     import('./contentsChecker').then(mod => mod.addCharacter(name));
   });
   ipcMain.on('contents-remove-character', (_e, id: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.removeCharacter(id));
   });
   ipcMain.on('contents-rename-character', (_e, id: string, name: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id) || !isLimitedString(name, 100, false)) return;
     import('./contentsChecker').then(mod => mod.renameCharacter(id, name));
   });
   ipcMain.on('contents-select-character', (_e, id: string) => {
+    if (getProfileRuntime()) return;
     if (!isSafeId(id)) return;
     import('./contentsChecker').then(mod => mod.selectCharacter(id));
   });
   ipcMain.on('contents-set-auto-assign-single-candidate', (_e, enabled: boolean) => {
+    if (getProfileRuntime()) return;
     if (typeof enabled !== 'boolean') return;
     import('./contentsChecker').then(mod => mod.setAutoAssignSingleCandidate(enabled));
   });
@@ -1008,39 +1048,36 @@ export function register(): void {
   // --- Diary (Adventure Log) System ---
   const validActivityTypes = ['boss', 'calc', 'memo', 'loot', 'homework'] as const;
 
-  ipcMain.handle('diary-get-by-date', (_e, date: string) => {
+  ipcMain.handle('diary-profiles-get',() => getDiaryProfileState());
+  registerDiaryArchiveIpc();
+  ipcMain.handle('diary-get-by-date', (_e,date:string,rawFilter:unknown) => {
     if (!isValidDateKey(date)) return { diary: null, homeworkLogs: [], activityLogs: [] };
-    return diaryDb.getDiaryByDate(date, getDiaryLootKeywords());
+    return diaryDb.getDiaryByDate(date,getDiaryLootKeywords(),resolveDiaryProfileFilter(rawFilter));
   });
-  ipcMain.handle('diary-get-by-month', (_e, yearMonth: string) => {
+  ipcMain.handle('diary-get-by-month', (_e,yearMonth:string,rawFilter:unknown) => {
     if (!isValidYearMonthKey(yearMonth)) return [];
-    const cfg = config.loadFields(['contentsCheckerItems', 'characterPresets'] as const);
-    const presets = cfg.characterPresets?.length ? cfg.characterPresets : [{ id: MAIN_CHAR_ID }];
-    const currentWeeklyTotal = contentsChecker.calculateDiaryHomeworkStats(
-      cfg.contentsCheckerItems || [],
-      presets,
-    ).weeklyTotal;
-    return diaryDb.getDiariesByMonth(yearMonth, currentWeeklyTotal);
+    const filter=resolveDiaryProfileFilter(rawFilter);
+    return diaryDb.getDiariesByMonth(yearMonth,getDiaryWeeklyTotals(filter),filter);
   });
-  ipcMain.handle('diary-get-monthly-summary', (_e, yearMonth: string) => {
+  ipcMain.handle('diary-get-monthly-summary', (_e,yearMonth:string,rawFilter:unknown) => {
     if (!isValidYearMonthKey(yearMonth)) return { totalLoots: 0, totalSeed: 0, lootList: [], seedList: [] };
-    return diaryDb.getMonthlySummary(yearMonth, getDiaryLootKeywords());
+    return diaryDb.getMonthlySummary(yearMonth,getDiaryLootKeywords(),resolveDiaryProfileFilter(rawFilter));
   });
-  ipcMain.handle('diary-get-statistics', (_e, yearMonth: string) => {
+  ipcMain.handle('diary-get-statistics', (_e,yearMonth:string,rawFilter:unknown) => {
     if (!isValidYearMonthKey(yearMonth)) return null;
-    return diaryDb.getMonthlyStatistics(yearMonth, getDiaryLootKeywords());
+    return diaryDb.getMonthlyStatistics(yearMonth,getDiaryLootKeywords(),resolveDiaryProfileFilter(rawFilter));
   });
-  ipcMain.handle('diary-get-loot-history', (_e, startDate: string, endDate: string) => {
+  ipcMain.handle('diary-get-loot-history', (_e,startDate:string,endDate:string,rawFilter:unknown) => {
     if (!isValidDateKey(startDate) || !isValidDateKey(endDate) || startDate > endDate) return [];
     const start = new Date(`${startDate}T00:00:00`);
     const end = new Date(`${endDate}T00:00:00`);
     const rangeDays = Math.round((end.getTime() - start.getTime()) / 86_400_000);
     if (!Number.isFinite(rangeDays) || rangeDays > 366) return [];
-    return diaryDb.getLootHistory(startDate, endDate, getDiaryLootKeywords());
+    return diaryDb.getLootHistory(startDate,endDate,getDiaryLootKeywords(),resolveDiaryProfileFilter(rawFilter));
   });
-  ipcMain.handle('diary-get-monthly-revenue', (_e, yearMonth: string) => {
+  ipcMain.handle('diary-get-monthly-revenue', (_e,yearMonth:string,rawFilter:unknown) => {
     if (!isValidYearMonthKey(yearMonth)) return [];
-    return diaryDb.getMonthlyRevenueData(yearMonth);
+    return diaryDb.getMonthlyRevenueData(yearMonth,resolveDiaryProfileFilter(rawFilter));
   });
   ipcMain.handle('diary-get-shout-history', (_e, hours: number, searchQuery: string) => {
     if (!isPositiveInteger(hours, 24 * 365) || !isLimitedString(searchQuery, 1_000)) return [];
@@ -1066,11 +1103,12 @@ export function register(): void {
     if (!isLimitedString(file, 500, false) || !isFiniteInRange(volume, 0, 100)) return;
     wm.sendPlaySound({ label: '미리보기', soundFile: file, volume, isPreview: true });
   });
-  ipcMain.handle('diary-add-activity', (_e, date: string, time: string, type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework', content: string, amount: number = 0) => {
+  ipcMain.handle('diary-add-activity', (_e,date:string,time:string,type:'boss' | 'calc' | 'memo' | 'loot' | 'homework',content:string,amount:number=0,profileId:unknown) => {
     if (!isValidDateKey(date) || !isLimitedString(time, 16, false)
       || !validActivityTypes.includes(type) || !isLimitedString(content, 20_000)
       || !isFiniteInRange(amount, -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)) return null;
-    return diaryDb.addManualActivityLog(date, time, type, content, amount);
+    try {return withManualDiaryProfile(profileId,() => diaryDb.addManualActivityLog(date,time,type,content,amount));}
+    catch {return null;}
   });
   ipcMain.handle('diary-remove-activity', (_e, id: number) => {
     if (!isPositiveInteger(id)) return false;
@@ -1114,26 +1152,30 @@ export function register(): void {
   });
 
   // --- Google Drive Sync ---
-  ipcMain.handle('google-sync-login', async () => cloudSync.loginAndInit());
-  ipcMain.handle('google-sync-cancel-login', async () => cloudSync.cancelLogin());
+  ipcMain.handle('google-sync-login', async event => {if(getProfileCloudSync())assertProfileSyncSettingsSender(event);return cloudSync.loginAndInit();});
+  ipcMain.handle('google-sync-cancel-login', async event => {if(getProfileCloudSync())assertProfileSyncSettingsSender(event);return cloudSync.cancelLogin();});
   ipcMain.handle('google-sync-is-logging-in', async () => cloudSync.isLoggingIn());
-  ipcMain.handle('google-sync-logout', async () => cloudSync.logout());
+  ipcMain.handle('google-sync-logout', async event => {if(getProfileCloudSync())assertProfileSyncSettingsSender(event);return cloudSync.logout();});
   ipcMain.handle('google-sync-get-status', async () => cloudSync.getSyncStatus());
-  ipcMain.handle('google-sync-backup', async () => cloudSync.syncToCloud(true));
+  ipcMain.handle('google-sync-backup', async event => {if(getProfileCloudSync())assertProfileSyncSettingsSender(event);return cloudSync.syncToCloud(true);});
   ipcMain.handle('google-sync-restore', async (_event, selectedKinds: unknown) => {
+    if(getProfileCloudSync())assertProfileSyncSettingsSender(_event);
     const normalizedKinds = Array.isArray(selectedKinds)
       ? (['settings', 'checklist'] as const).filter(kind => selectedKinds.includes(kind))
       : ['settings', 'checklist'] as const;
     return cloudSync.syncFromCloud(true, [...normalizedKinds]);
   });
-  ipcMain.handle('google-sync-rollback', async () => cloudSync.rollbackLastRestore());
+  ipcMain.handle('google-sync-rollback', async event => {if(getProfileCloudSync())assertProfileSyncSettingsSender(event);return cloudSync.rollbackLastRestore();});
   ipcMain.handle('google-sync-preview', async (_event, kind: unknown) => {
+    if(getProfileCloudSync())assertProfileSyncSettingsSender(_event);
     const normalizedKind = kind === 'settings' || kind === 'checklist' ? kind : undefined;
     return cloudSync.getCloudDataPreview(normalizedKind);
   });
   ipcMain.handle('google-sync-toggle-auto', async (_event, enabled: boolean) => {
+    if(getProfileCloudSync())assertProfileSyncSettingsSender(_event);
+    if (cloudSync.getSyncStatus().pausedReason) return cloudSync.getSyncStatus();
     if (!isBoolean(enabled)) return cloudSync.getSyncStatus();
-    config.saveImmediate({ googleSyncAutoSync: enabled });
+    if(!config.saveConfirmed({ googleSyncAutoSync: enabled })) return {...cloudSync.getSyncStatus(),error:'자동 동기화 설정을 저장하지 못했습니다. 다시 시도해 주세요.'};
     cloudSync.refreshBackgroundSchedule();
     if (enabled) cloudSync.requestImmediatePull('auto-sync-enabled');
     const status = cloudSync.getSyncStatus();
@@ -1142,6 +1184,14 @@ export function register(): void {
   });
 
   // 채팅 로그 폴더 선택 다이얼로그
+  ipcMain.handle('chatlog:find-running-game', event => {
+    const settingsUrl = pathToFileURL(path.resolve(__dirname, '..', 'settings.html')).href;
+    if (event.senderFrame !== event.sender.mainFrame || event.senderFrame?.url.split(/[?#]/)[0] !== settingsUrl) {
+      throw new Error('환경설정에서 게임 경로 찾기를 실행해 주세요.');
+    }
+    return findRunningGamePath();
+  });
+
   ipcMain.handle('dialog:openChatLogFolder', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return null;
@@ -1284,11 +1334,13 @@ export function register(): void {
   // 버프 타이머 모든 버프 삭제
   ipcMain.on('buff-timer-clear-all', () => {
     buffTimerManager.clearAllBuffs();
+    checkpointManualProgress();
   });
   // 버프 타이머 강제 비활성화
   ipcMain.on('buff-timer-deactivate', (_e, buffId: string) => {
     if (!isSafeId(buffId)) return;
     buffTimerManager.deactivateBuff(buffId);
+    checkpointManualProgress();
   });
   // XP 세션 제어
   ipcMain.handle('boss-entry-get-windows', async () => {
@@ -1296,31 +1348,39 @@ export function register(): void {
     return mod.getBossEntryWindows();
   });
   ipcMain.handle('supply-run-get', async () => (await import('./supplyTracker')).getSupplyRun());
-  ipcMain.on('xp-reset-efficiency-baseline', () => {
-    import('./xpTracker').then(mod => mod.xpTracker.resetEfficiencyBaseline());
+  ipcMain.on('xp-reset-efficiency-baseline', (_event,profileId:unknown) => {
+    import('./xpTracker').then(mod => {
+      if (canControlProfileXp(profileId,true)) mod.xpTracker.resetEfficiencyBaseline();
+    });
   });
   ipcMain.handle('xp-get-stats', async () => {
     const mod = await import('./chatLogProcessor');
     return mod.chatLogProcessor.getStats();
   });
-  ipcMain.on('xp-reset', () => {
-    import('./chatLogProcessor').then(mod => mod.chatLogProcessor.resetXp());
+  ipcMain.on('xp-reset', (_event,profileId:unknown) => {
+    import('./chatLogProcessor').then(mod => {
+      if (canControlProfileXp(profileId,true)) {mod.chatLogProcessor.resetXp();checkpointManualProgress();}
+    });
   });
-  ipcMain.on('xp-start-session', () => {
-    import('./xpTracker').then(mod => mod.xpTracker.startSession());
+  ipcMain.on('xp-start-session', (_event,profileId:unknown) => {
+    import('./xpTracker').then(mod => {
+      if (canControlProfileXp(profileId,true)) {mod.xpTracker.startSession();checkpointManualProgress();}
+    });
   });
-  ipcMain.on('xp-stop-session', () => {
-    import('./xpTracker').then(mod => mod.xpTracker.stopSession());
+  ipcMain.on('xp-stop-session', (_event,profileId:unknown) => {
+    import('./xpTracker').then(mod => {
+      if (canControlProfileXp(profileId,true)) {mod.xpTracker.stopSession();checkpointManualProgress();}
+    });
   });
 
   // 어벤던로드 세션 제어
   ipcMain.on('abandoned-reset', () => {
-    import('./chatLogProcessor').then(mod => mod.chatLogProcessor.resetAbandoned());
+    import('./chatLogProcessor').then(mod => {mod.chatLogProcessor.resetAbandoned();checkpointManualProgress();});
   });
 
   // 챗로그 감시 재기동
   ipcMain.on('start-chat-log-watch', () => {
-    chatLogManager.start();
+    chatLogManager.applyConfiguredPath();
     broadcastChatLogStatus();
   });
 
@@ -1468,7 +1528,10 @@ export function register(): void {
   ipcMain.handle('today-summary-get', () => {
     const date = getLocalDateKey();
     const cfg = config.load();
-    return buildTodaySummary(cfg, diaryDb.getDiaryByDate(date, cfg.lootKeywords || []), date,
+    const runtime=getProfileRuntime(),profileId=runtime?.service.selectedProfileId;
+    if (runtime && !profileId) return null;
+    const filter=profileId ? {kind:'profile' as const,profileId} : undefined;
+    return buildTodaySummary(cfg, diaryDb.getDiaryByDate(date, cfg.lootKeywords || [],filter), date,
       contentsChecker.getLatestDetectedHomework(cfg));
   });
 
@@ -1545,15 +1608,22 @@ export function register(): void {
   }
 
   // --- Alarm Logs IPC ---
-  ipcMain.handle('alarm-get-logs', (_e, limit?: number) => {
+  ipcMain.handle('alarm-get-logs', (_e, limit?: number, type?: AlarmLogType) => {
     if (limit !== undefined && !isPositiveInteger(limit, 10_000)) return [];
-    return diaryDb.getAlarmLogs(limit);
+    if (type !== undefined && !ALARM_LOG_TYPES.includes(type)) return [];
+    return diaryDb.getAlarmLogs(limit, undefined, type);
   });
   ipcMain.on('alarm-clear-logs', () => {
     diaryDb.clearAlarmLogs();
   });
+  ipcMain.handle('alarm-clear-logs-confirmed', event => {
+    const historyUrl = pathToFileURL(path.resolve(__dirname, '..', 'alarm-history.html')).href;
+    if (event.senderFrame !== event.sender.mainFrame || event.senderFrame?.url !== historyUrl) return false;
+    return diaryDb.clearAlarmLogs();
+  });
 
   registerStopwatchIpc();
+  registerProfileToolsIpc();
 
   // --- Custom Sound IPC ---
   ipcMain.handle('get-config', () => {
@@ -1571,7 +1641,9 @@ export function register(): void {
       return { font: await importChatFont(result.filePaths[0]) };
     } catch (error) { return { error: error instanceof Error ? error.message : '글꼴을 추가하지 못했습니다.' }; }
   });
-  ipcMain.handle('select-custom-sound', async (event) => {
+  ipcMain.handle('select-custom-sound', async (event,expectedProfileId?:unknown) => {
+    const validate=()=>validateSettingsProfileWrite(event.sender,expectedProfileId);
+    const blocked=validate();if (blocked) return {error:blocked};
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return null;
 
@@ -1597,20 +1669,27 @@ export function register(): void {
     
     // 파일명 인코딩 안전화 (영어, 숫자, 한글, 언더바, 하이픈만 허용)
     const sanitizedName = originalName.replace(/[^a-zA-Z0-9ㄱ-ㅎㅏ-ㅣ가-힣-_]/g, '');
-    const filename = `custom_${Date.now()}_${sanitizedName || 'sound'}${originalExt}`;
+    const filename = `custom_${randomUUID()}_${(sanitizedName || 'sound').slice(0,100)}${originalExt}`;
     
+    if (win.isDestroyed()) return null;
+    const error=validate();if (error) return {error};
     const customSoundsDir = path.join(app.getPath('userData'), 'custom_sounds');
-    if (!fs.existsSync(customSoundsDir)) {
-      fs.mkdirSync(customSoundsDir, { recursive: true });
+    const destPath = path.join(customSoundsDir, filename),sound={name:originalName.slice(0,200),file:filename};
+    try {
+      fs.mkdirSync(customSoundsDir,{recursive:true});
+      fs.copyFileSync(srcPath,destPath,fs.constants.COPYFILE_EXCL);
+      const saved=applyExternalSettings({customSounds:[...(config.load().customSounds || []),sound]},event.sender);
+      if (saved.success) return {...sound,sounds:config.load().customSounds};
+      fs.rmSync(destPath,{force:true});
+      return {error:saved.error};
+    } catch (failure) {
+      // UI 갱신만 예외가 났다면 이미 저장된 파일은 계속 사용한다.
+      const sounds=config.load().customSounds;
+      if (sounds?.some(entry=>entry.file===filename)) return {...sound,sounds};
+      try {fs.rmSync(destPath,{force:true});} catch (cleanup) {log('[IPC] 커스텀 알림음 정리 실패: '+String(cleanup));}
+      log('[IPC] 커스텀 알림음 등록 실패: '+String(failure));
+      return {error:'save-failed'};
     }
-
-    const destPath = path.join(customSoundsDir, filename);
-    fs.copyFileSync(srcPath, destPath);
-
-    return {
-      name: originalName,
-      file: filename
-    };
   });
 
   ipcMain.on('sidebar-ready', (event) => {
@@ -1622,7 +1701,8 @@ export function register(): void {
     });
   });
 
-  ipcMain.handle('delete-custom-sound', (_e, filename: string) => {
+  ipcMain.handle('delete-custom-sound', (event, filename: string,expectedProfileId?:unknown) => {
+    if (validateSettingsProfileWrite(event.sender,expectedProfileId)) return false;
     if (!isLimitedString(filename, 500, false)) return false;
     try {
       const customSoundsDir = path.join(app.getPath('userData'), 'custom_sounds');

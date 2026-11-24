@@ -5,6 +5,11 @@
 (() => {
 const getElectronApi = (): any => (window as any).electronAPI;
 
+// Escape closes an open select picker before any page-level window or dialog shortcut.
+window.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && document.querySelector('select:open')) event.stopImmediatePropagation();
+}, true);
+
 window.REAL_BOSSES = Object.freeze([
   '골론',
   '파멸의 기원',
@@ -35,12 +40,17 @@ window.replayAnimation = function (element, className = 'show') {
  * 화면별 모달·검색·입력 편집이 Escape를 먼저 소비하면 그 동작만 수행하고 창은 유지합니다.
  * 공통 닫기는 같은 키 이벤트의 모든 리스너가 끝난 뒤 defaultPrevented를 다시 확인해야 하며,
  * 아무 화면도 처리하지 않은 Escape만 현재 보조 창을 닫습니다.
+ * showModal()로 연 <dialog>가 하나라도 열려 있으면 그 Escape는 대화상자의 취소(cancel)에 맡기고
+ * 창은 닫지 않습니다. 대화상자가 작업 중이라 cancel을 막아도 창이 함께 닫히지 않아야 하기 때문입니다.
+ * 회귀: scripts/check-renderer-behavior.ts
  */
 window.bindEscapeClose = function () {
   if (window.__twEscapeCloseBound) return;
   window.__twEscapeCloseBound = true;
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
+    // 키를 누른 시점에 열린 모달이 있으면 대화상자 취소가 기본 동작을 처리한다.
+    if (document.querySelector('dialog:modal')) return;
     const closeWindow = window.close.bind(window);
     queueMicrotask(() => {
       if (!e.defaultPrevented) closeWindow();
@@ -225,6 +235,7 @@ window.normalizeChatDisplayText = function (value: unknown): string {
 
 window.formatSeedAmount = function (seed: number): string {
   if (seed === 0) return '0 시드';
+  if (seed < 0) return '-' + window.formatSeedAmount(Math.abs(seed));
   const units = [
     { label: '조', value: 1000000000000 },
     { label: '억', value: 100000000 },

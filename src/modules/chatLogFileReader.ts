@@ -9,12 +9,15 @@ export const CHAT_LOG_HEADER_BYTES = 64 * 1024;
 export const MAX_RECENT_HISTORY_CHARS = 16 * 1024 * 1024;
 export const TARGET_RECENT_HISTORY_CHARS = 12 * 1024 * 1024;
 
+export interface ChatLogReadBoundary {offset:number;identity:string;bytes:Buffer;unassignedUntil?:number;encodingConfirmed?:boolean}
+
 export interface InitialChatLogSnapshot {
   lines: string[];
   encoding: ChatLogEncoding;
   damaged: boolean;
   limited: boolean;
   fileSize: number;
+  boundary: ChatLogReadBoundary;
 }
 
 const CHAT_LOG_BOUNDARY_SCAN_BYTES = 64 * 1024;
@@ -44,29 +47,36 @@ function readRange(fd: number, start: number, length: number): Buffer {
  * 경계까지만 원본으로 삼고, 남은 bytes는 실시간 catch-up 경로가 다음 append와 결합해 처리합니다.
  */
 export function findLastCompleteChatLogOffset(filePath: string, snapshotSize?: number): number {
-  const fileSize = fs.statSync(filePath).size;
-  const boundedSize = Math.max(0, Math.min(fileSize, Math.trunc(snapshotSize ?? fileSize)));
-  if (boundedSize === 0) return 0;
-
-  const fd = fs.openSync(filePath, 'r');
+  const fd=fs.openSync(filePath,'r');
   try {
-    const endingProbeStart = Math.max(0, boundedSize - 32);
-    const endingProbe = readRange(fd, endingProbeStart, boundedSize - endingProbeStart);
-    const hasClosedTrailingRow = /<\/br>\s*$/i.test(endingProbe.toString('latin1'));
-    let end = boundedSize;
-    while (end > 0) {
-      const start = Math.max(0, end - CHAT_LOG_BOUNDARY_SCAN_BYTES);
-      const chunk = readRange(fd, start, end - start);
-      const newlineIndex = chunk.lastIndexOf(0x0a);
-      if (newlineIndex >= 0) return start + newlineIndex + 1;
-      end = start;
-    }
+    const fileSize=fs.fstatSync(fd).size;
+    return findCompleteOffset(fd,Math.max(0,Math.min(fileSize,Math.trunc(snapshotSize ?? fileSize))));
+  } finally {fs.closeSync(fd);}
+}
 
-    // 일부 구형 로그는 마지막 HTML 행 뒤에 개행을 남기지 않습니다. 닫힌 </br> 행은 완전한 줄입니다.
-    return hasClosedTrailingRow ? boundedSize : 0;
-  } finally {
-    fs.closeSync(fd);
+export function chatLogFileIdentity(stat:fs.Stats):string {
+  return [stat.dev,stat.ino,stat.birthtimeMs].join(':');
+}
+
+export function sampleChatLogBoundary(fd:number,offset:number):Buffer {
+  const start=Math.max(0,offset-256);
+  return readRange(fd,start,offset-start);
+}
+
+function findCompleteOffset(fd:number,boundedSize:number):number {
+  const endingProbeStart=Math.max(0,boundedSize-32);
+  const endingProbe=readRange(fd,endingProbeStart,boundedSize-endingProbeStart);
+  // 마지막 행만 개행이 없는 파일도 포함한다. 앞선 행의 개행을 먼저 반환하면 완전한 마지막 행이 빠진다.
+  if (/<\/br>\s*$/i.test(endingProbe.toString('latin1'))) return boundedSize;
+  let end=boundedSize;
+  while (end>0) {
+    const start=Math.max(0,end-CHAT_LOG_BOUNDARY_SCAN_BYTES);
+    const chunk=readRange(fd,start,end-start);
+    const newlineIndex=chunk.lastIndexOf(0x0a);
+    if (newlineIndex>=0) return start+newlineIndex+1;
+    end=start;
   }
+  return 0;
 }
 
 /**
@@ -80,29 +90,27 @@ export function readInitialChatLogSnapshot(
   const maxFullReadBytes = options.maxFullReadBytes ?? MAX_FULL_CHAT_LOG_BYTES;
   const recentReadBytes = options.recentReadBytes ?? RECENT_CHAT_LOG_BYTES;
   const headerReadBytes = options.headerReadBytes ?? CHAT_LOG_HEADER_BYTES;
-  const fileSize = fs.statSync(filePath).size;
-
-  if (fileSize <= maxFullReadBytes) {
-    const decoded = decodeChatLogBuffer(fs.readFileSync(filePath));
-    return {
-      lines: normalizeChatLogLines(decoded.content.split('\n')),
-      encoding: decoded.encoding,
-      damaged: decoded.damaged,
-      limited: false,
-      fileSize,
-    };
-  }
-
-  const fd = fs.openSync(filePath, 'r');
+  const fd=fs.openSync(filePath,'r');
   try {
-    const prefixLength = Math.min(headerReadBytes, fileSize);
-    const recentStart = Math.max(prefixLength, fileSize - recentReadBytes);
+    const stat=fs.fstatSync(fd),fileSize=stat.size,completeOffset=findCompleteOffset(fd,fileSize);
+    const boundary:ChatLogReadBoundary={offset:completeOffset,identity:chatLogFileIdentity(stat),bytes:sampleChatLogBoundary(fd,completeOffset)};
+    if (fileSize<=maxFullReadBytes) {
+      const decoded=decodeChatLogBuffer(readRange(fd,0,completeOffset));
+      const {encoding,encodingConfirmed}=completeOffset===0
+        ? decodeChatLogBuffer(readRange(fd,0,Math.min(headerReadBytes,fileSize))) : decoded;
+      boundary.encodingConfirmed=completeOffset>0 && encodingConfirmed;
+      return {lines:normalizeChatLogLines(decoded.content.split('\n')),encoding,damaged:decoded.damaged,limited:false,fileSize,boundary};
+    }
+
+    const prefixLength = Math.min(headerReadBytes, completeOffset);
+    const recentStart = Math.max(prefixLength, completeOffset - recentReadBytes);
     const prefixBuffer = readRange(fd, 0, prefixLength);
-    const recentBuffer = readRange(fd, recentStart, fileSize - recentStart);
+    const recentBuffer = readRange(fd, recentStart, completeOffset - recentStart);
 
     // ASCII-only 헤더만으로 인코딩을 단정하지 않도록 최근 표본도 함께 비교합니다.
     const encodingProbe = Buffer.concat([prefixBuffer, Buffer.from('\n'), recentBuffer]);
     const detected = decodeChatLogBuffer(encodingProbe);
+    boundary.encodingConfirmed=detected.encodingConfirmed;
     const prefixText = iconv.decode(prefixBuffer, detected.encoding);
     let recentText = iconv.decode(recentBuffer, detected.encoding);
 
@@ -111,7 +119,7 @@ export function readInitialChatLogSnapshot(
     recentText = firstNewline >= 0 ? recentText.slice(firstNewline + 1) : '';
 
     const prefixLines = prefixText.split('\n');
-    if (prefixLength < fileSize) prefixLines.pop();
+    if (prefixLength < completeOffset) prefixLines.pop();
     const headerLines = prefixLines.slice(0, 25);
     const recentLines = normalizeChatLogLines(recentText.split('\n'));
     const damaged = headerLines.some(line => line.includes('\uFFFD'))
@@ -121,7 +129,7 @@ export function readInitialChatLogSnapshot(
       encoding: detected.encoding,
       damaged,
       limited: true,
-      fileSize,
+      fileSize,boundary,
     };
   } finally {
     fs.closeSync(fd);

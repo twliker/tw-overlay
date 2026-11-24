@@ -7,6 +7,7 @@ import path = require('node:path');
 import vm = require('node:vm');
 import { app } from 'electron';
 import { checkWindowMovePersistence } from './check-window-move-persistence';
+import { resolveReleaseChannel } from './release-channel';
 
 const projectRoot = path.resolve(__dirname, '..');
 const sourceRoot = path.join(projectRoot, 'src');
@@ -31,6 +32,9 @@ function finishRegressionChecks(exitCode: number): never {
   cleanupIsolatedUserData();
   return (process as NodeJS.Process & { reallyExit(code: number): never }).reallyExit(exitCode);
 }
+
+// 파일 로딩 단계의 계약 검사도 실패 시 Electron을 종료한다. 모달 오류 창에서 대기하지 않는다.
+process.once('uncaughtException',error => {console.error(error);finishRegressionChecks(1);});
 
 function read(relativePath: string): string {
   return fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
@@ -342,7 +346,7 @@ function assertShutdownTimeoutElapsed(elapsedMs: number | null, label: string): 
 
 function checkMainQuitRecoveryScenarios(): void {
   const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-quit-recovery-probe.js');
-  const scenarios = ['settings', 'checklist', 'both', 'timeout', 'session-end'] as const;
+  const scenarios = ['settings', 'checklist', 'both', 'timeout', 'session-end', 'log-stop-failure', 'confirm-failure'] as const;
 
   for (const scenario of scenarios) {
     const probeRoot = path.join(isolatedUserData, `main-quit-recovery-${scenario}`);
@@ -374,11 +378,18 @@ function checkMainQuitRecoveryScenarios(): void {
       cancelledRequestCount: number;
       shutdownTimeoutLogged: boolean;
       beforeQuitCount: number;
+      confirmFailureObservation: null | {failures:number;isQuittingAfterFailure:boolean;visibleAfterFailure:number};
+      shutdownProfile?:{savedBuffs:string[];flushFailureObserved:boolean;watcherStopped:boolean};
       sessionEndObservation: null | {
         prevented: boolean;
         recoverySettingsDirtyKeys: string[];
         recoveryChecklistOperationIds: string[];
         walCheckpointLogged: boolean;
+        firstQueryWalCount: number;
+        secondQueryWalCount: number;
+        afterFirstQuery: {isQuitting:boolean;stops:{profile:number;chatLog:number;backgroundSync:number}};
+        afterSecondQuery: {isQuitting:boolean;stops:{profile:number;chatLog:number;backgroundSync:number}};
+        afterSessionEnd: {isQuitting:boolean;stops:{profile:number;chatLog:number;backgroundSync:number}};
       };
     };
     const expectsSettings = scenario === 'settings' || scenario === 'both'
@@ -386,322 +397,64 @@ function checkMainQuitRecoveryScenarios(): void {
     const expectsChecklist = scenario === 'checklist' || scenario === 'both'
       || scenario === 'timeout' || scenario === 'session-end';
     const expectedOperationIds = expectsChecklist ? [`main-quit-${scenario}-operation`] : [];
-    if (scenario === 'timeout') {
-      assertShutdownTimeoutElapsed(summary.quitElapsedMs, 'timeout main quit');
-    } else {
-      assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
-        `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
-    }
+    assert.ok(summary.quitElapsedMs !== null && summary.quitElapsedMs <= 3_000,
+      `${scenario} main quit가 3초 제한을 넘었습니다: ${summary.quitElapsedMs}`);
     assert.ok(summary.firstVisibleWindowCount > 0, `${scenario} main quit 전에 표시 창이 없었습니다.`);
     assert.ok(summary.hideLatencyMs !== null && summary.hideLatencyMs <= 100,
       `${scenario} main quit 창 숨김이 늦었습니다: ${summary.hideLatencyMs}`);
-    if (scenario === 'timeout') {
-      assert.ok(summary.settingsDirtyKeys.includes('userServer'));
-      assert.deepEqual(
-        [...summary.recoverySettingsDirtyKeys].sort(),
-        [...summary.settingsDirtyKeys].sort(),
-        'timeout main quit recovery marker가 종료 시점의 settings dirty 집합을 모두 보존하지 않았습니다.',
-      );
-    } else {
-      assert.deepEqual(summary.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
-      assert.deepEqual(summary.recoverySettingsDirtyKeys, expectsSettings ? ['userServer'] : []);
-    }
+    assert.deepEqual(summary.settingsDirtyKeys, expectsSettings ? ['userServer'] : []);
+    assert.deepEqual(summary.recoverySettingsDirtyKeys, [],'중지한 기존 Google 전송의 새 복구 표식을 만들지 않는다');
     assert.deepEqual(summary.checklistOperationIds, expectedOperationIds);
-    assert.deepEqual(summary.recoveryChecklistOperationIds, expectedOperationIds);
+    assert.deepEqual(summary.recoveryChecklistOperationIds, []);
     assert.equal(summary.walCheckpointLogged, true, `${scenario} main quit WAL checkpoint 로그가 없습니다.`);
     assert.equal(summary.databaseCloseLogged, true, `${scenario} main quit DB close 로그가 없습니다.`);
     assert.equal(summary.cancelledRequestCount, scenario === 'timeout' ? 1 : 0,
       `${scenario} main quit Drive 요청 취소 횟수가 다릅니다.`);
-    assert.equal(summary.shutdownTimeoutLogged, scenario === 'timeout',
+    assert.equal(summary.shutdownTimeoutLogged, false,
       `${scenario} main quit timeout 로그 상태가 다릅니다.`);
-    assert.equal(summary.beforeQuitCount, scenario === 'timeout' ? 3 : 2,
+    // confirm-failure는 실패로 취소된 첫 요청이 하나 더 있다.
+    assert.equal(summary.beforeQuitCount, scenario === 'confirm-failure' ? 3 : 2,
       `${scenario} main quit의 외부 요청/finalizer 경계 횟수가 다릅니다.`);
+    if (scenario === 'confirm-failure') {
+      assert.ok(summary.confirmFailureObservation);
+      assert.equal(summary.confirmFailureObservation.failures, 1);
+      assert.equal(summary.confirmFailureObservation.isQuittingAfterFailure, false,
+        '초안 확인이 실패하면 종료를 승인하지 않고 입력 보호를 유지해야 합니다.');
+      assert.ok(summary.confirmFailureObservation.visibleAfterFailure > 0,
+        '초안 확인 실패로 취소된 종료가 창을 숨기면 안 됩니다.');
+    } else {
+      assert.equal(summary.confirmFailureObservation, null);
+    }
+    if (scenario==='log-stop-failure') {
+      assert.deepEqual(summary.shutdownProfile,{savedBuffs:['exp_heart'],flushFailureObserved:true,watcherStopped:true});
+    }
     if (scenario === 'session-end') {
       assert.ok(summary.sessionEndObservation);
       assert.equal(summary.sessionEndObservation.prevented, false,
         'query-session-end fast path가 Windows 세션 종료를 취소했습니다.');
-      assert.deepEqual(summary.sessionEndObservation.recoverySettingsDirtyKeys, ['userServer']);
-      assert.deepEqual(summary.sessionEndObservation.recoveryChecklistOperationIds, expectedOperationIds);
+      assert.deepEqual(summary.sessionEndObservation.recoverySettingsDirtyKeys, []);
+      assert.deepEqual(summary.sessionEndObservation.recoveryChecklistOperationIds, []);
       assert.equal(summary.sessionEndObservation.walCheckpointLogged, true,
         'query-session-end fast path가 WAL checkpoint를 동기식으로 끝내지 않았습니다.');
+      // 취소될 수 있는 질의 단계는 저장만 하고 앱 기능을 멈추지 않는다(취소된 로그오프 뒤에도 계속 동작).
+      const running = {isQuitting:false,stops:{profile:0,chatLog:0,backgroundSync:0}};
+      assert.deepEqual(summary.sessionEndObservation.afterFirstQuery, running,
+        'query-session-end가 종료 플래그를 세우거나 채팅 로그·프로필·동기화를 정지했습니다.');
+      assert.deepEqual(summary.sessionEndObservation.afterSecondQuery, running);
+      assert.equal(summary.sessionEndObservation.firstQueryWalCount, 1,
+        '여러 창에 동시에 온 같은 질의는 한 번만 저장해야 합니다.');
+      assert.equal(summary.sessionEndObservation.secondQueryWalCount, 1,
+        '취소된 로그오프 뒤 다시 질의되면 저장을 다시 수행해야 합니다.');
+      assert.deepEqual(summary.sessionEndObservation.afterSessionEnd,
+        {isQuitting:true,stops:{profile:1,chatLog:1,backgroundSync:1}},
+        '실제 session-end에서 한 번만 정지해야 합니다.');
     } else {
       assert.equal(summary.sessionEndObservation, null);
     }
   }
 }
 
-function checkMainResponseLossRestartReconciliation(): void {
-  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-response-loss-probe.js');
-  for (const responseLossKind of ['settings', 'checklist'] as const) {
-    const probeRoot = path.join(isolatedUserData, `main-response-loss-restart-${responseLossKind}`);
-    fs.mkdirSync(probeRoot, { recursive: true });
 
-    const run = (mode: 'loss' | 'restart') => {
-      const resultPath = path.join(probeRoot, `${mode}-result.json`);
-      const result = spawnElectronProbe([
-        probePath,
-        mode,
-        probeRoot,
-        resultPath,
-        responseLossKind,
-        '--dev',
-      ], 20_000);
-      assert.equal(result.error, undefined,
-        `${responseLossKind} ${mode} response loss main probe 실행 실패: ${result.error?.message || ''}`);
-      assert.equal(result.status, 0,
-        `${responseLossKind} ${mode} response loss main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-      assert.equal(fs.existsSync(resultPath), true,
-        `${responseLossKind} ${mode} response loss 결과 파일이 없습니다.`);
-      const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
-      assert.equal(summary.probeError, null,
-        summary.probeError || `${responseLossKind} ${mode} response loss probe 실패`);
-      return summary;
-    };
-
-    const lostResponse = run('loss');
-    assertShutdownTimeoutElapsed(lostResponse.quitElapsedMs, `${responseLossKind} response loss main quit`);
-    assert.equal(lostResponse.cancelledRequestCount, 1);
-    assert.equal(lostResponse.shutdownTimeoutLogged, true);
-    assert.equal(lostResponse.checklistOperationIds.includes('response-loss-checklist-operation'), true,
-      '응답 유실 뒤 로컬 outbox에서 검증 대상 숙제 operation이 사라졌습니다.');
-    assert.deepEqual(
-      [...lostResponse.recoveryChecklistOperationIds].sort(),
-      [...lostResponse.checklistOperationIds].sort(),
-      `${responseLossKind} 응답 유실 marker가 로컬 outbox operation을 모두 보존하지 않았습니다.`,
-    );
-
-    if (responseLossKind === 'settings') {
-      assert.ok(lostResponse.settingsDirtyKeys.includes('userServer'));
-      assert.deepEqual(
-        [...lostResponse.recoverySettingsDirtyKeys].sort(),
-        [...lostResponse.settingsDirtyKeys].sort(),
-        '설정 응답 유실 marker가 settings dirty key를 모두 보존하지 않았습니다.',
-      );
-      const remoteSettings = lostResponse.remoteStore.files['tw_overlay_settings.json'];
-      assert.equal(remoteSettings.payload.data.userServer, 1,
-        '응답 유실 전에 commit된 원격 설정 payload가 없습니다.');
-      assert.equal(lostResponse.remoteStore.uploadCounts['tw_overlay_settings.json'], 1);
-      assert.equal(lostResponse.remoteStore.uploadCounts['tw_overlay_checklist.json'], undefined);
-    } else {
-      const remoteChecklist = lostResponse.remoteStore.files['tw_overlay_checklist.json'];
-      const remoteChecklistOperationIds = remoteChecklist.payload.operations
-        .map((operation: any) => operation.id);
-      for (const operationId of lostResponse.checklistOperationIds) {
-        assert.equal(remoteChecklistOperationIds.includes(operationId), true,
-          `응답 유실 전에 commit된 원격 payload에 숙제 operation ${operationId}이(가) 없습니다.`);
-      }
-      assert.equal(lostResponse.remoteStore.uploadCounts['tw_overlay_checklist.json'], 1);
-    }
-
-    const restarted = run('restart');
-    assert.ok(restarted.convergenceObservation);
-    assert.deepEqual(restarted.convergenceObservation.settingsDirtyKeys, []);
-    assert.deepEqual(restarted.convergenceObservation.checklistOperationIds, []);
-    assert.deepEqual(restarted.convergenceObservation.recoverySettingsDirtyKeys, []);
-    assert.deepEqual(restarted.convergenceObservation.recoveryChecklistOperationIds, []);
-    assert.equal(restarted.convergenceObservation.confirmedChecklistOperationIds
-      .includes('response-loss-checklist-operation'), true);
-    if (responseLossKind === 'settings') {
-      assert.equal(restarted.convergenceObservation.settingsUploadCount, 1,
-        '설정 응답 유실 재확인이 이미 commit된 설정 payload를 중복 업로드했습니다.');
-      assert.ok(restarted.convergenceObservation.checklistUploadCount >= 1,
-        '설정 응답 유실 뒤 미전송 숙제 outbox가 처리되지 않았습니다.');
-    } else {
-      assert.equal(restarted.convergenceObservation.checklistUploadCount, 1,
-        '숙제 응답 유실 재확인이 이미 commit된 숙제 payload를 중복 업로드했습니다.');
-      assert.ok(restarted.convergenceObservation.settingsUploadCount >= 1,
-        '숙제 응답 유실 뒤 설정 dirty가 처리되지 않았습니다.');
-    }
-  }
-}
-
-function checkMainPartialRestoreConfirmationGate(): void {
-  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-partial-restore-probe.js');
-  const probeRoot = path.join(isolatedUserData, 'main-partial-restore');
-  const reverseProbeRoot = path.join(isolatedUserData, 'main-reverse-partial-restore');
-  const rollbackProbeRoot = path.join(isolatedUserData, 'main-rollback-restore');
-  fs.mkdirSync(probeRoot, { recursive: true });
-  fs.mkdirSync(reverseProbeRoot, { recursive: true });
-  fs.mkdirSync(rollbackProbeRoot, { recursive: true });
-
-  const run = (mode: 'partial' | 'reverse-partial' | 'blocked' | 'confirmed' | 'rollback', root = probeRoot) => {
-    const resultPath = path.join(root, `${mode}-result.json`);
-    const result = spawnElectronProbe([
-      probePath,
-      mode,
-      root,
-      resultPath,
-      '--dev',
-    ], 20_000);
-    assert.equal(result.error, undefined,
-      `${mode} partial restore main probe 실행 실패: ${result.error?.message || ''}`);
-    assert.equal(result.status, 0,
-      `${mode} partial restore main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-    assert.equal(fs.existsSync(resultPath), true, `${mode} partial restore 결과 파일이 없습니다.`);
-    const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
-    assert.equal(summary.probeError, null, summary.probeError || `${mode} partial restore probe 실패`);
-    return summary;
-  };
-
-  const partial = run('partial');
-  assert.equal(partial.rendererStoragePending, false, 'main 시작에서 도구 저장소 복원이 완료되지 않았습니다.');
-  assert.equal(partial.observation.profileState, 'needs-confirmation');
-  assert.equal(partial.observation.settingsStatus, 'invalid');
-  assert.equal(partial.observation.checklistStatus, 'restored');
-  assert.deepEqual(partial.observation.characterPresetIds, ['remote-character']);
-  assert.deepEqual(partial.remoteStore.uploadCounts, {},
-    '부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
-
-  const reversePartial = run('reverse-partial', reverseProbeRoot);
-  assert.equal(reversePartial.observation.profileState, 'needs-confirmation');
-  assert.equal(reversePartial.observation.settingsStatus, 'restored');
-  assert.equal(reversePartial.observation.checklistStatus, 'invalid');
-  assert.equal(reversePartial.observation.userServer, 16,
-    '정상 설정 파일이 손상된 숙제 파일과 독립적으로 복원되지 않았습니다.');
-  assert.deepEqual(reversePartial.observation.characterPresetIds, ['local-default'],
-    '손상된 숙제 파일 때문에 기존 로컬 숙제/캐릭터 설정이 변경되었습니다.');
-  assert.deepEqual(reversePartial.remoteStore.uploadCounts, {},
-    '역방향 부분 복원 후 사용자 확인 전에 시작/종료 파생 변경이 원격 파일을 덮어썼습니다.');
-
-  run('partial', rollbackProbeRoot);
-  const rollback = run('rollback', rollbackProbeRoot);
-  assert.equal(rollback.observation.profileState, 'established');
-  assert.equal(rollback.observation.restoredObservation.userServer, 16);
-  assert.deepEqual(rollback.observation.restoredObservation.characterPresetIds,
-    ['rollback-remote-character']);
-  assert.equal(rollback.observation.rolledBackUserServer, 7);
-  assert.deepEqual(rollback.observation.rolledBackCharacterPresetIds, ['remote-character']);
-  assert.equal(rollback.observation.remoteServer, 7,
-    '되돌린 로컬 설정이 후속 자동 동기화로 원격에 반영되지 않았습니다.');
-  assert.deepEqual(rollback.observation.remoteCharacterIds, ['remote-character'],
-    '되돌린 로컬 숙제/캐릭터가 후속 자동 동기화로 원격에 반영되지 않았습니다.');
-  assert.deepEqual(rollback.observation.settingsDirtyKeys, []);
-  assert.deepEqual(rollback.observation.checklistOperationIds, []);
-  assert.equal(rollback.observation.uploadCounts['tw_overlay_settings.json'], 1);
-  assert.equal(rollback.observation.uploadCounts['tw_overlay_checklist.json'], 1);
-
-  const blocked = run('blocked');
-  assert.equal(blocked.observation.profileState, 'needs-confirmation');
-  assert.equal(blocked.observation.userServer, 7,
-    'needs-confirmation 재시작에서 원격 설정이 자동 적용되었습니다.');
-  assert.equal(blocked.observation.downloadCount, 0,
-    'needs-confirmation 재시작에서 사용자 선택 전에 원격 파일을 다운로드했습니다.');
-  assert.deepEqual(blocked.remoteStore.uploadCounts, blocked.phaseStartUploadCounts,
-    'needs-confirmation 재시작에서 사용자 선택 전에 원격 파일을 업로드했습니다.');
-  assert.equal(blocked.remoteStore.files['corrupt-settings'].payload.data.userServer, 16,
-    'needs-confirmation 재시작에서 원격 설정을 로컬 값으로 덮어썼습니다.');
-
-  const confirmed = run('confirmed');
-  assert.equal(confirmed.observation.profileState, 'established');
-  assert.equal(confirmed.observation.userServer, 17);
-  assert.deepEqual(confirmed.observation.characterPresetIds, ['remote-character'],
-    '설정만 선택한 복원이 원격 숙제/캐릭터 파일까지 적용했습니다.');
-  assert.equal(confirmed.observation.remoteServer, 17,
-    '수동 복원 확인 뒤 설정 자동 업로드가 재개되지 않았습니다.');
-  assert.equal(confirmed.remoteStore.uploadCounts['tw_overlay_settings.json'], 1);
-  assert.equal(confirmed.observation.uploadCounts['tw_overlay_checklist.json'], undefined,
-    '설정 선택 복원 직후 변경하지 않은 숙제 파일이 함께 업로드되었습니다.');
-}
-
-async function checkMainConcurrentCrossUploadConvergence(): Promise<void> {
-  const probePath = path.join(projectRoot, 'dist-tools', 'runtime-main-cross-upload-probe.js');
-  for (const scenario of ['nonconflict', 'same-field'] as const) {
-    const probeRoot = path.join(isolatedUserData, `main-cross-upload-${scenario}`);
-    fs.mkdirSync(probeRoot, { recursive: true });
-
-    for (const device of ['company', 'home'] as const) {
-      const resultPath = path.join(probeRoot, `${device}-prepare-result.json`);
-      const result = spawnElectronProbe([
-        probePath, 'prepare', device, probeRoot, resultPath, scenario, '--dev',
-      ], 20_000);
-      assert.equal(result.error, undefined,
-        `${scenario} ${device} cross upload prepare 실행 실패: ${result.error?.message || ''}`);
-      assert.equal(result.status, 0,
-        `${scenario} ${device} cross upload prepare 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-    }
-
-    const runDevice = async (device: 'company' | 'home') => {
-      const resultPath = path.join(probeRoot, `${device}-run-result.json`);
-      const result = await spawnElectronProbeAsync([
-        probePath, 'run', device, probeRoot, resultPath, scenario, '--dev',
-      ], 35_000);
-      assert.equal(result.error, undefined,
-        `${scenario} ${device} concurrent main probe 실행 실패: ${result.error?.message || ''}`);
-      assert.equal(result.status, 0,
-        `${scenario} ${device} concurrent main probe 비정상 종료:\n${result.stdout}\n${result.stderr}`);
-      assert.equal(fs.existsSync(resultPath), true,
-        `${scenario} ${device} concurrent main 결과 파일이 없습니다.`);
-      const summary = JSON.parse(fs.readFileSync(resultPath, 'utf8')) as any;
-      assert.equal(summary.probeError, null,
-        summary.probeError || `${scenario} ${device} concurrent main probe 실패`);
-      return summary;
-    };
-
-    const [company, home] = await Promise.all([runDevice('company'), runDevice('home')]);
-    const expectedOperationIds = [
-      `cross-upload-${scenario}-company-operation`,
-      `cross-upload-${scenario}-home-operation`,
-    ];
-    assert.equal(company.observation.firstChecklistRevision, home.observation.firstChecklistRevision,
-      `${scenario} 두 main 프로세스의 첫 숙제 다운로드가 같은 원격 revision에서 교차하지 않았습니다.`);
-    for (const [device, summary] of [['company', company], ['home', home]] as const) {
-      assert.deepEqual(summary.observation.remoteOperationIds, expectedOperationIds,
-        `${scenario} ${device}가 확인한 최종 원격 payload에 두 operation ID가 남지 않았습니다.`);
-      assert.deepEqual(summary.observation.confirmedOperationIds, expectedOperationIds,
-        `${scenario} ${device} 로컬 확인 이력에 두 operation ID가 남지 않았습니다.`);
-      assert.deepEqual(summary.observation.checklistOutboxIds, []);
-    }
-    if (scenario === 'nonconflict') {
-      assert.equal(company.observation.companyState.currentCount, 1);
-      assert.equal(company.observation.homeState.currentCount, 2);
-      assert.equal(home.observation.companyState.currentCount, 1);
-      assert.equal(home.observation.homeState.currentCount, 2);
-    } else {
-      const expectedHomeCompletedAt = Number(fs.readFileSync(
-        path.join(probeRoot, 'completion-time-base.txt'),
-        'utf8',
-      )) + 2_000;
-      assert.deepEqual(company.observation.companyState, home.observation.companyState,
-        '동일 숙제·캐릭터 충돌에서 회사/집 로컬 상태가 수렴하지 않았습니다.');
-      assert.deepEqual(company.observation.companyState, company.observation.remoteCompanyState,
-        '동일 숙제·캐릭터 충돌에서 최종 원격과 회사 로컬 상태가 다릅니다.');
-      assert.equal(company.observation.companyState.isCompleted, true,
-        '회사 PC의 완료 변경이 집 PC의 횟수 변경과 결합되지 않았습니다.');
-      assert.equal(company.observation.companyState.currentCount, 2,
-        '동일 횟수 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
-      assert.equal(company.observation.companyState.lastCompletedAt, expectedHomeCompletedAt,
-        '동일 완료 시각 필드 충돌에서 더 늦은 집 PC operation 값이 보존되지 않았습니다.');
-    }
-    assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'company').length >= 1);
-    assert.ok(company.remoteStore.checklistUploadOrder.filter((device: string) => device === 'home').length >= 1);
-    assert.ok(company.observation.writeConflicts + home.observation.writeConflicts >= 1,
-      `${scenario} 동일 revision의 교차 업로드가 조건부 저장 충돌을 검출하지 않았습니다.`);
-    assert.deepEqual(new Set(company.remoteStore.checklistUploadOrder.slice(0, 2)), new Set(['company', 'home']),
-      `${scenario} 최초 교차 업로드가 서로 다른 두 main 프로세스에서 발생하지 않았습니다.`);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-download.ready')), true);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-download.ready')), true);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'company-first-checklist-upload.ready')), true);
-    assert.equal(fs.existsSync(path.join(probeRoot, 'home-first-checklist-upload.ready')), true);
-
-    const storePath = path.join(probeRoot, 'remote-store.json');
-    const uploadsBeforeRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
-    for (const device of ['company', 'home'] as const) {
-      const restarted = await runDevice(device);
-      assert.deepEqual(restarted.observation.remoteOperationIds, expectedOperationIds,
-        `${scenario} ${device} 재시작 후 원격 operation 확인 결과가 달라졌습니다.`);
-      assert.deepEqual(restarted.observation.confirmedOperationIds, expectedOperationIds,
-        `${scenario} ${device} 재시작 후 로컬 확인 operation 이력이 사라졌습니다.`);
-      assert.deepEqual(restarted.observation.checklistOutboxIds, []);
-      if (scenario === 'same-field') {
-        assert.deepEqual(restarted.observation.companyState, company.observation.companyState,
-          `${device} 재시작 후 동일 필드 충돌 결과가 달라졌습니다.`);
-      }
-      const uploadsAfterRestart = JSON.parse(fs.readFileSync(storePath, 'utf8')).uploadOrder;
-      assert.deepEqual(uploadsAfterRestart, uploadsBeforeRestart,
-        `${scenario} ${device} 재시작이 변경 없는 숙제 echo upload를 만들었습니다.`);
-    }
-  }
-}
 
 function createUiUtilsSandbox(): any {
   const registeredListeners: Record<string, Array<() => void>> = {};
@@ -1113,7 +866,7 @@ function checkRendererResources() {
   const settingsPage = read('src/settings.html');
   assert.match(settingsPage, /applySettingsWithDraft\(\{ chatOverlayCustomTabs: nextTabs \}/,
     '사용자 정의 채팅 탭 저장이 초안 기준을 갱신하는 공통 저장 경로를 사용하지 않습니다.');
-  assert.match(settingsPage, /async function applySettingsWithDraft\([\s\S]*?await window\.electronAPI\.applySettingsConfirmed\(settings\)/,
+  assert.match(settingsPage, /async function applySettingsWithDraft\([\s\S]*?await window\.electronAPI\.applySettingsConfirmed\(settings, expectedProfileId\)/,
     '초안 저장 경로가 결과 확인 가능한 설정 IPC를 사용하지 않습니다.');
   assert.match(settingsPage, /\.\.\.\(checkedChannels\.includes\('system'\) \? \{ systemColorFilters: systemColors \} : \{\}\)/,
     '시스템 채널이 없는 사용자 정의 탭에 선택적 시스템 색상 필드가 포함될 수 있습니다.');
@@ -1142,42 +895,19 @@ function checkRendererResources() {
     '사이드바의 긴 마우스 투과 안내가 창 안에서 줄바꿈되지 않습니다.');
   assert.deepEqual(
     [...settingsPage.matchAll(/<(?:button|div)[^>]*class="[^"]*\bnav-item\b[^"]*"[^>]*data-settings-group="[^"]+"[^>]*>[\s\S]*?<\/i>\s*([^<]+)/g)].map(match => match[1].trim()),
-    ['앱 & 런처', '게임 HUD & 알림', '채팅 & 로그', '모니터링 & 소리', '시스템 & 관리', '앱 정보'],
-  );
-  assert.equal(
-    [...settingsPage.matchAll(/<(?:button|div)[^>]*data-settings-group="[^"]+"[^>]*onclick="showSettingsGroup/g)].length,
-    6,
-    '좌측 설정 메뉴는 6개의 1depth 항목만 표시해야 합니다.',
+    ['앱', '런처', '창', 'HUD', '채팅', '채팅 로그', '알림', '소리', '단축키', '데이터', '최적화', '앱 정보'],
   );
   const settingsRouteBlock = settingsPage.match(/const SETTINGS_NAV_GROUPS = \{([\s\S]*?)\n    \};/)?.[1] || '';
   const settingsRoutes = [...settingsRouteBlock.matchAll(
-    /\{ label: '([^']+)', icon: '[^']+', section: '([^']+)'(?:, subTab: '([^']+)')?(?:, view: '([^']+)')? \}/g,
-  )].map(([, label, section, subTab, view]) => ({ label, section, subTab, view }));
-  assert.deepEqual(
-    settingsRoutes.map(route => route.label),
-    [
-      '앱 동작', '사이드바 & 독', '웹 브라우저 창', '퀵슬롯 관리',
-      'HUD 위젯 관리', '게임 진행 알림',
-      '채팅 로그 연동', '채팅 오버레이', '득템 & 외치기',
-      '외부 모니터링', '공통 알림 & 소리', '커스텀 알림음', '알림 기록',
-      '단축키 설정', '데이터 관리', '네트워크 최적화', '앱 정보 & 업데이트',
-    ],
-    '설정 2depth 메뉴 17개가 의도한 순서와 구성으로 연결되어야 합니다.',
-  );
-  settingsRoutes.forEach(route => {
-    assert.match(settingsPage, new RegExp(`id="section-${route.section}"`),
-      `${route.label} 메뉴의 설정 섹션이 없습니다.`);
-    if (route.subTab) {
-      assert.match(settingsPage, new RegExp(`id="${route.subTab}"`),
-        `${route.label} 메뉴의 내부 탭이 없습니다.`);
-    }
-    if (route.view) {
-      assert.match(settingsPage, new RegExp(`data-settings-view="${route.view}"`),
-        `${route.label} 메뉴의 독립 콘텐츠가 없습니다.`);
-    }
-  });
-  assert.match(settingsPage, /id="settings-context-tabs" class="settings-context-tabs"/,
-    '설정 화면의 가로 2depth 메뉴 영역이 없습니다.');
+    /\{ id: '([^']+)', label: '[^']+', section: '([^']+)'(?:, subTab: '([^']+)')? \}/g,
+  )];
+  assert.ok(settingsRoutes.length >= 30, '세부 설정 화면이 등록되지 않았습니다.');
+  for (const [, id, section, subTab] of settingsRoutes) {
+    assert.match(settingsPage, new RegExp(`id="section-${section}"`), `${id} 설정 섹션이 없습니다.`);
+    if (subTab) assert.match(settingsPage, new RegExp(`id="${subTab}"`));
+  }
+  assert.match(settingsPage, /id="settings-context-tabs" class="settings-context-tabs hidden"/,
+    '왼쪽 세부 설정 메뉴 영역이 없습니다.');
   assert.match(settingsPage, /id="settings-quick-search"/,
     '설정 화면의 빠른 검색 입력창이 없습니다.');
   assert.match(settingsPage, /id="settings-search-results"/,
@@ -1196,17 +926,17 @@ function checkRendererResources() {
   }
   assert.match(settingsPage, /function showSettingsGroup\(/,
     '설정 1depth와 가로 2depth 메뉴 연결 함수가 없습니다.');
-  assert.match(settingsPage, /'display:sidebar': \{ groupId: 'app', routeIndex: 1 \}/,
+  assert.match(settingsPage, /'display:sidebar': 'launcher-layout'/,
     '사이드바/독 설정 바로가기 경로가 없습니다.');
-  assert.match(settingsPage, /'display:game-overlay': \{ groupId: 'game', routeIndex: 0 \}/,
+  assert.match(settingsPage, /'display:game-overlay': 'hud-position'/,
     '게임 오버레이 설정 바로가기 경로가 없습니다.');
-  assert.match(settingsPage, /'chatlog:history-sync': \{ groupId: 'chat', routeIndex: 0 \}/,
+  assert.match(settingsPage, /'chatlog:history-sync': 'log-restore'/,
     '과거 채팅 로그 동기화 설정 바로가기 경로가 없습니다.');
-  assert.match(settingsPage, /tabId === 'chatlog:history-sync'[\s\S]*?targetId = 'btn-manual-sync'/,
+  assert.match(settingsPage, /'log-restore': 'btn-manual-sync'/,
     '과거 채팅 로그 동기화 바로가기가 실행 버튼을 강조하지 않습니다.');
   assert.match(settingsPage, /모험일지 보관 기간 안에서 아직 분석하지 않았거나 이후 내용이 추가된 채팅 로그/,
     '과거 채팅 로그 동기화 범위가 사용자에게 올바르게 안내되지 않습니다.');
-  assert.match(settingsPage, /이미 동기화 완료된 로그도 다시 분석하여 자동 기록 재구성/,
+  assert.match(settingsPage, /이미 동기화한 로그도 다시 분석[\s\S]*?기존 기록과 프로필 배정은 유지합니다/,
     '완료된 채팅 로그 전체 재분석 옵션이 사용자에게 안내되지 않습니다.');
   assert.match(settingsPage, /로그가 많으면 분석 중 프로그램이 일시적으로 느려질 수 있습니다/,
     '과거 채팅 로그 대량 분석 중 성능 안내가 설정 화면에 없습니다.');
@@ -1214,7 +944,7 @@ function checkRendererResources() {
     '과거 채팅 로그 동기화 진행률을 설정 화면에 연결하지 않았습니다.');
   assert.match(settingsPage, /info\.failedFiles[\s\S]*?읽기 실패/,
     '과거 채팅 로그 동기화 중 실패한 파일을 계속 표시하지 않습니다.');
-  assert.match(settingsPage, /'data:retention': \{ groupId: 'system', routeIndex: 1 \}/,
+  assert.match(settingsPage, /'data:retention': 'diary-retention'/,
     '모험일지 보관 설정 바로가기 경로가 없습니다.');
   const settingsShortcutTargets: Array<[string, string]> = [
     ['src/welcome-guide.html', 'chatlog'],
@@ -1257,12 +987,12 @@ function checkRendererResources() {
     '경험치 HUD 창에 경험의 정수 상세 설정이 없습니다.');
   assert.doesNotMatch(read('src/boss-settings.html'), /id="boss-notify-closed-check"/,
     '공통 게임 종료 알림 정책이 필드보스 창에 중복 노출됩니다.');
-  assert.match(read('src/boss-settings.html'), /id="boss-global-notification-link"[\s\S]*toggleSettings\('sound'\)/,
+  assert.match(read('src/boss-settings.html'), /id="boss-global-notification-link"[\s\S]*toggleSettings\('alarm-policy'\)/,
     '필드보스 창에서 공통 알림 정책으로 이동할 수 없습니다.');
   assert.match(read('src/trade.html'), /id="notify-toggle"[\s\S]*tradeGetNotify\(\)[\s\S]*tradeSetNotify\(enabled\)/,
     '거래 게시판 창에 알림 빠른 토글이 없습니다.');
-  assert.match(settingsPage, /\.nav-container\s*\{[\s\S]*?overflow-y:\s*hidden/,
-    '좌측 1depth 메뉴에 스크롤이 생길 수 있습니다.');
+  assert.match(settingsPage, /\.nav-container\s*\{[\s\S]*?overflow-y:\s*auto/,
+    '작은 창에서도 왼쪽 세부 메뉴를 스크롤할 수 있어야 합니다.');
   assert.ok(
     settingsPage.indexOf('renderer/settings/form-collection.js') < settingsPage.indexOf('let currentSlots = []'),
     '설정 폼 수집 모듈이 인라인 설정 초기화보다 늦게 로드됩니다.',
@@ -1325,9 +1055,9 @@ function checkRendererResources() {
   assert.match(settingsPage, /settingsAudioControls\.bindVolumeControl\('contents-checker', volContents\)/);
   assert.match(settingsPage, /settingsAudioControls\.bindVolumeControl\('calculators', volCalc\)/);
   assert.match(settingsPage,
-    /alerts:\s*\[[\s\S]*?label: '커스텀 알림음'[\s\S]*?subTab: 'sub-tab-custom-sounds'/,
-    '커스텀 알림음 관리가 외부 알림 & 소리 상단 메뉴에서 누락되었습니다.');
-  assert.match(settingsPage, /'sound:custom': \{ groupId: 'alerts', routeIndex: 2 \}/,
+    /sound:\s*\[[\s\S]*?label: '알림음 관리'[\s\S]*?subTab: 'sub-tab-custom-sounds'/,
+    '소리 메뉴에서 커스텀 알림음을 관리할 수 있어야 합니다.');
+  assert.match(settingsPage, /'sound:custom': 'sound-files'/,
     '커스텀 알림음 딥링크가 전용 상단 메뉴로 연결되지 않습니다.');
   assert.equal(
     (settingsPage.match(/settingsAudioControls\.refreshAlertSoundSelects\(\)/g) || []).length,
@@ -2046,6 +1776,9 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
       focusedChat: ['focused-chat.html', 460, 720, false], evolutionCalculator: ['evolution-calculator.html', 1040, 820, false],
       thesisCoreCalculator: ['thesis-core-calculator.html', 850, 880, false], magicStoneCalculator: ['magic-stone-calculator.html', 400, 800, false],
       customAlert: ['custom-alert.html', 580, 640, false], diary: ['diary.html', 1400, 920, false],
+      profiles: ['profiles.html',640,520,false],
+      pinnedNote: ['pinned-note.html', 520, 560, false],
+      alarmHistory: ['alarm-history.html', 620, 550, false],
       uniformColor: ['uniform-color.html', 360, 800, false], swordEnhance: ['sword-enhance.html', 1300, 850, false],
       qteChallenge: ['qte-challenge.html', 980, 780, false],
       shoutHistory: ['shout-history.html', 450, 600, false], gameOverlay: ['game-overlay.html', 0, 0, false],
@@ -2134,6 +1867,10 @@ function checkWindowRestoreAndSettingsNavigationContracts(): void {
     { width: 900, height: 650, isResizable: true, isTransparent: true, minWidth: 800, minHeight: 600, policy: 'user-resizable' },
     '일반 보조 창의 저장 크기가 재실행 시 복원되지 않습니다.',
   );
+  assert.deepEqual(sizing.resolveManagedWindowSizing('profiles',640,520,{}, {width:1920,height:1080}),
+    {width:640,height:520,isResizable:true,isTransparent:false,minWidth:560,minHeight:400,policy:'user-resizable'},'간결한 선택창의 기본/최소 크기');
+  assert.equal(sizing.resolveManagedWindowSizing('profiles',640,520,{managedWindowSizes:{profiles:{width:900,height:650}}},{width:1920,height:1080}).width,900,'사용자가 정한 크기는 보존');
+  assert.equal(sizing.resolveManagedWindowSizing('profiles',640,520,{}, {width:500,height:350}).width,460,'작은 작업 영역에 맞춤');
 
   const moveModule = require(path.join(projectRoot, 'dist', 'modules', 'programmaticMoveTracker.js')) as {
     ProgrammaticMoveTracker: new (threshold: number, windowMs: number, now: () => number) => {
@@ -2282,7 +2019,7 @@ function checkDependencyOverrideContracts(): void {
     '기존 AppX 제출 파일을 독립 검증하는 명령이 유지되지 않습니다.');
   assert.equal(
     packageData.scripts?.['test:stress'],
-    'npm run build && electron dist-tools/stress-test-high-throughput.js && electron dist-tools/stress-test-sustained.js',
+    'npm run build && electron dist-tools/stress-test-high-throughput.js && electron dist-tools/stress-test-sustained.js && electron dist-tools/stress-test-profile-recording.js',
     '고처리량·지속 부하 검사가 릴리즈 게이트에서 빠질 수 있습니다.',
   );
   assert.equal(packageData.build?.win?.requestedExecutionLevel, 'requireAdministrator',
@@ -2331,7 +2068,7 @@ function checkSidebarMenuRegistryContracts(): void {
   const menuById = (id: string) => registry.SIDEBAR_MENUS.find(menu => menu.id === id);
   assert.deepEqual(
     ['scam-detector-btn', 'eta-ranking-btn', 'hunting-path-simulator-btn'].map(id => menuById(id)?.category),
-    ['monitoring', 'information', 'calculators'],
+    ['monitoring', 'information', 'simulators'],
   );
   assert.deepEqual(
     ['contents-checker-btn', 'sword-enhance-btn', 'qte-challenge-btn'].map(id => ({
@@ -2553,7 +2290,7 @@ function checkWindowFocusControllerContracts(): void {
     WindowFocusController: new (options: Record<string, unknown>) => {
       attach: (win: any) => void;
       getOrderedWindowHandles: (main: any, dock: any, overlay: any) => string[];
-      setLauncherInteractive: (win: any, active: boolean) => boolean;
+      setDockInteractive: (win: any, active: boolean) => boolean;
       setRestoreSuppressed: (suppressed: boolean) => void;
       cancelPendingRestore: () => void;
       scheduleRestore: () => void;
@@ -2603,23 +2340,16 @@ function checkWindowFocusControllerContracts(): void {
   controller.attach(newerSub);
   assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23']);
 
-  assert.equal(controller.setLauncherInteractive(main, true), true);
-  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23']);
-  assert.equal(controller.setLauncherInteractive(main, true), false);
-  controller.setLauncherInteractive(dock, true);
-  controller.setLauncherInteractive(main, false);
-  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['22', '12', '11', '21', '23'],
-    '이전 런처의 늦은 leave가 현재 독 메뉴를 뒤로 보내면 안 됩니다.');
-  controller.setLauncherInteractive(dock, false);
-  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23']);
-
-  controller.setLauncherInteractive(main, true);
-  (newerSub as any).isFocused = () => true;
-  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['21', '12', '11', '22', '23'],
-    '런처와 상호작용 중일 때는 서브메뉴 노출을 위해 보조 창보다 위에 위치해야 합니다.');
-  controller.setLauncherInteractive(main, false);
+  main.emit('focus');
   assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23'],
-    '상호작용이 끝나면 보조 창 뒤로 복귀하여 보조 창을 가리지 않아야 합니다.');
+    '사이드바에서 키보드 메뉴를 사용해도 도구 창이 앞에 남아야 합니다.');
+  assert.equal(controller.setDockInteractive(dock, true), true);
+  assert.equal(controller.setDockInteractive(dock, true), false);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['22', '12', '11', '21', '23'],
+    '독 메뉴와 상호작용할 때는 독의 메뉴가 보조 창보다 위에 있어야 합니다.');
+  controller.setDockInteractive(dock, false);
+  assert.deepEqual(controller.getOrderedWindowHandles(main, dock, overlay), ['12', '11', '21', '22', '23'],
+    '독과의 상호작용이 끝나면 도구 창이 다시 앞에 표시되어야 합니다.');
 
   olderSub.emitWeb('devtools-opened');
   assert.equal(olderSub.getDevtoolsCloseCount(), 1, '프로덕션 창의 개발자 도구 방어가 연결되지 않았습니다.');
@@ -2803,11 +2533,11 @@ function checkWindowedFullscreenFocusContracts(): void {
     '브라우저 오버레이 자동 생성이 포커스를 획득할 수 있습니다.');
   assert.match(manager, /type ManagedWindowShowReason = 'user-open' \| 'game-resync' \| 'settings-apply' \| 'preload'/,
     '사용자가 연 창과 자동 재생성을 구분하는 표시 정책이 없습니다.');
-  assert.match(manager, /showReason === 'user-open' && !isPassiveOverlay[\s\S]*?showWindowUnlessHidden\(win, true\);[\s\S]*?showWindowUnlessHidden\(win\);/,
+  assert.match(manager, /effectiveShowReason === 'user-open' && !isPassiveOverlay[\s\S]*?showWindowUnlessHidden\(win, true\);[\s\S]*?showWindowUnlessHidden\(win\);/,
     '자동 재생성된 관리 창이 비활성 상태로 표시되지 않습니다.');
   assert.doesNotMatch(manager, /key === 'dock'[^\n]*focusable: false/,
     '독 창이 no-activate로 생성되어 hover만 되고 클릭이 전달되지 않을 수 있습니다.');
-  assert.match(manager, /if \(key === 'dock'\)[\s\S]*?setIgnoreMouseEvents\(true, \{ forward: true \}\)/,
+  assert.match(manager, /if \(key === 'dock'\)[\s\S]*?setWindowMouseMode\(win,true,\{ forward: true \}\)/,
     '독 renderer가 준비되기 전 투명 여백이 게임 입력을 가로챌 수 있습니다.');
   assert.ok((manager.match(/'game-resync'/g) ?? []).length >= 6,
     '게임 동기화 중 생성되는 창의 비활성 표시 사유가 누락되었습니다.');
@@ -2832,7 +2562,7 @@ function checkWindowedFullscreenFocusContracts(): void {
     '안정 폴링이 숨긴 독 창을 닫아 재사용 최적화를 무효화합니다.');
   assert.match(manager, /createToggleableWindow\('dock', undefined, 'preload'\)/,
     '독 모드 진입 시 숨은 renderer를 미리 준비하지 않아 첫 단축키 표시가 지연됩니다.');
-  assert.match(manager, /showReason === 'preload'[\s\S]*?showMethod = 'preload-hidden'/,
+  assert.match(manager, /effectiveShowReason === 'preload'[\s\S]*?showMethod = 'preload-hidden'/,
     '사전 로딩한 독이 준비 과정에서 화면에 노출될 수 있습니다.');
   assert.match(ipcHandlers, /ipcMain\.on\('save-quick-slots'[\s\S]*?config\.saveImmediate\(\{ quickSlots: slots \}\);[\s\S]*?wm\.broadcastConfig\(\)/,
     '퀵링크 저장 후 재사용 중인 독 renderer에 최신 설정을 즉시 전달하지 않습니다.');
@@ -3365,14 +3095,14 @@ function checkSharedConstants() {
   );
   assert.deepEqual(
     Array.from(sidebarCategories, category => category.id),
-    ['records', 'monitoring', 'alarms', 'calculators', 'information', 'homework', 'minigame'],
+    ['records', 'monitoring', 'alarms', 'calculators', 'simulators', 'information', 'homework', 'minigame'],
   );
   assert.deepEqual(
     Array.from([...sidebarCategories].sort((a, b) => a.trayOrder - b.trayOrder), category => category.id),
-    ['records', 'monitoring', 'alarms', 'calculators', 'information', 'homework', 'minigame'],
+    ['records', 'monitoring', 'alarms', 'calculators', 'simulators', 'information', 'homework', 'minigame'],
   );
   assert.deepEqual(
-    Array.from(sidebarCategories.slice(0, 5), category => ({
+    Array.from(sidebarCategories.slice(0, 6), category => ({
       label: category.label,
       icon: category.icon,
       color: category.color,
@@ -3381,7 +3111,8 @@ function checkSharedConstants() {
       { label: '플레이 관리 & 기록', icon: 'clipboard-check', color: 'emerald-400' },
       { label: '커뮤니티 & 채팅', icon: 'messages-square', color: 'sky-400' },
       { label: '알림 설정', icon: 'bell-ring', color: 'pink-400' },
-      { label: '계산기 & 시뮬레이터', icon: 'calculator', color: 'indigo-400' },
+      { label: '계산기', icon: 'calculator', color: 'indigo-400' },
+      { label: '시뮬레이션', icon: 'hammer', color: 'violet-400' },
       { label: '정보 & 도감', icon: 'book-open', color: 'blue-400' },
     ],
   );
@@ -3619,6 +3350,9 @@ function checkPreloadDefaultConfigCompatibility() {
     match => match[1],
   );
   assert.deepEqual(listenerChannels, [
+    'open-monitor-settings',
+    'play-profiles-changed',
+    'profile-tools-changed',
     'notification-positions-preview',
     'notification-edit-mode',
     'notification-edit-state',
@@ -3695,7 +3429,8 @@ function checkRequestedFeatureContracts() {
   const abyssTreasureKeyBlock = processor.match(
     /ABYSS_TREASURE_CONFIG_KEYS = \[([\s\S]*?)\] as const/,
   )?.[1] || '';
-  for (const key of ['abyssTreasureAlertEnabled', 'abyssTreasureAlertSound', 'abyssTreasureAlertVolume']) {
+  assert.match(processor, /loadMechanicAlertConfig\('abyssTreasureAlertEnabled', ABYSS_TREASURE_CONFIG_KEYS\)/);
+  for (const key of ['abyssTreasureAlertSound', 'abyssTreasureAlertVolume']) {
     assert.ok(abyssTreasureKeyBlock.includes(`'${key}'`),
       `심연의 보물창고 완료 알림 전용 설정 키 누락: ${key}`);
   }
@@ -3885,54 +3620,7 @@ function checkNoAuthoredJavaScriptSources(): void {
   );
 }
 
-function checkAgentDocumentationLocations(): void {
-  [
-    '.agents/AGENTS.md',
-    '.agents/PROJECT_GUIDE.md',
-    '.agents/DESIGN_TOKENS.md',
-    '.agents/release_workflow.md',
-  ].forEach(file => {
-    assert.equal(fs.existsSync(path.join(projectRoot, file)), true, `${file} 파일이 없습니다.`);
-  });
-  [
-    '.gemini/DESIGN_TOKENS.md',
-    '.gemini/release_workflow.md',
-  ].forEach(file => {
-    assert.equal(
-      fs.existsSync(path.join(projectRoot, file)),
-      false,
-      `사용 중단된 Gemini 문서 경로가 다시 추가되었습니다: ${file}`,
-    );
-  });
-
-  const agentRules = read('.agents/AGENTS.md');
-  assert.match(agentRules, /\[PROJECT_GUIDE\.md\]\(\.\/PROJECT_GUIDE\.md\)/);
-  assert.match(agentRules, /\[DESIGN_TOKENS\.md\]\(\.\/DESIGN_TOKENS\.md\)/);
-  assert.match(agentRules, /\[release_workflow\.md\]\(\.\/release_workflow\.md\)/);
-
-  const projectGuide = read('.agents/PROJECT_GUIDE.md');
-  [
-    'src/main.ts',
-    'src/modules',
-    'src/shared',
-    'src/renderer',
-    'ChatLogManager',
-    'ChatParser',
-    'ChatLogProcessor',
-    'npm run typecheck',
-    'npm test',
-  ].forEach(requiredText => assert.ok(
-    projectGuide.includes(requiredText),
-    `프로젝트 가이드에 필수 설명이 없습니다: ${requiredText}`,
-  ));
-
-  const releaseWorkflow = read('.agents/release_workflow.md');
-  ['npm run typecheck', 'npm test', 'npm run test:stress', 'npm audit --omit=dev', 'npm run dist', 'npm run build-tools']
-    .forEach(command => assert.ok(
-      releaseWorkflow.includes(command),
-      `릴리즈 워크플로우에 필수 명령이 없습니다: ${command}`,
-    ));
-
+function checkReleaseWorkflow(): void {
   const buildWorkflow = read('.github/workflows/build.yml');
   [
     'actions/checkout@v6',
@@ -3949,7 +3637,10 @@ function checkAgentDocumentationLocations(): void {
     'fail_on_unmatched_files: true',
     'dist_electron/twOverlay-Setup-*.exe',
     'dist_electron/twOverlay-Setup-*.exe.blockmap',
-    'dist_electron/latest.yml',
+    'node dist-tools/release-channel.js',
+    'prerelease: ${{ steps.release.outputs.prerelease }}',
+    "make_latest: ${{ steps.release.outputs.prerelease == 'true' && 'false' || 'legacy' }}",
+    'dist_electron/${{ steps.release.outputs.update_file }}',
   ]
     .forEach(command => assert.ok(
       buildWorkflow.includes(command),
@@ -3960,6 +3651,17 @@ function checkAgentDocumentationLocations(): void {
     1,
     'GitHub Draft Release 생성 단계는 정확히 하나여야 합니다.',
   );
+  assert.deepEqual(resolveReleaseChannel('3.5.0-beta.1','v3.5.0-beta.1'),{prerelease:true,updateFile:'beta.yml'});
+  assert.deepEqual(resolveReleaseChannel('3.5.0','v3.5.0'),{prerelease:false,updateFile:'latest.yml'});
+  for(const channel of ['alpha','rc','preview'])assert.deepEqual(resolveReleaseChannel(`3.5.0-${channel}.2`,`v3.5.0-${channel}.2`),{prerelease:true,updateFile:`${channel}.yml`});
+  assert.throws(()=>resolveReleaseChannel('3.5.0-beta.1','v3.5.0'),'다른 태그로 잘못된 파일을 게시하지 않음');
+  for(const version of ['3.5.0-../../latest','03.5.0','3.5.0-beta.01'])assert.throws(()=>resolveReleaseChannel(version,`v${version}`));
+  const releasePackage=JSON.parse(read('package.json'));
+  const releaseNote = read(`release-note/CHANGELOG-v${releasePackage.version}.md`);
+  assert.ok(releaseNote.trim(), '현재 버전의 릴리즈 노트가 비어 있습니다.');
+  const channel=resolveReleaseChannel(releasePackage.version,`v${releasePackage.version}`).updateFile.slice(0,-4);
+  for(const publish of releasePackage.build.publish)if(publish.provider==='github')assert.equal(publish.channel || 'latest',channel,
+    'Electron Builder의 실제 업데이트 파일과 GitHub 업로드 채널이 일치해야 합니다.');
   assert.doesNotMatch(
     buildWorkflow,
     /action-electron-builder|--publish\s+(?:always|onTag|onTagOrDraft)/,
@@ -4847,7 +4549,7 @@ function checkTodaySummary(): void {
   assert.match(read('src/modules/constants.ts'), /toggleTodaySummaryHud:\s*'CommandOrControl\+Shift\+Y'/);
   assert.doesNotMatch(settings, /shortcut-toggleTodaySummaryCollapsed/);
   assert.match(read('src/modules/constants.ts'), /todaySummaryCollapsed:\s*true/);
-  assert.match(read('src/modules/windowManager.ts'), /gameOverlayWindow\.setIgnoreMouseEvents\(true\)/);
+  assert.match(read('src/modules/windowManager.ts'), /setWindowMouseMode\(gameOverlayWindow,true\)/);
   assert.match(read('src/preload.ts'), /onTodaySummaryConfig:[\s\S]*?today-summary-config/);
   assert.match(read('src/modules/windowManager.ts'), /webContents\.send\('today-summary-config', updated\)/);
   assert.match(read('src/renderer/game-overlay/today-summary.ts'), /api\.onTodaySummaryConfig\(config =>/);
@@ -5114,8 +4816,6 @@ function checkUpdateNoticeFeature(): void {
   const settings = read('src/settings.html');
   assert.match(settings, /openUpdateNotice\(\)/, 'settings.html에 공지 열기 버튼 함수가 없습니다.');
 
-  const workflow = read('.agents/release_workflow.md');
-  assert.match(workflow, /src\/assets\/notice\/notice\.json/, 'release_workflow.md에 공지 갱신 절차가 누락되었습니다.');
 }
 
 checkCommonFormatters();
@@ -5399,7 +5099,7 @@ function checkChatLogSyncManagerContracts() {
     boundaryDb.close();
 
     const contentsSource = read('src/modules/contentsChecker.ts');
-    assert.match(contentsSource, /runDiaryWriteWithRetry\(`homework-log:/,
+    assert.match(contentsSource, /const key\s*=\s*`homework-log:[^`]+`;[\s\S]*?runDiaryWriteWithRetry\(key,/,
       '숙제 일지 쓰기 실패의 제한 재시도 경계가 없습니다.');
     assert.match(contentsSource, /pendingDiaryWriteRetries\.get\(key\) !== state/,
       '이전 숙제 쓰기 재시도가 최신 완료·해제 상태를 덮을 수 있습니다.');
@@ -5656,7 +5356,7 @@ checkHuntingExpCalculator();
 checkRelicCalculator();
 checkEquipmentSimulator();
 checkNoAuthoredJavaScriptSources();
-checkAgentDocumentationLocations();
+checkReleaseWorkflow();
 checkBuffTimerChatTriggers();
 checkResponsiveDockFlyouts();
 checkMasterMuteContracts();
@@ -6124,9 +5824,9 @@ function checkPendingHomeworkOrdering(): void {
   assert.equal(resolvePendingHomeworkCount(2, increments, 10), 5,
     '증분 이벤트만 있으면 기존 캐릭터 횟수에 누적되어야 합니다.');
 
-  const beforeReset = new Date(2026, 7, 24, 5, 59, 0).getTime();
-  const afterReset = new Date(2026, 7, 24, 6, 1, 0).getTime();
-  const afterCurrentReset = new Date(2026, 7, 24, 6, 0, 30).getTime();
+  const beforeReset = Date.parse('2026-08-24T05:59:00+09:00');
+  const afterReset = Date.parse('2026-08-24T06:01:00+09:00');
+  const afterCurrentReset = Date.parse('2026-08-24T06:00:30+09:00');
   const stalePending = mergePendingHomeworkEvent(undefined, 'daily-test', 1, true, beforeReset);
   const currentPending = mergePendingHomeworkEvent(undefined, 'daily-test', 1, true, afterCurrentReset);
   assert.equal(isPendingHomeworkExpired(stalePending, { type: 'daily', hour: 6 }, afterReset), true);
@@ -6169,9 +5869,9 @@ function checkPendingHomeworkOrdering(): void {
   assert.equal(shouldAutoAssignSinglePendingCandidate(true, ['char-main', 'char-alt']), false,
     '후보가 둘 이상이면 자동 반영 설정과 무관하게 선택 팝업을 사용해야 합니다.');
 
-  const resetNow = new Date(2026, 7, 27, 9, 0, 0, 0).getTime();
-  const previousCycle = new Date(2026, 7, 26, 23, 30, 0, 0).getTime();
-  const currentCycle = new Date(2026, 7, 27, 0, 30, 0, 0).getTime();
+  const resetNow = Date.parse('2026-08-27T09:00:00+09:00');
+  const previousCycle = Date.parse('2026-08-26T23:30:00+09:00');
+  const currentCycle = Date.parse('2026-08-27T00:30:00+09:00');
   const resetFixture: Array<Record<string, any>> = [{
     id: 'daily-club-boss', name: '클럽 보스', category: '클럽', isVisible: true,
     resetRule: { type: 'daily', hour: 0 },
@@ -6197,11 +5897,11 @@ function checkPendingHomeworkOrdering(): void {
     '리셋 정규화가 입력 스냅샷을 직접 변경했습니다.');
 
   assert.equal(getNextHomeworkResetAt([resetFixture[0] as any], resetNow),
-    new Date(2026, 7, 28, 0, 0, 0, 0).getTime(),
+    Date.parse('2026-08-28T00:00:00+09:00'),
     '앱을 켜 둔 상태의 다음 일일 리셋 경계를 잘못 계산했습니다.');
   assert.equal(getNextHomeworkResetAt([{
     resetRule: { type: 'weekly', dayOfWeek: 1, hour: 0 },
-  }], resetNow), new Date(2026, 7, 31, 0, 0, 0, 0).getTime(),
+  }], resetNow), Date.parse('2026-08-31T00:00:00+09:00'),
   '앱을 켜 둔 상태의 다음 주간 리셋 경계를 잘못 계산했습니다.');
 
   candidateItems[0].completedState['char-main'] = { isCompleted: false, currentCount: 0 };
@@ -6211,7 +5911,7 @@ function checkPendingHomeworkOrdering(): void {
     '같은 숙제를 할 수 있는 미완료 캐릭터가 둘이면 선택 팝업을 유지해야 합니다.',
   );
 
-  const nextCycleTimestamp = new Date(2026, 7, 25, 6, 1, 0).getTime();
+  const nextCycleTimestamp = Date.parse('2026-08-25T06:01:00+09:00');
   const nextCycleKey = getHomeworkResetCycleKey({ type: 'daily', hour: 6 }, nextCycleTimestamp);
   const nextCyclePending = mergePendingHomeworkEvent(
     deduplicatedOnce, 'daily-test', 2, true, nextCycleTimestamp, 'stable-event-2', nextCycleKey,
@@ -6288,9 +5988,9 @@ function checkLegacyHomeworkMergeContracts(): void {
     ): { currentCount?: number; isCompleted: boolean; lastCompletedAt?: number; isExcluded?: boolean };
   };
 
-  const now = new Date(2026, 7, 25, 12, 0, 0).getTime();
-  const staleCompleted = new Date(2026, 7, 24, 5, 30, 0).getTime();
-  const currentProgress = new Date(2026, 7, 25, 7, 0, 0).getTime();
+  const now = Date.parse('2026-08-25T12:00:00+09:00');
+  const staleCompleted = Date.parse('2026-08-24T05:30:00+09:00');
+  const currentProgress = Date.parse('2026-08-25T07:00:00+09:00');
   const currentWins = mergeHomeworkCompletedState(
     { isCompleted: true, currentCount: 7, lastCompletedAt: staleCompleted },
     { isCompleted: false, currentCount: 1, lastCompletedAt: currentProgress },
@@ -6302,7 +6002,7 @@ function checkLegacyHomeworkMergeContracts(): void {
     '과거 리셋 주기의 큰 완료 횟수가 현재 주기 진행도를 덮어쓰면 안 됩니다.');
   assert.equal(currentWins.isCompleted, false);
 
-  const currentHigherProgress = new Date(2026, 7, 25, 8, 0, 0).getTime();
+  const currentHigherProgress = Date.parse('2026-08-25T08:00:00+09:00');
   const sameCycleMerged = mergeHomeworkCompletedState(
     { isCompleted: false, currentCount: 4, lastCompletedAt: currentProgress, isExcluded: true },
     { isCompleted: false, currentCount: 2, lastCompletedAt: currentHigherProgress },
@@ -6529,24 +6229,27 @@ function checkXpExchangeContracts(): void {
     /essenceCount > 0\s*&&\s*matchesRegisteredLoot|evt\.amount <= -9_000_000_000/,
     '과거 로그 경험의 정수 기록이 등록 목록에 종속되거나 90억 근사 판정을 사용합니다.');
   const syncManagerSource = read('src/modules/chatLogSyncManager.ts');
-  assert.match(syncManagerSource, /lootMatchingPolicy:\s*3/,
+  assert.match(syncManagerSource, /lootMatchingPolicy:\s*4/,
     '기존 버전에서 완료 처리된 과거 로그를 다시 분석해 누락된 경험의 정수를 복원하지 않습니다.');
   assert.match(processorSource,
-    /ITEM_LOOT_CONFIG_KEYS = \['lootKeywords'\] as const;[\s\S]*?chatParser\.on\('ITEM_LOOTED'[\s\S]*?config\.loadFields\(ITEM_LOOT_CONFIG_KEYS\)/,
+    /ITEM_LOOT_CONFIG_KEYS = \['lootKeywords'\] as const;[\s\S]*?onProfileEvent\('ITEM_LOOTED'[\s\S]*?config\.loadFields\(ITEM_LOOT_CONFIG_KEYS\)/,
     '고빈도 아이템 획득 경로가 전체 설정 스냅샷을 복사합니다.');
   assert.match(processorSource,
     /TRADE_SHOUT_CONFIG_KEYS =[\s\S]*?chatParser\.on\('TRADE_SHOUT'[\s\S]*?config\.loadFields\(TRADE_SHOUT_CONFIG_KEYS\)/,
     '외치기 경로가 실제 사용하는 설정 필드만 읽지 않습니다.');
-  for (const keySet of [
-    'SPECIAL_MONSTER_CONFIG_KEYS',
-    'ABYSS_TREASURE_CONFIG_KEYS',
-    'ETHOS_CONFIG_KEYS',
-    'ABYSS_APOSTLE_CONFIG_KEYS',
-    'WAVE_WARNING_CONFIG_KEYS',
-    'LOKAGOS_CONFIG_KEYS',
+  assert.ok(processorSource.includes("config.loadFields([...keys,enabled,'profileSelectionRequired','activePlayProfileId'] as const)"),
+    '실시간 기믹이 소리 설정과 프로필 선택 상태에 필요한 필드만 읽습니다.');
+  for (const [enabled, keys] of [
+    ['specialMonsterAlertEnabled', 'SPECIAL_MONSTER_CONFIG_KEYS'],
+    ['golgothaAlertEnabled', 'GOLGOTHA_ALERT_CONFIG_KEYS'],
+    ['abyssTreasureAlertEnabled', 'ABYSS_TREASURE_CONFIG_KEYS'],
+    ['ethosAlertEnabled', 'ETHOS_SOUND_KEYS'],
+    ['abyssApostleAlertEnabled', 'ABYSS_APOSTLE_SOUND_KEYS'],
+    ['waveMonsterWarningEnabled', 'WAVE_WARNING_SOUND_KEYS'],
+    ['lokagosAlertEnabled', 'LOKAGOS_SOUND_KEYS'],
   ]) {
-    assert.ok(processorSource.includes(`config.loadFields(${keySet})`),
-      `읽기 전용 알림 이벤트가 선택 설정 읽기를 사용하지 않습니다: ${keySet}`);
+    assert.match(processorSource, new RegExp(`loadMechanicAlertConfig\\('${enabled}',\\s*${keys}\\)`),
+      `기믹 알림에 선택 상태별 설정 읽기가 누락됐습니다: ${enabled}`);
   }
 }
 
@@ -6973,16 +6676,16 @@ function checkViewRequestGenerationContracts(): void {
 
   const diarySource = read('src/diary.html');
   assert.match(diarySource,
-    /const request = detailRequests\.begin\(`date:\$\{dateStr\}`\)[\s\S]*?await window\.electronAPI\.diaryGetByDate\(dateStr\)[\s\S]*?!detailRequests\.isCurrent\(request\)/,
+    /const request = detailRequests\.begin\(`\$\{diaryScopeKey\(\)\}:date:\$\{dateStr\}`\)[\s\S]*?await window\.electronAPI\.diaryGetByDate\(dateStr,filter\)[\s\S]*?!detailRequests\.isCurrent\(request\)/,
     '일간 상세 응답에 날짜 generation guard가 없습니다.');
   assert.match(diarySource,
-    /detailRequests\.begin\(`week:[\s\S]*?Promise\.all[\s\S]*?!detailRequests\.isCurrent\(request\)/,
+    /detailRequests\.begin\(`\$\{diaryScopeKey\(\)\}:week:[\s\S]*?Promise\.all[\s\S]*?!detailRequests\.isCurrent\(request\)/,
     '주간 상세 응답이 일간 상세와 공유 generation을 사용하지 않습니다.');
   assert.match(diarySource,
     /const \[nextMonthlyData, nextSummary\] = await Promise\.all[\s\S]*?!monthRequests\.isCurrent\(request\)/,
     '월 데이터/요약 응답 역전 guard가 없습니다.');
   assert.match(diarySource,
-    /diaryGetMonthlyRevenue\(yearMonth\)[\s\S]*?!statisticsRequests\.isCurrent\(request\)/,
+    /diaryGetMonthlyRevenue\(yearMonth,filter\)[\s\S]*?!statisticsRequests\.isCurrent\(request\)/,
     '통계 차트의 늦은 월 응답 guard가 없습니다.');
   assert.match(diarySource,
     /const renderedDate = selectedDateStr[\s\S]*?diaryRemoveActivity\(rowId\)[\s\S]*?selectedDateStr === renderedDate/,
@@ -7712,20 +7415,19 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     '종료 flush 전에 모든 창을 즉시 숨기지 않습니다.');
   assert.match(mainSource, /outcome !== 'flushed'[\s\S]*?cancelPendingShutdownRequests/,
     '종료 flush 시간초과·실패 시 진행 중인 Drive 요청을 취소하지 않습니다.');
-  assert.match(mainSource, /diaryDb\.checkpointWal\(\);\s*if \(!diaryDb\.closeDb\(\)\)/,
-    '종료 시 WAL checkpoint 후 DB를 닫지 않습니다.');
-  assert.match(mainSource, /browser-window-created[\s\S]*?query-session-end[\s\S]*?prepareFastSessionEnd/,
-    'Windows 로그오프·시스템 종료 fast path가 창에 등록되지 않았습니다.');
-  assert.match(mainSource, /function prepareFastSessionEnd[\s\S]*?config\.hasPending\(\)[\s\S]*?prepareShutdownRecovery\(\)[\s\S]*?flushPendingElso\(\)[\s\S]*?checkpointWal\(\)/,
-    'Windows 세션 종료 전에 config·클라우드 marker·DB 상태를 동기 저장하지 않습니다.');
-  assert.match(mainSource, /startBackgroundSync\(\);\s*cloudSync\.syncFromCloud\(false\)/,
-    '앱 시작 시 로그인된 자동 동기화 프로필의 즉시 pull이 연결되지 않았습니다.');
-  assert.match(mainSource, /powerMonitor\.on\('resume',[\s\S]*?requestImmediatePull\('system-resume'\)/,
-    '절전 복귀가 클라우드 즉시 pull에 연결되지 않았습니다.');
-  assert.match(mainSource, /powerMonitor\.on\('unlock-screen',[\s\S]*?requestImmediatePull\('screen-unlock'\)/,
-    '잠금 해제가 클라우드 즉시 pull에 연결되지 않았습니다.');
-  assert.match(mainSource, /let wasNetworkOnline = net\.isOnline\(\)[\s\S]*?!wasNetworkOnline && isNetworkOnline[\s\S]*?requestImmediatePull\('network-reconnected'\)[\s\S]*?10_000/,
-    '10초 네트워크 복구 감지가 클라우드 즉시 pull에 연결되지 않았습니다.');
+  // WAL 체크포인트와 DB 닫힘은 checkMainQuitRecoveryScenarios에서 실제 main 종료로 검사한다.
+  assert.match(mainSource, /browser-window-created[\s\S]*?query-session-end[\s\S]*?persistForSessionEndQuery[\s\S]*?'session-end'[\s\S]*?stopForSessionEnd/,
+    'Windows 로그오프·시스템 종료의 저장(query)과 정지(session-end) 단계가 창에 등록되지 않았습니다.');
+  assert.match(mainSource, /wm\.closeSplashWindow\(\{showFollowUpWindows:false\}\);app\.quit\(\)/,
+    '프로필 준비 실패로 종료할 때 웰컴 가이드·업데이트 공지를 열면 안 됩니다.');
+  // query-session-end의 WAL과 복구 상태도 같은 main 프로세스 검사에서 확인한다.
+  assert.match(mainSource, /await startProfileApplication\([\s\S]*?pollingLoop\.start\(\)/,
+    '게임 폴링보다 먼저 프로필 기록 경계를 준비해야 합니다.');
+  assert.match(mainSource,/cloudSync\.startBackgroundSync\(\)/,'프로필 준비 뒤 새 동기화 scheduler를 시작해야 합니다.');
+  assert.match(read('src/modules/cloudSyncManager.ts'),/export function startBackgroundSync[\s\S]*?getProfileCloudSync\(\)[\s\S]*?\.start\(\)[\s\S]*?if \(profilePauseReason\) return/,
+    '일반 부팅의 새 프로필 전용 경로와 구형 전송 중지 guard를 함께 유지해야 합니다.');
+  assert.match(mainSource,/powerMonitor\.on\('resume',\(\)=>refreshProfileClock\(true\)\)/);
+  assert.match(mainSource,/powerMonitor\.on\('unlock-screen',\(\)=>refreshProfileClock\(\)\)/);
   const pollingSource = read('src/modules/pollingLoop.ts');
   assert.match(pollingSource, /gameJustStarted[\s\S]*?requestImmediatePull\('game-started'\)/,
     '게임 시작 전환이 클라우드 즉시 pull에 연결되지 않았습니다.');
@@ -7758,6 +7460,8 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const shutdownGate = shutdownCoordinator.createShutdownGate();
   assert.equal(shutdownGate.requestQuit(), 'start');
   assert.equal(shutdownGate.requestQuit(), 'wait');
+  shutdownGate.cancelQuit();
+  assert.equal(shutdownGate.requestQuit(), 'start');
   shutdownGate.allowFinalQuit();
   assert.equal(shutdownGate.requestQuit(), 'allow');
   assert.equal(await shutdownCoordinator.drainShutdownTask(Promise.resolve(), 50), 'flushed');
@@ -7772,7 +7476,7 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   assert.match(authSource, /if \(!tokens\.refresh_token\)[\s\S]*?invalidateAuth\(\)/,
     '만료된 access token에 refresh token이 없을 때 재로그인 필요 상태로 전환하지 않습니다.');
   const cloudManagerSource = read('src/modules/cloudSyncManager.ts');
-  assert.match(cloudManagerSource, /reauthRequired:\s*!isLinked[\s\S]*?googleSyncEnabled === true/,
+  assert.match(cloudManagerSource, /reauthRequired:\s*!profilePauseReason\s*&&\s*!isLinked[\s\S]*?googleSyncEnabled === true/,
     '토큰 만료와 사용자의 명시적 연결 해제를 구분하는 상태가 없습니다.');
   assert.match(cloudManagerSource, /SyncFileCompatibilityError[\s\S]*?status:\s*'incompatible'/,
     '현재 버전 비호환 파일을 일반 손상과 다른 파일별 상태로 기록하지 않습니다.');
@@ -8056,14 +7760,10 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
     'Drive 401의 1회 refresh/retry 경계가 없습니다.');
 
   const cloudSyncDocs = read('docs/google-drive-sync.md');
-  assert.match(cloudSyncDocs, /마지막으로 두 PC가 같았던 상태/,
-    '사용자용 동기화 가이드가 3방향 병합의 기준 상태를 쉬운 말로 설명하지 않습니다.');
-  assert.match(cloudSyncDocs, /서로 다른 캐릭터[\s\S]*?변경을 모두 유지/,
-    '사용자용 동기화 가이드에 다른 캐릭터의 숙제 변경 병합 예시가 없습니다.');
-  assert.match(cloudSyncDocs, /완료·해제[\s\S]*?횟수[\s\S]*?정해진 순서로 다시 적용/,
-    '사용자용 동기화 가이드에 같은 숙제의 완료·해제·횟수 충돌 설명이 없습니다.');
-  assert.match(cloudSyncDocs, /선택 대기 상태도 클라우드에 저장[\s\S]*?캐릭터 선택 팝업/,
-    '사용자용 동기화 가이드에 pending 숙제의 다른 PC 팝업 동작이 없습니다.');
+  assert.match(cloudSyncDocs, /변경의 선후 관계와 인터넷 기준 시각/,'새 프로필 동기화의 순서 판정 설명이 없습니다.');
+  assert.match(cloudSyncDocs, /서로 다른 프로필의 변경은 모두 유지/,'프로필별 변경 격리 설명이 없습니다.');
+  assert.match(cloudSyncDocs, /완료·해제·횟수[\s\S]*?확인할 변경[\s\S]*?양쪽 값을 보관/,'상충하는 숙제 진행의 후보 보존 설명이 없습니다.');
+  assert.match(cloudSyncDocs, /미배정 기록은 원래 PC에 보관[\s\S]*?전송하지 않습니다/,'미배정 원본의 로컬 전용 정책 설명이 없습니다.');
   const settingsEnvelope = syncDataHelper.buildSettingsSyncPayload(
     sampleLocalConfig,
     'device-doc-fixture',
@@ -8151,12 +7851,13 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   const privacyPolicyMarkdown = read('PRIVACY_POLICY.md');
   const privacyPolicyHtml = read('docs/privacy/index.html');
   const privacyParityTerms = [
-    'tw_overlay_settings.json', 'tw_overlay_checklist.json', 'tw_overlay_sync_meta.json',
+    'tw_overlay_profiles_',
     'appDataFolder', 'Discord Webhook URL', 'Google OAuth 토큰', '채팅/메신저 로그 경로',
     '커스텀 사운드 절대경로', '창 위치·크기', '일지 DB', '채팅 로그', '알람 이력',
-    '종단간 암호화', '이메일은 로컬 계정 표시에만 사용', '세 동기화 JSON에는 저장하지 않습니다',
+    '종단간 암호화', '이메일은 로컬 계정 표시에만 사용', '동기화 파일에는 저장하지 않습니다',
     'google-drive-sync.md',
     'Google Analytics 사용 통계', '가명 설치 식별자', '배포 채널(Microsoft Store 또는 GitHub)', '사용 통계 전송',
+    '인터넷 시각 조회', 'time.google.com', 'UDP 123',
   ];
   for (const term of privacyParityTerms) {
     assert.ok(privacyPolicyMarkdown.includes(term),
@@ -8166,17 +7867,17 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   }
   const googleSyncGuide = read('docs/google-drive-sync.md');
   for (const requiredGuideText of [
-    '설정 ⚙️ → 시스템 & 관리 → 데이터 관리',
+    '설정 ⚙️ → 데이터 → Google 동기화',
     'Google Drive의 앱 전용 데이터 보기 및 관리',
     '체크박스 없이 요청 권한 목록',
-    '`지금 저장`', '`불러오기`', '`연결 해제`',
+    '`지금 동기화`', 'Google 데이터로 가져오기', '`연결 해제`',
     '숨겨진 앱 데이터 삭제',
   ]) {
     assert.ok(googleSyncGuide.includes(requiredGuideText),
       `Google 로그인 사용자 가이드에 필수 안내가 누락됐습니다: ${requiredGuideText}`);
   }
   for (const guideImage of [
-    'google-sync-login-guide.svg',
+    'google-sync-profiles.png',
     'google-sync-permission-guide.svg',
   ]) {
     assert.ok(googleSyncGuide.includes(`./screenshot/${guideImage}`),
@@ -8676,9 +8377,9 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   // 리셋 operation을 원격에 게시해 다른 PC도 같은 미완료 상태로 수렴해야 한다.
   memoryFiles.clear();
   const staleResetGeneration = 'generation-stale-daily-reset';
-  const currentResetBoundary = new Date();
-  currentResetBoundary.setHours(0, 0, 0, 0);
-  const staleCompletedAt = currentResetBoundary.getTime() - 60_000;
+  const {getHomeworkCycleStart}=require('../dist/shared/homeworkResetCycle');
+  const currentResetBoundary=getHomeworkCycleStart({type:'daily',hour:0},Date.now());
+  const staleCompletedAt=currentResetBoundary-60_000;
   const staleRemoteConfig = {
     ...configModule.load(),
     characterPresets: [{ id: 'stale-reset-character', name: '리셋 확인 캐릭터' }],
@@ -9321,7 +9022,7 @@ function checkLargeChatLogReadBoundary(): void {
   fs.mkdirSync(fixtureDir, { recursive: true });
   const smallPath = path.join(fixtureDir, 'small.html');
   const dateHeader = 'Date : 2026년 8월 25일';
-  fs.writeFileSync(smallPath, `${dateHeader}\nsmall-marker`, 'utf8');
+  fs.writeFileSync(smallPath, `${dateHeader}\nsmall-marker\n`, 'utf8');
   const small = readInitialChatLogSnapshot(smallPath, { maxFullReadBytes: 1024 });
   assert.equal(small.limited, false);
   assert.match(small.lines.join('\n'), /small-marker/);
@@ -9332,7 +9033,7 @@ function checkLargeChatLogReadBoundary(): void {
   ));
   fs.writeFileSync(
     largePath,
-    [dateHeader, ...middleLines.slice(0, 30), 'middle-marker-must-not-remain', ...middleLines.slice(30), 'latest-marker-must-remain'].join('\n'),
+    [dateHeader, ...middleLines.slice(0, 30), 'middle-marker-must-not-remain', ...middleLines.slice(30), 'latest-marker-must-remain', ''].join('\n'),
     'utf8',
   );
   const large = readInitialChatLogSnapshot(largePath, {
@@ -9385,6 +9086,12 @@ function checkLargeChatLogReadBoundary(): void {
     fs.statSync(noNewlineCompletePath).size,
     '개행 없이 </br>로 닫힌 구형 로그 행을 불완전한 줄로 잘못 제외했습니다.',
   );
+  const multiLineClosed=completeBoundaryPrefix+'<font>닫힌 마지막 줄</font></br>';
+  fs.writeFileSync(noNewlineCompletePath,multiLineClosed,'utf8');
+  assert.equal(findLastCompleteChatLogOffset(noNewlineCompletePath),Buffer.byteLength(multiLineClosed),
+    '앞선 줄에 개행이 있어도 닫힌 마지막 행을 snapshot에서 누락하면 안 됩니다.');
+  assert.equal(findLastCompleteChatLogOffset(noNewlineCompletePath,Buffer.byteLength(completeBoundaryPrefix)+6),Buffer.byteLength(completeBoundaryPrefix),
+    'snapshot 이후에 작성된 닫는 태그로 불완전한 snapshot을 확장하면 안 됩니다.');
 }
 
 function checkStoreUpdateLogic(): void {
@@ -9559,13 +9266,8 @@ async function checkChatTailRecoveryBoundary(): Promise<void> {
   const managerSource = read('src/modules/chatLogManager.ts');
   assert.match(
     managerSource,
-    /tail\.on\('error',[\s\S]*?this\._tail = releaseFailedTail\(tail\);[\s\S]*?this\.scheduleTailReconnect\(filePath\);/,
+    /const onChange=[\s\S]*?this\._tail=releaseFailedTail\(watch\);[\s\S]*?this\.scheduleTailReconnect\(filePath,boundary,completed\);/,
     'Tail 오류 뒤 watcher 해제/null 처리와 재연결 예약이 이어지지 않습니다.',
-  );
-  assert.match(
-    managerSource,
-    /if \(currentPath !== filePath\) return;\s*if \(!fs\.existsSync\(filePath\)\) \{\s*this\.scheduleTailReconnect\(filePath\);\s*return;/,
-    '재연결 시점에 파일이 아직 없으면 다음 지수 백오프 예약이 이어지지 않습니다.',
   );
 
   const { ChatLogManager } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogManager.js')) as any;
@@ -9573,6 +9275,26 @@ async function checkChatTailRecoveryBoundary(): Promise<void> {
   const catchUpDir = path.join(isolatedUserData, 'chat-tail-catch-up-fixture');
   fs.mkdirSync(catchUpDir, { recursive: true });
   const catchUpPath = path.join(catchUpDir, 'TWChatLog_2026_08_29.html');
+  const reconnectPath=path.join(catchUpDir,'TWChatLog_2026_08_28.html');
+  const reconnect=new ChatLogManager();
+  reconnect._currentFilePath=reconnectPath;
+  reconnect.getTodayFilePath=()=>catchUpPath;
+  let reopened:unknown[];
+  reconnect.initWatch=(...args:unknown[])=>{reopened=args;};
+  const jobs:Array<{callback:()=>void;delay:number}>=[];
+  const originalSetTimeout=global.setTimeout;
+  try {
+    global.setTimeout=((callback:()=>void,delay:number)=>{
+      jobs.push({callback,delay});return {} as NodeJS.Timeout;
+    }) as typeof setTimeout;
+    reconnect.scheduleTailReconnect(reconnectPath,undefined,123);
+    assert.equal(jobs[0].delay,1000);
+    jobs.shift()!.callback();
+    assert.equal(jobs[0].delay,2000,'아직 파일이 없으면 지수 백오프로 다시 시도한다');
+    fs.writeFileSync(reconnectPath,'');
+    jobs.shift()!.callback();
+    assert.deepEqual(reopened!,[false,undefined,123,false,reconnectPath],'자정이 지나도 이전 감시 파일의 미처리 오프셋부터 재연결한다');
+  } finally {global.setTimeout=originalSetTimeout;}
   const ignoredPrefix = '<font size="2" color="white"> [10시 00분 00초] </font><font size="2" color="#ff64ff">경험치가 1 올랐습니다.</font></br>\n';
   const caughtUpLine = '<font size="2" color="white"> [10시 00분 01초] </font><font size="2" color="#ff64ff">콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>\n';
   const splitLine = '<font size="2" color="white"> [10시 00분 02초] </font><font size="2" color="#ff64ff">콘텐츠 클리어 보상으로 1200만 SEED를 획득했습니다.</font></br>';
@@ -9602,6 +9324,9 @@ async function checkChatTailRecoveryBoundary(): Promise<void> {
     assert.deepEqual(seedAmounts, [35_000_000],
       'snapshot 이후 완전한 로그 줄을 catch-up 순서로 처리하지 않았습니다.');
 
+    const pausedAgain=await manager.pauseForHistoricalSync(catchUpPath);
+    assert.equal(pausedAgain.resumeOffset,Buffer.byteLength(ignoredPrefix+caughtUpLine,'utf8'));
+    manager.resumeAfterHistoricalSync(pausedAgain,pausedAgain.resumeOffset,'utf8');
     fs.appendFileSync(catchUpPath, Buffer.concat([splitBytes.subarray(splitAt), Buffer.from('\n')]));
     const deadline = Date.now() + 3_000;
     while (seedAmounts.length < 2 && Date.now() < deadline) {
@@ -9609,9 +9334,137 @@ async function checkChatTailRecoveryBoundary(): Promise<void> {
     }
     assert.deepEqual(seedAmounts, [35_000_000, 12_000_000],
       '인계 EOF에서 잘린 UTF-8/HTML 줄이 다음 append와 결합되지 않았습니다.');
+    const positions:number[]=[];
+    const consume=manager.consumeDecodedLine.bind(manager);
+    manager.source=(_file:string,start:number)=>({fingerprint:'fixture',start,end:start});
+    manager.consumeDecodedLine=(value:string,source:{start:number})=>{
+      if(value.includes('3500만')) positions.push(source.start);
+      consume(value,source);
+    };
+    const newPrefix='x\n';
+    fs.writeFileSync(catchUpPath,newPrefix+caughtUpLine.repeat(6));
+    await manager.pauseForHistoricalSync(catchUpPath);
+    assert.deepEqual(positions,Array.from({length:6},(_,i)=>2+i*Buffer.byteLength(caughtUpLine)));
   } finally {
     chatParser.off('SEED_GAINED', onSeed);
     manager.stop();
+  }
+}
+
+async function checkChatDirectoryNotifications(): Promise<void> {
+  const {ChatLogManager}=require(path.join(projectRoot,'dist','modules','chatLogManager.js'));
+  const {formatLocalDateKey}=require(path.join(projectRoot,'dist','shared','localDate.js'));
+  const dir=path.join(isolatedUserData,'chat-directory-notifications');
+  fs.mkdirSync(dir);
+  const now=new Date(),tomorrow=new Date(now.getTime());
+  tomorrow.setDate(tomorrow.getDate()+1);
+  const logPath=(date:Date)=>path.join(dir,`TWChatLog_${formatLocalDateKey(date).replace(/-/g,'_')}.html`);
+  const first=logPath(now),next=logPath(tomorrow);
+  let today=first;
+  const live=new ChatLogManager();
+  const lines:string[]=[];
+  live.getTodayFilePath=()=>today;
+  live.consumeDecodedLine=(line:string)=>lines.push(line);
+  const waitForDailyLog=live.waitForDailyLog;
+  live.waitForDailyLog=()=>{};
+  const originalInterval=global.setInterval;
+  const originalOpen=fs.openSync;
+  let poll:(()=>void) | undefined,readOpens=0;
+  global.setInterval=((callback:()=>void,delay:number)=>{
+    if (delay===1000) poll=callback;
+    return originalInterval(callback,60_000);
+  }) as typeof setInterval;
+  fs.openSync=((...args:Parameters<typeof fs.openSync>)=>{
+    if ((args[0]===first || args[0]===next) && args[1]==='r') readOpens++;
+    return originalOpen(...args);
+  }) as typeof fs.openSync;
+  const until=async (count:number)=>{
+    const deadline=Date.now()+3000;
+    while (lines.length<count && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(lines.length,count);
+  };
+  try {
+    live.start();
+    fs.writeFileSync(first,'first\npart');
+    await until(1);
+    fs.appendFileSync(first,'ial\n');
+    await until(2);
+    today=next;
+    fs.appendFileSync(first,'last yesterday\n');
+    fs.writeFileSync(next,'first today\n');
+    await until(4);
+    assert.deepEqual(lines,['first','partial','last yesterday','first today']);
+    live._directoryWatch.watcher.close();
+    assert.ok(poll);
+    const before=readOpens;
+    poll();
+    assert.equal(readOpens,before,'유휴 확인은 파일을 다시 열지 않는다.');
+    fs.appendFileSync(next,'poll fallback\n');
+    poll();
+    assert.equal(lines.at(-1),'poll fallback','파일 이벤트가 빠져도 주기 확인으로 읽는다.');
+    const count=lines.length;
+    live.stop();
+    fs.appendFileSync(next,'after stop\n');
+    poll();
+    assert.equal(lines.length,count);
+
+    today=path.join(dir,'late-directory',path.basename(first));
+    live.waitForDailyLog=waitForDailyLog;
+    live.watchLogDirectory=()=>{};
+    live.start();
+    fs.mkdirSync(path.dirname(today));
+    fs.writeFileSync(today,'created without events\n');
+    await until(count+1);
+    assert.equal(lines.at(-1),'created without events');
+
+    const prior=today;
+    today=path.join(dir,'changed-directory',path.basename(first));
+    fs.mkdirSync(path.dirname(today));
+    fs.writeFileSync(today,'existing history\n');
+    fs.appendFileSync(prior,'last before applying\n');
+    live.replayTodayLog=()=>{};
+    live.applyConfiguredPath();
+    assert.equal(live._currentFilePath,today);
+    assert.equal(lines.at(-1),'last before applying');
+    fs.appendFileSync(today,'new path live\n');
+    live.applyConfiguredPath();
+    poll();
+    assert.equal(lines.at(-1),'new path live','같은 경로에서 인식 시작을 눌러도 읽기 위치를 건너뛰지 않는다.');
+
+    // The file can be created empty, then receive an ASCII header and a Korean line.
+    const xp='<font color="white"> [10시 00분 00초] </font><font color="#ff64ff">경험치가 10 올랐습니다.</font></br>';
+    for (const encoding of ['utf8','euc-kr']) {
+      live.stop();
+      today=path.join(dir,encoding,path.basename(first));
+      fs.mkdirSync(path.dirname(today));
+      live.start();
+      fs.writeFileSync(today,'');
+      assert.equal(live.openNewDailyLog(),true);
+      fs.appendFileSync(today,'<html>\r\n');
+      poll();
+      fs.appendFileSync(today,require('iconv-lite').encode(xp+'\r\n',encoding));
+      poll();
+      assert.equal(lines.at(-1),xp,'첫 한글 줄의 인코딩을 실시간으로 판별한다.');
+    }
+
+    const outside=today+'.offline';
+    fs.renameSync(today,outside);
+    live._tailRetryAttempts=5;
+    live._tail.refresh();
+    assert.equal(live._tail,null);
+    assert.equal(live._tailRetryTimer,null);
+    fs.appendFileSync(outside,'while offline\n');
+    fs.renameSync(outside,today);
+    const beforeReconnect=lines.length;
+    live.applyConfiguredPath();
+    assert.deepEqual(lines.slice(beforeReconnect),['while offline'],'재시도 소진 후에도 마지막 바이트 위치를 이어서 읽는다.');
+    live.applyConfiguredPath();
+    poll();
+    assert.equal(lines.length,beforeReconnect+1,'재연결 확인이 동일한 로그를 다시 전달하지 않는다.');
+  } finally {
+    live.stop();
+    fs.openSync=originalOpen;
+    global.setInterval=originalInterval;
   }
 }
 
@@ -9928,10 +9781,12 @@ async function checkChatLogWorkerReadRecovery(): Promise<void> {
   assert.match(managerSource, /preflightFailedFiles\.push\([\s\S]*?fileName: target\.fileName[\s\S]*?continue;/);
   assert.match(managerSource, /failedFiles = \[\.\.\.preflightFailedFiles, \.\.\.\(doneData\.failedFiles \|\| \[\]\)\]/);
   assert.match(managerSource, /partial = failedFiles\.length > 0/);
-  assert.match(managerSource, /reanalyzeCompletedLogs \|\| target\.dateStr === todayStr/,
-    '완료된 로그 재분석 옵션이 파일 전체 재구성 경로에 연결되지 않았습니다.');
-  assert.match(managerSource, /mergeHomeworkCountFromSync\(hwId, detected\.count, MAIN_CHAR_ID\)/,
-    '과거 로그 숙제가 메인 캐릭터에 명시적으로 반영되지 않습니다.');
+  assert.match(managerSource, /const canResume = !reanalyzeCompletedLogs[\s\S]*?canResumeChatLogFile/,
+    '완료된 로그 재분석 옵션은 저장된 위치를 무시하고 처음부터 읽어야 합니다.');
+  assert.match(managerSource, /targetCharacterId=owner\?\.profileId \|\| MAIN_CHAR_ID/,
+    '프로필 모드는 고정 대상을 사용하고 기존 모드는 메인 캐릭터를 사용해야 합니다.');
+  assert.match(managerSource, /mergeHomeworkCountFromSync\(hwId, detected\.count, targetCharacterId,\s*completedAt\)/,
+    '과거 로그 숙제가 고정 대상에 명시적으로 반영되지 않습니다.');
   const settingsSource = read('src/settings.html');
   assert.match(settingsSource, /일부 복원 완료/);
   assert.match(settingsSource, /id="reanalyze-completed-chat-logs"/);
@@ -9958,9 +9813,17 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const essenceDirect = '<font size="2" color="white"> [22시 41분 15초] </font><font>[경험의 정수] 아이템을 2개 획득하였습니다.</font></br>';
     const essenceXpDecrease = '<font size="2" color="white"> [22시 42분 15초] </font><font>경험치가 10000000000 감소했습니다.</font></br>';
     const essenceAutoExchange = '<font size="2" color="white"> [22시 42분 15초] </font><font>경험치 100억이 차감되고, 경험의 정수 1개를 획득 하였습니다.</font></br>';
+    const etaBonusEssence = '<font size="2" color="white"> [22시 42분 16초] </font><font color="#ff64ff">에타 성장 지원 이벤트로 보상을 추가 획득하였습니다. (경험의 정수 3개)</font></br>';
+    const goldPouches='<font size="2" color="white"> [22시 43분 15초] </font><font>[금화 주머니] 아이템을 2개 획득하였습니다.</font></br>';
+    const elsoScroll='<font size="2" color="white"> [22시 44분 15초] </font><font>[엘소 스크롤 (20 포인트)] 아이템을 2개 획득하였습니다.</font></br>';
     const eternalFloor = '<font size="2" color="white"> [17시 11분  8초] </font><font>[이터널 플로어 보상 상자] 아이템을 획득하였습니다.</font></br>';
     const etaDaily = '<font size="2" color="white"> [18시 11분  8초] </font><font>[루이나 및 제네로 일반 상자] 아이템을 습득했습니다.</font></br>';
-    const architectFixture = (JSON.parse(read('scripts/fixtures/architect-mine-logs.json')) as Array<{ lines: string[] }>)[encoding === 'utf8' ? 0 : 1];
+    const fixtureDay=encoding === 'utf8' ? 24 : 25;
+    const architectFixture = (JSON.parse(read('scripts/fixtures/architect-mine-logs.json')) as Array<{ lines: string[]; portalTimestamp:string }>)[encoding === 'utf8' ? 0 : 1];
+    const [portalHour,portalMinute,portalSecond]=architectFixture.portalTimestamp.match(/\d+/g)!.map(Number);
+    // 채팅 파일의 시각은 PC 현지 시각이다. KST 주기 키는 실제 감지 줄의 시각으로 만든다.
+    const portalAt=new Date(2026,7,fixtureDay,portalHour,portalMinute,portalSecond).getTime();
+    const currentEtaAt=new Date(2026,7,25,18,11,8).getTime();
     const longSeed = `<font size="2" color="white"> [ 0시 25분 25초] </font> <font size="2" color="#ff64ff">${'A'.repeat(270_000)} 콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>`;
     const content = [
       magicOne,
@@ -9969,6 +9832,9 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       essenceDirect,
       essenceXpDecrease,
       essenceAutoExchange,
+      etaBonusEssence,
+      goldPouches,
+      elsoScroll,
       eternalFloor,
       etaDaily,
       ...architectFixture.lines,
@@ -9992,11 +9858,11 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
           },
           'daily-eta-quest': {
             rule: { type: 'daily', hour: 0 },
-            cycleKey: getHomeworkResetCycleKey({ type: 'daily', hour: 0 }, new Date(2026, 7, 25, 12).getTime()),
+            cycleKey: getHomeworkResetCycleKey({ type: 'daily', hour: 0 }, currentEtaAt),
           },
           'daily-architect-mine': {
             rule: { type: 'daily', hour: 0 },
-            cycleKey: getHomeworkResetCycleKey({ type: 'daily', hour: 0 }, new Date(2026, 7, encoding === 'utf8' ? 24 : 25, 12).getTime()),
+            cycleKey: getHomeworkResetCycleKey({ type: 'daily', hour: 0 }, portalAt),
           },
         },
         targetFiles: [{
@@ -10067,12 +9933,17 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     assert.equal(finalBatch.confirmedOffset, encoded.length);
     assert.equal(finalBatch.loots.find((item: any) => item.diaryContent.includes('하급 마정석'))?.count, 3,
       '파일 완료 배치가 마정석의 파일 전체 합계를 전달하지 않았습니다.');
+    assert.match(finalBatch.loots.find((item:any) => item.diaryContent.includes('하급 마정석')).eventId,/^[a-f0-9]{64}$/,'마정석 일 합계에도 원본 ID 필요');
+    assert.equal(finalBatch.goldPouchSeeds[0].amount,1_000_000);
+    assert.match(finalBatch.goldPouchSeeds[0].eventId,/^[a-f0-9]{64}$/);
+    assert.equal(finalBatch.elsoPoints[0].amount,40);
+    assert.match(finalBatch.elsoPoints[0].eventId,/^[a-f0-9]{64}$/);
     assert.equal(finalBatch.seeds.length, 1,
       `${encoding} 다중 바이트 문자가 read chunk 경계에서 손상되었습니다.`);
-    assert.equal(finalBatch.aggregate.seedsDetected, 1);
-    assert.equal(finalBatch.essences.reduce((sum: number, item: any) => sum + item.count, 0), 3,
-      '등록 아이템 목록에 없어도 직접 획득과 자동 전환 경험의 정수가 모두 복원되어야 합니다.');
-    assert.equal(finalBatch.aggregate.essencesDetected, 3,
+    assert.equal(finalBatch.aggregate.seedsDetected,2,'SEED 직접 획득과 금화 환산은 각각 한 번 감지');
+    assert.equal(finalBatch.essences.reduce((sum: number, item: any) => sum + item.count, 0), 6,
+      '직접 획득, 자동 전환 및 괄호에 적힌 에타 추가 보상을 각각 한 번씩 복원합니다.');
+    assert.equal(finalBatch.aggregate.essencesDetected, 6,
       '경험의 정수 과거 로그 집계가 실제 복원 건수와 다릅니다.');
     assert.deepEqual(finalBatch.aggregate.homework['weekly-eternal-floor'], { count: 1, isIncrement: true });
     assert.deepEqual(finalBatch.aggregate.homework['daily-architect-mine'], { count: 1, isIncrement: true },
@@ -10110,6 +9981,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     });
     fullParser.on('ITEM_LOOTED', (event: any) => {
       if (event.isOwn && event.itemName === '경험의 정수') golden.essenceCount += event.count;
+      if (event.isOwn && event.itemName==='금화 주머니') golden.seedEvents++;
     });
     fullParser.on('XP_CHANGED', (event: any) => {
       golden.essenceCount += getEssenceExchangeCount(event.amount);
@@ -10140,6 +10012,9 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
 
   const utf8First = await runFixture('utf8', true);
   const utf8Replay = await runFixture('utf8', false);
+  for (const key of ['loots','goldPouchSeeds','elsoPoints']) assert.equal(
+    utf8First.batches.at(-1)![key][0].eventId,utf8Replay.batches.at(-1)![key][0].eventId,
+    '일 합계 원본 ID는 실행/배치 ID가 달라도 동일해야 합니다.');
   assert.equal(
     utf8First.batches.at(-1)!.seeds[0].eventId,
     utf8Replay.batches.at(-1)!.seeds[0].eventId,
@@ -10188,6 +10063,7 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
   const managerFile = path.join(managerFixtureDirectory, 'TWChatLog_2026_08_26.html');
   const managerSeedMessage = '콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.';
   const managerLines = [
+    '<font size="2" color="white"> [22시 39분 33초] </font><font>입장료 5,680,001 Seed를 지불하였습니다.</font></br>',
     '<font size="2" color="white"> [22시 39분 34초] </font> <font size="2" color="#ff64ff">하급 마정석 1개를 획득 하였습니다.</font></br>',
     '<font size="2" color="white"> [22시 39분 35초] </font> <font size="2" color="#c8ffc8">테스터 : 금화 주머니를 획득 했습니다.</font></br>',
     '<font size="2" color="white"> [22시 39분 35초] </font> <font size="2" color="#ff64ff">가짜 달여왕 군단의 군자금 [ 금화 주머니 80개 ]를 획득했습니다.</font></br>',
@@ -10220,15 +10096,18 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
     const firstSync = await firstSyncPromise;
     assert.equal(firstSync.success, true);
     assert.equal(firstSync.totalFiles, 1);
-    assert.equal(firstSync.seedsDetected, 3);
+    assert.equal(firstSync.seedsDetected, 4);
     assert.equal(firstSync.lootsDetected, 1);
     assert.equal(firstSync.essencesDetected, 3,
       '과거 동기화가 직접 획득 2개와 100억 교환 1개를 정확히 합산하지 못했습니다.');
-    assert.equal(firstSync.seedsAdded, 2);
+    assert.equal(firstSync.seedsAdded, 3);
     assert.equal(firstSync.lootsAdded, 1);
     assert.equal(firstSync.essencesAdded, 3,
       '과거 동기화 결과가 실제 경험의 정수 수량이 아니라 로그 줄 수를 표시합니다.');
     const managerDiary = diaryDb.getDiaryByDate('2026-08-26');
+    const feeRows = managerDiary.activityLogs.filter((row: { content: string }) => row.content.includes('어벤던로드 입장료'));
+    assert.equal(feeRows.length, 1, '과거 로그 입장료 누락 또는 중복');
+    assert.equal(feeRows[0].amount, -5_680_001, '과거 로그 입장료 부호·정수 금액');
     const managerEssenceTotal = managerDiary.activityLogs
       .filter((log: { type: string; content: string }) => (
         log.type === 'loot' && log.content === '[득템] 경험의 정수'
@@ -10382,8 +10261,10 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       managerFixtureDirectory,
       `TWChatLog_${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}_${String(now.getDate()).padStart(2, '0')}.html`,
     );
+    // 현재 주기 검사는 실행 시각을 사용한다. UTC의 오늘 10시는 한국 시각으로는 이미 전날일 수 있다.
+    const currentLogTime = `${now.getHours()}시 ${now.getMinutes()}분 ${now.getSeconds()}초`;
     const todayLines = [
-      '<font size="2" color="white"> [10시 00분 00초] </font><font>[루이나 및 제네로 일반 상자] 아이템을 습득했습니다.</font></br>',
+      `<font size="2" color="white"> [${currentLogTime}] </font><font>[루이나 및 제네로 일반 상자] 아이템을 습득했습니다.</font></br>`,
       '<font size="2" color="white"> [10시 00분 01초] </font><font>하급 마정석 2개를 획득 하였습니다.</font></br>',
       ...Array.from({ length: 2_050 }, (_, index) => `today-ignored-${index}`),
       '<font size="2" color="white"> [10시 00분 02초] </font><font>콘텐츠 클리어 보상으로 3500만 SEED를 획득했습니다.</font></br>',
@@ -10438,6 +10319,8 @@ async function checkChatLogWorkerBatchProtocol(): Promise<void> {
       path.join(projectRoot, 'dist', 'modules', 'chatLogProcessor.js'),
     ) as any;
     liveChatLogProcessor.start();
+    // 날짜 머리말이 없는 오늘 파일도 이전 파일의 파서 날짜를 이어받지 않는다.
+    require(path.join(projectRoot,'dist','modules','chatParser.js')).chatParser.setCurrentDate('2026-08-17');
     liveChatLogManager.start();
     let appendedDuringAnalysis = false;
     try {
@@ -10538,6 +10421,7 @@ async function runRegressionChecks(): Promise<void> {
   checkCustomTabHistoryContracts();
   checkLargeChatLogReadBoundary();
   await checkChatTailRecoveryBoundary();
+  await checkChatDirectoryNotifications();
   checkNotificationKeywordBoundaries();
   checkTradeMonitorWindowReferenceContracts();
   checkAutoStartRequestOrderingContracts();
@@ -10552,8 +10436,6 @@ async function runRegressionChecks(): Promise<void> {
   checkManualEvidenceComparator();
   checkShutdownRecoveryAcrossProcessRestarts();
   checkMainQuitRecoveryScenarios();
-  checkMainResponseLossRestartReconciliation();
-  checkMainPartialRestoreConfirmationGate();
   checkXpExchangeContracts();
   checkAbandonedFeeMatchingContracts();
   checkDigsiteBoardContracts();
@@ -10562,7 +10444,6 @@ async function runRegressionChecks(): Promise<void> {
   checkViewRequestGenerationContracts();
   await checkMissedMinuteSchedulerContracts();
   await checkAudioPlaybackContracts();
-  await checkMainConcurrentCrossUploadConvergence();
   await checkChatLogWorkerReadRecovery();
   await checkChatSearchSizeBoundaries();
   await checkChatLogWorkerBatchProtocol();

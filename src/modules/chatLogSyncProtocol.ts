@@ -69,14 +69,22 @@ export interface WorkerSyncTargetFile {
   snapshotSize: number;
   encoding: ChatLogEncoding;
   aggregate: ChatLogFileAggregate;
-  /** 오늘 자동 기록은 부분 병합하지 않고 파일 전체 분석 완료 뒤 원자 교체한다. */
+  /** 파일 분석 완료까지 기록 적용을 보류한다. 프로필 모드의 오늘 파일은 tail 인수인계에 사용한다. */
   replaceAutomaticDateOnComplete?: boolean;
   /** 실시간 tail이 멈춘 오늘 파일은 snapshot 이후 증가분을 메인 프로세스가 이어서 처리한다. */
   catchUpAfterReplace?: boolean;
+  /** 다른 프로필/기존 미배정에 이미 귀속된 구간. 외치기는 공통이므로 계속 분석한다. */
+  excludedRanges?:Array<{start:number;end:number}>;
+  aggregateOwnerKey?:string;
+  knownLines?: Record<string, string | null>;
+  legacyOwnedRanges?: Array<{start:number;end:number}>;
+  repairKnownActivities?: boolean;
 }
 
 export interface ParsedLootEvent {
   eventId?: string;
+  repairOnly?: boolean;
+  lineKey?: string;
   date: string;
   timeOnly: string;
   diaryContent: string;
@@ -93,6 +101,8 @@ export interface ParsedShoutEvent {
 
 export interface ParsedSeedEvent {
   eventId?: string;
+  repairOnly?: boolean;
+  lineKey?: string;
   date: string;
   timeOnly: string;
   content: string;
@@ -100,12 +110,14 @@ export interface ParsedSeedEvent {
 }
 
 export interface ParsedElsoEvent {
+  eventId?:string;
   date: string;
   timeOnly: string;
   amount: number;
 }
 
 export interface ParsedGoldPouchSeedEvent {
+  eventId?:string;
   date: string;
   timeOnly: string;
   amount: number;
@@ -130,6 +142,8 @@ export interface ChatLogSyncBatchData {
   seeds: ParsedSeedEvent[];
   elsoPoints: ParsedElsoEvent[];
   goldPouchSeeds?: ParsedGoldPouchSeedEvent[];
+  scopedLogRecords?: boolean;
+  lineKeys?: string[];
   /** 지정 날짜의 채팅 로그 유래 automatic row를 이 배치 결과로 원자 교체한다. */
   replaceAutomaticDate?: string;
 }
@@ -198,4 +212,10 @@ export function createStableChatSyncEventId(
   return createHash('sha256')
     .update(`${fingerprint}\0${Math.max(0, Math.trunc(byteOffset))}\0${kind}\0${Math.max(0, Math.trunc(sequence))}`)
     .digest('hex');
+}
+
+/** 복사본의 경로/생성일과 무관한 채팅 줄 식별자. 바이트 위치는 줄바꿈까지 포함한 원본 기준이다. */
+export function createChatLogLineKey(date:string,timestamp:string,line:string,offset:number):string {
+  const time=timestamp.match(/\d+/g)?.map(part=>part.padStart(2,'0')).join(':') ?? '';
+  return createHash('sha256').update(`${date}\0${time}\0${offset}\0`).update(line).digest('hex');
 }

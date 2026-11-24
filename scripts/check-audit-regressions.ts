@@ -40,7 +40,8 @@ const checker = require(moduleFile('contentsChecker'));
 const helper = require(moduleFile('syncDataHelper'));
 const defaults = require(moduleFile('constants')).DEFAULT_CONFIG;
 const dateKey = shared('localDate').formatLocalDateKey;
-const rule = { type: 'weekly', dayOfWeek: (new Date().getDay() + 5) % 7, hour: 0 };
+const koreaWeekday=(at:number)=>new Date(at+9*3_600_000).getUTCDay();
+const rule = { type: 'weekly', dayOfWeek: (koreaWeekday(Date.now()) + 5) % 7, hour: 0 };
 const item = (id: string, count = 0, max = 3, completed = false): any => ({
   id, name: id, category: 'audit', isVisible: true, isCustom: true, resetRule: rule, maxCount: max,
   completedState: { main: { currentCount: count, isCompleted: completed, lastCompletedAt: Date.now() } },
@@ -102,8 +103,9 @@ function checkHomework(): void {
   // 관리 폼에서 초기화 요일과 최대 횟수를 동시에 변경한다. 만료된 완료 기록은 과거 일지에 남긴다.
   const now = new Date();
   const previous = new Date(now); previous.setDate(previous.getDate() - 2);
-  const nextRule = { type: 'weekly', dayOfWeek: (now.getDay() + 6) % 7, hour: 0 };
-  const oldRule = { type: 'weekly', dayOfWeek: (now.getDay() + 4) % 7, hour: 0 };
+  const weekday=koreaWeekday(now.getTime());
+  const nextRule = { type: 'weekly', dayOfWeek: (weekday + 6) % 7, hour: 0 };
+  const oldRule = { type: 'weekly', dayOfWeek: (weekday + 4) % 7, hour: 0 };
   for (const completed of [false, true]) {
     const changing = item(`custom-rule-and-cap-${completed}`, completed ? 3 : 2, 3, completed);
     changing.resetRule = oldRule;
@@ -198,12 +200,12 @@ async function checkMonitorsAndRuntime(): Promise<void> {
     if (url.includes('query=aa')) { if (phase === 0) throw new Error('offline'); return htmlPost(105); }
     return htmlPost(110);
   });
-  assert.equal(await trade.api.auditCheck(), false);
+  assert.equal((await trade.api.auditCheck()).success, false);
   assert.equal(trade.api.auditState().lastSeenPostNo, 110);
   assert.deepEqual(trade.notices.map((notice: any) => notice.body), ['item-110']);
   assert.deepEqual(trade.cfg.tradeSearchState.cursors.map((cursor: any) => cursor.postNo), [100, 110]);
   phase = 1;
-  assert.equal(await trade.api.auditCheck(), true);
+  assert.equal((await trade.api.auditCheck()).success, true);
   assert.deepEqual(trade.notices.map((notice: any) => notice.body).sort(), ['item-105', 'item-110']);
   await trade.api.auditCheck();
   assert.equal(trade.notices.length, 2);
@@ -255,6 +257,46 @@ async function checkMonitorsAndRuntime(): Promise<void> {
   const forced = monitor('trade', async url => { if (url.includes('cafesearch')) throw new Error('offline'); return htmlPost(110); });
   await forced.api.forceCheck();
   assert.equal(forced.api.auditState().lastSeenPostNo, 100);
+  // 수동 새로고침이 새 글을 찾은 키워드 검색을 기다려도 목록 조회는 새로고침이 정확히 한 번 하고
+  // 그 결과를 돌려준다. 이전에는 검색 내부 목록 조회가 요청 번호를 올려 바깥 새로고침을 무효로 만들어
+  // 새로고침이 자기 목록을 건너뛰었고, 내부 조회가 실패하면 목록 없이 로딩이 끝났다.
+  let listRequests = 0;
+  const refresh = monitor('trade', async url => {
+    if (url.includes('cafesearch')) return htmlPost(120);
+    listRequests++;
+    return htmlPost(120);
+  });
+  refresh.api.auditSet({ isDestroyed: () => false, isVisible: () => true, webContents: { send: (...args: any[]) => refresh.status.push(args) } });
+  const refreshed = await refresh.api.forceCheck();
+  assert.equal(refresh.notices.length, 1, '수동 새로고침의 키워드 검색은 새 글 알림을 유지');
+  assert.equal(listRequests, 1, '검색은 목록을 따로 조회하지 않고 새로고침이 한 번만 조회');
+  assert.deepEqual(refreshed.map((post: any) => post.no), [120], '새로고침은 자신이 조회한 목록을 돌려줌');
+  assert.deepEqual(refresh.status.filter(([channel]: any[]) => channel === 'trade-posts').map(([, posts]: any[]) => posts.map((post: any) => post.no)), [[120]]);
+  // 주기 체크도 새 글이 있을 때 목록을 한 번 조회한다(검색 결과의 listChanged).
+  const loopList = monitor('trade', async url => url.includes('cafesearch') ? htmlPost(130) : htmlPost(130));
+  loopList.api.auditSet({ isDestroyed: () => false, isVisible: () => true, webContents: { send: (...args: any[]) => loopList.status.push(args) } });
+  await loopList.api.auditLoop();
+  assert.deepEqual(loopList.status.filter(([channel]: any[]) => channel === 'trade-posts').map(([, posts]: any[]) => posts.map((post: any) => post.no)), [[130]], '주기 체크는 새 글 발견 시 열린 창 목록을 갱신');
+  const noSearch={tradeServer:'RyXp',tradeKeywords:[],tradeNotify:false};
+  for(const backToOriginal of [false,true]) {
+    let release!:()=>void;
+    const gate=new Promise<void>(resolve=>{release=resolve;});
+    const delayed=monitor('trade',async()=>{await gate;return htmlPost(111);},structuredClone(noSearch));
+    const pending=delayed.api.forceCheck();delayed.api.setServer('Siwv');
+    if(backToOriginal)delayed.api.setServer('RyXp');
+    release();assert.deepEqual(await pending,[]);
+    assert.equal(delayed.status.some(([channel,posts]:any[])=>channel==='trade-posts' && posts.some((post:any)=>post.no===111)),false,'이전 서버/세대 응답은 현재 서버 목록에 반영하지 않음');
+    assert.equal(delayed.api.auditState().lastSeenPostNo,0);
+  }
+  const responses:Array<(html:string)=>void>=[];
+  const reverse=monitor('trade',()=>new Promise<string>(resolve=>responses.push(resolve)),structuredClone(noSearch));
+  const first=reverse.api.forceCheck(),second=reverse.api.forceCheck();
+  responses[1](htmlPost(222));await second;responses[0](htmlPost(111));await first;
+  assert.deepEqual(reverse.status.filter(([channel]:any[])=>channel==='trade-posts').map(([,posts]:any[])=>posts.map((post:any)=>post.no)),[[222]],'같은 서버의 늦은 이전 응답도 최신 목록을 덮지 않음');
+  const visible=monitor('trade',async url=>htmlPost(url.includes('Siwv') ? 222 : 111),structuredClone(noSearch));
+  visible.api.auditSet({isDestroyed:()=>false,isVisible:()=>true,webContents:{send:(...args:any[])=>visible.status.push(args)}});
+  visible.api.setServer('Siwv');await new Promise<void>(resolve=>setImmediate(resolve));
+  assert.deepEqual(visible.status.filter(([channel]:any[])=>channel==='trade-posts').at(-1)[1].map((post:any)=>post.no),[222],'열린 창은 새 서버 목록을 자동 조회');
   const unchanged = monitor('trade', async () => htmlPost(110));
   unchanged.api.setServer('RyXp'); await unchanged.api.auditCheck();
   assert.equal(unchanged.notices.length, 1);
@@ -537,10 +579,10 @@ async function checkSettingsDraft(): Promise<void> {
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, wmFixture);
   const ipcSource = fs.readFileSync(path.join(root, 'src/modules/ipcHandlers.ts'), 'utf8');
   const ipcStart = ipcSource.indexOf('  type ApplySettingsResult =');
-  vm.runInNewContext(ts.transpileModule(ipcSource.slice(ipcStart, ipcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", ipcStart)),
+  vm.runInNewContext(ts.transpileModule(ipcSource.slice(ipcStart, ipcSource.indexOf('  const monitorUrls =', ipcStart)),
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
     ipcMain, config: hudConfigStore, isBoolean: (value: unknown) => typeof value === 'boolean',
-    log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
+    log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {}, validateSettingsProfileWrite: () => undefined,
     wm: { areAllWindowsHidden: () => false, getSettingsWindow: () => null, getGameOverlayWindow: () => hudSender ? window : null,
       applySettings: wmFixture.exports.applySettings },
   });
@@ -558,7 +600,10 @@ async function checkSettingsDraft(): Promise<void> {
     const menus = fs.readFileSync(path.join(root, 'dist/renderer/settings/menu-management.js'), 'utf8');
     const saveStart = source.indexOf('async function applySettingsWithDraft(');
     const saveFunctions = source.slice(saveStart, source.indexOf('let isHudEditing', saveStart));
-    const hudEditFunctions = source.slice(source.indexOf('let isHudEditing'), source.indexOf("window.addEventListener('beforeunload'", source.indexOf('let isHudEditing')));
+    const positionEditStart = source.indexOf('let isHudEditing');
+    const positionEditEnd = source.indexOf('function resetTodaySummaryHudPosition', positionEditStart);
+    assert.ok(positionEditStart >= 0 && positionEditEnd > positionEditStart);
+    const hudEditFunctions = source.slice(positionEditStart, positionEditEnd);
     const hudEditMode = fs.readFileSync(path.join(root, 'dist/renderer/game-overlay/edit-mode.js'), 'utf8');
     const customSaveStart = source.indexOf('function getSettingsApplyErrorMessage(');
     const customSaveFunctions = source.slice(customSaveStart, source.indexOf('function hasPendingCustomChatTabDraft(', customSaveStart));
@@ -587,14 +632,13 @@ async function checkSettingsDraft(): Promise<void> {
       window.chatPickers.general.setColor('#123456');
       document.getElementById('home-url-input').value='https://edited.example/';
       currentSlots.push({label:'draft',url:'https://draft.example/'}); shortcuts.first='F3';
-      document.querySelector('input[name="trade-server"][value="Siwv"]').checked=true;
       document.querySelector('input[name="sidebar-position"][value="left"]').checked=true;
       document.querySelector('.menu-visible-check[value="audit-first"]').checked=false;
       window.__receive({...cfg,width:900,shortcuts:{first:'F1',second:'F4'},chatOverlayColorGeneral:'#222222',chatOverlayColorWhisper:'#333333'});
       cfg={...cfg,width:950,hiddenMenuIds:['audit-second'],shortcuts:{first:'F1',second:'F5'},chatOverlayColorGeneral:'#444444',chatOverlayColorWhisper:'#555555'};
       window.__receive(cfg);
       const initial={home:document.getElementById('home-url-input').value,width:document.getElementById('width-input').value,slots:structuredClone(currentSlots),shortcuts:{...shortcuts},colors:collectSettingsDraftExtras().colors,
-        server:document.querySelector('input[name="trade-server"]:checked').value,position:document.querySelector('input[name="sidebar-position"]:checked').value,hiddenMenus:window.settingsMenuManagement.collectHiddenMenuIds()};
+        position:document.querySelector('input[name="sidebar-position"]:checked').value,hiddenMenus:window.settingsMenuManagement.collectHiddenMenuIds()};
 
       const font=document.getElementById('chat-overlay-fontsize-input');
       const setFont=value=>{font.value=String(value);font.dispatchEvent(new Event('input'));};
@@ -681,7 +725,7 @@ async function checkSettingsDraft(): Promise<void> {
     assert.equal(actual.initial.home, 'https://edited.example/'); assert.equal(actual.initial.width, '950');
     assert.equal(actual.initial.slots[0].label, 'draft'); assert.deepEqual(actual.initial.shortcuts, { first: 'F3', second: 'F5' });
     assert.equal(actual.initial.colors.chatPickers.general, '#123456'); assert.equal(actual.initial.colors.chatPickers.whisper, '#555555');
-    assert.equal(actual.initial.server, 'Siwv');assert.equal(actual.initial.position, 'left');
+    assert.equal(actual.initial.position, 'left');
     assert.deepEqual(actual.initial.hiddenMenus, ['audit-first', 'audit-second']);
     assert.deepEqual(actual.afterSave, {font:'24',size:'700',sizeClean:true,loot:['remote-loot'],shout:['remote-shout'],color:'#ABCDEF',home:'https://edited.example/',slots:[{label:'draft',url:'https://draft.example/'}],shortcut:'F3'});
     assert.deepEqual(actual.afterFailure,{font:'21',loot:['failed-loot'],alerts:1});
@@ -719,9 +763,9 @@ async function checkSettingsInitializationAndSaveRaces(): Promise<void> {
     // 실제 동기식 저장 핸들러와 Electron IPC 순서를 사용하고 파일/창 부수 효과만 격리한다.
     const ipcSource = read('src/modules/ipcHandlers.ts');
     const start = ipcSource.indexOf('  type ApplySettingsResult =');
-    const handler = ipcSource.slice(start, ipcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", start));
+    const handler = ipcSource.slice(start, ipcSource.indexOf('  const monitorUrls =', start));
     vm.runInNewContext(ts.transpileModule(handler, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
-      ipcMain, isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
+      ipcMain, isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {}, validateSettingsProfileWrite: () => undefined,
       config: { load: () => structuredClone(mainConfig),
         sanitizeExternalConfigPatch: (patch: any) => config.sanitizeExternalConfigPatch(structuredClone(patch)), getLastSaveError: () => null },
       wm: { areAllWindowsHidden: () => false, getSettingsWindow: () => win, getGameOverlayWindow: () => null, applySettings: (patch: any, excluded: any) => {
@@ -943,11 +987,165 @@ async function checkStorageAndRestore(): Promise<void> {
   console.log('[AUDIT] restore rollback resumes writes; successful restore blocks stale writes and DB reopening');
 }
 
+/** 과거 로그 복원과 지난 주기 배정은 같은 주기 집계 규칙과 장부를 쓴다. 장부의 세 출처(체크리스트
+ * 기준값·지난 주기 배정·복원 날짜 행)는 같은 원본 줄을 겹쳐 담을 수 있으므로 한 줄은 최대 한 번만 센다. */
+function checkHomeworkCycleLedger(): void {
+  const { foldHomeworkCycleProgress, foldHomeworkCycleLedger } = shared('homeworkCycleProgress');
+  assert.deepEqual(foldHomeworkCycleProgress(0, [{ count: 1, isIncrement: true, occurredAt: 3 }, { count: 2, isIncrement: true, occurredAt: 1 }], 3),
+    { count: 3, completedAt: 3 }, '시각 순으로 더해 처음 도달한 기록이 완료 시각');
+  assert.deepEqual(foldHomeworkCycleProgress(1, [{ count: 2, isIncrement: false, occurredAt: 5 }], 3), { count: 2 }, '절대 횟수는 기준값과 큰 쪽');
+  assert.deepEqual(foldHomeworkCycleProgress(3, [{ count: 1, isIncrement: true, occurredAt: 5 }], 3), { count: 3 }, '체크리스트가 이미 완료한 주기는 다시 완료로 만들지 않음');
+  const plus = (count: number, occurredAt: number) => ({ count, isIncrement: true, occurredAt });
+  const ledger = (base: number, events: any[], restored: any[]) => ({ base, events, restored });
+  // 시나리오 A: 지난주 이터널 플로어 6회를 실시간 기록(기준값 6)했고, 지난주 로그를 복원하면 같은 6줄이 복원 행에 다시 들어온다.
+  assert.deepEqual(foldHomeworkCycleLedger(ledger(6, [], [plus(6, 500)]), 10), { count: 6 }, '실시간으로 기록한 줄을 복원 집계로 다시 세지 않는다');
+  // 시나리오 B: 이번 주 복원이 체크리스트를 4로 병합(기준값 4)하고 복원 행 4를 남긴 뒤, 다음 주에 대기 2건을 배정한다.
+  assert.deepEqual(foldHomeworkCycleLedger(ledger(4, [plus(1, 700), plus(1, 800)], [plus(4, 600)]), 10), { count: 6 },
+    '그 주기 중 병합한 복원 줄과 기준값을 더하지 않고, 배정한 2건만 기준값에 더한다');
+  // 배정한 대기 줄은 이후 복원에서 그 프로필 소유 줄로 다시 집계된다(실시간 6 + 배정 4 = 복원 10).
+  assert.deepEqual(foldHomeworkCycleLedger(ledger(6, [plus(1, 710), plus(1, 720), plus(1, 730), plus(1, 740)], [plus(10, 900)]), 10),
+    { count: 10, completedAt: 740 }, '배정 줄이 복원 행과 겹쳐도 10회로 완료하고, 먼저 도달한 기록 시각을 쓴다');
+  assert.deepEqual(foldHomeworkCycleLedger(ledger(6, [plus(1, 710)], [plus(6, 900)]), 10), { count: 7 }, '겹친 복원 행이 배정 기록을 부풀리지 않는다');
+  // 나눠서 복원한 같은 주기: 월~수 3회, 목~일 4회는 날짜 행이 달라 서로 다른 줄이므로 합친다.
+  assert.deepEqual(foldHomeworkCycleLedger(ledger(0, [], [plus(3, 300), plus(4, 700)]), 7), { count: 7, completedAt: 700 }, '다른 날짜의 복원 행은 합쳐 판단');
+  assert.deepEqual(foldHomeworkCycleLedger(ledger(7, [plus(1, 900)], [plus(7, 800)]), 7), { count: 7 }, '체크리스트가 완료한 주기는 다시 완료로 만들지 않음');
+  assert.deepEqual(foldHomeworkCycleLedger(ledger(2, [{ count: 5, isIncrement: false, occurredAt: 900 }], [{ count: 3, isIncrement: false, occurredAt: 800 }]), 5),
+    { count: 5, completedAt: 900 }, '절대 횟수 기록은 기준값과 큰 쪽');
+
+  const { buildSyncedHomeworkLogs, collectRestoredHomeworkCycleProgress } = require(moduleFile('chatLogSyncManager'));
+  const rule = { type: 'weekly', hour: 0, dayOfWeek: 1 };
+  const definitions = { floor: { rule, cycleKey: 'weekly:999', maxCount: 3, name: '이터널 플로어', category: 'audit', isVisible: true } };
+  const states = [{ dateStr: '2026-01-06', homeworkByCycle: { 'weekly:100': { floor: { count: 1, isIncrement: true, latestTimestamp: 200 } } } }];
+  assert.deepEqual(buildSyncedHomeworkLogs(states, definitions, 'A', 'p1'), [], '복원 파일만으로는 1/3');
+  assert.deepEqual(buildSyncedHomeworkLogs(states, definitions, 'A', 'p1',
+    (item: string, cycleStart: number) => item === 'floor' && cycleStart === 100 ? ledger(2, [], [plus(1, 200)]) : undefined), [],
+  '장부가 있는 지난 주기는 장부만 근거로 쓰고 이번 파일 집계(이미 복원 행)를 다시 더하지 않는다');
+  const withLedger = buildSyncedHomeworkLogs(states, definitions, 'A', 'p1',
+    (item: string, cycleStart: number) => item === 'floor' && cycleStart === 100 ? ledger(1, [plus(1, 150), plus(1, 190)], [plus(1, 200)]) : undefined);
+  assert.equal(withLedger.length, 1, '체크리스트 기준값 1 + 지난 주기 배정 2 = 완료');
+  assert.equal(withLedger[0].completedAt, 190);
+  assert.deepEqual(collectRestoredHomeworkCycleProgress(states, definitions),
+    [{ itemId: 'floor', cycleStart: 100, logDate: '2026-01-06', count: 1, isIncrement: true, occurredAt: 200 }]);
+  // 일지는 날짜·숙제마다 한 행이다. 같은 날짜에 두 주기의 완료가 나오면 최신 주기만 남긴다.
+  const day = new Date(2026, 0, 6, 0, 0, 0).getTime();
+  const sameDay = buildSyncedHomeworkLogs([{ dateStr: '2026-01-06', homeworkByCycle: {
+    'daily:1': { floor: { count: 3, isIncrement: false, latestTimestamp: day + 5 * 3600_000 } },
+    'daily:2': { floor: { count: 3, isIncrement: false, latestTimestamp: day + 7 * 3600_000 } },
+  } }], definitions, 'A', 'p1');
+  assert.deepEqual(sameDay.map((entry: any) => entry.completedAt), [day + 7 * 3600_000], '같은 날짜의 이전 주기 완료가 최신 주기 완료를 덮지 않는다');
+  console.log('[AUDIT] homework cycle ledger counts each log line once across checklist base, late records and restore rows');
+}
+
+/** 게임 추적 폴링 루프는 한 번의 동기화·종료 안내 예외로 멈추지 않고, 오류 재시도는 안정 주기를 쓴다. */
+async function checkPollingLoopRecovery(): Promise<void> {
+  const logs: string[] = [], unhandled: unknown[] = [];
+  const recordUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on('unhandledRejection', recordUnhandled);
+  const appState = { isQuitting: false };
+  let rect: any = { x: 10, y: 10, width: 800, height: 600, windowStyle: 0, gameHwnd: 'fixture', isForeground: true };
+  let queries = 0, syncCalls = 0, reminders = 0;
+  const poll = isolatedModule('pollingLoop', {
+    './constants': { ...require(moduleFile('constants')), appState },
+    './logger': { log: (message: string) => logs.push(message) },
+    './tracker': { queryGameRect: async () => { queries++; return rect; }, setWindowEventListener() {}, releaseGameZOrder() {},
+      reconcileGameZOrder() {}, getDetectedGameProcessId: () => 7 },
+    './windowManager': {
+      syncOverlay() { if (syncCalls++ === 0) throw new Error('fixture sync failure'); },
+      showGameExitReminder() { reminders++; throw new Error('fixture reminder failure'); },
+      isGameWindowModeTransitioning: () => false, isAnyUserDragging: () => false, getAllWindowHwnds: () => [],
+      resetGameSessionState() {}, hideAll() {}, hideOverlayWindows() {},
+    },
+    './config': { loadFields: () => ({}) },
+    './profileRuntime': { observeProfileGameState: (state: string) => state === 'not-running' ? Promise.resolve() : undefined },
+    './abandonedTracker': { abandonedTracker: { beginGameSession() {} } },
+    './digsiteTracker': { digsiteTracker: { beginGameSession() {} } },
+    './cloudSyncManager': { requestImmediatePull() {} },
+  });
+  const until = async (check: () => boolean, label: string) => {
+    const deadline = Date.now() + 4000;
+    while (!check()) { assert.ok(Date.now() < deadline, label); await new Promise(resolve => setTimeout(resolve, 20)); }
+  };
+  try {
+    poll.start();
+    await until(() => poll.getGameStatus() === 'running', '창 동기화 예외 뒤에도 다음 주기에 게임을 다시 추적해야 함');
+    assert.equal(syncCalls, 2);
+    assert.ok(queries <= 3, `오류 재시도가 빠른 주기로 반복됨: ${queries}`);
+    assert.ok(logs.some(message => message.includes('[POLL] 게임 상태 확인 실패')));
+    rect = { notRunning: true };
+    await until(() => poll.getGameStatus() === 'not-running' && reminders === 1, '게임 종료 처리와 안내 시도');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.ok(logs.some(message => message.includes('[POLL] 게임 종료 안내 표시 실패')));
+    assert.equal(reminders, 1, '안내 실패가 종료 처리를 반복시키면 안 됨');
+    assert.deepEqual(unhandled, [], '폴링 오류가 처리되지 않은 Promise 거부로 새면 안 됨');
+  } finally {
+    appState.isQuitting = true;
+    poll.stop();
+    process.off('unhandledRejection', recordUnhandled);
+  }
+  console.log('[AUDIT] polling loop survives sync/reminder failures and retries on the stable interval');
+}
+
+/** 종료·업데이트 전 초안 확인은 편집 창을 동시에 조회하고 목적별 문구·필수 업데이트·예외 시 잠금 해제를 지킨다. */
+async function checkExitConfirmation(): Promise<void> {
+  const pages = [1, 2].map(index => {
+    const file = path.join(data, `fixture-editor-${index}.html`);
+    fs.writeFileSync(file, `<!doctype html><script>
+      window.locked=false;window.finished=0;
+      window.settingsProfileTransition={lock(){window.locked=true;},finish(){window.locked=false;window.finished++;},
+        status(){return new Promise(resolve=>setTimeout(()=>resolve({ready:true,dirty:true}),1200));}};
+    </script>`);
+    return file;
+  });
+  const windows = pages.map(() => new BrowserWindow({ show: false }));
+  await Promise.all(windows.map((win, index) => win.loadFile(pages[index])));
+  const prompts: Electron.MessageBoxOptions[] = [];
+  let respond: (options: Electron.MessageBoxOptions) => Promise<{ response: number }> = async () => ({ response: 0 });
+  const editors = isolatedModule('profileEditorWindows', {
+    electron: { BrowserWindow, dialog: { showMessageBox: async (...args: any[]) => { const options = args.at(-1); prompts.push(options); return respond(options); } } },
+    './profileSettingsAccess': { isProfileSettingsPage: (url: string) => url.includes('fixture-editor'), profileSettingsPageLabel: () => '고정 메모' },
+    './profileChecklistIpc': { isProfileChecklistPage: () => false },
+    './logger': silentLogger,
+  });
+  const state = () => Promise.all(windows.map(win => win.webContents.executeJavaScript('({locked:window.locked,finished:window.finished})')));
+  try {
+    let started = Date.now(), nextCalls = 0;
+    assert.equal(await editors.confirmProfileEditorsShutdown(async () => { nextCalls++; return true; }, 'update'), false);
+    assert.ok(Date.now() - started < 2200, `편집 창을 차례로 기다림: ${Date.now() - started}ms`);
+    assert.equal(prompts.length, 1);
+    assert.equal(prompts[0].title, 'TW-Overlay 업데이트');
+    assert.equal(prompts[0].message, '작성 중인 내용을 버리고 업데이트를 설치할까요?');
+    assert.deepEqual(prompts[0].buttons, ['계속 사용', '버리고 설치']);
+    assert.equal(nextCalls, 0);
+    assert.deepEqual(await state(), [{ locked: false, finished: 1 }, { locked: false, finished: 1 }], '미룬 업데이트는 입력 잠금을 풀어야 함');
+
+    prompts.length = 0;
+    let lockedAtPrompt: unknown;
+    respond = async () => { lockedAtPrompt = await state(); return { response: 0 }; };
+    assert.equal(await editors.confirmProfileEditorsShutdown(async () => { nextCalls++; return false; }, 'mandatory-update'), true,
+      '필수 업데이트는 저장 안내 뒤 진행해야 함');
+    assert.equal(prompts.length, 1);
+    assert.equal(prompts[0].message, '필수 업데이트를 설치하기 위해 앱을 다시 시작합니다.');
+    assert.deepEqual(prompts[0].buttons, ['다시 시작']);
+    assert.deepEqual(lockedAtPrompt, [{ locked: false, finished: 2 }, { locked: false, finished: 2 }], '저장할 수 있도록 안내 전에 잠금을 풀어야 함');
+    assert.equal(nextCalls, 1);
+
+    prompts.length = 0;
+    respond = async () => { throw new Error('fixture dialog failure'); };
+    await assert.rejects(editors.confirmProfileEditorsShutdown(async () => true), /fixture dialog failure/);
+    assert.deepEqual(await state(), [{ locked: false, finished: 3 }, { locked: false, finished: 3 }], '대화상자 실패 시에도 잠금을 풀어야 함');
+    assert.equal(prompts[0].message, '작성 중인 내용을 버리고 종료할까요?', '일반 종료 문구는 기존과 같아야 함');
+  } finally {
+    windows.forEach(win => win.destroy());
+  }
+  console.log('[AUDIT] exit confirmation queries editors in parallel, words updates, lets mandatory updates proceed and unlocks on failure');
+}
+
 async function main(): Promise<void> {
   await app.whenReady();
-  checkHomework(); checkOrderingAndCalculators();
+  checkHomework(); checkHomeworkCycleLedger(); checkOrderingAndCalculators();
   await checkMonitorsAndRuntime(); await checkCloudConcurrency(); await checkCloudRollback(); await checkHttpAndServer();
   await checkConfirmedSettingsSave(); await checkSettingsDraft(); await checkSettingsInitializationAndSaveRaces(); await checkCalculatorDom(); await checkStorageAndRestore();
+  await checkPollingLoopRecovery(); await checkExitConfirmation();
   console.log('Audit regression checks passed.');
   app.exit(0);
 }

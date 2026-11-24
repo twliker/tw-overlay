@@ -774,6 +774,59 @@ body[data-sidebar-pos="left"] .boss-toast.show {
 .ui-input:focus { border-color:var(--ui-brand); outline:none; box-shadow:0 0 0 3px rgba(168,85,247,.12); }
 .ui-input::placeholder { color:var(--ui-muted); }
 .ui-input:read-only { color:var(--ui-secondary); }
+
+/* Keep the actual select element so dynamic options, forms and keyboard input use browser behavior. */
+select { color-scheme:dark; -webkit-app-region:no-drag; }
+select option { background:var(--bg-panel); color:var(--ui-secondary); }
+
+@supports (appearance:base-select) and selector(select::picker(select)) {
+  select:not([multiple]),
+  select:not([multiple])::picker(select) { appearance:base-select; }
+
+  select:not([multiple]) { align-items:center; gap:8px; }
+  select:not([multiple]):focus-visible { outline:2px solid var(--ui-brand); outline-offset:2px; }
+  select:not([multiple])::picker-icon { color:var(--ui-secondary); }
+  select:not([multiple]):open::picker-icon { transform:rotate(180deg); }
+  select:not([multiple])::picker(select) {
+    box-sizing:border-box;
+    max-inline-size:calc(100vw - 16px);
+    max-block-size:min(320px, 45vh);
+    margin-block:4px;
+    padding:4px;
+    overflow:auto;
+    overscroll-behavior:contain;
+    scrollbar-width:thin;
+    scrollbar-color:var(--ui-border-strong) transparent;
+    border:1px solid var(--ui-border-strong);
+    border-radius:var(--ui-radius-control);
+    background:var(--bg-panel);
+    color:var(--ui-secondary);
+    box-shadow:var(--ui-shadow);
+    font-family:inherit;
+    font-size:12px;
+    line-height:1.5;
+  }
+  select:not([multiple]) option {
+    min-block-size:30px;
+    padding:5px 8px;
+    border-radius:8px;
+    background:transparent;
+    color:var(--ui-secondary);
+    white-space:normal;
+    overflow-wrap:anywhere;
+  }
+  select:not([multiple]) option:checked {
+    background:color-mix(in srgb, var(--ui-brand) 18%, transparent);
+    color:var(--ui-text);
+  }
+  select:not([multiple]) option:enabled:is(:hover, :focus-visible) {
+    background:color-mix(in srgb, var(--ui-brand) 28%, transparent);
+    color:var(--ui-text);
+  }
+  select:not([multiple]) option::checkmark { color:var(--ui-brand); }
+  select:not([multiple]) option:disabled { opacity:.55; }
+}
+
 .ui-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:38px; padding:8px 14px; border:1px solid var(--ui-border-strong); border-radius:var(--ui-radius-control); background:var(--ui-card); color:var(--ui-secondary); font-family:inherit; font-size:14px; font-weight:600; line-height:1.4; white-space:nowrap; transition:background var(--ui-motion), border-color var(--ui-motion), box-shadow var(--ui-motion), transform var(--ui-motion); }
 .ui-button:hover { background:rgba(255,255,255,.08); color:var(--ui-text); }
 .ui-button:active { transform:scale(.95); }
@@ -795,6 +848,10 @@ body[data-sidebar-pos="left"] .boss-toast.show {
 .ui-switch input:checked + .ui-switch-track::before { transform:translateX(16px); background:white; }
 .ui-switch input:focus-visible + .ui-switch-track { outline:2px solid var(--ui-brand); outline-offset:3px; }
 .ui-chip { display:inline-flex; align-items:center; padding:4px 8px; border:1px solid var(--ui-border); border-radius:var(--ui-radius-control); background:var(--ui-card); color:var(--ui-secondary); font-size:12px; white-space:nowrap; }
+#profile-sync-steps { padding-top:4px; }
+#profile-sync-steps[hidden] { display:none; }
+#profile-sync-steps .ui-chip[aria-current="step"] { border-color:var(--ui-brand); color:var(--ui-text); font-weight:700; }
+[data-sync-review-progress]:empty { display:none; }
 .ui-empty { padding:16px; border:1px dashed var(--ui-border-strong); border-radius:var(--ui-radius-control); color:var(--ui-muted); font-size:12px; line-height:1.65; }
 .ui-preview { padding:16px; border:1px solid var(--ui-border); border-radius:var(--ui-radius-control); background:var(--ui-input); color:var(--ui-secondary); min-width:0; overflow-wrap:anywhere; }
 .ui-preview-label { margin-bottom:12px; color:var(--ui-muted); font-size:12px; }

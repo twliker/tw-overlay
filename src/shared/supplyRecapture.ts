@@ -33,4 +33,5 @@ export class SupplyRun {
     return true;
   }
   snapshot(): SupplyRunState { return structuredClone(this.state); }
+  restore(state:SupplyRunState | null):void {this.state=state ? structuredClone(state) : {expiresAt:0,orderExpiresAt:0,colors:[]};}
 }

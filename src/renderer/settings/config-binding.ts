@@ -48,6 +48,7 @@
     masterMute?: boolean;
     notifyWhenGameClosed?: boolean;
     userServer?: number;
+    activePlayProfileId?: string;
     chatOverlayFontSize?: number;
     chatNicknameNotesCompact?: boolean;
     chatCompactDisplay?: boolean;
@@ -244,6 +245,10 @@
     setChecked('master-mute-input', config.masterMute ?? defaults.masterMute ?? false);
     setChecked('notify-when-game-closed-input', config.notifyWhenGameClosed ?? defaults.notifyWhenGameClosed ?? false);
 
+    const chatWindowConfig = configValue as Partial<BrowserAppConfig>;
+    setChecked('settings-chat-main-enabled', chatWindowConfig.chatOverlayEnabled === true);
+    setChecked('settings-chat-sub1-enabled', chatWindowConfig.chatOverlaySubEnabled === true);
+    setChecked('settings-chat-sub2-enabled', chatWindowConfig.chatOverlaySub2Enabled === true);
     setChecked('chat-overlay-show-free-shout', config.chatOverlayShowFreeShout !== false);
     setChecked('chat-overlay-show-paid-shout', config.chatOverlayShowPaidShout !== false);
     setChecked('chat-overlay-show-notice-shout', config.chatOverlayShowNoticeShout !== false);
@@ -251,7 +256,7 @@
     setChecked('chat-compact-display', config.chatCompactDisplay === true);
     setChecked('chat-eta-colors-enabled', config.chatEtaColorsEnabled === true);
     (config.chatEtaColors || defaults.chatEtaColors || []).forEach((color, index) => setValue(`chat-eta-color-${index}`, color));
-    setValue('chat-overlay-user-server-input', config.userServer ?? defaults.userServer ?? 7);
+    setValue('chat-overlay-user-server-input', config.activePlayProfileId && config.userServer === undefined ? '' : config.userServer ?? defaults.userServer ?? 7);
     bindRange('chat-overlay-fontsize-input', 'chat-overlay-fontsize-val', config.chatOverlayFontSize ?? defaults.chatOverlayFontSize ?? 14, value => `${value}px`);
     for (const [id, value] of [['chat-overlay-fontfamily-input', config.chatOverlayFontFamily], ['chat-overlay-sub-fontfamily-input', config.chatOverlaySubFontFamily], ['chat-overlay-sub2-fontfamily-input', config.chatOverlaySub2FontFamily]]) {
       window.customChatFonts?.ensureOption(document.getElementById(id!) as HTMLSelectElement | null, value || '');

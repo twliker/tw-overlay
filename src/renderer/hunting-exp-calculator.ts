@@ -17,6 +17,7 @@
   let happyHour = true;
   let editingType: 'doping' | 'ground' | null = null;
   let editingId: string | null = null;
+  let editorSaving=false;
 
   const DOPING_IMAGE_BY_ID: Readonly<Record<string, string>> = Object.freeze({
     'legend-potato': 'assets/img/buffs/전설의_군고구마.png',
@@ -75,14 +76,16 @@
     });
   }
 
-  function persist(): void {
-    api.applySettings({
+  const captureSettings=():Partial<Config> => ({
       huntingExpDopings: cloneDopings(dopings),
       huntingExpGrounds: cloneGrounds(grounds),
       huntingExpSelectedGroundId: selectedGroundId,
       huntingExpKillsPerHour: killsPerHour,
       huntingExpHappyHour: happyHour,
     });
+  function persist(): Promise<boolean> {
+    if (window.profileSettingsPage?.enabled()) return window.profileSettingsPage.write(captureSettings());
+    api.applySettings(captureSettings());return Promise.resolve(true);
   }
 
   function icon(name: string, className: string): HTMLElement {
@@ -300,36 +303,51 @@
   }
 
   function closeEditor(): void {
+    if (editorSaving) return;
     editingType = null;
     editingId = null;
     byId('editor-modal')?.classList.add('hidden');
+    window.profileSettingsPage?.report('');
   }
 
-  function submitEditor(event: SubmitEvent): void {
-    event.preventDefault();
+  function submitEditor(event?:Event): boolean | Promise<boolean> {
+    event?.preventDefault();
+    if (editorSaving) return false;
     const name = textValue(byId<HTMLInputElement>('editor-name')?.value);
     const value = finiteNumber(byId<HTMLInputElement>('editor-value')?.value, -1);
-    if (!editingType || !name || value < 0) return;
+    if (!editingType || !name || value < 0) {window.profileSettingsPage?.report('이름과 올바른 수치를 입력해 주세요.');return false;}
+    const previous={dopings:cloneDopings(dopings),grounds:cloneGrounds(grounds),selectedGroundId};
     if (editingType === 'doping') {
       const duration = textValue(byId<HTMLInputElement>('editor-duration')?.value, '미정');
       const note = textValue(byId<HTMLInputElement>('editor-note')?.value);
       const existing = dopings.find(item => item.id === editingId);
       const percent = Math.min(value, 100_000);
       if (existing) Object.assign(existing, { name, percent, duration, note });
-      else dopings.push({ id: makeId('doping'), name, percent, duration, note, enabled: false });
+      else {editingId=editingId || makeId('doping');dopings.push({ id: editingId, name, percent, duration, note, enabled: false });}
     } else {
       const baseXp = Math.min(value, Number.MAX_SAFE_INTEGER);
       const existing = grounds.find(item => item.id === editingId);
       if (existing) Object.assign(existing, { name, baseXp });
       else {
-        const ground = { id: makeId('ground'), name, baseXp };
+        const ground = { id: editingId || makeId('ground'), name, baseXp };
         grounds.push(ground);
         selectedGroundId = ground.id;
+        editingId=ground.id;
       }
     }
-    closeEditor();
     render();
-    persist();
+    if (window.profileSettingsPage?.enabled()) {
+      const submitted=editorDraft();
+      editorSaving=true;
+      const button=document.querySelector<HTMLButtonElement>('#editor-form button[type="submit"]');if (button) button.disabled=true;
+      return persist().then(saved => {
+        editorSaving=false;if (button) button.disabled=false;
+        if (!saved) {dopings=previous.dopings;grounds=previous.grounds;selectedGroundId=previous.selectedGroundId;render();}
+        else if (submitted===editorDraft()) closeEditor();
+        window.profileSettingsPage.refresh();return saved;
+      });
+    }
+    closeEditor();void persist();return true;
   }
 
   function removeDoping(id: string): void {
@@ -450,14 +468,21 @@
     persist();
   });
 
-  api.onConfigData(config => {
+  function applyConfig(config:Config):void {
     dopings = normalizeDopings(config.huntingExpDopings);
     grounds = normalizeGrounds(config.huntingExpGrounds);
     selectedGroundId = textValue(config.huntingExpSelectedGroundId, grounds[0]?.id || '');
     killsPerHour = Math.min(finiteNumber(config.huntingExpKillsPerHour, 40_000), 10_000_000);
     happyHour = config.huntingExpHappyHour !== false;
     render();
-  });
+  }
+  function editorDraft():string {
+    return JSON.stringify([editingType,editingId,...['editor-name','editor-value','editor-duration','editor-note'].map(id => byId<HTMLInputElement>(id)?.value)]);
+  }
+  if (window.profileSettingsPage) window.profileSettingsPage.init({capture:captureSettings,apply:applyConfig,
+    extra:() => editingType!==null,reset:closeEditor,
+    save:() => editingType ? submitEditor() : persist()});
+  else api.onConfigData(applyConfig);
 
   window.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;

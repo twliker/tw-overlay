@@ -28,6 +28,9 @@ async function main(): Promise<void> {
       getStats(): {
         isActive?: boolean;
         total: number;
+        huntingXp: number;
+        epm: number;
+        movingEpm: number;
         kills: number;
         essenceCount: number;
         xpSinceLastExchange: number;
@@ -90,11 +93,19 @@ async function main(): Promise<void> {
 
   xpModule.xpTracker.startSession();
   emitXp(2_000_000_000);
+  const parseMessage=(message:string)=>chatParser.parseLine(`<font color="white"> [21시 33분 23초] </font><font color="#ff64ff">${message}</font></br>`);
+  parseMessage('룬 경험치가 500000 올랐습니다.');
+  parseMessage('클럽 경험치가 10000 상승했습니다.');
+  parseMessage('경험치가 [10000000] 상승했습니다.');
+  chatParser.emit('XP_CHANGED',{amount:500000,timestamp:'21시 33분 23초',message:'룬 경험치가 500000 올랐습니다.'});
   parseExactExchangeLog();
   stats = xpModule.xpTracker.getStats();
-  assert.equal(stats.total, 2_000_000_000,
-    '100억 교환 로그가 세션 총 획득 경험치를 차감했습니다.');
-  assert.equal(stats.kills, 1, '교환 로그가 처치로 집계되거나 양수 경험치 처치가 누락됐습니다.');
+  assert.equal(stats.total, 2_010_000_000,
+    '콘텐츠 보상은 캐릭터 경험치에 포함하며 룬·클럽 및 교환은 총량을 바꾸지 않습니다.');
+  assert.equal(stats.kills, 1, '캐릭터 사냥 경험치만 처치로 집계합니다.');
+  assert.equal(stats.huntingXp, 2_000_000_000, '마리당 경험치의 분자에는 사냥 경험치만 포함합니다.');
+  assert.equal(stats.epm, 2_000_000_000);
+  assert.equal(stats.movingEpm, 2_000_000_000);
   assert.equal(stats.essenceCount, 1, '세션 중 정확한 100억 감소가 정수 교환 1회로 집계되지 않았습니다.');
   assert.equal(stats.xpSinceLastExchange, 0,
     '정확한 100억 감소가 경고용 경험치를 0으로 초기화하지 않았습니다.');
@@ -103,6 +114,7 @@ async function main(): Promise<void> {
   xpModule.xpTracker.resetXp();
   stats = xpModule.xpTracker.getStats();
   assert.equal(stats.total, 0, '세션 초기화 뒤 총 경험치가 남아 있습니다.');
+  assert.equal(stats.huntingXp,0);
   assert.equal(stats.kills, 0, '세션 초기화 뒤 처치 수가 남아 있습니다.');
   assert.equal(stats.essenceCount, 0, '세션 초기화 뒤 세션 정수 교환 횟수가 남아 있습니다.');
   assert.equal(stats.xpSinceLastExchange, 3_000_000_000,

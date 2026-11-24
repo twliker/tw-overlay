@@ -1,5 +1,6 @@
 import { BrowserWindow, type WebContents } from 'electron';
 import { load as loadConfig } from './config';
+import { setWindowMouseMode } from './rendererHealthGuard';
 
 let overlay: BrowserWindow | null = null;
 let requestId = 0;
@@ -19,7 +20,7 @@ function restoreInput(outcome?: 'saved' | 'cancelled'): void {
     exitSafetyTimeout = null;
   }
   if (overlay && !overlay.isDestroyed()) {
-    overlay.setIgnoreMouseEvents(true);
+    setWindowMouseMode(overlay,true);
     overlay.setFocusable(false);
     overlay.setAlwaysOnTop(false);
     const config = loadConfig();
@@ -39,7 +40,7 @@ export function beginNotificationEdit(win: BrowserWindow): void {
     win.once('closed', () => { if (overlay === win) cancelNotificationEdit(); });
   }
   win.setFocusable(true);
-  win.setIgnoreMouseEvents(false);
+  setWindowMouseMode(win,false);
   win.setAlwaysOnTop(false);
   win.show();
   const enter = () => { if (overlay === win && !win.isDestroyed()) win.webContents.send('notification-edit-mode', true); };
@@ -50,8 +51,8 @@ export function beginNotificationEdit(win: BrowserWindow): void {
 
 export function requestNotificationEditExit(save: boolean): Promise<boolean> {
   if (!overlay || overlay.isDestroyed()) {
-    restoreInput(save ? 'saved' : 'cancelled');
-    return Promise.resolve(true);
+    restoreInput('cancelled');
+    return Promise.resolve(!save);
   }
   if (pending) return pending.promise;
   let resolve!: (value: boolean) => void;
@@ -73,6 +74,10 @@ export function requestNotificationEditExit(save: boolean): Promise<boolean> {
 
 export function isNotificationEditRequest(sender: WebContents, id: unknown): boolean {
   return Boolean(overlay && !overlay.isDestroyed() && sender === overlay.webContents && pending && pending.id === id);
+}
+
+export function canSaveNotificationEdit(sender: WebContents, id: unknown): boolean {
+  return isNotificationEditRequest(sender, id) && pending?.save === true;
 }
 
 export function finishNotificationEdit(sender: WebContents, id: unknown, success: unknown): boolean {

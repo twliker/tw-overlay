@@ -126,24 +126,6 @@
     "category": "calculators"
   },
   {
-    "id": "siena-aura-btn",
-    "label": "시에나의 기운",
-    "icon": "sparkles",
-    "tooltip": "시에나의 기운 강화 시뮬레이터",
-    "color": "purple-500",
-    "api": "toggleSienaAura",
-    "category": "calculators"
-  },
-  {
-    "id": "uniform-color-btn",
-    "label": "제복 색상 시뮬레이터",
-    "icon": "palette",
-    "tooltip": "제복 색상 시뮬레이터 (twsnowflower)",
-    "color": "rose-400",
-    "api": "toggleUniformColor",
-    "category": "calculators"
-  },
-  {
     "id": "hunting-exp-calculator-btn",
     "label": "사냥 경험치 계산기",
     "icon": "chart-no-axes-combined",
@@ -169,6 +151,24 @@
     "color": "amber-400",
     "api": "toggleEquipmentSimulator",
     "category": "calculators"
+  },
+  {
+    "id": "siena-aura-btn",
+    "label": "시에나의 기운",
+    "icon": "sparkles",
+    "tooltip": "시에나의 기운 강화 시뮬레이터",
+    "color": "purple-500",
+    "api": "toggleSienaAura",
+    "category": "simulators"
+  },
+  {
+    "id": "uniform-color-btn",
+    "label": "제복 색상 시뮬레이터",
+    "icon": "palette",
+    "tooltip": "제복 색상 시뮬레이터 (twsnowflower)",
+    "color": "rose-400",
+    "api": "toggleUniformColor",
+    "category": "simulators"
   },
   {
     "id": "sword-enhance-btn",
@@ -214,7 +214,7 @@
     "tooltip": "사냥터 동선 시뮬레이션",
     "color": "emerald-500",
     "api": "toggleHuntingPathSimulator",
-    "category": "calculators"
+    "category": "simulators"
   },
   {
     "id": "lumina-corridor-btn",
@@ -223,7 +223,7 @@
     "tooltip": "루미나의 회랑 최적 경로 분석기",
     "color": "sky-400",
     "api": "toggleLuminaCorridor",
-    "category": "calculators"
+    "category": "simulators"
   },
   {
     "id": "xp-hud-btn",
@@ -262,6 +262,15 @@
     "category": "records"
   },
   {
+    "id": "pinned-note-btn",
+    "label": "고정 메모",
+    "icon": "sticky-note",
+    "tooltip": "고정 메모 편집",
+    "color": "amber-400",
+    "api": "togglePinnedNote",
+    "category": "records"
+  },
+  {
     "id": "boss-btn",
     "label": "필드보스 알림 설정",
     "icon": "alarm-clock",
@@ -278,6 +287,24 @@
     "color": "orange-400",
     "api": "toggleBuffTimer",
     "category": "alarms"
+  },
+  {
+    "id": "alarm-history-btn",
+    "label": "알림 기록",
+    "icon": "history",
+    "tooltip": "받은 알림 기록",
+    "color": "pink-400",
+    "api": "toggleAlarmHistory",
+    "category": "alarms"
+  },
+  {
+    "id": "profiles-btn",
+    "label": "프로필",
+    "icon": "users-round",
+    "tooltip": "프로필 선택 및 관리",
+    "color": "slate-400",
+    "api": "toggleProfiles",
+    "isSystem": true
   },
   {
     "id": "home-btn",

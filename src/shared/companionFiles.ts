@@ -6,14 +6,14 @@ export interface ShareReview extends FileActionResult {
   groups?: ShareGroup[];
   changes?: ShareChange[];
 }
-export interface DiaryExportRow { date: string; time: string; kind: '숙제' | '득템' | '수익'; content: string; amount: number; }
-export interface DiaryExportSnapshot { start: string; end: string; rows: DiaryExportRow[]; totalSeed: number; }
-export interface DiaryExportReview extends FileActionResult { token?: string; count?: number; totalSeed?: number; }
+export interface DiaryExportRow { date: string; time: string; kind: '숙제' | '득템' | '수익' | '지출' | '확인 필요'; content: string; amount: number; }
+export interface DiaryExportSnapshot { start:string;end:string;rows:DiaryExportRow[];totalSeed:number;legacyGoldReviewSeed?:number;profileLabel?:string; }
+export interface DiaryExportReview extends FileActionResult {token?:string;count?:number;totalSeed?:number;legacyGoldReviewSeed?:number;profileLabel?:string;}
 export interface CompanionFilesApi {
   exportSettingsShare(groups: ShareGroup[]): Promise<FileActionResult>;
   openSettingsShare(): Promise<ShareReview>;
   previewSettingsShare(token: string, groups: ShareGroup[]): Promise<ShareReview>;
   applySettingsShare(token: string): Promise<FileActionResult>;
-  previewDiaryExport(start: string, end: string): Promise<DiaryExportReview>;
-  saveDiaryExport(token: string): Promise<FileActionResult>;
+  previewDiaryExport(start:string,end:string,filter?:import('./diaryProfiles').DiaryProfileFilter):Promise<DiaryExportReview>;
+  saveDiaryExport(token:string,filter?:import('./diaryProfiles').DiaryProfileFilter):Promise<FileActionResult>;
 }

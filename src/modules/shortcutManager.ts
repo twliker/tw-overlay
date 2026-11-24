@@ -23,6 +23,7 @@ import { buffTimerManager } from './buffTimerManager';
 import { sendToFirstWindowByPage } from './windowMessaging';
 import { abandonedTracker } from './abandonedTracker';
 import { analytics } from './analytics';
+import { canControlProfileXp, checkpointManualProgress } from './profileRuntime';
 
 let _isFocused = false;
 let _registrationActive = false;
@@ -124,6 +125,7 @@ export function registerAll(): void {
       log('[SHORTCUT] Toggle Abandoned HUD');
       analytics.trackEvent('toggle_abandoned_hud');
       abandonedTracker.toggleVisibility();
+      checkpointManualProgress();
     });
     if (!registered) {
       log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.toggleAbandonedHud}`);
@@ -159,10 +161,11 @@ export function registerAll(): void {
   // 6. 경험치 세션 초기화
   if (shortcuts.resetXpSession) {
     const registered = globalShortcut.register(shortcuts.resetXpSession, () => {
-      if (!tracker.isGameOrAppForeground()) return;
+      if (!tracker.isGameOrAppForeground() || !canControlProfileXp()) return;
       log('[SHORTCUT] Reset XP Session');
       analytics.trackEvent('reset_xp_session');
       chatLogProcessor.resetXp();
+      checkpointManualProgress();
     });
     if (!registered) {
       log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.resetXpSession}`);
@@ -172,12 +175,15 @@ export function registerAll(): void {
   // 6-2. 경험치 세션 측정 시작/중지 토글
   if (shortcuts.toggleXpSession) {
     const registered = globalShortcut.register(shortcuts.toggleXpSession, () => {
-      if (!tracker.isGameOrAppForeground()) return;
+      if (!tracker.isGameOrAppForeground() || !canControlProfileXp()) return;
       log('[SHORTCUT] Toggle XP Session');
       analytics.trackEvent('toggle_xp_session');
       // 사용자에게 약속된 결합 동작이다: 시작하면 HUD 표시, 일시정지하면 HUD 숨김.
       // 앱 시작/자동 시작 정책과 혼동해 세션만 토글하도록 분리하지 않는다.
-      import('./xpTracker').then(mod => mod.xpTracker.toggleSession())
+      const profileId=config.loadFields(['activePlayProfileId']).activePlayProfileId;
+      import('./xpTracker').then(mod => {
+        if (canControlProfileXp(profileId,true)) {mod.xpTracker.toggleSession();checkpointManualProgress();}
+      })
         .catch(err => log(`[SHORTCUT] xpTracker 로드 실패: ${err}`));
     });
     if (!registered) {
@@ -192,6 +198,7 @@ export function registerAll(): void {
       log('[SHORTCUT] Clear All Buffs');
       analytics.trackEvent('clear_all_buffs');
       buffTimerManager.clearAllBuffs();
+      checkpointManualProgress();
     });
     if (!registered) {
       log(`[SHORTCUT] 단축키 등록 실패 (이미 사용 중): ${shortcuts.clearAllBuffs}`);

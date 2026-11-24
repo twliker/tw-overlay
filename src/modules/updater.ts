@@ -4,6 +4,7 @@
 import { autoUpdater } from 'electron-updater';
 import { BrowserWindow, app, Notification, shell } from 'electron';
 import { log } from './logger';
+import { appState } from './constants';
 import * as config from './config';
 import * as path from 'path';
 import { checkForStoreUpdates, installStoreUpdates, StoreUpdateHelperEvent } from './storeUpdater';
@@ -51,9 +52,101 @@ export interface MandatoryReleaseTarget {
 
 let _isUpdaterQuitting = false;
 
-/** 업데이트 설치로 인한 종료 여부 반환 */
+/** 업데이트 설치로 인한 종료 여부 반환.
+ * 이 값은 사용자가 저장하지 않은 입력 확인(UpdateRestartHooks.confirm)을 통과한 뒤에만 true가 되며,
+ * main의 종료 경로는 이 값이 true면 같은 확인을 다시 묻지 않는다. */
 export function getIsUpdaterQuitting(): boolean {
   return _isUpdaterQuitting;
+}
+
+/** main이 연결하는 업데이트 재시작 전 초안 확인. updater는 편집 창 구성을 알지 못한다.
+ * confirm: 일반 업데이트는 취소할 수 있고(false), 필수 업데이트는 저장 안내 뒤 true를 반환한다.
+ * release: 승인 뒤 설치가 시작되지 않았을 때 확인 중 걸어 둔 입력 잠금을 푼다. */
+export interface UpdateRestartHooks {
+  confirm(purpose: 'update' | 'mandatory-update'): Promise<boolean>;
+  release(): Promise<void>;
+}
+let restartHooks: UpdateRestartHooks | null = null;
+export function setUpdateRestartConfirmation(hooks: UpdateRestartHooks | null): void {
+  restartHooks = hooks;
+}
+
+type UpdateRestartDecision = 'approved' | 'declined' | 'app-quitting';
+
+/** 설치 재시작 승인. 필수 업데이트는 확인 결과와 무관하게 진행한다. 승인하면 _isUpdaterQuitting을 세운다.
+ * 확인하는 사이 사용자가 승인한 일반 종료가 시작됐다면('app-quitting') 재시작하지 않는다.
+ * 그 종료가 autoInstallOnAppQuit으로 업데이트를 설치하며, 사용자가 원한 것은 재실행이 아니라 종료다. */
+async function confirmUpdateRestart(mandatory: boolean): Promise<UpdateRestartDecision> {
+  if (_isUpdaterQuitting) return 'approved';
+  if (appState.isQuitting) return 'app-quitting';
+  let approved = true;
+  if (restartHooks) {
+    try {
+      approved = await restartHooks.confirm(mandatory ? 'mandatory-update' : 'update');
+    } catch (error) {
+      log(`[UPDATER] 재시작 전 입력 확인 실패: ${error instanceof Error ? error.message : String(error)}`);
+      approved = false;
+    }
+  }
+  if (appState.isQuitting) return 'app-quitting';
+  if (!approved && !mandatory) return 'declined';
+  _isUpdaterQuitting = true;
+  return 'approved';
+}
+
+/** 승인했지만 설치가 시작되지 않은 경우 종료 플래그와 편집 창 잠금을 되돌린다. */
+function cancelApprovedUpdateRestart(reason: string): void {
+  if (!_isUpdaterQuitting) return;
+  _isUpdaterQuitting = false;
+  log(`[UPDATER] 업데이트 재시작을 진행하지 못해 앱을 계속 사용합니다: ${reason}`);
+  void restartHooks?.release().catch(error => log(`[UPDATER] 입력 잠금 해제 실패: ${String(error)}`));
+}
+
+let lastReadyStatus: UpdateStatusInfo | null = null;
+let launchAfterDeclinedRestart: (() => void) | null = null;
+let restartRequest: Promise<void> | null = null;
+
+/** 다운로드한 업데이트의 설치 재시작 계약.
+ * - 다운로드 완료 뒤 자동 재시작과 설정의 [재시작 및 설치]가 같은 경로를 사용한다.
+ * - 저장하지 않은 입력·진행 중 작업이 있으면 먼저 묻는다. 일반 업데이트에서 "계속 사용"을 고르면
+ *   설치를 미루고 'ready' 상태를 다시 알려 설정 화면의 [재시작 및 설치]를 복구한다. 미룬 설치는
+ *   electron-updater의 autoInstallOnAppQuit으로 다음 일반 종료 때 자동 설치된다.
+ * - 필수 업데이트는 저장할 기회를 한 번 안내한 뒤 진행한다.
+ * - 확인 중 다시 요청해도 대화상자를 겹쳐 띄우지 않는다.
+ * 회귀: check-updater-network.ts. */
+function requestUpdateRestart(): Promise<void> {
+  if (restartRequest) return restartRequest;
+  restartRequest = (async () => {
+    try {
+      const mandatory = isMandatory;
+      const decision = await confirmUpdateRestart(mandatory);
+      if (decision === 'app-quitting') {
+        log('[UPDATER] 앱 종료가 이미 진행 중이어서 재시작 대신 종료할 때 업데이트를 설치합니다.');
+        return;
+      }
+      if (decision === 'declined') {
+        log('[UPDATER] 저장하지 않은 입력이 있어 업데이트 설치를 미룹니다. 앱을 종료하면 설치됩니다.');
+        const wm = await import('./windowManager');
+        // 다운로드 동안 걸어 둔 스플래시 잠금을 풀어 기존 창을 다시 사용할 수 있게 한다.
+        wm.setMandatoryUpdateLock(false);
+        if (lastReadyStatus) broadcastStatus(lastReadyStatus);
+        const launch = launchAfterDeclinedRestart;
+        launchAfterDeclinedRestart = null;
+        launch?.();
+        return;
+      }
+      if (process.windowsStore) {
+        app.quit();
+        return;
+      }
+      autoUpdater.quitAndInstall();
+    } catch (error) {
+      cancelApprovedUpdateRestart(error instanceof Error ? error.message : String(error));
+    } finally {
+      restartRequest = null;
+    }
+  })();
+  return restartRequest;
 }
 
 /** 현재 버전 또는 전달된 버전이 베타/프리릴리즈 버전인지 확인 */
@@ -167,6 +260,14 @@ function resetDefaultFeed() {
   }
 }
 
+// electron-updater emits 'error' before rejecting the check. The event handler
+// already publishes the status and releases startup, so consume the rejection
+// here for startup, manual checks and checks after switching to a mandatory tag.
+// Regression: scripts/check-updater-network.ts.
+async function checkGitHubForUpdates(): Promise<void> {
+  await autoUpdater.checkForUpdates().catch(() => undefined);
+}
+
 function showUpdateNotification(version?: string) {
   try {
     const notification = new Notification({
@@ -208,7 +309,7 @@ async function handleStoreInstallFailure(
   mandatory: boolean,
   notifyReady?: () => void,
 ) {
-  _isUpdaterQuitting = false;
+  cancelApprovedUpdateRestart(message);
   storeInstallInProgress = false;
   const wm = await import('./windowManager');
 
@@ -254,7 +355,28 @@ async function startStoreUpdateInstallation(notifyReady?: () => void) {
   }
 
   storeInstallInProgress = true;
-  _isUpdaterQuitting = true;
+  // Store 도우미는 설치 중 패키지 프로세스를 직접 끝낼 수 있으므로 설치를 시작하기 전에 초안을 확인한다.
+  // 승인해야만 _isUpdaterQuitting이 세워지고, 미루면 설치 전 상태로 돌아간다.
+  const requestedUpdate = pendingStoreUpdate;
+  const decision = await confirmUpdateRestart(requestedUpdate.mandatory);
+  if (decision === 'app-quitting') {
+    // Store 설치는 도우미가 수행하므로 종료 중에는 시작하지 않는다. 다음 실행의 정책 확인이 다시 안내한다.
+    storeInstallInProgress = false;
+    log('[STORE_UPDATE] 앱 종료가 이미 진행 중이어서 Store 업데이트 설치를 다음 실행으로 미룹니다.');
+    return;
+  }
+  if (decision === 'declined') {
+    storeInstallInProgress = false;
+    log('[STORE_UPDATE] 저장하지 않은 입력이 있어 Store 업데이트 설치를 미룹니다.');
+    broadcastStatus({
+      state: 'available',
+      source: 'store',
+      version: requestedUpdate.version,
+      isMandatory: false,
+    });
+    releaseStoreReadyToLaunch(notifyReady);
+    return;
+  }
   const restartRegistered = registerApplicationRestartForStoreUpdate();
   log(`[STORE_UPDATE] RegisterApplicationRestart=${restartRegistered}`);
 
@@ -303,7 +425,7 @@ async function startStoreUpdateInstallation(notifyReady?: () => void) {
     if (outcome.noUpdate) {
       pendingStoreUpdate = null;
       isMandatory = false;
-      _isUpdaterQuitting = false;
+      cancelApprovedUpdateRestart('no Store update to install');
       storeInstallInProgress = false;
       wm.setMandatoryUpdateLock(false);
       broadcastStatus({ state: 'latest', source: 'store' });
@@ -367,7 +489,7 @@ async function checkStoreUpdatePolicy(notifyReady?: () => void) {
     const message = error instanceof Error ? error.message : String(error);
     pendingStoreUpdate = null;
     isMandatory = false;
-    _isUpdaterQuitting = false;
+    cancelApprovedUpdateRestart(message);
     log(`[STORE_UPDATE] Check failed: ${message}`);
     broadcastStatus({ state: 'error', source: 'store', message });
     setTimeout(() => releaseStoreReadyToLaunch(notifyReady), 600);
@@ -379,6 +501,35 @@ export function openMicrosoftStoreUpdatesPage() {
   shell.openExternal('ms-windows-store://downloadsandupdates').catch(error => {
     log(`[STORE_UPDATE] Failed to open Microsoft Store updates page: ${error}`);
   });
+}
+
+/** 시작 실패 뒤 업데이트 확인 모드. 확인·다운로드가 이 시간 동안 진행되지 않으면 종료한다(트레이가 없어 사용자가 끌 수 없다). */
+let startupFailureRecovery = false;
+const STARTUP_FAILURE_CHECK_TIMEOUT_MS = 20_000;
+const STARTUP_FAILURE_DOWNLOAD_STALL_MS = 120_000;
+
+/** 이 설치본이 앱 안에서 GitHub 업데이트를 받을 수 있는지. Store 설치본은 Store가 패키지를 갱신하므로
+ * electron-updater를 쓰지 않고, 개발 실행은 업데이트를 확인하지 않는다. */
+export function canCheckUpdateAfterStartupFailure(): boolean {
+  return app.isPackaged && !process.windowsStore;
+}
+
+/** 시작 실패(프로필 데이터 준비 실패 등) 뒤 업데이트 확인 계약.
+ * - 앱을 시작할 수 없어도 고친 새 버전은 받을 수 있어야 한다. 메인 창·트레이 없이 스플래시에서만 확인한다.
+ * - 사용자가 확인을 고른 뒤 호출하므로, 새 버전이 있으면 자동 업데이트 설정·베타 여부와 관계없이
+ *   일반 자동 업데이트와 같은 스플래시 잠금 흐름으로 받아 설치·재시작한다(설치 전 초안 확인도 같다).
+ * - 새 버전이 없거나, 확인·다운로드·설치 시작이 실패하거나, 제한 시간 동안 진행이 없으면 잠금을 풀고
+ *   onFinishedWithoutUpdate를 정확히 한 번 호출한다(호출자는 앱을 종료한다). 앱 진입(launchMainApp)은 하지 않는다.
+ * - 이 확인을 할 수 없는 설치본(Store·개발 실행)이면 바로 onFinishedWithoutUpdate를 호출한다.
+ * 회귀: check-updater-network.ts(시작 실패 뒤 업데이트 확인). */
+export function checkUpdateAfterStartupFailure(onFinishedWithoutUpdate: () => void): void {
+  if (!canCheckUpdateAfterStartupFailure() || isSetup) {
+    if (isSetup) log('[UPDATER] 업데이트 확인이 이미 시작되어 시작 실패 뒤 확인을 건너뜁니다.');
+    onFinishedWithoutUpdate();
+    return;
+  }
+  startupFailureRecovery = true;
+  setupUpdater(onFinishedWithoutUpdate);
 }
 
 export function setupUpdater(onReadyToLaunch?: () => void) {
@@ -402,6 +553,8 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
       fn();
     }
   };
+  // 스플래시에서 다운로드를 마쳤지만 사용자가 재시작을 미루면 앱 진입을 이어서 진행한다(이미 진입했으면 무시).
+  launchAfterDeclinedRestart = () => notifyReady();
 
   if (!app.isPackaged) {
     log('[UPDATER] Development mode: skipping update check');
@@ -420,10 +573,9 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
   autoUpdater.autoDownload = false;
   autoUpdater.fullChangelog = true; // 현재 버전부터 최신 버전 사이의 모든 릴리즈 노트 수집 활성화
 
-  let updateCheckTimeout: NodeJS.Timeout | null = setTimeout(() => {
-    log('[UPDATER] Update check timeout (5s). Launching main app.');
-    notifyReady();
-  }, 5000);
+  // 시작 실패 뒤 확인(checkUpdateAfterStartupFailure)이면 notifyReady는 앱 진입이 아니라 종료다.
+  const recovery = startupFailureRecovery;
+  let updateCheckTimeout: NodeJS.Timeout | null = null;
 
   function clearTimer() {
     if (updateCheckTimeout) {
@@ -431,6 +583,24 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
       updateCheckTimeout = null;
     }
   }
+
+  function onUpdateTimeout() {
+    updateCheckTimeout = null;
+    if (recovery) {
+      log('[UPDATER] 시작 실패 뒤 업데이트 확인·다운로드가 진행되지 않아 앱을 종료합니다.');
+      void import('./windowManager').then(wm => wm.setMandatoryUpdateLock(false)).finally(() => notifyReady());
+      return;
+    }
+    log('[UPDATER] Update check timeout (5s). Launching main app.');
+    notifyReady();
+  }
+
+  function armTimer(ms: number) {
+    clearTimer();
+    updateCheckTimeout = setTimeout(onUpdateTimeout, ms);
+  }
+
+  armTimer(recovery ? STARTUP_FAILURE_CHECK_TIMEOUT_MS : 5000);
 
   autoUpdater.on('checking-for-update', () => {
     broadcastStatus({ state: 'checking' });
@@ -450,6 +620,22 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     const isAutoUpdateEnabled = cfg.autoUpdateEnabled !== false;
 
     const isTargetBeta = isBetaVersion(info.version);
+
+    // 시작 실패 뒤 확인: 사용자가 새 버전 확인을 골랐고 앱을 시작할 수 없으므로 설정과 무관하게 받아서 설치한다.
+    if (recovery) {
+      if (!onReadyToLaunch) return; // 이미 종료하기로 한 뒤 늦게 도착한 결과
+      log(`[AUTO_UPDATE] Startup failed. Downloading v${info.version} on splash to recover (mandatory=${isMandatory})`);
+      armTimer(STARTUP_FAILURE_DOWNLOAD_STALL_MS);
+      import('./windowManager').then(wm => wm.setMandatoryUpdateLock(true));
+      broadcastStatus({
+        state: isMandatory ? 'mandatory' : 'available',
+        version: info.version,
+        isMandatory,
+        releaseNotes: formatReleaseNotes(info.releaseNotes)
+      });
+      autoUpdater.downloadUpdate();
+      return;
+    }
 
     // CASE 0: 현재 실행 중인 버전이 베타이고, 대상 버전도 베타인 경우
     // -> 강제 업데이트 잠금 및 스플래시 자동 다운로드를 무시하고 메인 앱을 즉시 실행하여 사용자가 베타를 계속 사용할 수 있도록 함
@@ -521,7 +707,7 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
           url: `https://github.com/twliker/tw-overlay/releases/download/${latestMandatory.tag}/`
         });
 
-        autoUpdater.checkForUpdates();
+        void checkGitHubForUpdates();
         return;
       }
 
@@ -595,18 +781,28 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
     clearTimer();
     resetDefaultFeed();
     log(`Error in auto-updater: ${err}`);
-    broadcastStatus({ state: 'error', message: err.message });
+    // quitAndInstall의 설치 시작 실패도 이 이벤트로 온다. 승인한 재시작을 되돌려 앱을 계속 쓸 수 있게 한다.
+    cancelApprovedUpdateRestart('installer did not start');
+    const message = 'code' in err && err.code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND'
+      ? '업데이트 정보를 가져오지 못했습니다. 잠시 후 다시 확인해 주세요.'
+      : err.message;
+    broadcastStatus({ state: 'error', message });
 
-    if (isMandatory) {
-      import('./windowManager').then(wm => wm.setMandatoryUpdateLock(false));
-      isMandatory = false;
-    }
+    // 스플래시 다운로드 잠금은 필수 업데이트뿐 아니라 자동 업데이트(CASE 1)의 일반 업데이트에도 걸린다.
+    // 실패하면 어느 경우든 잠금을 풀어 창 표시·오버레이 동기화를 되살린다. 잠그지 않았던 확인 실패라면
+    // 해제는 아무것도 하지 않고, 시작 단계의 스플래시는 notifyReady → launchMainApp이 메인 창을 만든 뒤 닫는다.
+    // 회귀: check-updater-network.ts(일반 자동 업데이트 다운로드 실패 후 잠금 해제),
+    // check-window-visibility.ts(잠그지 않은 해제의 스플래시 유지)
+    import('./windowManager').then(wm => wm.setMandatoryUpdateLock(false));
+    isMandatory = false;
     setTimeout(() => {
       notifyReady();
     }, 600);
   });
 
   autoUpdater.on('download-progress', (progressObj) => {
+    // 시작 실패 뒤 다운로드는 진행이 이어지는 동안만 기다린다.
+    if (recovery && onReadyToLaunch) armTimer(STARTUP_FAILURE_DOWNLOAD_STALL_MS);
     broadcastStatus({
       state: 'downloading',
       percent: Math.round(progressObj.percent),
@@ -619,28 +815,34 @@ export function setupUpdater(onReadyToLaunch?: () => void) {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    // 설치 전 확인 대화상자에 사용자가 답하는 동안에는 정체 감시를 멈춘다(답하는 중에 종료하지 않는다).
+    clearTimer();
     log(`Update downloaded: v${info.version} (isMandatory=${isMandatory})`);
-    broadcastStatus({
+    lastReadyStatus = {
       state: 'ready',
       version: info.version,
       isMandatory,
       releaseNotes: formatReleaseNotes(info.releaseNotes)
-    });
+    };
+    broadcastStatus(lastReadyStatus);
     import('./windowManager').then(wm => {
       wm.getMainWindow()?.setProgressBar(-1);
     });
 
-    // 다운로드 완료 시 자동 설치 및 재시작
+    // 다운로드 완료 시 자동 설치 및 재시작. 저장하지 않은 입력이 있으면 requestUpdateRestart가 먼저 묻는다.
     log('[UPDATER] Download complete. Installing and restarting in 1.5s...');
     setTimeout(() => {
-      _isUpdaterQuitting = true;
-      autoUpdater.quitAndInstall();
+      void requestUpdateRestart().finally(() => {
+        // 시작 실패 뒤에는 확인이 끝났는데도 설치 재시작이 시작되지 않고 멈춘 경우에만 정체 감시로 종료한다.
+        // 재시작을 미루면 launchAfterDeclinedRestart가 이미 종료(notifyReady)했으므로 onReadyToLaunch가 비어 있다.
+        if (recovery && onReadyToLaunch) armTimer(STARTUP_FAILURE_DOWNLOAD_STALL_MS);
+      });
     }, 1500);
   });
 
   // 초기 체크 실행
   log('Starting auto update check on splash...');
-  autoUpdater.checkForUpdates();
+  void checkGitHubForUpdates();
 }
 
 /** 현재 업데이트 상태 반환 */
@@ -666,7 +868,7 @@ export async function manualCheckForUpdate(mainWindow: BrowserWindow | null) {
   try {
     resetDefaultFeed();
     broadcastStatus({ state: 'checking' });
-    await autoUpdater.checkForUpdates();
+    await checkGitHubForUpdates();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log(`Manual update check error: ${msg}`);
@@ -686,12 +888,7 @@ export function startDownload() {
   autoUpdater.downloadUpdate();
 }
 
-/** 재시작 및 설치 */
-export function quitAndInstall() {
-  _isUpdaterQuitting = true;
-  if (process.windowsStore) {
-    app.quit();
-    return;
-  }
-  autoUpdater.quitAndInstall();
+/** 재시작 및 설치(설정 화면의 버튼). 자동 재시작과 같은 초안 확인을 거친다. */
+export function quitAndInstall(): Promise<void> {
+  return requestUpdateRestart();
 }

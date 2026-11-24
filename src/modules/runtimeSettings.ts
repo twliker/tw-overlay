@@ -13,8 +13,10 @@ import { setupAutoStart } from './autoStart';
 import * as diaryDb from './diaryDb';
 import { broadcastToAllWindows } from './windowMessaging';
 import { abandonedTracker } from './abandonedTracker';
+import { chatLogManager } from './chatLogManager';
 
 export function applyRuntimeSettings(previous: AppConfig, next: AppConfig, explicitPatch?: Partial<AppConfig>): void {
+  if (previous.chatLogPath !== next.chatLogPath) chatLogManager.applyConfiguredPath();
   const changed = (key: keyof AppConfig) => Object.prototype.hasOwnProperty.call(explicitPatch || {}, key)
     || !isDeepStrictEqual(previous[key], next[key]);
   if (changed('abandonedEnabled')) abandonedTracker.applyEnabled(next.abandonedEnabled ?? true);

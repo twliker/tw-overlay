@@ -23,3 +23,12 @@ export function centerWindowInWorkArea(width: number, height: number, workArea: 
     y: Math.round(workArea.y + (workArea.height - height) / 2),
   };
 }
+
+/** 게임/창/작업 영역은 모두 Electron DIP 좌표다. 게임 중앙을 우선하되 화면 밖으로 벗어나지 않는다. */
+export function centerWindowOverGame(width:number,height:number,game:Rectangle,workArea:Rectangle):WindowPlacement {
+  const center=centerWindowInWorkArea(width,height,game);
+  return {
+    x:Math.max(workArea.x,Math.min(center.x,workArea.x+Math.max(0,workArea.width-width))),
+    y:Math.max(workArea.y,Math.min(center.y,workArea.y+Math.max(0,workArea.height-height))),
+  };
+}

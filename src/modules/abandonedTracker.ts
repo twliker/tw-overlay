@@ -15,13 +15,29 @@
  *   브로드캐스트합니다. 자동 숨김은 통계 수집을 중단하지 않습니다.
  * - 사용자가 직접 숨긴 상태는 활동으로 자동 해제하지 않고 명시적 표시 또는 다음 게임 세션에서만
  *   해제합니다. `reset()`은 통계를 초기화하되 기능 활성 설정은 유지합니다.
+ * - HUD 통계는 한국 시각 월요일 06시마다 만료한다. 프로필 복원·조회·활동 전에도 검사해
+ *   앱 종료/절전/미선택 중 지난 주 수치가 되살아나지 않게 한다. 일지 원본은 삭제하지 않는다.
+ *   주기를 저장하지 않던 구형 HUD snapshot은 최초 복원 때 초기화한다. 누 서버 공지는 유지한다.
+ *   리셋 판정은 인터넷 보정 시각이므로 기록의 주기 분류도 로그 시각(PC 시계)을 같은 보정 시간축으로 옮겨 한다.
+ *   회귀: check-abandoned-visibility-policy.ts, check-profile-recording.ts.
  */
-import { chatParser } from './chatParser';
+import {onProfileProgress} from './profileParserEvents';
+import {recordEventTime,transientEffectsAllowed} from './recordEffects';
 import * as config from './config';
 import { log } from './logger';
 import type { AbandonedRoadState } from '../shared/types';
 import { broadcastToAllWindows } from './windowMessaging';
 import { showSupportedDesktopNotification } from './desktopNotification';
+import { getHomeworkCycleStart, getHomeworkCycleEnd } from '../shared/homeworkResetCycle';
+import { getProfileRuntime } from './profileRuntime';
+import { createCorrectedTimeline } from './profileClock';
+
+const resetRule = { type: 'weekly' as const, dayOfWeek: 1, hour: 6 };
+// 주간 리셋과 기록의 주기 분류는 같은 보정 시간축을 쓴다(profileClock.createCorrectedTimeline 계약).
+// 입장료 매칭·자동 숨김처럼 로그 시각끼리 또는 PC 타이머와 비교하는 값은 그대로 PC 시계를 쓴다.
+// PC 시계는 이 모듈의 Date.now로 명시한다(시간을 고정하는 검사와 같은 시계를 쓰도록).
+const weeklyTimeline = createCorrectedTimeline(() => getProfileRuntime()?.service.store.syncClock(), () => Date.now());
+const currentTime = () => weeklyTimeline.now();
 
 export const ABANDONED_FEE_MATCH_WINDOW_MS = 15_000;
 
@@ -32,6 +48,9 @@ export function isAbandonedFeeMatchWithinWindow(firstDetectedAt: number, secondD
 
 class AbandonedTracker {
   private _started = false;
+  // 모듈 로딩 중에는 profileRuntime 순환 의존성을 읽지 않는다. start/restore에서 기준 시각을 확인한다.
+  private _cycleStart = getHomeworkCycleStart(resetRule, Date.now());
+  private _resetTimer: NodeJS.Timeout | null = null;
   private _abandonedState: AbandonedRoadState = {
     regions: {},
     profit: 0,
@@ -47,6 +66,7 @@ class AbandonedTracker {
   };
 
   private _abandonedHideTimer: NodeJS.Timeout | null = null;
+  private _hideDeadline=0;
   // 사용자가 단축키/UI로 숨긴 상태는 자동 숨김과 다르다. 활동 이벤트는 통계를 계속
   // 갱신하지만 이 억제를 해제할 수 없으며, 명시적 표시 또는 다음 게임 세션만 해제한다.
   private _manualVisibilitySuppressed = false;
@@ -71,12 +91,15 @@ class AbandonedTracker {
     this._started = true;
     const currentConfig = config.load();
     this._abandonedState.isEnabled = currentConfig.abandonedEnabled ?? true;
+    this.checkReset();
+    this.scheduleResetCheck();
 
     // 입장료 감지 (도전 횟수보다 먼저 오거나 나중에 오는 모든 경우 대응)
-    chatParser.on('ABANDONED_FEE', (data) => {
+    onProfileProgress('ABANDONED_FEE', (data) => {
+      if (!this.acceptCurrentCycleActivity()) return;
       if (!this._abandonedState.isEnabled) return;
 
-      const now = Date.now();
+      const now = recordEventTime();
       // 직전 15초 이내에 도전 횟수가 먼저 들어온 경우 해당 지역에 즉시 귀속
       if (this._lastEntryRegion && isAbandonedFeeMatchWithinWindow(this._lastEntryTime, now)) {
         const region = this._lastEntryRegion;
@@ -105,10 +128,11 @@ class AbandonedTracker {
     });
 
     // 도전 횟수 감지
-    chatParser.on('ABANDONED_ENTRY', (data) => {
+    onProfileProgress('ABANDONED_ENTRY', (data) => {
+      if (!this.acceptCurrentCycleActivity()) return;
       if (!this._abandonedState.isEnabled) return;
 
-      const now = Date.now();
+      const now = recordEventTime();
       const pendingFee = this._pendingAbandonedFee;
       const fee = pendingFee && isAbandonedFeeMatchWithinWindow(pendingFee.detectedAt, now)
         ? pendingFee.amount
@@ -136,7 +160,7 @@ class AbandonedTracker {
       rd[data.region].count = data.count;
       rd[data.region].totalFee += fee;
 
-      if (data.count === 10) {
+      if (data.count === 10 && transientEffectsAllowed()) {
         const cfg = config.load();
         if (cfg.abandonedAlertEnabled !== false) {
           showSupportedDesktopNotification('어벤던로드 알림', `${data.region} 지역 10회 도달! 최고 효율 구간입니다.`);
@@ -147,7 +171,8 @@ class AbandonedTracker {
     });
 
     // 마정석 획득
-    chatParser.on('MAGIC_STONE_GAIN', (data) => {
+    onProfileProgress('MAGIC_STONE_GAIN', (data) => {
+      if (!this.acceptCurrentCycleActivity()) return;
       if (!this._abandonedState.isEnabled) return;
 
       const gradeKey = data.grade.trim();
@@ -167,7 +192,8 @@ class AbandonedTracker {
     });
 
     // 마정석 소실 (누 조우)
-    chatParser.on('MAGIC_STONE_LOSS', (data) => {
+    onProfileProgress('MAGIC_STONE_LOSS', (data) => {
+      if (!this.acceptCurrentCycleActivity()) return;
       if (!this._abandonedState.isEnabled) return;
 
       const gradeKey = data.grade.trim();
@@ -189,8 +215,8 @@ class AbandonedTracker {
     });
 
     // 누(Nu) 마정석 대량 획득 서버 전체 공지 (숨김 상태 HUD를 강제로 열지 않고 상태 보존)
-    chatParser.on('ABANDONED_NU_ACQUISITION', (data) => {
-      const now = Date.now();
+    onProfileProgress('ABANDONED_NU_ACQUISITION', (data) => {
+      const now = recordEventTime();
       this._abandonedState.lastNuBroadcastTime = now;
       this._abandonedState.lastNuBroadcastText = data.timestamp;
       log(`[ABANDONED] 누 마정석 대량 획득 전체 공지 감지: ${data.timestamp} (${data.grade ?? '마정석'}) - ${data.message}`);
@@ -210,10 +236,13 @@ class AbandonedTracker {
 
     if (this._abandonedState.isActive) {
       const minutes = config.load().abandonedAutoHideMinutes ?? 10;
+      this._hideDeadline=recordEventTime()+minutes*60*1000;
+      const remaining=this._hideDeadline-Date.now();
       this._abandonedHideTimer = setTimeout(() => {
         this._abandonedState.isActive = false;
         this.notifyAbandonedUpdate();
-      }, minutes * 60 * 1000);
+      }, Math.max(0,remaining));
+      if (remaining<=0) this._abandonedState.isActive=false;
     }
     this.notifyAbandonedUpdate();
   }
@@ -223,10 +252,12 @@ class AbandonedTracker {
   }
 
   public getState(): AbandonedRoadState {
+    this.checkReset();
     return this._abandonedState;
   }
 
   public forceVisible(visible: boolean): void {
+    this.checkReset();
     this._manualVisibilitySuppressed = !visible;
     this._abandonedState.isActive = visible;
     if (visible) {
@@ -264,10 +295,38 @@ class AbandonedTracker {
 
   /** 새 게임 프로세스 세션은 이전 세션의 사용자 숨김 의도를 상속하지 않는다. */
   public beginGameSession(): void {
+    this.checkReset();
     this._manualVisibilitySuppressed = false;
   }
 
+  public checkReset(): void {
+    const cycle = getHomeworkCycleStart(resetRule, currentTime());
+    if (this._cycleStart === cycle) return;
+    const suppressed = this._manualVisibilitySuppressed;
+    this.reset();
+    this._manualVisibilitySuppressed = suppressed;
+  }
+
+  private acceptCurrentCycleActivity(): boolean {
+    this.checkReset();
+    // 선택 대기 중 주간 경계를 넘긴 기록은 일지에 보관하되 이번 주 HUD에 합산하지 않는다.
+    return getHomeworkCycleStart(resetRule, weeklyTimeline.fromLocal(recordEventTime())) === this._cycleStart;
+  }
+
+  private scheduleResetCheck(): void {
+    if (this._resetTimer) clearTimeout(this._resetTimer);
+    const now = currentTime();
+    // 경계에 맞춰 실행하며 절전 복귀와 인터넷 시간 보정도 최대 1분 안에 재확인한다.
+    this._resetTimer = setTimeout(() => {
+      this._resetTimer = null;
+      this.checkReset();
+      this.scheduleResetCheck();
+    }, Math.max(1, Math.min(60_000, getHomeworkCycleEnd(resetRule, now) - now)));
+    this._resetTimer.unref?.();
+  }
+
   public reset(): void {
+    this._cycleStart = getHomeworkCycleStart(resetRule, currentTime());
     const lastNuBroadcastTime = this._abandonedState.lastNuBroadcastTime;
     const lastNuBroadcastText = this._abandonedState.lastNuBroadcastText;
     this._abandonedState = {
@@ -284,6 +343,28 @@ class AbandonedTracker {
     this._lastEntryRegion = null;
     this._lastEntryTime = 0;
     if (this._abandonedHideTimer) clearTimeout(this._abandonedHideTimer);
+    this._abandonedHideTimer = null;
+    this._hideDeadline = 0;
+    this.notifyAbandonedUpdate();
+  }
+
+  public captureProfileState() {
+    this.checkReset();
+    return structuredClone({cycleStart:this._cycleStart,state:this._abandonedState,suppressed:this._manualVisibilitySuppressed,pendingFee:this._pendingAbandonedFee,
+      lastRegion:this._lastEntryRegion,lastEntryTime:this._lastEntryTime,hideDeadline:this._hideDeadline});
+  }
+  public restoreProfileState(snapshot:ReturnType<AbandonedTracker['captureProfileState']> | null):void {
+    if (this._abandonedHideTimer) clearTimeout(this._abandonedHideTimer);this._abandonedHideTimer=null;
+    this._abandonedState=snapshot ? structuredClone(snapshot.state) : {regions:{},profit:0,isActive:false,isEnabled:true,stoneGains:{},stoneLosses:{},totalFee:0,unassignedFee:0,currentRegion:'',regionDetails:{},nuEncounters:0};
+    this._manualVisibilitySuppressed=snapshot?.suppressed || false;this._pendingAbandonedFee=snapshot?.pendingFee || null;
+    this._lastEntryRegion=snapshot?.lastRegion || null;this._lastEntryTime=snapshot?.lastEntryTime || 0;this._hideDeadline=snapshot?.hideDeadline || 0;
+    this._abandonedState.isEnabled=config.load().abandonedEnabled!==false;
+    this._cycleStart = snapshot?.cycleStart ?? NaN;
+    this.checkReset();
+    if (!this._abandonedState.isEnabled) this._abandonedState.isActive=false;
+    const remaining=this._hideDeadline-Date.now();
+    if (this._abandonedState.isActive && remaining>0) this._abandonedHideTimer=setTimeout(() => {this._abandonedState.isActive=false;this.notifyAbandonedUpdate();},remaining);
+    else this._abandonedState.isActive=false;
     this.notifyAbandonedUpdate();
   }
 }

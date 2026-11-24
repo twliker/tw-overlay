@@ -791,7 +791,7 @@ async function checkTodaySummaryRenderer(window: BrowserWindow): Promise<void> {
   assert.equal(result.clearedDetectionHidden, true);
   assert.equal(result.seed, '1234만');
   assert.equal(result.elso, '3,500 P');
-  assert.equal(result.compact, 'SEED 1234만\nELSO 3,500 P\n경험의 정수 2개 · 남은 숙제 4개');
+  assert.equal(result.compact, 'SEED 순수익 1234만\nELSO 3,500 P\n경험의 정수 2개 · 남은 숙제 4개');
   assert.deepEqual(result.lootRows, [
     '<img id="injected-summary">장비 강화석', '융합된 기운', '스페셜 스킬 조각',
   ]);
@@ -1012,23 +1012,79 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
   await window.loadFile(path.join(projectRoot, 'dist', 'settings.html'));
   await waitForSelector(window, '#settings-quick-search');
 
+  const pathUi = await window.webContents.executeJavaScript(`(async () => {
+    const originalApi = window.electronAPI;
+    const input = document.getElementById('chat-log-path-input');
+    const button = document.getElementById('find-running-game-path');
+    const status = document.getElementById('running-game-path-result');
+    let release, calls = 0, edits = 0;
+    const edited = () => edits++;
+    input.addEventListener('input', edited);
+    try {
+      input.value = 'original';
+      window.electronAPI = {
+        findRunningGamePath: () => { calls++; return new Promise(resolve => { release = resolve; }); },
+        validateChatLogPath: async () => ({ valid: true, fileCount: 1 })
+      };
+      const work = findRunningGameLogFolder();
+      const busy = button.disabled && button.getAttribute('aria-busy') === 'true';
+      await findRunningGameLogFolder();
+      release({found:true,installPath:'게임 폴더',chatLogPath:'found/ChatLog',message:'저장 및 적용으로 반영'});
+      await work;
+      const success = input.value === 'found/ChatLog' && status.textContent.includes('게임 폴더') && edits === 1;
+      const unlocked = !button.disabled && !button.hasAttribute('aria-busy');
+      const retry = findRunningGameLogFolder();
+      input.value = 'manually-selected';
+      release({found:true,chatLogPath:'stale/ChatLog',message:'old result'});
+      await retry;
+      const stalePreserved = input.value === 'manually-selected';
+      window.electronAPI.findRunningGamePath = async () => ({found:false,message:'게임을 실행해 주세요'});
+      await findRunningGameLogFolder();
+      const absent = input.value === 'manually-selected' && status.textContent.includes('게임을 실행');
+      window.electronAPI.findRunningGamePath = async () => {throw new Error('fixture denied');};
+      await findRunningGameLogFolder();
+      const failed = !button.disabled && input.value === 'manually-selected' && status.textContent.includes('다시 시도');
+      window.electronAPI.findRunningGamePath = async () => ({found:true,installPath:'no-log-folder',message:'채팅 로그 저장을 켜주세요'});
+      await findRunningGameLogFolder();
+      const missingLog = input.value === 'manually-selected' && status.textContent.includes('no-log-folder');
+      const badge = document.getElementById('settings-chatlog-status-text');
+      const paths = [];
+      let finishOld;
+      window.electronAPI.validateChatLogPath = path => {
+        paths.push(path);
+        if (path === 'old-folder') return new Promise(resolve => { finishOld = resolve; });
+        return Promise.resolve({valid:true,fileCount:2,latestFile:'draft-latest.html'});
+      };
+      input.value = 'old-folder';
+      const oldValidation = validateSettingsChatLogPath();
+      input.value = 'draft-folder';
+      await validateSettingsChatLogPath();
+      finishOld({valid:true,fileCount:1,latestFile:'old-latest.html'});
+      await oldValidation;
+      const matchingBadge = badge.textContent.includes('draft-latest.html') && !badge.textContent.includes('old-latest.html')
+        && badge.textContent.includes('로그 파일 확인 완료');
+      return {busy,calls,success,unlocked,stalePreserved,absent,failed,missingLog,paths,matchingBadge};
+    } finally {input.removeEventListener('input', edited);window.electronAPI = originalApi;}
+  })()`);
+  assert.deepEqual(pathUi, {busy:true,calls:2,success:true,unlocked:true,stalePreserved:true,absent:true,failed:true,missingLog:true,
+    paths:['old-folder','draft-folder'],matchingBadge:true});
+
   const testRoutes = [
-    { tabId: 'display:sidebar', expectedGroup: 'app', expectedSection: 'section-general' },
+    { tabId: 'display:sidebar', expectedGroup: 'launcher', expectedSection: 'section-general' },
     { tabId: 'display:game-overlay', expectedGroup: 'game', expectedSection: 'section-game-overlay' },
     { tabId: 'chatlog:sub-tab-today-summary', expectedGroup: 'game', expectedSection: 'section-game-overlay' },
-    { tabId: 'game:gimmick', expectedGroup: 'game', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-gimmick' },
-    { tabId: 'chatlog', expectedGroup: 'chat', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-general' },
-    { tabId: 'chatlog:history-sync', expectedGroup: 'chat', expectedSection: 'section-chatlog' },
+    { tabId: 'game:gimmick', expectedGroup: 'alerts', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-gimmick' },
+    { tabId: 'chatlog', expectedGroup: 'logs', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-general' },
+    { tabId: 'chatlog:history-sync', expectedGroup: 'logs', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-general' },
     { tabId: 'chatlog:sub-tab-overlay', expectedGroup: 'chat', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-overlay' },
-    { tabId: 'chatlog:sub-tab-loot', expectedGroup: 'chat', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-loot' },
-    { tabId: 'sound', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-sound-settings' },
-    { tabId: 'sound:custom', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-custom-sounds' },
-    { tabId: 'sound:log', expectedGroup: 'alerts', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-alarm-log' },
-    { tabId: 'gallery', expectedGroup: 'alerts', expectedSection: 'section-external' },
-    { tabId: 'trade', expectedGroup: 'alerts', expectedSection: 'section-external' },
-    { tabId: 'shortcuts', expectedGroup: 'system', expectedSection: 'section-shortcuts' },
-    { tabId: 'data:google-sync', expectedGroup: 'system', expectedSection: 'section-data' },
-    { tabId: 'data:retention', expectedGroup: 'system', expectedSection: 'section-data' },
+    { tabId: 'chatlog:sub-tab-loot', expectedGroup: 'alerts', expectedSection: 'section-chatlog', expectedSubTab: 'sub-tab-loot' },
+    { tabId: 'sound', expectedGroup: 'sound', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-sound-settings' },
+    { tabId: 'sound:custom', expectedGroup: 'sound', expectedSection: 'section-sound', expectedSubTab: 'sub-tab-custom-sounds' },
+    { tabId: 'shortcuts', expectedGroup: 'shortcuts', expectedSection: 'section-shortcuts' },
+    { tabId: 'data:google-sync', expectedGroup: 'data', expectedSection: 'section-data' },
+    { tabId: 'data:retention', expectedGroup: 'data', expectedSection: 'section-data' },
+    { tabId: 'alarm-position', expectedGroup: 'game', expectedSection: 'section-game-overlay' },
+    { tabId: 'advanced', expectedGroup: 'optimize', expectedSection: 'section-optimize' },
     { tabId: 'about', expectedGroup: 'about', expectedSection: 'section-about' },
   ];
 
@@ -1067,6 +1123,112 @@ async function checkSettingsDeepLinkRouting(window: BrowserWindow): Promise<void
       assert.equal(checkResult.activeSubTab, route.expectedSubTab, `${route.tabId} active sub-tab mismatch`);
     }
   }
+
+  const pageVisibility = await window.webContents.executeJavaScript(`
+    (() => {
+      const visible = id => document.getElementById(id)?.getClientRects().length > 0;
+      const cases = [
+        ['log-connection', 'chat-log-path-input', 'btn-manual-sync'],
+        ['log-restore', 'btn-manual-sync', 'chat-log-path-input'],
+        ['chat-fonts', 'chat-font-settings', 'custom-tab-list'],
+        ['chat-tabs', 'custom-tab-list', 'chat-font-settings'],
+        ['google-sync', 'google-sync-card', 'settings-share-card'],
+        ['share', 'settings-share-card', 'google-sync-card'],
+        ['backup', 'section-data', 'settings-share-card'],
+        ['volumes', 'volume-contents-checker', 'notify-when-game-closed-input'],
+        ['alarm-policy', 'notify-when-game-closed-input', 'volume-contents-checker'],
+        ['help', 'settings-guide-actions', 'update-check-btn'],
+        ['updates', 'update-check-btn', 'settings-guide-actions'],
+        ['alarm-policy', 'notify-when-game-closed-input', 'btn-start-notif-edit'],
+        ['optimize', 'optimize-status-text', 'update-check-btn'],
+      ];
+      const issues = cases.flatMap(([page, shown, hidden]) => {
+        openSettingsPage(page);
+        return visible(shown) && !visible(hidden) ? [] : [page];
+      });
+      openSettingsPage('hud-position');
+      if (!['btn-start-hud-edit', 'btn-start-notif-edit', 'btn-reset-notif-positions'].every(visible)) issues.push('hud-position');
+      openSettingsPage('alarm-policy');
+      if ([...document.querySelectorAll('#settings-context-tabs button')].some(button => button.textContent === '알림 위치')) issues.push('duplicate alarm position menu');
+      return issues;
+    })()
+  `);
+  assert.deepEqual(pageVisibility, [], '설정은 선택한 항목의 컨트롤만 표시한다.');
+
+  const spacingIssues = await window.webContents.executeJavaScript(`
+    (() => {
+      const cases = [
+        ['diary-retention', '[data-settings-pages="diary-retention"]', '0px'],
+        ['launcher-menus', '[data-settings-pages="launcher-menus"]', '0px'],
+        ['shout', '[data-settings-pages="shout"]', '24px'],
+        ['alarm-policy', '#sub-tab-sound-settings .space-y-8 > [data-settings-pages="alarm-policy"]', '0px'],
+      ];
+      return cases.flatMap(([page, selector, expectedPadding]) => {
+        openSettingsPage(page);
+        const first = document.querySelector(selector);
+        const { marginTop, paddingTop } = getComputedStyle(first);
+        return first.getClientRects().length > 0 && marginTop === '0px' && paddingTop === expectedPadding
+          ? [] : [{ page, marginTop, paddingTop }];
+      });
+    })()
+  `);
+  assert.deepEqual(spacingIssues, [], '숨긴 항목이 첫 설정 카드 위에 여백을 남기지 않는다.');
+
+  const queryIssues = await window.webContents.executeJavaScript(`
+    (() => {
+      const input = document.getElementById('settings-quick-search');
+      const results = document.getElementById('settings-search-results');
+      const search = value => {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return [...results.querySelectorAll('.search-result-item')];
+      };
+      const press = key => input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      const issues = [
+        ['알람 위치', 'HUD 위치'],
+        ['HUD 위치', 'HUD 위치'],
+        ['백업', 'ZIP 백업·복구'],
+        ['일지보관', '일지 보관'],
+        ['가이드', '도움말'],
+        ['네트워크', '최적화'],
+        ['채팅로그 폴더', '연결'],
+      ].flatMap(([query, page]) => {
+        search(query);
+        press('ArrowDown');
+        press('Enter');
+        return document.getElementById('settings-page-title').textContent === page && input.value === '' ? [] : [query];
+      });
+      const items = search('알림');
+      press('ArrowUp');
+      if (items.length < 2 || !items.at(-1)?.classList.contains('selected')) issues.push('ArrowUp');
+      press('Escape');
+      if (input.value || !results.classList.contains('hidden')) issues.push('Escape');
+      if (search('검색결과없는설정123').length || !results.textContent.includes('일치하는 설정 항목이 없습니다.')) issues.push('no match');
+      clearSettingsSearch();
+      return issues;
+    })()
+  `);
+  assert.deepEqual(queryIssues, [], '동의어·띄어쓰기·키보드 선택과 결과 없음 안내를 확인한다.');
+
+  const hudLinkIssues = await window.webContents.executeJavaScript(`
+    (() => {
+      const shortcuts = [
+        ['toggleTimer', '게임 도구'], ['toggleTodaySummaryHud', 'HUD 편집'],
+        ['toggleXpSession', '게임 도구'], ['toggleAbandonedHud', 'HUD 편집'], ['toggleBuffHud', 'HUD 편집'],
+      ];
+      const issues = shortcuts.flatMap(([key, page]) => {
+        openSettingsPage('hud-widgets');
+        document.querySelector('button[onclick*="' + key + '"]').click();
+        const visible = document.getElementById('shortcut-' + key).getClientRects().length;
+        return visible && document.getElementById('settings-page-title').textContent === page ? [] : [key];
+      });
+      openSettingsPage('hud-widgets');
+      document.querySelector('button[onclick*="openSettingsPage"][onclick*="today-summary"]').click();
+      if (!document.getElementById('today-summary-hud-settings-card').getClientRects().length) issues.push('today-summary');
+      return issues;
+    })()
+  `);
+  assert.deepEqual(hudLinkIssues, [], 'HUD 위젯 카드의 단축키와 상세 설정 버튼이 표시 가능한 목적지를 연다.');
 
   // 빠른 검색 실사용 DOM 인터랙션 테스트
   const searchTestResult = await window.webContents.executeJavaScript(`
@@ -3148,7 +3310,7 @@ async function checkFocusedChatSettings(): Promise<void> {
     document.getElementById('note-text').value = ${JSON.stringify(text)};
   })()`);
   const submitNote = () => targetWindow.webContents.executeJavaScript(`document.querySelector('.nickname-note-form').dispatchEvent(new Event('submit', { bubbles:true, cancelable:true }));`);
-  const waitNote = () => waitForRendererCondition(targetWindow, `!document.querySelector('.nickname-note-dialog').open`, '메모 저장 완료를 받지 못했습니다.');
+  const waitNote = () => waitForRendererCondition(targetWindow, `!document.querySelector('dialog:has(.nickname-note-form)').open`, '메모 저장 완료를 받지 못했습니다.');
   ipcMain.on('get-default-config-sync', onDefaults);
   ipcMain.handle('focused-chat-get-state', () => ({ selfNickname: '나', targets: ['친구'], knownNicknames: ['친구'] }));
   ipcMain.handle('focused-chat-get-history', () => { historyCalls++; return history; });
@@ -3158,12 +3320,20 @@ async function checkFocusedChatSettings(): Promise<void> {
   });
   // 실제 저장 핸들러를 사용하고 창 배치 부수 효과만 격리한다. 저장 검증을 테스트에 다시 구현하지 않는다.
   const ipcSource = fs.readFileSync(path.join(projectRoot, 'src/modules/ipcHandlers.ts'), 'utf8');
-  const saveStart = ipcSource.indexOf("  ipcMain.handle('nickname-note-save'");
-  const saveEnd = ipcSource.indexOf('  // 기능 계약: 현재 저장 설정만', saveStart);
-  assert.ok(saveStart >= 0 && saveEnd > saveStart);
+  const ts: typeof import('typescript') = require('typescript');
+  const sourceFile = ts.createSourceFile('ipcHandlers.ts', ipcSource, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  const saveCalls: string[] = [];
+  const visit = (node: import('typescript').Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'ipcMain'
+      && node.expression.name.text === 'handle' && node.arguments.length > 0
+      && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === 'nickname-note-save') saveCalls.push(node.getText(sourceFile));
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  assert.equal(saveCalls.length, 1, '실제 메모 저장 IPC 등록이 하나 있어야 합니다. 주변 주석/들여쓰기에 의존하지 않습니다.');
   let saveHandler: (...args: any[]) => any;
-  const ts = require('typescript');
-  require('node:vm').runInNewContext(ts.transpileModule(ipcSource.slice(saveStart, saveEnd), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
+  require('node:vm').runInNewContext(ts.transpileModule(saveCalls[0] + ';', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, {
     ipcMain: { handle: (_channel: string, handler: typeof saveHandler) => { saveHandler = handler; } }, config,
     require: (name: string) => { assert.equal(name, '../shared/nicknameNotes'); return nicknameNotes; },
     wm: { applySettings: (patch: unknown) => {
@@ -3293,89 +3463,6 @@ async function checkFocusedChatSettings(): Promise<void> {
   }
 }
 
-async function checkActivityPresetsRenderer(window: BrowserWindow): Promise<void> {
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(cleanStyledHtmlForTest(path.join(projectRoot, 'dist', 'settings.html')))}`);
-  const code = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'settings', 'activity-presets.js'), 'utf8');
-  await window.webContents.executeJavaScript(`window.__presetCalls = []; window.electronAPI = {
-    saveActivityPreset: async (...args) => { window.__presetCalls.push(['save', ...args]); return { success: true }; },
-    applyActivityPreset: async id => { window.__presetCalls.push(['apply', id]); return { success: false, error: '저장 오류' }; },
-    deleteActivityPreset: async id => { window.__presetCalls.push(['delete', id]); return { success: true }; }
-  }; ${code}; window.settingsActivityPresets.bind({ activityPresets: [{ id: 'hunt', name: '<img id="preset-xss">', openWindows: ['xpHud'] }] });`);
-  assert.equal(await window.webContents.executeJavaScript('!!document.getElementById("preset-xss")'), false);
-  await window.webContents.executeJavaScript(`document.querySelector('#activity-preset-list button').click()`);
-  assert.equal(await window.webContents.executeJavaScript(`document.getElementById('activity-preset-status').textContent`), '저장 오류');
-  await window.webContents.executeJavaScript(`document.getElementById('activity-preset-name').value = '거래'; document.getElementById('activity-preset-save').click()`);
-  assert.deepEqual(await window.webContents.executeJavaScript('window.__presetCalls'), [['apply', 'hunt'], ['save', '거래']]);
-  const draftCode = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'settings', 'draft.js'), 'utf8');
-  await window.webContents.executeJavaScript(`${draftCode}
-    window.__refreshPreset = name => {
-      const draft = window.settingsDraft.beforeRefresh({});
-      window.settingsActivityPresets.bind({ activityPresets: [{ id: 'hunt', name, openWindows: ['xpHud'] }] });
-      draft.restore({});
-    };
-    window.__refreshPreset('사냥');
-    Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '상세').click();
-    window.__renameInput = () => document.querySelector('#activity-preset-list input');
-    window.__renameInput().value = '보스 사냥 수정 중'; window.__renameInput().focus(); window.__renameInput().setSelectionRange(3, 5);
-    window.__refreshPreset('사냥');
-  `);
-  assert.deepEqual(await window.webContents.executeJavaScript(`({ value:__renameInput().value, focused:document.activeElement === __renameInput(), start:__renameInput().selectionStart, end:__renameInput().selectionEnd })`),
-    { value:'보스 사냥 수정 중', focused:true, start:3, end:5 }, '외부 설정 갱신 후 프리셋 이름 초안·포커스·선택 영역을 보존해야 합니다.');
-  await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();`);
-  await waitForRendererCondition(window, `document.getElementById('activity-preset-status').textContent === '이름을 변경했습니다.'`, '프리셋 이름 저장이 끝나지 않았습니다.');
-  await window.webContents.executeJavaScript(`window.__refreshPreset('외부에서 변경한 이름');`);
-  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '외부에서 변경한 이름', '저장 완료한 이름을 계속 미저장 초안으로 취급하면 안 됩니다.');
-  await window.webContents.executeJavaScript(`
-    window.electronAPI.saveActivityPreset = () => new Promise(resolve => window.__resolvePresetSave = resolve);
-    __renameInput().value = '저장 요청'; Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();
-    __renameInput().value = '저장 중 추가 편집'; __refreshPreset('저장 요청');
-    __resolvePresetSave({success:true});
-  `);
-  await window.webContents.executeJavaScript(`__refreshPreset('저장 요청');`);
-  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '저장 중 추가 편집', '늦은 저장 성공으로 이후 입력한 이름을 버리면 안 됩니다.');
-  await window.webContents.executeJavaScript(`
-    Array.from(document.querySelectorAll('#activity-preset-list button')).find(button => button.textContent === '이름 변경').click();
-    __resolvePresetSave({success:false,error:'이름 저장 실패'});
-  `);
-  await waitForRendererCondition(window, `document.getElementById('activity-preset-status').textContent === '이름 저장 실패'`, '이름 저장 실패가 표시되지 않았습니다.');
-  await window.webContents.executeJavaScript(`__refreshPreset('저장 요청');`);
-  assert.equal(await window.webContents.executeJavaScript('__renameInput().value'), '저장 중 추가 편집');
-  const layout = await window.webContents.executeJavaScript(`(() => {
-    const card = document.getElementById('chat-font-settings');
-    document.body.replaceChildren(card);
-    card.style.width = '720px';
-    const grid = card.querySelector('.ui-font-grid');
-    const wide = Array.from(grid.children).map(node => node.getBoundingClientRect());
-    card.style.width = '300px';
-    const narrow = Array.from(grid.children).map(node => node.getBoundingClientRect());
-    const inputsFit = Array.from(card.querySelectorAll('select')).every(node => node.scrollWidth <= node.clientWidth + 1);
-    return { wideColumns: new Set(wide.map(rect => Math.round(rect.left))).size,
-      wideRows: new Set(wide.map(rect => Math.round(rect.top))).size,
-      narrowColumns: new Set(narrow.map(rect => Math.round(rect.left))).size, inputsFit };
-  })()`);
-  assert.deepEqual(layout, { wideColumns: 3, wideRows: 1, narrowColumns: 1, inputsFit: true },
-    '창별 글꼴 설정은 넓은 창에서 3열, 좁은 창에서 잘림 없이 1열이어야 합니다.');
-  const defaultConfig = require(path.join(projectRoot, 'dist', 'modules', 'constants.js')).DEFAULT_CONFIG;
-  const fontCode = ['shared/chatChannels.js', 'renderer/settings/config-binding.js', 'renderer/settings/form-collection.js']
-    .map(file => fs.readFileSync(path.join(projectRoot, 'dist', file), 'utf8')).join('\n');
-  const fontRoundTrips = await window.webContents.executeJavaScript(`(() => {
-    window.electronAPI.DEFAULT_CONFIG = ${JSON.stringify(defaultConfig)};
-    ${fontCode}
-    return [10, 11, 12, 14, 28].map(size => {
-      const config = { ...window.electronAPI.DEFAULT_CONFIG, chatOverlayFontSize: size };
-      window.settingsConfigBinding.applyChatAndAlertSettings(config, window.electronAPI.DEFAULT_CONFIG);
-      const saved = window.settingsFormCollection.collectChatOverlayDisplaySettings([], []);
-      return { size, input: Number(document.getElementById('chat-overlay-fontsize-input').value),
-        label: document.getElementById('chat-overlay-fontsize-val').textContent, saved: saved.chatOverlayFontSize,
-        inherited: window.chatChannels.resolveChatFont(saved, 'sub1').size };
-    });
-  })()`);
-  for (const row of fontRoundTrips) {
-    assert.deepEqual(row, { size: row.size, input: row.size, label: row.size + 'px', saved: row.size, inherited: row.size },
-      '기존 채팅 글꼴은 설정 화면을 열고 저장해도 표시값·저장값·보조 창 상속값을 보존해야 합니다.');
-  }
-}
-
 async function checkManagedWindowResizeLimits(window: BrowserWindow): Promise<void> {
   const utils = fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'), 'utf8');
   await window.loadURL('data:text/html;charset=utf-8,<title>Resize limits</title>');
@@ -3429,6 +3516,70 @@ async function checkNicknameNoteEscape(window: BrowserWindow): Promise<void> {
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
     await waitForRendererCondition(window, `window.__closeCalls === 1`, `${parent}: 메모가 없을 때 기존 부모 창 Escape 닫기는 유지해야 합니다.`);
   }
+}
+
+// 일지 "이전 프로필 기록 정리"처럼 모달 대화상자가 열린 상태의 Escape는 대화상자만 처리하고,
+// 작업 중이라 cancel을 막아도 창 전체를 닫지 않는다. 모달이 없을 때의 공통 닫기는 유지한다.
+async function checkEscapeCloseKeepsModalDialogWindow(window: BrowserWindow): Promise<void> {
+  const utils = fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'ui-utils.js'), 'utf8');
+  await window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<dialog id="busy-dialog"><button id="inside">확인</button></dialog>'));
+  await window.webContents.executeJavaScript(`window.__closeCalls = 0; window.close = () => window.__closeCalls++;
+    window.electronAPI = {}; ${utils} window.bindEscapeClose();
+    window.__busy = true;
+    const dialog = document.getElementById('busy-dialog');
+    dialog.addEventListener('cancel', event => { if (window.__busy) event.preventDefault(); });
+    dialog.showModal(); document.getElementById('inside').focus();
+  `);
+  const pressEscape = () => {
+    window.webContents.focus();
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  };
+  // 실제 사용자는 대화상자의 작업 버튼을 누른 뒤 Escape를 누른다. 사용자 활성화가 있어야 Chromium이 cancel 취소를 존중한다.
+  const point = await window.webContents.executeJavaScript(`(() => { const r = document.getElementById('inside').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`) as { x: number; y: number };
+  window.webContents.focus();
+  window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+  window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+  pressEscape();
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.deepEqual(await window.webContents.executeJavaScript(`({ closeCalls: __closeCalls, open: document.getElementById('busy-dialog').open })`),
+    { closeCalls: 0, open: true }, '작업 중인 모달의 Escape가 창 전체를 닫으면 안 됩니다.');
+  await window.webContents.executeJavaScript(`window.__busy = false; document.getElementById('inside').focus();`);
+  pressEscape();
+  await waitForRendererCondition(window, `!document.getElementById('busy-dialog').open`, '작업이 끝난 모달은 Escape로 닫혀야 합니다.');
+  assert.equal(await window.webContents.executeJavaScript('__closeCalls'), 0, '모달을 닫는 Escape가 창도 함께 닫으면 안 됩니다.');
+  pressEscape();
+  await waitForRendererCondition(window, 'window.__closeCalls === 1', '모달이 없을 때의 공통 Escape 닫기는 유지해야 합니다.');
+}
+
+// 사이드바 토스트의 "사용 중" 판정은 창 포커스가 있을 때만 activeElement를 본다.
+// 프로필 선택 후 게임 화면을 클릭해 창이 포커스를 잃으면 자동 닫기가 다시 진행돼야 한다.
+async function checkBossToastInUseRequiresWindowFocus(window: BrowserWindow): Promise<void> {
+  const toastCode = fs.readFileSync(path.join(projectRoot, 'dist', 'renderer', 'boss-diary-toast.js'), 'utf8');
+  const indexSource = fs.readFileSync(path.join(projectRoot, 'dist', 'index.html'), 'utf8');
+  assert.match(indexSource, /const expire = \(\) => \{[\s\S]{0,300}?window\.isToastInUse\(toast\)/,
+    '토스트 만료가 공통 사용 중 판정을 쓰지 않습니다.');
+  assert.doesNotMatch(indexSource, /toast\.contains\(document\.activeElement\)/,
+    '창 포커스와 무관한 activeElement 판정이 남아 있습니다.');
+  assert.doesNotMatch(toastCode, /toast\.contains\(document\.activeElement\)\)\s*dismiss/,
+    '기록 완료 후 자동 닫기도 공통 사용 중 판정을 써야 합니다.');
+  await window.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<div id="toast"><select id="target"><option>A</option></select></div><button id="outside">밖</button>'));
+  const result = await window.webContents.executeJavaScript(`(() => {
+    window.electronAPI = {}; ${toastCode}
+    const toast = document.getElementById('toast');
+    let focused = true; document.hasFocus = () => focused;
+    document.getElementById('target').focus();
+    const focusedSelect = window.isToastInUse(toast);
+    focused = false;
+    const blurredWindow = window.isToastInUse(toast);
+    toast.dataset.saving = 'true';
+    const savingWhileBlurred = window.isToastInUse(toast);
+    toast.dataset.saving = 'false'; focused = true; document.getElementById('outside').focus();
+    const focusOutside = window.isToastInUse(toast);
+    return { focusedSelect, blurredWindow, savingWhileBlurred, focusOutside };
+  })()`);
+  assert.deepEqual(result, { focusedSelect: true, blurredWindow: false, savingWhileBlurred: true, focusOutside: false },
+    '토스트 사용 중 판정이 창 포커스·저장 상태를 따르지 않습니다.');
 }
 
 async function checkNicknameNoteSaveOrdering(window: BrowserWindow): Promise<void> {
@@ -4744,7 +4895,7 @@ async function checkChatOverlayRenderer(window: BrowserWindow): Promise<void> {
       const injected = Boolean(document.getElementById('note-xss'));
       const sender = document.querySelector('[data-note-nickname="Tester"]');
       sender.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-      const opened = document.querySelector('.nickname-note-dialog').open;
+      const opened = document.querySelector('dialog:has(.nickname-note-form)').open;
       document.getElementById('note-text').value = '새 메모';
       document.querySelector('.nickname-note-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       await new Promise(resolve => setTimeout(resolve, 30));
@@ -5436,6 +5587,7 @@ async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
       ${updateStatsMatch[1]}
       updateStats({
         total: 10000000000,
+        huntingXp: 2000000000,
         epm: 1000000000,
         movingEpm: 1000000000,
         history: [],
@@ -5450,6 +5602,7 @@ async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
         title: document.querySelector('.win-title-main')?.textContent?.trim() || '',
         hasStatGrid: document.querySelector('.stat-grid-top') !== null,
         hasChart: document.querySelector('.chart-container') !== null,
+        xpPerKill: document.getElementById('stat-xp-per-kill')?.textContent?.trim() || '',
         essenceEta: document.getElementById('stat-essence-eta')?.textContent?.trim() || '',
         essenceProgressWidth: document.getElementById('essence-progress')?.style.width || '',
       };
@@ -5458,6 +5611,7 @@ async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
     title: string;
     hasStatGrid: boolean;
     hasChart: boolean;
+    xpPerKill: string;
     essenceEta: string;
     essenceProgressWidth: string;
   };
@@ -5465,6 +5619,7 @@ async function checkXpHudRenderer(window: BrowserWindow): Promise<void> {
   assert.ok(result.title.includes('경험치 HUD'), '경험치 HUD 창 타이틀이 일치하지 않습니다.');
   assert.equal(result.hasStatGrid, true, '경험치 HUD 수치 그리드가 렌더링되지 않았습니다.');
   assert.equal(result.hasChart, true, '경험치 차트 컨테이너가 렌더링되지 않았습니다.');
+  assert.equal(result.xpPerKill,'2000000000','콘텐츠 보상은 마리당 경험치를 높이지 않는다.');
   assert.equal(result.essenceEta, '교환 확인 필요',
     '100억 경고 경계에서 HUD가 음수 남은 시간 또는 잘못된 상태를 표시합니다.');
   assert.equal(result.essenceProgressWidth, '100%',
@@ -5711,6 +5866,7 @@ async function checkAlarmVolumeBoundaries(): Promise<void> {
   ipcMain.on('preview-boss-sound', onPreview);
   ipcMain.handle('get-config', () => config);
   ipcMain.handle('diary-get-by-date', () => ({ activityLogs: [] }));
+  ipcMain.handle('diary-profiles-get', () => ({enabled:false,profiles:[],activeProfileId:null,selectionRequired:true,busy:false}));
   ipcMain.handle('xp-get-stats', () => null);
   ipcMain.handle('check-chat-log-status', () => true);
   const window = new BrowserWindow({ show: false, webPreferences: {
@@ -5732,6 +5888,7 @@ async function checkAlarmVolumeBoundaries(): Promise<void> {
     await window.loadFile(path.join(projectRoot, 'dist', file));
     window.webContents.send('config-data', config);
     window.webContents.send('boss-times-data', { '골론': ['12:00'] });
+    await waitForRendererCondition(window, `!window.settingsProfileTransition || window.settingsProfileTransition.status().ready`, 'settings loaded');
     await waitForRendererCondition(window, file === 'boss-settings.html'
       ? `document.querySelectorAll('#boss-list select option').length > 0`
       : `document.querySelectorAll('#essence-alert-sound option').length > 0`, 'sound options');
@@ -5761,13 +5918,24 @@ async function checkAlarmVolumeBoundaries(): Promise<void> {
       check(saves.at(-1)?.essenceAlertVolume, volume, `essence save ${volume}%`);
       check(previews.at(-1)?.volume, volume, `essence preview ${volume}%`);
     }
+    // 비프로필 모드에서는 프로필 안내 영역이 숨겨져 있으므로 저장 거부 사유를 대화상자로 알려야 한다.
+    await window.loadFile(path.join(projectRoot, 'dist', 'buff-timer.html'));
+    window.webContents.send('config-data', config);
+    await waitForRendererCondition(window, `typeof saveBuffPage === 'function' && !!window.profileSettingsPage`, 'buff timer loaded');
+    const rejected = await window.webContents.executeJavaScript(`(()=>{
+      const shown=[];window.alert=message=>{shown.push(String(message));};
+      document.getElementById('add-input-row').classList.add('visible');
+      document.getElementById('add-warn-input').value='3';
+      return {saved:saveBuffPage(),shown};
+    })()`);
+    check(rejected, {saved:false, shown:['경고 시점은 5초보다 큰 정수로 입력해 주세요.']}, 'buff timer non-profile rejection is visible');
     assert.deepEqual(failures, [], failures.join('\n'));
   } finally {
     window.destroy();
     ipcMain.removeListener('get-default-config-sync', onDefaults);
     ipcMain.removeListener('apply-settings', onSave);
     ipcMain.removeListener('preview-boss-sound', onPreview);
-    for (const channel of ['get-config', 'diary-get-by-date', 'xp-get-stats', 'check-chat-log-status']) ipcMain.removeHandler(channel);
+    for (const channel of ['get-config', 'diary-get-by-date', 'diary-profiles-get', 'xp-get-stats', 'check-chat-log-status']) ipcMain.removeHandler(channel);
   }
 }
 
@@ -6106,6 +6274,38 @@ async function checkQteChallengeRenderer(window: BrowserWindow): Promise<void> {
   assert.deepEqual(boundaries, [], 'QTE 최종 라운드·스테이지 기록 경계가 일치하지 않습니다.');
 }
 
+function assertLauncherToolMenus(calculators: string[], simulations: string[]): void {
+  assert.deepEqual(calculators, [
+    'coefficient-calculator-btn',
+    'evolution-calculator-btn',
+    'thesis-core-calculator-btn',
+    'magic-stone-calculator-btn',
+    'hunting-exp-calculator-btn',
+    'relic-calculator-btn',
+    'equipment-simulator-btn',
+  ]);
+  assert.deepEqual(simulations, [
+    'siena-aura-btn',
+    'uniform-color-btn',
+    'hunting-path-simulator-btn',
+    'lumina-corridor-btn',
+  ]);
+}
+
+async function checkSidebarToolMenus(window: BrowserWindow): Promise<void> {
+  const menuData = JSON.parse(fs.readFileSync(path.join(projectRoot, 'dist', 'assets', 'data', 'sidebar_menus.json'), 'utf8'));
+  await window.loadFile(path.join(projectRoot, 'dist', 'index.html'));
+  const result = await window.webContents.executeJavaScript(`
+    (async () => {
+      window.fetch = async () => ({ json: async () => ${JSON.stringify(menuData)} });
+      await initDynamicMenus();
+      const ids = category => Array.from(document.getElementById('flyout-' + category).children, chip => chip.id);
+      return { calculators: ids('calculators'), simulations: ids('simulators') };
+    })()
+  `) as { calculators: string[]; simulations: string[] };
+  assertLauncherToolMenus(result.calculators, result.simulations);
+}
+
 async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   const dockPath = path.join(projectRoot, 'dist', 'dock.html');
   const dockSource = fs.readFileSync(dockPath, 'utf8');
@@ -6214,6 +6414,9 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
 
       const visibleResult = {
         homeworkLabel: homework?.querySelector('.dock-tooltip')?.textContent,
+        calculatorIds: Array.from(document.querySelector('#dock-flyout-calculators').children, chip => chip.id.replace('dock-chip-', '')),
+        simulationIds: Array.from(document.querySelector('#dock-flyout-simulators').children, chip => chip.id.replace('dock-chip-', '')),
+        simulationLabel: document.querySelector('#dock-cat-simulators .dock-tooltip')?.textContent,
         swordEnhanceLabel: swordEnhance?.querySelector('span')?.textContent,
         qteChallengeLabel: qteChallenge?.querySelector('span')?.textContent,
         homeworkIcon: homework?.querySelector('[data-lucide]')?.getAttribute('data-lucide'),
@@ -6259,6 +6462,9 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
   `) as {
     hasBody: boolean;
     homeworkLabel?: string;
+    calculatorIds: string[];
+    simulationIds: string[];
+    simulationLabel?: string;
     swordEnhanceLabel?: string;
     qteChallengeLabel?: string;
     homeworkIcon?: string;
@@ -6293,6 +6499,8 @@ async function checkDockRenderer(window: BrowserWindow): Promise<void> {
 
   assert.equal(result.hasBody, true, '사이드바 독 바디가 렌더링되지 않았습니다.');
   assert.equal(result.homeworkLabel, '숙제 체크 리스트', '독에 숙제 체크리스트 메뉴가 표시되지 않았습니다.');
+  assertLauncherToolMenus(result.calculatorIds, result.simulationIds);
+  assert.equal(result.simulationLabel, '시뮬레이션');
   assert.equal(result.swordEnhanceLabel, '테일즈위버 무기 강화하기', '독에 검 강화하기 메뉴가 표시되지 않았습니다.');
   assert.equal(result.qteChallengeLabel, 'QTE 챌린지', '독 미니게임 서브메뉴에 QTE 챌린지가 표시되지 않았습니다.');
   assert.equal(result.homeworkIcon, 'check-square', '독 숙제 아이콘이 사이드바 카테고리 아이콘과 다릅니다.');
@@ -7140,10 +7348,32 @@ async function main(): Promise<void> {
     app.exit(0);
     return;
   }
+  if (process.argv.includes('--profile-settings-pages')) {
+    const window=new BrowserWindow({show:false,width:1100,height:850,webPreferences:{contextIsolation:false,nodeIntegration:false,backgroundThrottling:false}});
+    try {
+      await checkHuntingExpCalculator(window);await checkXpHudRenderer(window);await checkBuffTimerRenderer(window);
+      await checkBossSettingsRenderer(window);await checkCustomAlertRenderer(window);await checkAlarmVolumeBoundaries();
+      console.log('Standalone settings renderer checks passed.');
+    } finally {window.destroy();}
+    app.exit(0);return;
+  }
+  if (process.argv.includes('--launcher-settings')) {
+    const window=new BrowserWindow({show:false,webPreferences:{contextIsolation:false,nodeIntegration:false,backgroundThrottling:false}});
+    try {
+      await checkSettingsDeepLinkRouting(window);
+      await checkSidebarToolMenus(window);
+      window.setContentSize(800,380);
+      await checkDockRenderer(window);
+      console.log('Launcher and settings navigation checks passed.');
+    } finally {window.destroy();}
+    app.exit(0);return;
+  }
   ipcMain.handle('nickname-info-get', () => ({level:null,characterName:null,collectDate:null,stale:true}));
   checkNativeModuleCompatibility();
-  await checkLifecycleStartIsIdempotent();
-  await checkBuffRefreshPolicy();
+  if (!process.argv.includes('--checklist')) {
+    await checkLifecycleStartIsIdempotent();
+    await checkBuffRefreshPolicy();
+  }
   await checkContentsOrderingPersistence();
   const window = new BrowserWindow({
     show: false,
@@ -7159,6 +7389,7 @@ async function main(): Promise<void> {
     await checkContentsChecklist(window);
     console.log('[TEST] checkPendingHomeworkCloudUi');
     await checkPendingHomeworkCloudUi();
+    if (process.argv.includes('--checklist')) {console.log('Checklist renderer and pending UI checks passed.');return;}
     console.log('[TEST] checkRendererHelpers');
     await checkRendererHelpers(window);
     console.log('[TEST] checkTodaySummaryRenderer');
@@ -7249,9 +7480,12 @@ async function main(): Promise<void> {
     await checkCompanionHud(window);
     console.log('[TEST] checkPinnedNoteReading');
     await checkPinnedNoteReading(window);
-    await checkActivityPresetsRenderer(window);
     await checkManagedWindowResizeLimits(window);
     await checkNicknameNoteEscape(window);
+    console.log('[TEST] checkEscapeCloseKeepsModalDialogWindow');
+    await checkEscapeCloseKeepsModalDialogWindow(window);
+    console.log('[TEST] checkBossToastInUseRequiresWindowFocus');
+    await checkBossToastInUseRequiresWindowFocus(window);
     await checkNicknameNoteSaveOrdering(window);
     await checkNotificationLayout(window);
     console.log('[TEST] checkWelcomeGuideTabs');

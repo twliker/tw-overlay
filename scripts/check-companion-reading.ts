@@ -61,6 +61,7 @@ async function main(): Promise<void> {
   const apply = source.slice(start, source.indexOf("  ipcMain.on('apply-settings'", start));
   let failSave = false, delaySave: Promise<void> | undefined, selectedFile: string | undefined;
   const bindings = { ...fonts, BrowserWindow, config, isBoolean: (value: unknown) => typeof value === 'boolean',
+    validateSettingsProfileWrite: built('modules/profileSettingsAccess.js').validateSettingsProfileWrite,
     log() {}, applyRuntimeSettings() {}, broadcastChatLogStatus() {},
     dialog: { showOpenDialog: async () => ({ canceled: !selectedFile, filePaths: selectedFile ? [selectedFile] : [] }) },
     wm: { getSettingsWindow: () => win, getGameOverlayWindow: () => null,
@@ -106,7 +107,13 @@ async function main(): Promise<void> {
   const saveFrom = settingsSource.indexOf('    async function applySettingsWithDraft(');
   const saveFunction = settingsSource.slice(saveFrom, settingsSource.indexOf('    async function applyChatOverlaySettingsOnly()', saveFrom));
   await win.webContents.executeJavaScript(`
-    const noteSection=document.getElementById('pinned-note-enabled').closest('section');
+    const memoMarkup = new DOMParser().parseFromString(${JSON.stringify(fs.readFileSync(path.join(root, 'dist/pinned-note.html'), 'utf8'))}, 'text/html');
+    const noteSection = document.importNode(memoMarkup.getElementById('pinned-note-enabled').closest('section'), true);
+    const save = document.createElement('button');
+    save.dataset.saveCompanion = 'pinnedNoteEnabled,pinnedNoteText,pinnedNoteFontSize,pinnedNoteColor,pinnedNoteBackground';
+    const status = document.createElement('span');
+    status.className = 'ui-status';
+    noteSection.append(save, status);
     const fontsSection=document.getElementById('chat-font-settings');
     const readingSection=document.getElementById('chat-reading-settings');
     document.body.replaceChildren(noteSection,fontsSection,readingSection); document.body.style.padding='20px';document.body.style.overflow='auto';
@@ -117,9 +124,10 @@ async function main(): Promise<void> {
     ${code('renderer/settings/config-binding.js')}
     ${code('renderer/settings/form-collection.js')}
     ${code('renderer/settings/chat-preview.js')}
+    let lastConfig;
     function collectSettingsDraftExtras(){return {}};
     ${saveFunction}
-    window.receive = cfg => { const draft=settingsDraft.beforeRefresh({}); settingsCompanion.bind(cfg); settingsConfigBinding.applyChatAndAlertSettings(cfg,electronAPI.DEFAULT_CONFIG); draft.restore({}); };
+    window.receive = cfg => { lastConfig=cfg;const draft=settingsDraft.beforeRefresh({}); settingsCompanion.bind(cfg); settingsConfigBinding.applyChatAndAlertSettings(cfg,electronAPI.DEFAULT_CONFIG); draft.restore({}); };
     receive(${JSON.stringify(defaults)}); lucide.createIcons();
   `);
   const js = (value: string) => win.webContents.executeJavaScript(value);
@@ -186,6 +194,9 @@ async function main(): Promise<void> {
   win.webContents.send('chat-overlay-mode', 'main');
   win.webContents.send('config-data', config.load());
   await until(win, `document.querySelectorAll('.chat-message-row').length>0 && Array.from(document.fonts).some(font=>font.family==='tw-${id.slice(7)}' && font.status==='loaded')`);
+  await js(`document.getElementById('open-nickname-notes').click()`);
+  assert.equal(await js(`document.getElementById('nickname-notes-panel').open`), true);
+  await js(`document.getElementById('nickname-notes-close').click()`);
   for (const mode of ['main', 'sub1', 'sub2']) {
     win.webContents.send('chat-overlay-mode', mode); await pause(80);
     assert.match(await js('document.body.style.fontFamily'), new RegExp(id.slice(7)));

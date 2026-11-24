@@ -1787,7 +1787,7 @@
     "statReq": ""
   },
   {
-    "name": "프시키의 마참력",
+    "name": "프시키의 마참력 - 디펜시오",
     "category": "마법 베기",
     "group": "아티팩트",
     "part": "artifact",
@@ -1853,7 +1853,7 @@
     "statReq": ""
   },
   {
-    "name": "아크론의 마참력",
+    "name": "아크론의 마참력 - 디펜시오",
     "category": "마법 베기",
     "group": "아티팩트",
     "part": "artifact",
@@ -2590,7 +2590,7 @@
     "statReq": ""
   },
   {
-    "name": "프시키의 마력",
+    "name": "프시키의 마력 - 디펜시오",
     "category": "마법공격",
     "group": "아티팩트",
     "part": "artifact",
@@ -2652,7 +2652,7 @@
     "statReq": ""
   },
   {
-    "name": "아크론의 마력",
+    "name": "아크론의 마력 - 디펜시오",
     "category": "마법공격",
     "group": "아티팩트",
     "part": "artifact",
@@ -2829,7 +2829,7 @@
     "statReq": ""
   },
   {
-    "name": "프시키의 신성",
+    "name": "프시키의 신성 - 디펜시오",
     "category": "마법방어(신성)",
     "group": "아티팩트",
     "part": "artifact",
@@ -2891,7 +2891,7 @@
     "statReq": ""
   },
   {
-    "name": "아크론의 신성",
+    "name": "아크론의 신성 - 디펜시오",
     "category": "마법방어(신성)",
     "group": "아티팩트",
     "part": "artifact",
@@ -3785,7 +3785,7 @@
     "statReq": ""
   },
   {
-    "name": "프시키의 물리력",
+    "name": "프시키의 물리력 - 디펜시오",
     "category": "물리 복합",
     "group": "아티팩트",
     "part": "artifact",
@@ -3851,7 +3851,7 @@
     "statReq": ""
   },
   {
-    "name": "아크론의 물리력",
+    "name": "아크론의 물리력 - 디펜시오",
     "category": "물리 복합",
     "group": "아티팩트",
     "part": "artifact",
@@ -3917,7 +3917,7 @@
     "statReq": ""
   },
   {
-    "name": "이클립스의 물리력",
+    "name": "이클립스의 물리력 - 디펜시오",
     "category": "물리 복합",
     "group": "아티팩트",
     "part": "artifact",
@@ -5060,7 +5060,7 @@
     "statReq": ""
   },
   {
-    "name": "프시키의 참력",
+    "name": "프시키의 참력 - 디펜시오",
     "category": "베기",
     "group": "아티팩트",
     "part": "artifact",
@@ -5122,7 +5122,7 @@
     "statReq": ""
   },
   {
-    "name": "아크론의 참력",
+    "name": "아크론의 참력 - 디펜시오",
     "category": "베기",
     "group": "아티팩트",
     "part": "artifact",

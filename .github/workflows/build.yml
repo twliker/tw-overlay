@@ -36,6 +36,12 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=critical
 
+      - name: Resolve release channel
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node dist-tools/release-channel.js
+
       - name: Inject Secrets
         env:
           GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
@@ -53,10 +59,12 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           draft: true
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          make_latest: ${{ steps.release.outputs.prerelease == 'true' && 'false' || 'legacy' }}
           body_path: release-note/CHANGELOG-${{ github.ref_name }}.md
           fail_on_unmatched_files: true
           preserve_order: true
           files: |
             dist_electron/twOverlay-Setup-*.exe
             dist_electron/twOverlay-Setup-*.exe.blockmap
-            dist_electron/latest.yml
+            dist_electron/${{ steps.release.outputs.update_file }}

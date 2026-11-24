@@ -9,7 +9,20 @@
   const changes = document.getElementById('settings-share-changes')!;
   const apply = document.getElementById('settings-share-apply') as HTMLButtonElement;
   const names = { layout: '배치', appearance: '외관', alerts: '알림' };
-  let token = '', busy = false, reviewed = false;
+  let token = '', busy = false, reviewed = false, profileRevision = 0;
+  let profileId: string | undefined;
+  window.addEventListener('settings-profile-changed', event => {
+    const next = (event as CustomEvent<string | undefined>).detail;
+    if (profileId === next) return;
+    const hadReview = token && (reviewed || busy);
+    profileId = next;
+    if (!hadReview) return;
+    profileRevision++;
+    reviewed = false;
+    changes.replaceChildren();
+    apply.disabled = true;
+    status.textContent = '프로필이 바뀌었습니다. 변경 내용을 다시 비교해 주세요.';
+  });
   const selected = (selector: string) => Array.from(root.querySelectorAll<HTMLInputElement>(selector)).filter(input => input.checked).map(input => input.value as import('../../shared/companionFiles').ShareGroup);
   function reset(): void { token = ''; reviewed = false; panel.hidden = true; changes.replaceChildren(); apply.disabled = true; }
   async function run(action: () => Promise<void>): Promise<void> {
@@ -42,7 +55,9 @@
   }));
   document.getElementById('settings-share-compare')?.addEventListener('click', () => void run(async () => {
     reviewed = false; changes.replaceChildren();
+    const revision = profileRevision;
     const result = await api.previewSettingsShare(token, selected('[data-share-import]'));
+    if (revision !== profileRevision) return;
     if (!result.success) { status.textContent = result.error || '비교하지 못했습니다.'; return; }
     for (const change of result.changes || []) {
       const row = document.createElement('div'); row.className = 'ui-inset ui-stack';

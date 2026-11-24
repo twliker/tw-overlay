@@ -57,8 +57,7 @@ spec/fixtures/logo.png
 
 .yarn/install-state.gz
 
-.gemini/debug/*
-.gemini/planning/*
+/.gemini/
 
 error/*
 src/env.json
@@ -66,9 +65,14 @@ env.json
 *.exe
 
 test-pitta.js
-.agents/plan
 *.db
-.agents/reviews
-.agents/development
 ga-dashboard
-.agents/reviews
+
+# Local maintainer notes and historical test releases
+/.agents/development/
+/.agents/plan/
+/.agents/reviews/
+/implementation_plan.md
+/walkthrough.md
+/release-note/CHANGELOG-v3.3.5-beta.[1-6].md
+/release-note/CHANGELOG-v3.5.0-beta.[1-5].md

@@ -10,7 +10,7 @@ interface Window { notificationLayout: { updateConfig(config: Partial<BrowserApp
     onNotificationPreview?(callback: (positions: Positions) => void): void;
     onNotificationEditMode?(callback: (enabled: boolean, saveOnExit?: boolean, requestId?: number) => void): void;
     onNotificationResetPositions?(callback: () => void): void;
-    saveNotificationPositions?(positions: Positions): Promise<{ success: boolean; error?: string }>;
+    saveNotificationPositions?(positions: Positions, requestId?: number): Promise<{ success: boolean; error?: string }>;
     finishNotificationEditMode?(requestId: number, success: boolean): Promise<boolean>;
     setNotificationEditMode?(enabled: boolean, saveOnExit?: boolean): Promise<boolean>;
   };
@@ -374,7 +374,7 @@ interface Window { notificationLayout: { updateConfig(config: Partial<BrowserApp
 
   async function exitNotificationEditMode(save: boolean, requestId?: number): Promise<void> {
     if (!isEditMode) {
-      if (requestId !== undefined) await api.finishNotificationEditMode?.(requestId, true);
+      if (requestId !== undefined) await api.finishNotificationEditMode?.(requestId, !save);
       return;
     }
     if (saving && (save || requestId !== undefined)) return;
@@ -387,7 +387,7 @@ interface Window { notificationLayout: { updateConfig(config: Partial<BrowserApp
       statusSpan.textContent = '저장 중…';
       let success = false;
       try {
-        const res = await api.saveNotificationPositions?.(editingPositions);
+        const res = await api.saveNotificationPositions?.(editingPositions, requestId);
         success = res?.success === true;
       } catch (err) {
         console.error('Failed to save notification positions:', err);

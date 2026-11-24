@@ -3,6 +3,7 @@ export type ShutdownDrainOutcome = 'flushed' | 'timeout' | 'failed';
 
 export interface ShutdownGate {
   requestQuit(): ShutdownRequestDecision;
+  cancelQuit(): void;
   allowFinalQuit(): void;
 }
 
@@ -16,6 +17,9 @@ export function createShutdownGate(): ShutdownGate {
       if (started) return 'wait';
       started = true;
       return 'start';
+    },
+    cancelQuit(): void {
+      if (!finalAllowed) started = false;
     },
     allowFinalQuit(): void {
       finalAllowed = true;

@@ -25,6 +25,9 @@ import * as cloudSyncState from './cloudSyncState';
 import * as config from './config';
 import { captureRendererStorage } from './rendererStorageBackup';
 import { RENDERER_STORAGE_FILE } from '../shared/rendererStorage';
+import {prepareProfileBackupRestore} from './profileBackupRestore';
+import {getProfileRuntime} from './profileRuntime';
+import {chatLogManager,type ChatLogSyncPauseToken} from './chatLogManager';
 import {
   createUserDataSnapshot,
   isRestorableSnapshotPath,
@@ -236,6 +239,7 @@ export async function exportBackup(parentWindow: BrowserWindow): Promise<boolean
     if (!filePath) return false;
 
     const rendererStorage = await captureRendererStorage();
+    getProfileRuntime()?.checkpoint?.();
     if (!config.flushPending()) throw new Error('대기 중인 설정을 저장하지 못했습니다.');
     if (!diaryDb.flushPendingElso()) throw new Error('대기 중인 엘소 기록을 저장하지 못했습니다.');
     if (!diaryDb.flushPendingGoldPouchSeed()) throw new Error('대기 중인 금화 주머니 환산 SEED 기록을 저장하지 못했습니다.');
@@ -274,6 +278,10 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
   let resumeDiary: (() => void) | undefined;
   let resumeCloud: (() => void) | undefined;
   let committed = false;
+  let resumeProfile:(()=>void) | undefined;
+  let profileLease:ReturnType<NonNullable<ReturnType<typeof getProfileRuntime>>['service']['beginStorageMaintenance']> | undefined;
+  let logPause:ChatLogSyncPauseToken | null=null;
+  const profileRuntime=getProfileRuntime();
   let rollbackFailed = false;
   let filesReplaced = false;
   try {
@@ -295,13 +303,19 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
     zip.extractAllTo(extractedPath, false);
 
     const manifestPath = path.join(extractedPath, 'snapshot.manifest.json');
-    const manifest = fs.existsSync(manifestPath)
+    let manifest = fs.existsSync(manifestPath)
       ? verifyUserDataSnapshot(extractedPath, { enforceRestoreAllowlist: true })
       : legacyManifest(extractedPath);
 
     const cloudSync = await import('./cloudSyncManager');
+    if (profileRuntime) {
+      profileLease=profileRuntime.service.beginStorageMaintenance();
+      logPause=await chatLogManager.pauseForLocalRestore();
+      resumeProfile=profileRuntime.suspendForRestore?.();
+    }
     resumeCloud = await cloudSync.suspendForLocalRestore();
     const rendererStorage = await captureRendererStorage();
+    getProfileRuntime()?.checkpoint?.();
     resumeConfig = config.beginExternalRestore();
     if (!diaryDb.flushPendingElso()) throw new Error('복원 전 엘소 기록을 저장하지 못했습니다.');
     if (!diaryDb.flushPendingGoldPouchSeed()) throw new Error('복원 전 금화 주머니 환산 SEED 기록을 저장하지 못했습니다.');
@@ -316,10 +330,18 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
     });
     verifyUserDataSnapshot(rollbackPath, { enforceRestoreAllowlist: true });
 
-    restorePaths = manifest.entries.map(entry => entry.relativePath);
+    const prepared=await prepareProfileBackupRestore(extractedPath,userDataPath,stagingPath,manifest,logPause ?? undefined);
+    const restoreRoot=prepared?.root || extractedPath;
+    if (prepared) manifest=verifyUserDataSnapshot(restoreRoot,{enforceRestoreAllowlist:true});
+    const removePaths=prepared?.removePaths || [];
+    restorePaths = [...new Set([...manifest.entries.map(entry => entry.relativePath),...removePaths])];
     writeRestoreJournal(userDataPath, rollbackPath, restorePaths);
     filesReplaced = true;
-    applySnapshotFiles(extractedPath, userDataPath, manifest);
+    for (const relativePath of removePaths) {
+      if (!isRestorableSnapshotPath(relativePath)) throw new Error('허용되지 않은 복원 정리 경로입니다.');
+      fs.rmSync(path.join(userDataPath,relativePath),{force:true});
+    }
+    applySnapshotFiles(restoreRoot, userDataPath, manifest);
     cloudSyncState.invalidateRemoteValidationAfterLocalRestore();
     removeRestoreJournal(userDataPath);
     log(`[BACKUP] 데이터 복원 완료: ${zipPath} (복원 전 스냅샷: ${rollbackPath})`);
@@ -351,9 +373,19 @@ export async function importBackup(parentWindow: BrowserWindow): Promise<boolean
     return false;
   } finally {
     if (!committed && !rollbackFailed) {
-      resumeConfig?.();
-      resumeDiary?.();
-      resumeCloud?.();
+      // 롤백 후 어느 한 단계가 실패해도 나머지 잠금을 풀 수 있어야 한다.
+      const pausedLog=logPause,lease=profileLease;
+      const resumeSteps: Array<[string, (() => void) | undefined]> = [
+        ['모험일지', resumeDiary],
+        ['설정', resumeConfig],
+        ['프로필 실행 상태', resumeProfile],
+        ['채팅 로그 감시', pausedLog ? () => chatLogManager.resumeAfterLocalRestore(pausedLog) : undefined],
+        ['프로필 저장', lease && profileRuntime ? () => lease.finish(profileRuntime.replay) : undefined],
+        ['Google 동기화', resumeCloud],
+      ];
+      for (const [name,resume] of resumeSteps) {
+        try {resume?.();} catch (error) {log('[BACKUP] '+name+' 재개 실패: '+String(error));}
+      }
     }
     operationActive = false;
     if (stagingPath) removeStagingDirectory(stagingPath, userDataPath);

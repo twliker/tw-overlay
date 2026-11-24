@@ -95,6 +95,8 @@ const allowUnelevated = process.argv.includes('--allow-unelevated');
 const fixtureArgument = process.argv.slice(2).find(argument => !argument.startsWith('--'));
 const fixturePath = fixtureArgument ? path.resolve(fixtureArgument) : defaultFixturePath;
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'twoverlay-zorder-windows-'));
+const probeUserData=path.join(temporaryRoot,'userData');fs.mkdirSync(probeUserData);
+app.setPath('userData',probeUserData);
 const windows: BrowserWindow[] = [];
 const childProcesses = new Set<ChildProcess>();
 const probeUser32 = koffi.load('user32.dll');

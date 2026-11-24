@@ -216,12 +216,28 @@ export function logout(): void {
   log('[GoogleAuth] 로그아웃 완료');
 }
 
-/** Drive 401 응답 후 refresh token을 보존한 채 access token만 강제로 갱신한다. */
+/** refresh token은 남아 있지만 네트워크·시간 초과·5xx 등으로 갱신하지 못한 일시 장애. 재로그인 대상이 아니다. */
+export class GoogleAuthTemporaryError extends Error {}
+
+/** 프로필 동기화용 access token 계약.
+ * - null: Google이 갱신을 거절했거나(400/401) refresh token이 없어 다시 로그인해야 한다. 로컬 인증은 이미 정리된 상태다.
+ * - GoogleAuthTemporaryError: refresh token을 보존한 일시 장애다. 호출자는 네트워크 오류로 재시도하고 로그아웃하지 않는다.
+ * 기존 getValidAccessToken()의 null 반환은 두 경우를 구분하지 않으므로 Drive 전송은 이 함수를 사용한다.
+ * 회귀: check-profile-sync-drive.ts (오프라인 갱신 실패 시 인증 보존). */
+export async function getSyncAccessToken(): Promise<string | null> {
+  const token = await getValidAccessToken();
+  if (token) return token;
+  // 거절된 갱신은 getValidAccessToken 안에서 logout()으로 refresh token까지 지운다.
+  if (loadStoredTokens()?.refresh_token) throw new GoogleAuthTemporaryError('Google 인증 서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.');
+  return null;
+}
+
+/** Drive 401 응답 후 refresh token을 보존한 채 access token만 강제로 갱신한다. 반환 계약은 getSyncAccessToken과 같다. */
 export async function refreshAfterUnauthorized(): Promise<string | null> {
   const tokens = loadStoredTokens();
   if (!tokens?.refresh_token) return null;
   saveTokens({ ...tokens, access_token: '', expiry_date: 0 });
-  return getValidAccessToken();
+  return getSyncAccessToken();
 }
 
 /** 재인증으로도 401이 지속될 때 로컬 인증과 UI 상태를 함께 무효화한다. */
@@ -560,7 +576,7 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
           <html>
             <head>
               <meta charset="utf-8">
-              <title>TW-Overlay 구글 연동 완료</title>
+              <title>TW-Overlay Google 로그인 완료</title>
               <style>
                 body {
                   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -589,9 +605,9 @@ export async function startLogin(): Promise<{ success: boolean; profile?: Google
             </head>
             <body>
               <div class="card">
-                <h2>🎉 구글 계정 연동 완료!</h2>
-                <p><span class="email">${escapeOAuthHtml(profile.email)}</span> 연동이 성공적으로 완료되었습니다.</p>
-                <p>이제 이 브라우저 창을 닫고 <strong>TW-Overlay</strong>로 돌아가시면 됩니다.</p>
+                <h2>Google 로그인 완료</h2>
+                <p><span class="email">${escapeOAuthHtml(profile.email)}</span> 계정으로 로그인했습니다.</p>
+                <p><strong>TW-Overlay</strong>로 돌아가 Google 동기화 설정을 확인해 주세요.</p>
               </div>
             </body>
           </html>

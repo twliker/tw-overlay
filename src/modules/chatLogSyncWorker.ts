@@ -2,6 +2,7 @@ import { promises as fsp } from 'fs';
 import * as iconv from 'iconv-lite';
 import { parentPort, workerData } from 'worker_threads';
 import { ChatParser } from './chatParser';
+import type {ChatParserEventMap} from '../shared/types';
 import { parseElsoMessage, formatLootDiaryContent, getGoldPouchSeedAmount } from './itemAcquisition';
 import { isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
 import { getEssenceExchangeCount } from '../shared/experienceEssence';
@@ -13,6 +14,7 @@ import {
   CHAT_SYNC_BATCH_LINE_LIMIT,
   CHAT_SYNC_READ_CHUNK_BYTES,
   createStableChatSyncEventId,
+  createChatLogLineKey,
   type ChatLogFileAggregate,
   type ChatLogSyncBatchAck,
   type ChatLogSyncBatchData,
@@ -54,6 +56,7 @@ interface WorkerInputData {
     name: string;
     category: string;
     isVisible: boolean;
+    replayExclusions?:Array<{start:number;end:number}>;
   }>;
 }
 
@@ -87,18 +90,42 @@ async function runWorker() {
   let currentEventOffset = 0;
   let currentEventSequence = 0;
   let currentEventTimestamp = 0;
+  let currentLine = '';
+  let currentLineKey: string | undefined;
+  let currentEventNew = false;
+  let repairOnly = false;
+  let legacyOwnsCurrentLine = false;
+  const lineKeys = new Set<string>();
+  let elsoEvents: ChatLogSyncBatchData['elsoPoints'] = [];
+  let goldEvents: NonNullable<ChatLogSyncBatchData['goldPouchSeeds']> = [];
   const failedFiles: Array<{ fileName: string; date: string; error: string }> = [];
 
   const syncParser = new ChatParser();
+  // 이미 다른 프로필/미배정에 귀속된 원본 구간은 소유 기록을 다시 만들지 않는다.
+  // 외치기는 공통이므로 전체 snapshot 재구성에서도 모든 구간을 계속 파싱한다.
+  let currentEventOwned=true;
+  const onOwnedEvent=<K extends keyof ChatParserEventMap>(event:K,callback:(value:ChatParserEventMap[K])=>void) => {
+    syncParser.on(event,value=>{
+      if (!currentEventOwned) return;
+      if (currentFile?.knownLines) {
+        currentLineKey ??= createChatLogLineKey(value.date,value.timestamp,currentLine,currentEventOffset);
+        const known=Object.hasOwn(currentFile.knownLines,currentLineKey);
+        if (known && currentFile.knownLines[currentLineKey]!==currentFile.aggregateOwnerKey) return;
+        if (!known && legacyOwnsCurrentLine) lineKeys.add(currentLineKey);
+        currentEventNew=!known && !legacyOwnsCurrentLine;
+        repairOnly=known && currentFile.repairKnownActivities===true && !legacyOwnsCurrentLine;
+      }
+      callback(value);
+    });
+  };
 
   const nextEventId = (kind: string): string => {
     if (!currentFile) throw new Error('현재 채팅 로그 파일이 없습니다.');
-    return createStableChatSyncEventId(
-      currentFile.fingerprint,
-      currentEventOffset,
-      kind,
-      currentEventSequence++,
-    );
+    if (currentLineKey) {
+      lineKeys.add(currentLineKey);
+      return createStableChatSyncEventId(currentLineKey,0,kind,currentEventSequence++);
+    }
+    return createStableChatSyncEventId(currentFile.fingerprint,currentEventOffset,kind,currentEventSequence++);
   };
 
   const mergeHomeworkAggregate = (
@@ -121,6 +148,8 @@ async function runWorker() {
     if (!aggregate || currentEventTimestamp <= 0) return;
     const cycle = homeworkCycleKeys[id];
     if (!cycle) return;
+    if (cycle.replayExclusions?.some(range=>currentEventTimestamp>=range.start && currentEventTimestamp<=range.end)) return;
+    if (currentLineKey && currentEventNew) lineKeys.add(currentLineKey);
 
     // 모험일지는 현재 주기 여부와 무관하게 실제 이벤트가 속한 리셋 주기별로 보존한다.
     // 체크리스트용 `homework`와 섞으면 지난주 이벤트가 현재 횟수에 합산되므로 별도 집계가 필수다.
@@ -139,11 +168,11 @@ async function runWorker() {
     }
   };
 
-  syncParser.on('ETERNAL_FLOOR_CLEAR', () => {
+  onOwnedEvent('ETERNAL_FLOOR_CLEAR', () => {
     recordHomework('weekly-eternal-floor', 1, true);
   });
 
-  syncParser.on('ECLIPSE_BOSS_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_BOSS_CLEAR', (evt) => {
     const bossMapping: Record<string, string> = {
       '에토스': 'weekly-eclipse-boss-ethos',
       '마티아': 'weekly-eclipse-boss-matias',
@@ -156,7 +185,7 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('MERCURIAL_BOSS_CLEAR', (evt) => {
+  onOwnedEvent('MERCURIAL_BOSS_CLEAR', (evt) => {
     const bossMapping: Record<string, string> = {
       '실반': 'weekly-mur-sylvan',
       '샐리온': 'weekly-mur-salion',
@@ -170,7 +199,7 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('CORE_MASTER_CLEAR', (evt) => {
+  onOwnedEvent('CORE_MASTER_CLEAR', (evt) => {
     const coreMapping: Record<string, string> = {
       '심층Ⅰ': 'weekly-abyss-core-master-1',
       '심층Ⅱ': 'weekly-abyss-core-master-2',
@@ -186,35 +215,35 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, evt.isIncrement !== false);
   });
 
-  syncParser.on('RELIC_SANCTUARY_CLEAR', (evt) => {
+  onOwnedEvent('RELIC_SANCTUARY_CLEAR', (evt) => {
     recordHomework('weekly-ancient-relic', evt.count, false);
   });
 
-  syncParser.on('POWER_ROOT_CLEAR', (evt) => {
+  onOwnedEvent('POWER_ROOT_CLEAR', (evt) => {
     recordHomework('weekly-power-root', evt.count, false);
   });
 
-  syncParser.on('ABYSS_TREASURE_ENTRY', (evt) => {
+  onOwnedEvent('ABYSS_TREASURE_ENTRY', (evt) => {
     recordHomework('weekly-abyss-treasure', evt.count, false);
   });
 
-  syncParser.on('ECLIPSE_SUPPLIES_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_SUPPLIES_CLEAR', (evt) => {
     recordHomework('weekly-eclipse-recapture-supplies', evt.count, false);
   });
 
-  syncParser.on('ECLIPSE_SPECIAL_FORCE_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_SPECIAL_FORCE_CLEAR', (evt) => {
     recordHomework('weekly-eclipse-special-force-suppression', evt.count, false);
   });
 
-  syncParser.on('FORTRESS_GHOST_CLEAR', (evt) => {
+  onOwnedEvent('FORTRESS_GHOST_CLEAR', (evt) => {
     recordHomework('weekly-fortress-ghost', evt.count, false);
   });
 
-  syncParser.on('TESIS_CORE_CLEAR', () => {
+  onOwnedEvent('TESIS_CORE_CLEAR', () => {
     recordHomework('weekly-tesis-core', 1, true);
   });
 
-  syncParser.on('DIGSITE_ENTRY', (evt) => {
+  onOwnedEvent('DIGSITE_ENTRY', (evt) => {
     if (typeof evt.count === 'number') {
       recordHomework('weekly-digsite', evt.count, false);
     } else {
@@ -222,11 +251,11 @@ async function runWorker() {
     }
   });
 
-  syncParser.on('CONTENT_SHINJO_NEST_CLEAR', (evt) => {
+  onOwnedEvent('CONTENT_SHINJO_NEST_CLEAR', (evt) => {
     recordHomework('weekly-shinjo-nest', evt.count, false);
   });
 
-  syncParser.on('ABYSS_DUNGEON_CLEAR', (evt) => {
+  onOwnedEvent('ABYSS_DUNGEON_CLEAR', (evt) => {
     const depthMap: Record<string, string> = {
       '심층Ⅰ': 'weekly-abyss-dungeon-1',
       '심층Ⅱ': 'weekly-abyss-dungeon-2',
@@ -236,91 +265,91 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('ABYSS_BOSS_EX_CLEAR', (evt) => {
+  onOwnedEvent('ABYSS_BOSS_EX_CLEAR', (evt) => {
     recordHomework('weekly-abyss-boss-ex', evt.count, false);
   });
 
-  syncParser.on('SIOKAN_BOSS_CLEAR', (evt) => {
+  onOwnedEvent('SIOKAN_BOSS_CLEAR', (evt) => {
     recordHomework('weekly-siokan-boss', evt.count, false);
   });
 
-  syncParser.on('SIOKAN_ODIN_CLEAR', (evt) => {
+  onOwnedEvent('SIOKAN_ODIN_CLEAR', (evt) => {
     recordHomework('weekly-siokan-odin', evt.count, false);
   });
 
-  syncParser.on('ECLIPSE_BOSS_SUBJUGATION_CLEAR', (evt) => {
+  onOwnedEvent('ECLIPSE_BOSS_SUBJUGATION_CLEAR', (evt) => {
     recordHomework('weekly-eclipse-boss', evt.count, false);
   });
 
-  syncParser.on('MOON_QUEEN_TRAINING_CLEAR', (evt) => {
+  onOwnedEvent('MOON_QUEEN_TRAINING_CLEAR', (evt) => {
     recordHomework('weekly-moon-queen', evt.count, false);
   });
 
-  syncParser.on('APETHIRIA_RAID_CLEAR', (evt) => {
+  onOwnedEvent('APETHIRIA_RAID_CLEAR', (evt) => {
     recordHomework('weekly-apethiria-raid', evt.count, false);
   });
 
-  syncParser.on('PRAVA_DEFENSE_CLEAR', () => {
+  onOwnedEvent('PRAVA_DEFENSE_CLEAR', () => {
     recordHomework('weekly-prava-defense', 1, true);
   });
 
-  syncParser.on('ORLY_DEFENSE_CLEAR', () => {
+  onOwnedEvent('ORLY_DEFENSE_CLEAR', () => {
     recordHomework('weekly-orly-defense', 1, true);
   });
 
-  syncParser.on('CATACOMB_CLEAR', () => {
+  onOwnedEvent('CATACOMB_CLEAR', () => {
     recordHomework('weekly-catacomb-hell', 1, true);
   });
 
-  syncParser.on('VESTIGE_CLEAR', () => {
+  onOwnedEvent('VESTIGE_CLEAR', () => {
     recordHomework('weekly-vestige', 1, true);
   });
 
-  syncParser.on('THURSDAY_CLEAN_CLEAR', () => {
+  onOwnedEvent('THURSDAY_CLEAN_CLEAR', () => {
     recordHomework('weekly-thursday-clean', 1, true);
   });
 
-  syncParser.on('ETA_DAILY_BOX_GAIN', () => {
+  onOwnedEvent('ETA_DAILY_BOX_GAIN', () => {
     recordHomework('daily-eta-quest', 1, true);
   });
 
-  syncParser.on('ETA_WILL_UPGRADE_GAIN', () => {
+  onOwnedEvent('ETA_WILL_UPGRADE_GAIN', () => {
     recordHomework('daily-eta-will-upgrade', 1, true);
   });
 
-  syncParser.on('CLUB_POINT_500_GAIN', () => {
+  onOwnedEvent('CLUB_POINT_500_GAIN', () => {
     recordHomework('daily-club-boss', 1, true);
   });
 
-  syncParser.on('CONFUSED_LAND_CLEAR', () => {
+  onOwnedEvent('CONFUSED_LAND_CLEAR', () => {
     recordHomework('daily-confused-land', 1, true);
   });
 
-  syncParser.on('COLORLESS_LAND_CLEAR', () => {
+  onOwnedEvent('COLORLESS_LAND_CLEAR', () => {
     recordHomework('daily-colorless-land', 1, true);
   });
 
-  syncParser.on('ARCHITECT_MINE_CLEAR', () => {
+  onOwnedEvent('ARCHITECT_MINE_CLEAR', () => {
     recordHomework('daily-architect-mine', 1, true);
   });
 
-  syncParser.on('GOLGOTHA_DEFENSE_CLEAR', () => {
+  onOwnedEvent('GOLGOTHA_DEFENSE_CLEAR', () => {
     recordHomework('daily-golgotha-defense', 1, true);
   });
 
-  syncParser.on('FINAL_BATTLE_CLEAR', () => {
+  onOwnedEvent('FINAL_BATTLE_CLEAR', () => {
     recordHomework('weekly-final-battle', 1, true);
   });
 
-  syncParser.on('JOY_CLEAR', () => {
+  onOwnedEvent('JOY_CLEAR', () => {
     recordHomework('daily-joy', 1, true);
   });
 
-  syncParser.on('SORROW_CLEAR', () => {
+  onOwnedEvent('SORROW_CLEAR', () => {
     recordHomework('daily-sorrow', 1, true);
   });
 
-  syncParser.on('ABANDONED_ENTRY', (evt) => {
+  onOwnedEvent('ABANDONED_ENTRY', (evt) => {
     const regionMapping: Record<string, string> = {
       '필멸의 땅': 'weekly-abandon-road-mortal',
       '카디프': 'weekly-abandon-road-cardiff',
@@ -330,7 +359,7 @@ async function runWorker() {
     if (id) recordHomework(id, evt.count, false);
   });
 
-  syncParser.on('PITTA_ENTRY', (evt) => {
+  onOwnedEvent('PITTA_ENTRY', (evt) => {
     const energy = typeof evt.energy === 'number' && !isNaN(evt.energy) ? evt.energy : 0;
     const computedCount = (20 - energy) + 1;
     if (computedCount >= 1 && computedCount <= 5) {
@@ -338,12 +367,26 @@ async function runWorker() {
     }
   });
 
-  syncParser.on('SEED_GAINED', (evt) => {
-    if (!aggregate) return;
+  onOwnedEvent('ABANDONED_FEE', (evt) => {
+    if (!aggregate || (currentFile?.knownLines && !currentEventNew && !repairOnly) || !Number.isSafeInteger(evt.amount) || evt.amount <= 0) return;
+    seeds.push({
+      eventId: nextEventId('seed'),
+      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
+      date: evt.date,
+      timeOnly: evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', ''),
+      content: `[자동] 어벤던로드 입장료 (-${evt.amount.toLocaleString('en-US')} SEED)`,
+      amount: -evt.amount
+    });
+    aggregate.seedsDetected++;
+  });
+
+  onOwnedEvent('SEED_GAINED', (evt) => {
+    if (!aggregate || (currentFile?.knownLines && !currentEventNew && !repairOnly)) return;
     const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
     const content = `[자동] ${evt.message} (${formatKoreanNumber(evt.amount)})`;
     seeds.push({
       eventId: nextEventId('seed'),
+      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
       date: evt.date,
       timeOnly,
       content,
@@ -353,7 +396,7 @@ async function runWorker() {
   });
 
   // 파서 이벤트 리스너 등록
-  syncParser.on('ITEM_LOOTED', (evt) => {
+  onOwnedEvent('ITEM_LOOTED', (evt) => {
     if (!aggregate) return;
     try {
       const elso = parseElsoMessage(evt.message);
@@ -365,6 +408,9 @@ async function runWorker() {
           totalAmount: (existing?.totalAmount || 0) + elso,
         };
         aggregate.elsoPointsDetected += elso;
+        if (currentFile?.knownLines && currentEventNew) {
+          elsoEvents.push({eventId:nextEventId('elso'),date:evt.date,timeOnly,amount:elso});
+        }
       }
     } catch {
       // ignore
@@ -379,6 +425,9 @@ async function runWorker() {
         totalAmount: (existing?.totalAmount || 0) + goldPouchSeed,
       };
       aggregate.seedsDetected++;
+      if (currentFile?.knownLines && currentEventNew) {
+        goldEvents.push({eventId:nextEventId('gold'),date:evt.date,timeOnly,amount:goldPouchSeed});
+      }
     }
 
     // 실시간 처리와 동일하게 경험의 정수 직접 보상은 등록 목록과 무관하게 복원합니다.
@@ -388,11 +437,12 @@ async function runWorker() {
     const shouldRecordItem = isAlwaysTrackedItem || matchesRegisteredLoot(lootKeywords, evt.itemName);
     const isMagicStone = evt.itemName.includes('마정석') || evt.message.includes('마정석');
 
-    if (evt.isOwn && !isMagicStone && shouldRecordItem) {
+    if (evt.isOwn && !isMagicStone && shouldRecordItem && (!currentFile?.knownLines || currentEventNew || repairOnly)) {
       const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       if (isAlwaysTrackedItem) {
         essences.push({
           eventId: nextEventId('essence'),
+          repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
           date: evt.date,
           timeOnly,
           diaryContent: formatLootDiaryContent('경험의 정수'),
@@ -402,6 +452,7 @@ async function runWorker() {
       } else {
         loots.push({
           eventId: nextEventId('loot'),
+          repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
           date: evt.date,
           timeOnly,
           diaryContent: formatLootDiaryContent(evt.itemName),
@@ -412,7 +463,7 @@ async function runWorker() {
     }
   });
 
-  syncParser.on('MAGIC_STONE_GAIN', (evt) => {
+  onOwnedEvent('MAGIC_STONE_GAIN', (evt) => {
     if (!aggregate) return;
     if (!matchesRegisteredLoot(lootKeywords, `${evt.grade} 마정석`)) return;
     const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
@@ -424,10 +475,13 @@ async function runWorker() {
       totalCount: (existing?.totalCount || 0) + evt.count,
     };
     aggregate.lootsDetected++;
+    if (currentFile?.knownLines && currentEventNew) {
+      loots.push({eventId:nextEventId('stone'),date:evt.date,timeOnly,diaryContent:formatLootDiaryContent(grade+' 마정석'),count:evt.count});
+    }
   });
 
-  syncParser.on('XP_CHANGED', (evt) => {
-    if (!aggregate) return;
+  onOwnedEvent('XP_CHANGED', (evt) => {
+    if (!aggregate || (currentFile?.knownLines && !currentEventNew && !repairOnly)) return;
     // 수동·자동 교환 공통의 100억 감소만 환산합니다. 자동 교환의 복합 획득 안내는
     // ChatParser가 XP_CHANGED로 발행하지 않으므로 과거 로그에서도 중복되지 않습니다.
     // 이 전용 집계 역시 일반 등록 아이템 목록에 종속시키지 않습니다.
@@ -436,6 +490,7 @@ async function runWorker() {
       const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       essences.push({
         eventId: nextEventId('essence-xp'),
+      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
         date: evt.date,
         timeOnly,
         diaryContent: formatLootDiaryContent('경험의 정수'),
@@ -509,6 +564,9 @@ async function runWorker() {
     essences = [];
     shouts = [];
     seeds = [];
+    elsoEvents = [];
+    goldEvents = [];
+    lineKeys.clear();
     let linesSinceBatch = 0;
     let confirmedOffset = file.startOffset;
 
@@ -542,10 +600,11 @@ async function runWorker() {
       const aggregateLoots: ParsedLootEvent[] = [];
       const aggregateElso = [] as ChatLogSyncBatchData['elsoPoints'];
       const aggregateGoldPouchSeeds: NonNullable<ChatLogSyncBatchData['goldPouchSeeds']> = [];
-      if (fileComplete) {
+      if (fileComplete && !file.knownLines) {
         for (const [date, grades] of Object.entries(aggregate.magicStones)) {
           for (const [grade, info] of Object.entries(grades)) {
             aggregateLoots.push({
+              eventId:createStableChatSyncEventId(file.fingerprint,0,`daily-stone:${date}:${grade}${file.aggregateOwnerKey ? ':'+file.aggregateOwnerKey : ''}`,0),
               date,
               timeOnly: info.latestTime,
               diaryContent: `[득템] [${grade} 마정석]`,
@@ -554,10 +613,12 @@ async function runWorker() {
           }
         }
         for (const [date, info] of Object.entries(aggregate.elsoByDate)) {
-          aggregateElso.push({ date, timeOnly: info.latestTime, amount: info.totalAmount });
+          const amount=info.totalAmount;
+          if (amount>0) aggregateElso.push({eventId:createStableChatSyncEventId(file.fingerprint,0,`daily-elso:${date}${file.aggregateOwnerKey ? ':'+file.aggregateOwnerKey : ''}`,0),date,timeOnly:info.latestTime,amount});
         }
         for (const [date, info] of Object.entries(aggregate.goldPouchSeedByDate)) {
-          aggregateGoldPouchSeeds.push({ date, timeOnly: info.latestTime, amount: info.totalAmount });
+          const amount=info.totalAmount;
+          if (amount>0) aggregateGoldPouchSeeds.push({eventId:createStableChatSyncEventId(file.fingerprint,0,`daily-gold:${date}${file.aggregateOwnerKey ? ':'+file.aggregateOwnerKey : ''}`,0),date,timeOnly:info.latestTime,amount});
         }
       }
       const batch: ChatLogSyncBatchData = {
@@ -573,12 +634,13 @@ async function runWorker() {
         snapshotSize: file.snapshotSize,
         fileComplete,
         aggregate: structuredClone(aggregate),
-        loots: [...loots, ...aggregateLoots],
+        loots: [...loots, ...aggregateLoots.filter(item=>item.count>0)],
         essences: [...essences],
         shouts: [...shouts],
         seeds: [...seeds],
-        elsoPoints: aggregateElso,
-        goldPouchSeeds: aggregateGoldPouchSeeds,
+        elsoPoints: file.knownLines ? elsoEvents : aggregateElso,
+        goldPouchSeeds: file.knownLines ? goldEvents : aggregateGoldPouchSeeds,
+        ...(file.knownLines ? {lineKeys:[...lineKeys]} : {}),
         ...(fileComplete && file.replaceAutomaticDateOnComplete
           ? { replaceAutomaticDate: file.dateStr }
           : {}),
@@ -588,6 +650,9 @@ async function runWorker() {
       essences = [];
       shouts = [];
       seeds = [];
+      elsoEvents = [];
+      goldEvents = [];
+      lineKeys.clear();
       linesSinceBatch = 0;
       confirmedOffset = offset;
     };
@@ -596,12 +661,25 @@ async function runWorker() {
       syncParser.setCurrentDate(file.dateStr);
       const normalizer = new ChatLogLineNormalizer();
       let pendingStartOffset: number | null = null;
+      let pendingOriginalLine: string | undefined;
       let carry = Buffer.alloc(0);
       let carryStartOffset = file.startOffset;
 
-      const parseNormalizedLine = (line: string, eventOffset: number): void => {
+      let excludedIndex=0;
+      const excluded=file.excludedRanges || [];
+      const legacyOwned=file.legacyOwnedRanges || [];
+      let legacyIndex=0;
+      const parseNormalizedLine = (line: string, eventOffset: number, originalLine = line): void => {
+        while (excludedIndex<excluded.length && excluded[excludedIndex].end<=eventOffset) ++excludedIndex;
+        const range=excluded[excludedIndex];currentEventOwned=!range || eventOffset<range.start || eventOffset>=range.end;
+        while (legacyIndex<legacyOwned.length && legacyOwned[legacyIndex].end<=eventOffset) ++legacyIndex;
+        legacyOwnsCurrentLine=legacyIndex<legacyOwned.length && eventOffset>=legacyOwned[legacyIndex].start;
         currentEventOffset = eventOffset;
         currentEventSequence = 0;
+        currentLine = originalLine;
+        currentLineKey = undefined;
+        currentEventNew = false;
+        repairOnly = false;
         const timeMatch = line.match(/(\d{1,2})시\s*(\d{1,2})분\s*(\d{1,2})초/);
         if (timeMatch) {
           const [year, month, day] = file.dateStr.split('-').map(Number);
@@ -627,19 +705,15 @@ async function runWorker() {
         const previousPendingStart = pendingStartOffset;
         const output = normalizer.push(decodedLine);
 
-        if (!hadPending) {
-          output.forEach(line => parseNormalizedLine(line, lineStart));
-        } else if (output.length >= 2) {
-          parseNormalizedLine(output[0], previousPendingStart ?? lineStart);
-          output.slice(1).forEach(line => parseNormalizedLine(line, lineStart));
-        } else if (output.length === 1) {
-          parseNormalizedLine(output[0], previousPendingStart ?? lineStart);
-        }
-
+        output.forEach((line,index) => {
+          const usesPending=hadPending && index===0;
+          parseNormalizedLine(line,usesPending ? previousPendingStart ?? lineStart : lineStart,
+            usesPending ? pendingOriginalLine ?? decodedLine : decodedLine);
+        });
         if (normalizer.hasPending()) {
-          if (!hadPending || output.length > 0) pendingStartOffset = lineStart;
+          if (!hadPending || output.length>0) {pendingStartOffset=lineStart;pendingOriginalLine=decodedLine;}
         } else {
-          pendingStartOffset = null;
+          pendingStartOffset=null;pendingOriginalLine=undefined;
         }
         aggregate.totalLines++;
         linesSinceBatch++;
@@ -653,7 +727,7 @@ async function runWorker() {
           const readLength = Math.min(CHAT_SYNC_READ_CHUNK_BYTES, file.snapshotSize - readPosition);
           const readBuffer = Buffer.allocUnsafe(readLength);
           const { bytesRead } = await handle.read(readBuffer, 0, readLength, readPosition);
-          if (bytesRead === 0) break;
+          if (bytesRead === 0) throw new Error('복원 중 채팅 로그 파일이 줄었습니다. 파일을 확인한 뒤 다시 시도해 주세요.');
           const bytes = readBuffer.subarray(0, bytesRead);
           const combinedStart = carry.length > 0 ? carryStartOffset : readPosition;
           const combined = carry.length > 0 ? Buffer.concat([carry, bytes]) : bytes;
@@ -665,7 +739,7 @@ async function runWorker() {
             processRawLine(combined.subarray(lineStartInBuffer, index), absoluteStart, absoluteEnd);
             lineStartInBuffer = index + 1;
 
-            const bufferedEventCount = loots.length + essences.length + shouts.length + seeds.length;
+            const bufferedEventCount = loots.length + essences.length + shouts.length + seeds.length + elsoEvents.length + goldEvents.length + lineKeys.size;
             const shouldFlushOrReport = file.replaceAutomaticDateOnComplete
               ? linesSinceBatch >= CHAT_SYNC_BATCH_LINE_LIMIT
               : (linesSinceBatch >= CHAT_SYNC_BATCH_LINE_LIMIT
@@ -699,7 +773,7 @@ async function runWorker() {
 
         if (!incompleteTrailingLine) {
           const pending = normalizer.flush();
-          pending.forEach(line => parseNormalizedLine(line, pendingStartOffset ?? confirmedOffset));
+          pending.forEach(line => parseNormalizedLine(line, pendingStartOffset ?? confirmedOffset,pendingOriginalLine));
           pendingStartOffset = null;
           confirmedOffset = file.snapshotSize;
         }

@@ -5,6 +5,7 @@
 
 // ── ChatParser 이벤트 타입 맵 ──
 // chatParser.emit() / chatParser.on() 에서 컴파일 타임 타입 검증에 사용
+import type {DiaryRecordAttribution} from './diaryProfiles';
 
 export const MAIN_CHAR_ID = 'char-main';
 export const DEFAULT_CHAR_NAME = '본캐';
@@ -12,6 +13,7 @@ export const DEFAULT_CHAR_NAME = '본캐';
 export interface ChatParserEventMap {
     ORIGIN_OF_DOOM_ACTIVITY: { date: string; timestamp: string; message: string; phase: 'started' | 'finished' };
     SUPPLY_RECAPTURE: SupplyInstruction & { date: string; timestamp: string; message: string };
+    REWARD_CHAT: { date:string;timestamp:string;message:string;color:string };
     SEED_GAINED: { date: string; timestamp: string; amount: number; message: string };
     ABANDONED_FEE: { date: string; timestamp: string; amount: number; message: string };
     ABANDONED_ENTRY: { date: string; timestamp: string; region: string; count: number; message: string };
@@ -172,7 +174,7 @@ export type WindowPositionKey =
     | 'overlay' | 'settings' | 'gallery' | 'abbreviation' | 'equipmentDic' | 'buffs'
     | 'bossSettings' | 'etaRanking' | 'trade' | 'coefficientCalculator' | 'contentsChecker'
     | 'focusedChat' | 'evolutionCalculator' | 'thesisCoreCalculator' | 'magicStoneCalculator'
-    | 'customAlert' | 'diary' | 'uniformColor' | 'swordEnhance' | 'qteChallenge' | 'shoutHistory'
+    | 'customAlert' | 'diary' | 'profiles' | 'pinnedNote' | 'alarmHistory' | 'uniformColor' | 'swordEnhance' | 'qteChallenge' | 'shoutHistory'
     | 'gameOverlay' | 'buffTimer' | 'xpHud' | 'scamDetector' | 'sienaAura' | 'wordAlarm'
     | 'discordAlarm' | 'huntingPathSimulator' | 'stopwatch' | 'chatOverlay'
     | 'chatOverlaySub' | 'chatOverlaySub2' | 'huntingExpCalculator' | 'relicCalculator' | 'equipmentSimulator' | 'luminaCorridor' | 'dock';
@@ -184,6 +186,7 @@ export interface ManagedWindowSize {
 
 export interface XpStats {
     total: number;
+    huntingXp?: number;
     epm: number;
     movingEpm: number;
     startTime: number;
@@ -280,6 +283,29 @@ export interface IncompleteContentItem {
     category: string;
     type: ResetRule['type'];
 }
+
+export interface ProfileIncompleteContents {
+    profileId: string;
+    profileName: string;
+    userServer: number | null;
+    items: IncompleteContentItem[];
+}
+
+export interface GameExitReminderContents {
+    profiles: ProfileIncompleteContents[];
+    activeProfileId?: string;
+    unavailable?: boolean;
+}
+
+/** 이전 알림 발신자의 배열도 계속 표시한다. 새 발신자는 완료한 프로필까지 포함한다. */
+export type IncompleteContentsPayload = GameExitReminderContents | IncompleteContentItem[];
+
+export interface GameExitReminderApi {
+    onReminderMessage(callback: (message: string) => void): void;
+    onIncompleteContents(callback: (contents: IncompleteContentsPayload) => void): void;
+}
+
+export interface AbyssApostleAlert { message:string; endsAt:number }
 
 export interface GameRect {
     x: number;
@@ -425,6 +451,7 @@ export interface ContentsCheckerItem {
         [characterId: string]: {
             isCompleted: boolean;
             lastCompletedAt?: number;
+            progressExpiresAt?: number;
             isExcluded?: boolean; // 캐릭터별 참여 제외 여부
             currentCount?: number; // 현재 완료 횟수 (0 ~ maxCount)
         }
@@ -486,6 +513,11 @@ export type NotificationAnchor =
 export type NotificationPositions = Record<'center' | 'buff' | 'hunting' | 'toast', NotificationAnchor>;
 
 export interface AppConfig {
+    /** 기기 전용 프로필 선택 상태. 프로필 본문은 app-data.db가 원본이다. */
+    activePlayProfileId?: string;
+    profileDeviceId?: string;
+    profileSessionId?: string;
+    profileSelectionRequired?: boolean;
     /** 모든 소리 전역 음소거. 기본 꺼짐. */
     masterMute?: boolean;
     /** 숙제창을 사용하지 않을 때 제목줄로 접기. 기본 꺼짐. */
@@ -793,6 +825,8 @@ export interface GoogleSyncFileStatus {
 }
 
 export interface GoogleSyncStatus {
+    profileSync?:import('./profileSync').ProfileSyncDetails;
+    pausedReason?: string;
     isLinked: boolean;
     /** 사용자가 연결 해제한 것이 아니라 저장된 인증이 만료되어 다시 로그인이 필요한 상태 */
     reauthRequired?: boolean;
@@ -889,6 +923,9 @@ export interface SyncProgressInfo {
 }
 
 export interface SyncResultReport {
+    profileId?:string;
+    profileName?:string;
+    pendingReplayWarning?:string;
     success: boolean;
     startDate: string;
     endDate: string;
@@ -922,6 +959,7 @@ export interface SyncResultReport {
     reanalyzedCompletedLogs?: boolean;
     /** 파일 전체 분석 후 기존 자동 기록을 안전하게 교체한 날짜 수. */
     automaticRecordsRebuiltDates?: number;
+    activityRecordsHeld?: number;
     /** 분석 중 변경되거나 최종 확인에 실패해 기존 자동 기록을 보존한 파일 목록. */
     automaticRecordRebuildDeferredFiles?: string[];
     partial?: boolean;
@@ -1062,7 +1100,7 @@ export interface DiaryEntry {
     weekly_total: number;
 }
 
-export interface HomeworkLog {
+export interface HomeworkLog extends DiaryRecordAttribution {
     id?: number;
     date: string;         // YYYY-MM-DD
     content_id: string;
@@ -1073,7 +1111,11 @@ export interface HomeworkLog {
     source?: 'checklist' | 'chat-log-sync';
 }
 
-export interface ActivityLog {
+export interface ActivityLog extends DiaryRecordAttribution {
+  /** diary_visible_activity_logs: 복원과 겹칠 수 있는 구버전 일합계(1). 모든 합계·목록에서 제외하고 '확인 필요'로만 표시한다. */
+  legacy_review?:number;
+  /** legacy_review 중 금화 주머니(calc) 행. */
+  legacy_gold_review?:number;
     id?: number;
     date: string;         // YYYY-MM-DD
     type: 'boss' | 'calc' | 'memo' | 'loot' | 'homework' | 'elso';
@@ -1126,14 +1168,16 @@ export interface TodaySummary {
     };
 }
 
-export interface AlarmLog {
+export const ALARM_LOG_TYPES = ['boss', 'custom', 'word', 'wave', 'buff', 'etc'] as const;
+export type AlarmLogType = typeof ALARM_LOG_TYPES[number];
+export interface AlarmLog extends DiaryRecordAttribution {
     id?: number;
     timestamp: number;
     scheduledAt: number;
     recordedAt: number;
     deliveryStatus: 'fired' | 'missed-sleep';
     dedupeKey?: string | null;
-    type: 'boss' | 'custom' | 'word' | 'wave' | 'buff' | 'etc';
+    type: AlarmLogType;
     title: string;
     message: string;
 }
@@ -1143,9 +1187,15 @@ export interface StopwatchState {
     startedAt: number | null;
     stoppedAt: number | null;
     duration: number;
+    profileMode?: boolean;
+    profileId?: string | null;
+    profileName?: string;
+    selectionRequired?: boolean;
+    busy?: boolean;
+    profiles?: import('./playProfiles').PlayProfile[];
 }
 
-export interface TimerRecord {
+export interface TimerRecord extends DiaryRecordAttribution {
     id?: number;
     date: string;          // YYYY-MM-DD HH:mm:ss
     duration: number;      // 소요 시간 (밀리초)
@@ -1162,6 +1212,10 @@ export interface TimerRecord {
     accuracy: number;
     raw_profile_data: string; // 계수 계산기 설정의 스냅샷 JSON 텍스트
 }
+
+export type StopwatchRecordMutation = {kind:'title';id:number;title:string}
+    | {kind:'recalculate';id:number;series:string | null;core:string | null} | {kind:'delete';id:number};
+export interface StopwatchRecordResult {success:boolean;error?:string}
 
 export interface UpdateNoticeSection {
     badge?: string;
@@ -1180,6 +1234,13 @@ export interface UpdateNoticeData {
     summary: string;
     sections: UpdateNoticeSection[];
     images?: string[];
+}
+
+export interface RunningGamePathResult {
+    found: boolean;
+    installPath?: string;
+    chatLogPath?: string;
+    message: string;
 }
 
 export interface ChatLogValidationResult {
@@ -1287,3 +1348,14 @@ export interface LuminaPathResult {
     };
 }
 
+export interface SetupWizardInput {
+    profileId?: string;
+    chatLogPath?: string;
+    userServer?: number;
+    userServerEdited?: boolean;
+    lootKeywords?: string[];
+    chatLogAutoDeleteDays?: number;
+    diaryKeepDays?: number;
+}
+
+export type SetupWizardResult = { success: true } | { success: false; error: string };

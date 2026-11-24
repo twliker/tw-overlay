@@ -1,8 +1,9 @@
 /** 모험일지의 오늘 데이터와 현재 캐릭터 숙제를 간략 HUD로 표시합니다. */
 (() => {
   const api = window.electronAPI as typeof window.electronAPI & {
-    getTodaySummary(): Promise<BrowserTodaySummary>;
+    getTodaySummary(): Promise<BrowserTodaySummary | null>;
     onDiaryUpdated(callback: () => void): void;
+    onPlayProfilesChanged?(callback:(state:{activeProfileId:string;selectionRequired:boolean})=>void):void;
     onTodaySummaryConfig(callback: (config: BrowserAppConfig) => void): void;
     DEFAULT_CONFIG: BrowserAppConfig;
   };
@@ -22,9 +23,9 @@
   }
 
   function formatSeed(value: number): string {
-    const seed = Math.max(0, Math.floor(value));
-    if (seed === 0) return '0';
-    if (seed < 10000) return seed.toLocaleString();
+    if (!Number.isFinite(value)) return '0';
+    const seed=Math.abs(Math.trunc(value)),sign=value<0 && seed ? '-' : '';
+    if (seed < 10000) return sign+seed.toLocaleString();
     const units = [
       { label: '조', value: 1_000_000_000_000 },
       { label: '억', value: 100_000_000 },
@@ -38,7 +39,7 @@
         remaining %= unit.value;
       }
     }
-    return result.trim() || '0';
+    return sign+result.trim();
   }
 
   function createEmptyRow(message: string): HTMLDivElement {
@@ -112,7 +113,7 @@
     setText('today-summary-bosses', `${summary.bossKills.toLocaleString()}회`);
     setText(
       'today-summary-compact',
-      `SEED ${formatSeed(summary.totalSeed)}\nELSO ${summary.totalElso.toLocaleString()} P\n경험의 정수 ${summary.totalEssence.toLocaleString()}개 · 남은 숙제 ${summary.homework.remainingCount}개`,
+      `SEED 순수익 ${formatSeed(summary.totalSeed)}\nELSO ${summary.totalElso.toLocaleString()} P\n경험의 정수 ${summary.totalEssence.toLocaleString()}개 · 남은 숙제 ${summary.homework.remainingCount}개`,
     );
     renderLoot(summary);
     renderHomework(summary);
@@ -166,22 +167,50 @@
     }
   }
 
+  let available=false;
+  let profileKey:string | undefined;
+  /** HUD 위치 편집 중에는 편집 모드가 모든 HUD를 표시하고 끝날 때 원래 숨김 상태를 복원한다.
+   * 그 사이 요약 가용성이 바뀌어도(프로필 선택 대기 등) 끌어 옮기던 HUD를 숨기지 않고, 편집이
+   * 끝난 뒤 최신 상태로 다시 맞춘다. 회귀: check-hud-edit-settings.ts */
+  const isHudEditing=()=>document.body?.classList.contains('hud-edit-mode') === true;
+  const updateVisibility=()=>{
+    if (isHudEditing()) return;
+    byId('today-summary-hud')?.classList.toggle('hidden',!available || currentConfig?.showTodaySummaryHud===false);
+  };
+  let wasHudEditing=false;
+  const observeHudEditMode=()=>new MutationObserver(()=>{
+    const editing=isHudEditing();
+    if (wasHudEditing && !editing) updateVisibility();
+    wasHudEditing=editing;
+  }).observe(document.body,{attributes:true,attributeFilter:['class']});
+  if (document.body) observeHudEditMode();else window.addEventListener('DOMContentLoaded',observeHudEditMode,{once:true});
+
   async function refreshSummary(): Promise<void> {
     if (currentConfig?.showTodaySummaryHud === false) return;
     const sequence = ++refreshSequence;
     try {
       const summary = await api.getTodaySummary();
-      if (sequence === refreshSequence && summary) renderSummary(summary);
+      if (sequence!==refreshSequence) return;
+      available=!!summary;
+      updateVisibility();
+      if (summary) renderSummary(summary);
     } catch (error) {
       console.error('[TODAY_SUMMARY] 오늘 요약을 불러오지 못했습니다.', error);
     }
   }
 
   api.onDiaryUpdated(() => { void refreshSummary(); });
+  api.onPlayProfilesChanged?.(state=>{
+    const key=state.selectionRequired ? '' : state.activeProfileId;
+    if (key===profileKey) return;
+    profileKey=key;available=false;updateVisibility();
+    void refreshSummary();
+  });
   api.onTodaySummaryConfig(config => {
     currentConfig = config;
     const summary = byId('today-summary-hud');
-    summary?.classList.toggle('hidden', config.showTodaySummaryHud === false);
+    if (config.showTodaySummaryHud===false) ++refreshSequence;
+    updateVisibility();
     if (summary) {
       const opacity = typeof config.todaySummaryOpacity === 'number'
         ? Math.max(0.2, Math.min(1.0, config.todaySummaryOpacity))

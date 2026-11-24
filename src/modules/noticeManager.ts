@@ -5,14 +5,13 @@
  *   없을 때만 같은 폴더의 `notice_<번호>.*` 파일을 자연수 순서로 자동 탐색합니다.
  * - `lastNoticeVersion`과 공지 버전이 다를 때 한 번 보여 주며, 사용자가 공지를 실제로 확인한 뒤
  *   `markNoticeAsRead`를 호출해 읽음 상태를 저장합니다. 앱 버전만 올렸다고 자동 읽음 처리하지 않습니다.
- * - 리소스 누락·손상은 앱 시작을 막지 않고 공지만 생략하며 오류를 로그에 남깁니다.
+ * - 리소스는 현재 실행 코드 옆의 dist에서 읽습니다. 누락·손상 시 자동 팝업은 생략하고,
+ *   도움말에서 직접 열면 오류 안내와 닫기 동작을 제공합니다.
  * - 릴리즈 시 package 버전과 공지 버전을 따로 확인해야 하며, 이전 사용자의 읽음 상태를 무효화하려는
  *   경우에만 공지 버전을 변경합니다.
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { app } from 'electron';
-import { get_RESOURCE_PATH } from './constants';
 import * as config from './config';
 import { log } from './logger';
 import type { UpdateNoticeData } from '../shared/types';
@@ -22,7 +21,7 @@ import type { UpdateNoticeData } from '../shared/types';
  */
 export function getNoticeData(): UpdateNoticeData | null {
   try {
-    const noticeJsonPath = get_RESOURCE_PATH('assets', 'notice', 'notice.json');
+    const noticeJsonPath = path.join(__dirname, '..', 'assets', 'notice', 'notice.json');
     if (!fs.existsSync(noticeJsonPath)) {
       log(`[NOTICE] 공지 데이터 파일이 존재하지 않음: ${noticeJsonPath}`);
       return null;
@@ -30,6 +29,12 @@ export function getNoticeData(): UpdateNoticeData | null {
 
     const rawData = fs.readFileSync(noticeJsonPath, 'utf-8');
     const parsed = JSON.parse(rawData) as UpdateNoticeData;
+    if (!parsed || ![parsed.version, parsed.title, parsed.date, parsed.summary].every(value => typeof value === 'string' && value.trim())
+      || !Array.isArray(parsed.sections) || !parsed.sections.length
+      || !parsed.sections.every(section => section && typeof section.title === 'string')
+      || (parsed.images !== undefined && (!Array.isArray(parsed.images) || !parsed.images.every(image => typeof image === 'string')))) {
+      throw new Error('공지 데이터 형식이 올바르지 않습니다.');
+    }
 
     // notice 폴더 내의 notice_*.png, notice_*.jpg 등의 이미지 자동 탐색 및 자연 정렬
     if (!parsed.images || parsed.images.length === 0) {
@@ -82,7 +87,8 @@ export function shouldShowUpdateNotice(): boolean {
 export function markNoticeAsRead(): void {
   try {
     const notice = getNoticeData();
-    const currentVersion = notice?.version || app.getVersion();
+    if (!notice) return;
+    const currentVersion = notice.version;
     config.save({ lastNoticeVersion: currentVersion });
     log(`[NOTICE] 공지 읽음 처리 완료: v${currentVersion}`);
   } catch (err) {

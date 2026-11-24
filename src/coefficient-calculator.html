@@ -5,6 +5,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file:; font-src 'self' data: file:; connect-src 'self' file:">
   <title>계수 계산기</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-tools.css">
+  <script src="renderer/profile-tool-storage.js"></script>
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
@@ -282,7 +284,7 @@
     </div>
     <!-- Profile controls -->
     <div class="flex items-center gap-1.5 no-drag">
-      <select id="profile-select"
+      <select id="profile-select" aria-label="계산 프리셋" title="이 프로필의 계산 프리셋"
         class="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs font-bold text-slate-300 outline-none max-w-[140px]"></select>
       <button id="btn-add-profile" class="p-1 hover:bg-indigo-500/20 rounded transition-colors text-indigo-400" title="추가">
         <i data-lucide="plus" class="w-3.5 h-3.5"></i></button>

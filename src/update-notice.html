@@ -547,9 +547,9 @@
           <i data-lucide="sparkles" style="width: 20px; height: 20px;"></i>
         </div>
         <span class="header-title">업데이트 공지</span>
-        <span id="version-badge" class="version-badge">v2.5.0</span>
+        <span id="version-badge" class="version-badge" hidden></span>
       </div>
-      <button id="close-btn" class="close-btn" title="닫기 (Esc)">
+      <button id="close-btn" class="close-btn" title="닫기 (Esc)" aria-label="닫기">
         <i data-lucide="x" style="width: 18px; height: 18px;"></i>
       </button>
     </header>
@@ -561,13 +561,11 @@
         <div class="hero-title-row">
           <div id="notice-title" class="hero-title">
             <i data-lucide="bell" style="width: 16px; height: 16px; color: #c084fc;"></i>
-            <span>TW-Overlay 새로운 업데이트 소식</span>
+            <span>업데이트 공지</span>
           </div>
-          <span id="notice-date" class="hero-date">2026-08-15</span>
+          <span id="notice-date" class="hero-date"></span>
         </div>
-        <p id="notice-summary" class="hero-summary">
-          모험가님의 쾌적하고 편리한 플레이를 위해 새로운 편의 기능이 추가되고 안정성이 개선되었습니다.
-        </p>
+        <p id="notice-summary" class="hero-summary" role="status">공지를 불러오는 중입니다.</p>
       </div>
 
       <!-- Top 4-Column Compact Image Gallery (Rendered when images are present) -->
@@ -594,7 +592,7 @@
     <footer class="notice-footer">
       <div class="footer-tip">
         <i data-lucide="info" style="width: 14px; height: 14px;"></i>
-        <span>환경 설정 > 일반에서 언제든 다시 볼 수 있습니다.</span>
+        <span>환경 설정 → 앱 정보 → 도움말에서 다시 볼 수 있습니다.</span>
       </div>
       <button id="confirm-btn" class="confirm-btn">
         <span>확인하고 닫기</span>
@@ -646,11 +644,6 @@
     let isMouseDragged = false;
 
     document.addEventListener('DOMContentLoaded', async () => {
-      // Lucide Icons
-      if (window.lucide) {
-        window.lucide.createIcons();
-      }
-
       const closeBtn = document.getElementById('close-btn');
       const confirmBtn = document.getElementById('confirm-btn');
       const lightboxModal = document.getElementById('lightbox-modal');
@@ -660,9 +653,13 @@
       const lightboxImg = document.getElementById('lightbox-img');
       const lightboxBody = document.getElementById('lightbox-body');
 
-      const handleClose = () => {
-        if (window.electronAPI && window.electronAPI.updateNoticeClose) {
-          window.electronAPI.updateNoticeClose();
+      const handleClose = async () => {
+        try {
+          await window.electronAPI?.updateNoticeClose?.();
+        } catch (error) {
+          console.warn('Failed to acknowledge update notice:', error);
+        } finally {
+          window.close();
         }
       };
 
@@ -717,16 +714,20 @@
 
       // Load Notice Data
       try {
-        if (window.electronAPI && window.electronAPI.getUpdateNoticeData) {
-          const data = await window.electronAPI.getUpdateNoticeData();
-          if (data) {
-            renderNotice(data);
-          }
-        }
+        const data = await window.electronAPI?.getUpdateNoticeData?.();
+        if (data) renderNotice(data);
+        else document.getElementById('notice-summary').textContent = '업데이트 공지를 불러오지 못했습니다.';
       } catch (err) {
+        document.getElementById('notice-summary').textContent = '업데이트 공지를 불러오지 못했습니다.';
         console.error('Failed to load update notice data:', err);
       }
+      refreshNoticeIcons();
     });
+
+    function refreshNoticeIcons() {
+      try { window.lucide?.createIcons(); }
+      catch (error) { console.warn('Failed to render update notice icons:', error); }
+    }
 
     // ── Zoom & Pan Handlers ──
     function handleLightboxWheel(e) {
@@ -824,7 +825,10 @@
     function renderNotice(data) {
       if (data.version) {
         const badge = document.getElementById('version-badge');
-        if (badge) badge.textContent = `v${data.version}`;
+        if (badge) {
+          badge.textContent = `v${data.version}`;
+          badge.hidden = false;
+        }
       }
 
       if (data.title) {
@@ -950,9 +954,6 @@
         });
       }
 
-      if (window.lucide) {
-        window.lucide.createIcons();
-      }
     }
 
     function openLightbox(index) {
@@ -987,9 +988,6 @@
       if (prevBtn) prevBtn.style.display = hasMultiple ? 'flex' : 'none';
       if (nextBtn) nextBtn.style.display = hasMultiple ? 'flex' : 'none';
 
-      if (window.lucide) {
-        window.lucide.createIcons();
-      }
     }
 
     function prevLightboxImage() {

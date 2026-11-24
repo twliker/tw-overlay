@@ -5,7 +5,7 @@ import path = require('node:path');
 import vm = require('node:vm');
 import ts = require('typescript');
 import { createRequire } from 'node:module';
-import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(__dirname, '..');
@@ -41,16 +41,22 @@ async function main(): Promise<void> {
   const soundEvents: any[] = [];
   let fixtureWindowCount = 0;
   let nativeNextWindow = false;
+  const visibilityTrace:Array<{page?:string;action:string;stack?:string}>=[];
   // Native BrowserWindow and the complete production windowManager run unchanged. Only external
   // game/services and page contents are fixtures; visibility/placement/persistence are real code.
   const FixtureWindow = function(options: Electron.BrowserWindowConstructorOptions) {
-    // The first (main sidebar) window needs native focus for Chromium's real :focus-visible behavior.
+    // Focus/visibility scenarios explicitly request native windows instead of offscreen rendering.
     const offscreen = fixtureWindowCount++ > 0 && !nativeNextWindow;
     nativeNextWindow = false;
     const win = new BrowserWindow({ ...options, webPreferences: { preload: path.join(root, 'dist/preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false, offscreen } });
     const nativeLoad = win.loadFile.bind(win);
+    let fixturePage:string | undefined;
+    const nativeHide=win.hide.bind(win);
+    win.hide=()=>{visibilityTrace.push({page:fixturePage,action:'hide',stack:new Error().stack});nativeHide();};
+    win.on('show',()=>visibilityTrace.push({page:fixturePage,action:'show'}));
     win.loadFile = (file: string) => {
       const key = path.basename(file);
+      fixturePage=key;
       windows.set(key, [...(windows.get(key) || []), win]);
       const promise = nativeLoad(markup);
       tasks.push(promise);
@@ -62,9 +68,10 @@ async function main(): Promise<void> {
   };
   Object.assign(FixtureWindow, { getAllWindows: BrowserWindow.getAllWindows });
   let trayUpdates = 0;
+  let profilePositionQuery:(()=>Promise<any>) | undefined;
   const wm = isolatedModule('windowManager', {
     electron: { ...require('electron'), BrowserWindow: FixtureWindow },
-    './tracker': { getGameHwnd: () => null, isGameOrAppForeground: () => false, canAutomaticallyRestoreGameFocus: () => false,
+    './tracker': { queryGameRect:()=>profilePositionQuery ? profilePositionQuery() : Promise.resolve(undefined),getGameHwnd: () => null, isGameOrAppForeground: () => false, canAutomaticallyRestoreGameFocus: () => false,
       reconcileGameZOrder() {}, focusGameWindow() {}, restoreGameAfterOwnedWindowClose() {} },
     './updater': { getCurrentStatus: () => null }, './tray': { updateTrayMenu: () => { trayUpdates++; } },
     './galleryMonitor': {}, './tradeMonitor': {}, './bossNotifier': {},
@@ -98,8 +105,8 @@ async function main(): Promise<void> {
   await eventually(() => sidebar.isVisible());
   const resizeIpcSource = fs.readFileSync(path.join(root, 'src/modules/ipcHandlers.ts'), 'utf8');
   const resizeStart = resizeIpcSource.indexOf('  type ApplySettingsResult =');
-  const resizeSource = resizeIpcSource.slice(resizeStart, resizeIpcSource.indexOf("  ipcMain.handle('save-game-overlay-positions'", resizeStart));
-  const resizeBindings = { ipcMain, wm, config, isBoolean: (value: unknown) => typeof value === 'boolean', log() {},
+  const resizeSource = resizeIpcSource.slice(resizeStart, resizeIpcSource.indexOf('  const monitorUrls =', resizeStart));
+  const resizeBindings = { ipcMain, wm, config, isBoolean: (value: unknown) => typeof value === 'boolean', log() {}, validateSettingsProfileWrite: () => undefined,
     applyRuntimeSettings() { throw new Error('런처 너비 변경은 런타임 설정 변경이 아니다.'); },
     broadcastChatLogStatus() { throw new Error('런처 너비 변경은 로그 설정 방송이 아니다.'); } };
   vm.runInThisContext(`(function({${Object.keys(resizeBindings).join(',')}}){${ts.transpileModule(resizeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText}})`)(resizeBindings);
@@ -121,7 +128,7 @@ async function main(): Promise<void> {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return;
     win.setIgnoreMouseEvents(ignore, options || {});
-    wm.setLauncherInteractive(win, !ignore);
+    wm.setDockInteractive(win, !ignore);
     if (win === sidebar) sidebarIgnoresMouse = ignore;
   });
   await sidebar.webContents.executeJavaScript('electronAPI.applySettingsConfirmed({isSidebarResize:true,width:400})');
@@ -142,8 +149,14 @@ async function main(): Promise<void> {
     return { visible: getComputedStyle(menu).display !== 'none', contained: rect.left >= 0 && rect.right <= innerWidth };
   })()`);
   assert.deepEqual(flyout, { visible: true, contained: true }, '키보드 메뉴가 50px 창 바깥에 잘립니다.');
-  assert.equal(wm.getAllWindowHwnds()[0], sidebar.getNativeWindowHandle().readBigUInt64LE().toString(),
-    '키보드로 여는 메뉴도 다른 도구 창 앞에 표시되어야 합니다.');
+  const sidebarHandle = sidebar.getNativeWindowHandle().readBigUInt64LE().toString();
+  const settingsHandle = settings.getNativeWindowHandle().readBigUInt64LE().toString();
+  const assertSettingsAboveSidebar = () => {
+    const order = wm.getAllWindowHwnds();
+    assert.ok(order.includes(settingsHandle) && order.includes(sidebarHandle));
+    assert.ok(order.indexOf(settingsHandle) < order.indexOf(sidebarHandle), '사이드바 메뉴로 설정창을 가리면 안 됩니다.');
+  };
+  assertSettingsAboveSidebar();
   await sidebar.webContents.executeJavaScript(`document.getElementById('diary-btn').focus(); window.dispatchEvent(new MouseEvent('mousemove', {clientX:350,clientY:500})); interactiveToasts.add('keyboard-test'); interactiveToasts.remove('keyboard-test');`);
   await pause(350);
   assert.equal(sidebar.getBounds().width, 400, '하위 항목 탐색 중 투명 여백의 포인터 때문에 접힙니다.');
@@ -154,19 +167,87 @@ async function main(): Promise<void> {
   await eventually(() => sidebar.getBounds().width === 400);
   await sidebar.webContents.executeJavaScript(`window.dispatchEvent(new Event('blur'))`);
   await eventually(() => sidebar.getBounds().width === 50 && sidebarIgnoresMouse);
+  const focusedBeforeHover = BrowserWindow.getFocusedWindow();
+  await sidebar.webContents.executeJavaScript(`(() => {
+    const category = document.getElementById('cat-records');
+    category.dispatchEvent(new MouseEvent('mouseenter'));
+    const rect = category.querySelector('.category-btn').getBoundingClientRect();
+    checkMouseIgnore(new MouseEvent('mousemove', { clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2 }), true);
+  })()`);
+  await eventually(() => sidebar.getBounds().width === 400 && !sidebarIgnoresMouse);
+  assertSettingsAboveSidebar();
+  assert.equal(BrowserWindow.getFocusedWindow(), focusedBeforeHover, '사이드바 호버가 창 포커스를 바꾸면 안 됩니다.');
+  await sidebar.webContents.executeJavaScript(`window.dispatchEvent(new MouseEvent('mouseleave'))`);
+  await eventually(() => sidebar.getBounds().width === 50 && sidebarIgnoresMouse);
+  // Native close and game lifecycle can dispose the window while the restore flag remains true.
+  const toggleChecklist = () => wm.toggleContentsCheckerWindow();
+  async function checkChecklistLauncher(launcher: BrowserWindow, buttonId: string): Promise<void> {
+    const clickChecklist = () => launcher.webContents.executeJavaScript(`(() => {
+      const button = document.getElementById(${JSON.stringify(buttonId)});
+      button.dispatchEvent(new MouseEvent('mousedown', {button:0,bubbles:true}));
+      button.dispatchEvent(new MouseEvent('mouseup', {button:0,bubbles:true}));
+      button.dispatchEvent(new MouseEvent('click', {button:0,bubbles:true,detail:1}));
+    })()`);
+    ipcMain.on('toggle-contents-checker', toggleChecklist);
+    try {
+      assert.equal(wm.applySettings({autoOpenContentsChecker:false,contentsCheckerEnabled:true}),true);
+      assert.equal(wm.getContentsCheckerWindow(),null);
+      await clickChecklist();
+      await eventually(() => wm.getContentsCheckerWindow()?.isVisible() === true);
+      const checklist = wm.getContentsCheckerWindow() as BrowserWindow;
+      assert.equal(config.load().contentsCheckerEnabled,true);
+
+      checklist.close();
+      await eventually(() => wm.getContentsCheckerWindow() === null);
+      assert.equal(config.load().contentsCheckerEnabled,true,'창 수명과 자동 복원 플래그는 독립적으로 바뀔 수 있다');
+      await clickChecklist();
+      await eventually(() => wm.getContentsCheckerWindow()?.isVisible() === true);
+      const reopened = wm.getContentsCheckerWindow() as BrowserWindow;
+      reopened.hide();
+      await clickChecklist();
+      await eventually(() => reopened.isVisible());
+      assert.equal(wm.getContentsCheckerWindow(),reopened,'숨겨진 창의 기존 화면을 재사용한다');
+
+      assert.equal(wm.applySettings({contentsCheckerEnabled:false}),true);
+      await clickChecklist();
+      await eventually(() => wm.getContentsCheckerWindow() === null);
+      assert.equal(config.load().contentsCheckerEnabled,false);
+    } finally {
+      ipcMain.removeListener('toggle-contents-checker',toggleChecklist);
+    }
+  }
+  await checkChecklistLauncher(sidebar, 'contents-checker-btn');
+
+  await sidebar.webContents.executeJavaScript(`(() => {
+    const rect=document.getElementById('contents-checker-btn').getBoundingClientRect();
+    window.dispatchEvent(new MouseEvent('mousemove',{clientX:rect.x+rect.width/2,clientY:rect.y+rect.height/2}));
+  })()`);
+  await eventually(()=>!sidebarIgnoresMouse);
+  ipcMain.on('toggle-contents-checker',toggleChecklist);
+  try {
+    for (const shouldOpen of [true,false,true,false]) {
+      // Offscreen fixtures cannot send native input to an inactive window. Check the real
+      // click-through IPC state before dispatching each click without any intervening mousemove.
+      assert.equal(sidebarIgnoresMouse,false);
+      await sidebar.webContents.executeJavaScript("document.getElementById('contents-checker-btn').click()");
+      await eventually(()=>shouldOpen ? wm.getContentsCheckerWindow()?.isVisible()===true : wm.getContentsCheckerWindow()===null);
+      assert.equal(await sidebar.webContents.executeJavaScript(`(() => {
+        window.dispatchEvent(new Event('blur'));
+        return lastIgnoreState;
+      })()`),false,'창 포커스 이동으로 버튼 위의 포인터 입력이 투과되면 안 됩니다.');
+    }
+  } finally {ipcMain.removeListener('toggle-contents-checker',toggleChecklist);}
+  await sidebar.webContents.executeJavaScript(`window.dispatchEvent(new MouseEvent('mouseleave'))`);
+  await eventually(() => sidebar.getBounds().width === 50 && sidebarIgnoresMouse);
   // Subsequent visibility tests retain their original minimal page fixture.
   await sidebar.webContents.loadFile(markup);
   ipcMain.removeHandler('google-sync-get-status');
   ipcMain.removeAllListeners('set-ignore-mouse-events');
   ipcMain.removeAllListeners('apply-settings');
   ipcMain.removeHandler('apply-settings-confirmed');
-  const sidebarHandle = sidebar.getNativeWindowHandle().readBigUInt64LE().toString();
   const nativeOrder = wm.getAllWindowHwnds();
-  wm.setLauncherInteractive(sidebar, true);
-  assert.equal(wm.getAllWindowHwnds()[0], sidebarHandle);
-  wm.setLauncherInteractive(settings, true);
-  assert.equal(wm.getAllWindowHwnds()[0], sidebarHandle, '일반 설정창이 런처 우선순위를 점유하면 안 된다.');
-  wm.setLauncherInteractive(sidebar, false);
+  wm.setDockInteractive(sidebar, true);
+  wm.setDockInteractive(settings, true);
   assert.deepEqual(wm.getAllWindowHwnds(), nativeOrder);
   config.saveImmediate({ sidebarPosition: 'dock' });
   wm.syncOverlay(game);
@@ -203,6 +284,19 @@ async function main(): Promise<void> {
   assert.deepEqual(await settings.webContents.executeJavaScript(`(() => {const d=document.getElementById('draft');return [d.value,d.selectionStart,d.selectionEnd]})()`), ['저장하지 않은 설정', 2, 5]);
   wm.toggleDockWindow();
   assert.equal(dock.isVisible(), true, '명시적인 독 열기가 복원 제외에 막힘');
+
+  await BrowserWindow.prototype.loadFile.call(dock, path.join(root, 'dist/dock.html'));
+  for (const position of ['dock', 'dock-top'] as const) {
+    config.saveImmediate({ sidebarPosition: position });
+    dock.webContents.send('config-data', config.load());
+    await eventually(() => dock.webContents.executeJavaScript(`
+      Boolean(document.getElementById('dock-contents-checker-btn')) &&
+      document.body.classList.contains(${JSON.stringify(position === 'dock-top' ? 'dock-pos-top' : 'dock-pos-bottom')})
+    `));
+    await checkChecklistLauncher(dock, 'dock-contents-checker-btn');
+  }
+  config.saveImmediate({ sidebarPosition: 'dock' });
+  await dock.webContents.loadFile(markup);
 
   wm.toggleAllWindowsHidden();
   abbreviation.close();
@@ -254,10 +348,16 @@ async function main(): Promise<void> {
     await replyDelay;
     return result;
   });
+  nativeNextWindow=true;
   wm.toggleContentsCheckerWindow();
   await loaded();
   let checklist = wm.getContentsCheckerWindow() as BrowserWindow;
-  await eventually(() => checklist.isVisible());
+  assert.equal(checklist.webContents.isOffscreen(),false,'숙제 가시성·크기 검사는 실제 네이티브 창으로 실행한다.');
+  await eventually(() => checklist.isVisible()).catch(error=>{
+    console.error('Checklist visibility state',JSON.stringify({visible:checklist.isVisible(),destroyed:checklist.isDestroyed(),
+      allHidden:wm.areAllWindowsHidden(),enabled:config.load().contentsCheckerEnabled,trace:visibilityTrace.filter(entry=>entry.page==='contents-checker.html')},null,2));
+    throw error;
+  });
   const originalHtml = path.join(root, 'dist/contents-checker.html');
   // Load every production script: a stripped page hides competing config-data subscriptions.
   ipcMain.handle('google-sync-get-status', () => null);
@@ -335,6 +435,11 @@ async function main(): Promise<void> {
   fs.mkdirSync(output, { recursive: true });
   async function capture(win: BrowserWindow, name: string): Promise<void> {
     await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)');
+    if (!win.webContents.isOffscreen()) {
+      await pause(100);
+      const frame=await win.webContents.capturePage();assert.equal(frame.isEmpty(),false);
+      fs.writeFileSync(path.join(output,name),frame.toPNG());return;
+    }
     let frame!: Electron.NativeImage;
     for (let n = 0; n < 3; n++) {
       await pause(100);
@@ -505,6 +610,167 @@ async function main(): Promise<void> {
   assert.ok(sharedBounds.x >= area.x && sharedBounds.y >= area.y && sharedBounds.x + sharedBounds.width <= area.x + area.width && sharedBounds.y + sharedBounds.height <= area.y + area.height, '공유 배치가 현재 작업 영역을 벗어남');
   assert.deepEqual(BrowserWindow.getAllWindows().map(win => ({ id: win.id, visible: win.isVisible() })), beforeShare, '공유 적용이 열림/숨김 상태를 바꿈');
   assert.equal(await moving.webContents.executeJavaScript(`document.getElementById('draft').value`), '작성 중인 내용', '공유 배치가 renderer를 다시 만듦');
+  wm.openProfilesWindow('game-resync');
+  await Promise.all(tasks);
+  const profileManager=windows.get('profiles.html')!.at(-1)!;
+  await eventually(() => profileManager.isVisible());
+  await profileManager.webContents.executeJavaScript("document.getElementById('draft').value='프로필 편집 중'");
+  wm.hideAll({preserveForResume:true});
+  assert.equal(profileManager.isDestroyed(),false,'게임 최소화가 프로필 선택/편집 창을 닫으면 안 됨');
+  assert.equal(profileManager.isVisible(),true,'이미 최소화된 게임의 선택창도 사용할 수 있어야 함');
+  wm.hideAll();
+  assert.equal(profileManager.isDestroyed(),false,'게임 종료 중에도 프로필 편집 유지');
+  assert.equal(await profileManager.webContents.executeJavaScript("document.getElementById('draft').value"),'프로필 편집 중');
+  wm.toggleAllWindowsHidden();
+  assert.equal(profileManager.isVisible(),false,'사용자의 명시적 전체 숨김은 프로필 창에도 적용');
+  let releaseProfileQuery:(value:any)=>void=()=>{};
+  profilePositionQuery=()=>new Promise(resolve=>{releaseProfileQuery=resolve;});
+  wm.openProfilesWindow('user-open');
+  assert.equal(wm.areAllWindowsHidden(),false,'명시적 열기의 전체 숨김 해제는 요청 시 실행');
+  assert.equal(profileManager.isVisible(),false,'좌표 조회가 끝나기 전 이전 위치에 표시하지 않음');
+  wm.toggleAllWindowsHidden();releaseProfileQuery(game);await pause(150);
+  assert.equal(wm.areAllWindowsHidden(),true,'늦은 좌표 조회가 이후 사용자의 전체 숨김을 취소하면 안 됨');
+  assert.equal(profileManager.isVisible(),false);
+  profilePositionQuery=async()=>game;wm.openProfilesWindow('user-open');await eventually(()=>profileManager.isVisible());
+  assert.equal(await profileManager.webContents.executeJavaScript("document.getElementById('draft').value"),'프로필 편집 중','중앙 재배치가 기존 입력을 지우면 안 됨');
+  let visibleProfileQueries=0;
+  profilePositionQuery=async()=>{visibleProfileQueries++;return game;};
+  wm.openProfilesWindow('user-open');
+  assert.equal(profileManager.isVisible(),true);
+  assert.equal(windows.get('profiles.html')!.at(-1),profileManager);
+  assert.equal(visibleProfileQueries,0,'이미 열린 프로필은 다시 배치하지 않는다');
+
+  // renderer 실패 창 교체(windowManager.discardRendererFailedWindow): 실제 화면 프로세스를 종료시킨 뒤
+  // 설정 바로가기·프로필 자동 열기·사이드바 토글이 숨겨진 실패 창을 재사용하지 않고 한 번에 새 창을 연다.
+  // 초안 보호(beforeunload)가 걸린 실패 창도 교체를 막지 않는다.
+  const health=built('modules/rendererHealthGuard.js');
+  const nativeErrorBox=dialog.showErrorBox;
+  dialog.showErrorBox=()=>{};
+  try {
+    const crash=async(win:BrowserWindow)=>{
+      health.attachRendererHealthGuard(win,()=>wm.restoreWindowAfterRendererRecovery(win));
+      await win.webContents.executeJavaScript('window.onbeforeunload=()=>false;void 0');
+      const gone=new Promise(resolve=>win.webContents.once('render-process-gone',resolve));
+      win.webContents.forcefullyCrashRenderer();
+      await gone;
+      assert.equal(win.isVisible(),false,'실패한 창은 입력 보호를 위해 숨겨진다');
+      assert.equal(health.hasRendererFailure(win),true);
+    };
+    const latest=(page:string)=>windows.get(page)!.at(-1)!;
+    wm.toggleSettingsWindow('memo');await loaded();
+    const note=latest('pinned-note.html');
+    await eventually(()=>note.isVisible());
+    await crash(note);
+    wm.toggleSettingsWindow('memo');await loaded();
+    const replacementNote=latest('pinned-note.html');
+    assert.equal(note.isDestroyed(),true,'설정의 고정 메모 바로가기가 실패한 창을 버려야 한다');
+    assert.notEqual(replacementNote,note);
+    await eventually(()=>replacementNote.isVisible());
+
+    await crash(profileManager);
+    wm.openProfilesWindow('game-resync');await loaded();
+    const replacementProfiles=latest('profiles.html');
+    assert.equal(profileManager.isDestroyed(),true,'게임 재감지의 프로필 자동 열기가 실패한 창을 버려야 한다');
+    assert.notEqual(replacementProfiles,profileManager);
+    await eventually(()=>replacementProfiles.isVisible());
+
+    wm.getBuffsWindow()?.destroy();
+    assert.equal(wm.toggleBuffsWindow(),true);await loaded();
+    const buffs:BrowserWindow=wm.getBuffsWindow();
+    await eventually(()=>buffs.isVisible());
+    await crash(buffs);
+    assert.equal(wm.toggleBuffsWindow(),true,'실패한 창의 토글은 한 번에 새 창을 연다');
+    await loaded();
+    const replacementBuffs:BrowserWindow=wm.getBuffsWindow();
+    assert.notEqual(replacementBuffs,buffs);
+    await eventually(()=>replacementBuffs.isVisible());
+
+    // 일시적인 무응답은 스스로 회복하고 초안도 남아 있으므로 다시 열어도 창을 파괴하지 않는다.
+    wm.toggleSettingsWindow('memo');await loaded();
+    const busyNote=latest('pinned-note.html');
+    await eventually(()=>busyNote.isVisible());
+    health.attachRendererHealthGuard(busyNote,()=>wm.restoreWindowAfterRendererRecovery(busyNote));
+    busyNote.emit('unresponsive');
+    assert.equal(health.hasRendererFailure(busyNote),true);
+    assert.equal(health.needsRendererReplacement(busyNote),false);
+    wm.toggleSettingsWindow('memo');
+    assert.equal(busyNote.isDestroyed(),false,'무응답 창을 다시 열 때 초안이 있는 창을 버리면 안 된다');
+    assert.equal(latest('pinned-note.html'),busyNote);
+    busyNote.emit('responsive');
+    await eventually(()=>!health.hasRendererFailure(busyNote) && busyNote.isVisible());
+
+    // 업데이트 잠금이 숨긴 창은 잠금을 풀 때(재시작 미룸·다운로드 실패) 다시 보여 준다.
+    wm.setMandatoryUpdateLock(true);
+    assert.ok(wm.getSplashWindow());
+    assert.equal(replacementBuffs.isVisible(),false);assert.equal(busyNote.isVisible(),false);
+    wm.setMandatoryUpdateLock(false);
+    assert.equal(wm.getSplashWindow(),null,'실행 중 잠금 해제는 스플래시를 닫는다');
+    await eventually(()=>replacementBuffs.isVisible() && busyNote.isVisible());
+    assert.equal(latest('pinned-note.html'),busyNote,'잠금이 숨긴 초안 창을 버리지 않고 다시 보여 준다');
+
+    // 업데이트 잠금 스플래시는 항상 위다. 종료·업데이트 확인 중에는 대화상자와 저장하라고 다시 보여 준
+    // 편집 창을 가리지 않게 내려가고, 확인이 끝나도 잠겨 있으면 잠금(스플래시만 표시)을 다시 적용한다.
+    wm.setMandatoryUpdateLock(true);
+    const lockSplash:BrowserWindow=wm.getSplashWindow();
+    assert.equal(lockSplash.isAlwaysOnTop(),true);
+    assert.equal(busyNote.isVisible(),false);
+    const prompt=wm.whileSplashYieldsToPrompt(async()=>{
+      assert.equal(lockSplash.isAlwaysOnTop(),false,'확인 중 잠금 스플래시가 대화상자 위에 있으면 안 된다');
+      assert.equal(lockSplash.isFocusable(),false,'확인 중 스플래시를 눌러 대화상자를 다시 가리면 안 된다');
+      busyNote.show(); // 저장 안내로 편집 창을 다시 보여 준다(revealEditor).
+      // 확인 중 걸린 잠금(다운로드 시작)도 스플래시를 올리거나 보여 준 편집 창을 숨기지 않는다.
+      wm.setMandatoryUpdateLock(true);
+      assert.equal(lockSplash.isAlwaysOnTop(),false);
+      assert.equal(busyNote.isVisible(),true,'확인 중 다시 걸린 잠금이 저장할 편집 창을 숨기면 안 된다');
+      await wm.whileSplashYieldsToPrompt(async()=>pause(10)); // 겹친 확인이 끝나도 바깥 확인 동안은 내려가 있다.
+      await pause(10);
+      assert.equal(lockSplash.isAlwaysOnTop(),false,'겹친 확인 하나가 끝났다고 스플래시를 올리면 안 된다');
+      return 'answered';
+    });
+    assert.equal(await prompt,'answered');
+    await eventually(()=>lockSplash.isAlwaysOnTop() && lockSplash.isFocusable() && !busyNote.isVisible());
+    assert.equal(wm.getSplashWindow(),lockSplash,'확인 뒤에도 잠겨 있으면 같은 스플래시로 잠금을 유지한다');
+    // 확인 결과로 바로 잠금을 푸는 경로(일반 업데이트 재시작 미룸)는 스플래시를 다시 올리지 않고 창을 복원한다.
+    await wm.whileSplashYieldsToPrompt(async()=>{busyNote.show();return false;});
+    wm.setMandatoryUpdateLock(false);
+    await pause();
+    assert.equal(wm.getSplashWindow(),null,'재시작을 미뤄 잠금을 풀면 스플래시를 닫는다');
+    assert.equal(lockSplash.isDestroyed(),true);
+    await eventually(()=>busyNote.isVisible() && replacementBuffs.isVisible());
+    // 확인이 실패해도(예외) 양보를 끝내고 잠금을 다시 적용한다.
+    wm.setMandatoryUpdateLock(true);
+    const failedPromptSplash:BrowserWindow=wm.getSplashWindow();
+    await assert.rejects(wm.whileSplashYieldsToPrompt(async()=>{throw new Error('fixture dialog failure');}),/fixture dialog failure/);
+    await eventually(()=>failedPromptSplash.isAlwaysOnTop() && failedPromptSplash.isFocusable());
+    wm.setMandatoryUpdateLock(false);
+    await eventually(()=>busyNote.isVisible() && replacementBuffs.isVisible());
+  } finally {dialog.showErrorBox=nativeErrorBox;}
+
+  // 잠그지 않은 해제(시작 중 업데이트 확인 실패)는 스플래시를 닫지 않는다.
+  // 시작 단계에서는 스플래시가 유일한 창이라 닫으면 window-all-closed로 앱이 종료된다.
+  wm.createSplashWindow();
+  wm.setMandatoryUpdateLock(false);
+  assert.ok(wm.getSplashWindow(),'잠그지 않은 업데이트 실패가 스플래시를 닫으면 안 된다');
+  // 시작 단계 스플래시(항상 위, 클릭 통과)도 확인·시작 실패 안내 동안 내려갔다가 원래 상태로 돌아온다.
+  const startupSplash:BrowserWindow=wm.getSplashWindow();
+  assert.equal(startupSplash.isAlwaysOnTop(),true);
+  await wm.whileSplashYieldsToPrompt(async()=>{
+    assert.equal(startupSplash.isAlwaysOnTop(),false,'시작 스플래시가 확인 대화상자를 가리면 안 된다');
+  });
+  await eventually(()=>startupSplash.isAlwaysOnTop());
+  assert.equal(startupSplash.isFocusable(),false,'시작 스플래시는 양보 뒤에도 포커스를 받지 않는다');
+  wm.closeSplashWindow({showFollowUpWindows:false});
+
+  // 시작 실패 경로는 스플래시를 닫아도 최초 실행 가이드·업데이트 공지를 열지 않는다.
+  config.saveImmediate({hasSeenWelcomeGuide:false,setupCompleted:false});
+  wm.createSplashWindow();
+  wm.closeSplashWindow({showFollowUpWindows:false});
+  assert.equal(wm.getSplashWindow(),null);
+  assert.equal(wm.getWelcomeGuideWindow(),null,'시작 실패로 닫는 스플래시가 웰컴 가이드를 열면 안 된다');
+  wm.createSplashWindow();
+  wm.closeSplashWindow();
+  assert.ok(wm.getWelcomeGuideWindow(),'정상 진입은 기존처럼 최초 실행 가이드를 연다');
+  config.saveImmediate({hasSeenWelcomeGuide:true,setupCompleted:true});
   for (const win of BrowserWindow.getAllWindows()) win.destroy();
   config.saveImmediate();
   console.log('Window visibility + auto collapse: native lifecycle, drafts, game resume, late loading, notifications, shortcuts, busy UI, failed/delayed save, preset size and product screenshots passed.');

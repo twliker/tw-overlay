@@ -1998,6 +1998,7 @@
       <span class="timer-hud-title">STOPWATCH</span>
       <span class="hud-shortcut-badge" title="Ctrl + Shift + S" data-shortcut-key="toggleTimer">C+S+S</span>
     </div>
+    <div id="timer-hud-profile" class="hidden text-xs text-indigo-300 truncate" style="max-width: 200px;"></div>
     <div id="timer-hud-display" class="timer-hud-display">00:00.00</div>
     <div id="timer-hud-status" class="timer-hud-status hidden">HOLDING (10s)</div>
   </div>
@@ -2021,7 +2022,7 @@
     </div>
     <div class="today-summary-stats">
       <div class="today-summary-stat">
-        <span class="today-summary-stat-label">획득 SEED</span>
+        <span class="today-summary-stat-label">SEED 순수익</span>
         <span id="today-summary-seed" class="today-summary-stat-value text-orange-400">0</span>
       </div>
       <div class="today-summary-stat">
@@ -2291,6 +2292,17 @@
       const s = totalSec % 60;
       const cs = Math.floor((ms % 1000) / 10);
       return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+    }
+
+    function resetTimerDisplay() {
+      timerIsRunning=false;
+      if (timerInterval) {cancelAnimationFrame(timerInterval);timerInterval=null;}
+      if (timerFadeTimeout) {clearTimeout(timerFadeTimeout);timerFadeTimeout=null;}
+      if (timerStatusInterval) {clearInterval(timerStatusInterval);timerStatusInterval=null;}
+      lastTimerDisplay='';timerStartTime=0;
+      const hud=document.getElementById('timer-hud');
+      hud?.classList.remove('show');hud?.classList.add('hidden');
+      document.getElementById('timer-hud-status')?.classList.add('hidden');
     }
 
     function startTimer(startedAt) {
@@ -3164,7 +3176,9 @@
     // ── 심연의 제2사도 기믹 알림 ──
     let abyssAlertTimeout = null;
     let abyssResetTimeout = null;
-    function showAbyssApostleAlert(onStart, onEnd) {
+    function showAbyssApostleAlert(endsAt) {
+      const remaining = endsAt - Date.now();
+      if (!Number.isFinite(remaining) || remaining <= 0) return;
       const overlay = document.getElementById('abyss-apostle-alert');
       const title = document.getElementById('abyss-apostle-title');
       const subtitle = document.getElementById('abyss-apostle-subtitle');
@@ -3176,34 +3190,29 @@
       overlay.className = 'abyss-apostle-alert-overlay warn';
       title.className = 'abyss-apostle-title warn';
       title.innerText = '공격 반사 패턴! 경고!';
-      subtitle.innerText = '보스 공격 중단 (6.5초)';
-      if (onStart) onStart();
+      subtitle.innerText = `보스 공격 중단 (${(remaining / 1000).toFixed(1)}초)`;
 
       abyssAlertTimeout = setTimeout(() => {
+        const safeRemaining = endsAt + 2000 - Date.now();
+        if (safeRemaining <= 0) { overlay.className = 'abyss-apostle-alert-overlay hide'; return; }
         overlay.className = 'abyss-apostle-alert-overlay safe';
         title.className = 'abyss-apostle-title safe';
         title.innerText = '공격 반사 패턴 종료!';
         subtitle.innerText = '공격 가능';
-        if (onEnd) onEnd();
-
         abyssResetTimeout = setTimeout(() => {
           overlay.className = 'abyss-apostle-alert-overlay hide';
-        }, 2000);
-      }, 6500);
-      return true;
+        }, safeRemaining);
+      }, remaining);
     }
 
     if (window.electronAPI.onAbyssApostleAlert) {
-      window.electronAPI.onAbyssApostleAlert(() => {
-        showAbyssApostleAlert();
-      });
+      window.electronAPI.onAbyssApostleAlert(data => showAbyssApostleAlert(data.endsAt));
     }
 
     // ── 몬스터 웨이브 종료 대기 알림 ──
     let waveWarningTimeout = null;
     if (window.electronAPI.onWaveWarningAlert) {
       window.electronAPI.onWaveWarningAlert(() => {
-        if (currentConfig && currentConfig.waveMonsterWarningEnabled === false) return;
         const overlay = document.getElementById('wave-warning-alert');
         if (!overlay) return;
 
@@ -3779,14 +3788,20 @@
       });
 
       let timerRevision = -1;
+      let timerProfileId = null;
       const applyTimerState = (state) => {
         if (state.revision <= timerRevision) return;
         timerRevision = state.revision;
+        if (state.profileMode && (timerProfileId!==state.profileId || state.selectionRequired || state.startedAt!==timerStartTime && timerIsRunning)) resetTimerDisplay();
+        timerProfileId=state.profileId || null;
+        const profileLabel=document.getElementById('timer-hud-profile');
+        if (profileLabel) {profileLabel.textContent=state.profileName || '';profileLabel.title=state.profileName || '';profileLabel.classList.toggle('hidden',!state.profileMode || !state.profileId);}
         if (state.running) startTimer(state.startedAt);
         else if (state.stoppedAt !== null && (timerIsRunning || Date.now() - state.stoppedAt < 10000)) {
           if (!timerIsRunning) startTimer(state.startedAt);
           stopTimer(state);
         }
+        else if (state.profileMode) resetTimerDisplay();
       };
       window.electronAPI.onTimerToggle(applyTimerState);
       window.electronAPI.timerGetState().then(applyTimerState).catch(console.error);

@@ -7,6 +7,7 @@ import { formatLocalDateKey } from '../shared/localDate';
 import { parseItemAcquisition, parseItemAcquisitions } from './itemAcquisition';
 import { parseSupplyInstruction } from '../shared/supplyRecapture';
 import { parseOriginOfDoomActivity } from '../shared/bossEntry';
+import { parseCharacterXpLog } from '../shared/characterXpLog';
 
 const { isNpcSender } = require('../shared/chatConstants') as ChatConstants;
 const { COLORS: CHAT_COLORS, parseShoutContent } = require('../shared/chatChannels') as ChatChannelConstants;
@@ -44,6 +45,30 @@ function getMessageFontColor(rawLine: string): string {
     color = match[1].trim().toLowerCase();
   }
   return color === 'white' ? '#ffffff' : color;
+}
+
+const RE_CHAT_TIMESTAMP_TAG = /\[\s*\d+\s*시\s*\d+\s*분\s*\d+\s*초\s*\]/;
+const RE_DATE_HEADER_TEXT = /^Date\s*:\s*(?:(\d{4})-(\d{2})-(\d{2})|(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일)$/;
+
+/** 기능 계약 — 채팅 로그 파일의 날짜 헤더 줄만 YYYY-MM-DD로 바꾸고, 그 밖의 줄은 null을 돌려준다.
+ * 실제 헤더는 `<font color="white"> <b> Date : 2026년  4월 22일 </b></font></br>`처럼 시각 태그 없이
+ * 한 줄 전체가 날짜뿐이다(개발용 주입은 `Date : YYYY-MM-DD`). 채팅 줄은 항상 `[ HH시 mm분 ss초 ]`가 붙으므로
+ * 시각 태그가 있거나 날짜 외 글자가 섞인 줄은 헤더가 아니다. 다른 플레이어가 외치기·일반·클럽·귓속말로
+ * `Date : 2000-01-01`을 보내도 파서 날짜가 바뀌어 기믹 알림 최신성·모험일지 날짜가 어긋나지 않는다.
+ * 실시간 파서·초기 날짜 읽기·오늘 로그 재생·과거 로그 복원이 모두 이 판정만 사용한다.
+ * 회귀: check-profile-recording.ts.
+ */
+export function parseChatLogDateHeader(rawLine: string): string | null {
+  if (!rawLine.includes('Date') || RE_CHAT_TIMESTAMP_TAG.test(rawLine)) return null;
+  const text = rawLine
+    .replace(RE_HTML_TAGS, '')
+    .replace(RE_HTML_NBSP, ' ')
+    .replace(RE_NON_BREAKING_SPACE, ' ')
+    .trim();
+  const match = text.match(RE_DATE_HEADER_TEXT);
+  if (!match) return null;
+  const [year, month, day] = match[1] ? [match[1], match[2], match[3]] : [match[4], match[5], match[6]];
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
 
 /**
@@ -191,28 +216,17 @@ export class ChatParser extends EventEmitter {
    * 로그 한 줄을 파싱하여 적절한 이벤트를 발생시킴
    */
   public parseLine(rawLine: string): void {
-    // 파일 헤더의 Date : YYYY-MM-DD 패턴 감지
-    const headerDateMatch = rawLine.match(/Date\s*:\s*(\d{4}-\d{2}-\d{2})/);
-    if (headerDateMatch) {
-      if (this._currentDate !== headerDateMatch[1]) {
-        log(`[CHAT_PARSER] 날짜 변경 감지 (헤더): ${this._currentDate} -> ${headerDateMatch[1]}`);
-        this._currentDate = headerDateMatch[1];
+    // 1. 파일 날짜 헤더 감지. 채팅 본문의 "Date : ..."는 헤더로 보지 않는다(parseChatLogDateHeader 계약).
+    const headerDate = parseChatLogDateHeader(rawLine);
+    if (headerDate) {
+      if (this._currentDate !== headerDate) {
+        log(`[CHAT_PARSER] 날짜 인식 (헤더): ${this._currentDate} -> ${headerDate}`);
+        this._currentDate = headerDate;
       }
       return;
     }
 
     const cleanLine = this.stripHtml(rawLine);
-
-    // 1. 날짜 헤더 감지 (Date : 2026년 4월 19일)
-    const dateMatch = rawLine.match(/Date\s*:\s*(\d+)년\s*(\d+)월\s*(\d+)일/);
-    if (dateMatch) {
-      const y = dateMatch[1];
-      const m = dateMatch[2].padStart(2, '0');
-      const d = dateMatch[3].padStart(2, '0');
-      this._currentDate = `${y}-${m}-${d}`;
-      log(`[CHAT_PARSER] 날짜 인식: ${this._currentDate}`);
-      return;
-    }
 
     // 2. 시간대 추출 [ HH시 mm분 ss초 ]
     const timeMatch = rawLine.match(/\[\s*(\d+시\s*\d+분\s*\d+초)\s*\]/);
@@ -234,7 +248,9 @@ export class ChatParser extends EventEmitter {
     const acquisitions = parseItemAcquisitions(cleanMsg, {
       isSelfChat: rawLine.toLowerCase().includes(CHAT_COLORS.selfGeneral),
     });
+    // 표시 이벤트는 원본 줄마다 한 번만 발행한다. 아이템별·SEED별 집계 이벤트는 각각 남긴다.
     if (acquisitions.length > 0) {
+      this.emit('REWARD_CHAT',{date:this._currentDate,timestamp,message:cleanMsg,color:'#ffd700'});
       for (const item of acquisitions) {
         this.emit('ITEM_LOOTED', {
           date: this._currentDate,
@@ -751,8 +767,13 @@ export class ChatParser extends EventEmitter {
     }
 
     // G. 어벤던로드 특화 패턴
+    // 입장료·도전 횟수는 시스템 메시지만 인정한다. 플레이어가 같은 문장을 채팅에 옮겨 적으면
+    // 일지 지출과 주간 HUD가 오염되므로 경험치 판정과 같이 시각 뒤 메시지의 채널 색상만 확인한다.
+    // (시각 글꼴은 항상 white라 줄 전체를 보면 색 없는 시스템 메시지를 일반 채팅으로 오인한다.)
+    // 회귀: check-abandoned-visibility-policy.ts(플레이어 채팅 입장료·도전 횟수 무시)
+    const abandonedSystemLine = !isPlayerChatLine(rawLine.slice(timeMatch.index!+timeMatch[0].length));
     // 1. 입장료 (예: "입장료 5680만 Seed를 지불 하였습니다.", "입장료 5,680,000 Seed를 지불하였습니다.")
-    if (cleanMsg.includes('입장료') && (cleanMsg.toLowerCase().includes('seed') || cleanMsg.includes('시드'))) {
+    if (abandonedSystemLine && cleanMsg.includes('입장료') && (cleanMsg.toLowerCase().includes('seed') || cleanMsg.includes('시드'))) {
         const feeMatch = cleanMsg.match(/입장료\s+([\d,\s억만]+?)\s*(?:Seed|시드)(?:를|을)?\s*지불\s*(?:하였|했)습니다/i);
         if (feeMatch) {
             const amount = this.parseKoreanNumber(feeMatch[1]);
@@ -762,7 +783,7 @@ export class ChatParser extends EventEmitter {
     }
 
     // 2. 도전 횟수 (예: "이번 주 어밴던로드 카디프 지역의 도전 횟수는 5번 입니다.", "이번 주 어벤던로드 카디프 지역의 도전 횟수는 5회 입니다.")
-    if (cleanMsg.includes('어벤던로드') || cleanMsg.includes('어밴던로드')) {
+    if (abandonedSystemLine && (cleanMsg.includes('어벤던로드') || cleanMsg.includes('어밴던로드'))) {
         const entryMatch = cleanMsg.match(/이번\s*주\s+어[벤밴]던로드\s+(.*?)\s*지역의\s*도전\s*횟\s*수\s*는\s*(\d+)\s*(?:번|회)\s*입니다/);
         if (entryMatch) {
             const region = entryMatch[1].trim();
@@ -891,6 +912,7 @@ export class ChatParser extends EventEmitter {
         if (amountMatch) {
             const amount = this.parseKoreanNumber(amountMatch[1]);
             if (amount > 0) {
+                if (!acquisitions.length) this.emit('REWARD_CHAT',{date:this._currentDate,timestamp,message:cleanMsg,color:CHAT_COLORS.system});
                 this.emit('SEED_GAINED', { date: this._currentDate, timestamp, amount, message: cleanMsg });
                 return;
             }
@@ -900,14 +922,14 @@ export class ChatParser extends EventEmitter {
     // B. 경험치 변동 계약
     // 수동 교환은 "경험치가 100억 감소" 한 줄, 자동 교환은 그 감소 줄 뒤에
     // 별도 획득 안내 한 줄이 추가됩니다. 두 방식을 한 번씩만 세기 위해 이 파서는
-    // 공통 감소 줄만 XP_CHANGED로 발행합니다. 복합 획득 안내까지 허용하도록 정규식을
-    // 넓히면 자동 교환이 2개로 집계되므로 `경험치가` 조건을 제거하지 마십시오.
-    if (cleanMsg.includes('경험치가')) {
-        const xpMatch = cleanMsg.match(/경험치가\s+([\[\]\d,억만\s]+)\s*(올랐|상승|감소|차감)/);
-        if (xpMatch) {
-            const amount = this.parseKoreanNumber(xpMatch[1]);
-            const isGain = xpMatch[2] === '올랐' || xpMatch[2] === '상승';
-            this.emit('XP_CHANGED', { date: this._currentDate, timestamp, amount: isGain ? amount : -amount, message: cleanMsg });
+    // 공통 감소 줄만 XP_CHANGED로 발행합니다. 줄 앞을 고정해 룬·링크 경험치와
+    // 플레이어 채팅이 캐릭터 경험치 및 처치 횟수에 포함되지 않게 합니다.
+    if (cleanMsg.startsWith('경험치가') && !isPlayerChatLine(rawLine.slice(timeMatch.index!+timeMatch[0].length))) {
+        const xp = parseCharacterXpLog(cleanMsg);
+        if (xp) {
+            const amount = this.parseKoreanNumber(xp.amountText);
+            if (!acquisitions.length) this.emit('REWARD_CHAT',{date:this._currentDate,timestamp,message:cleanMsg,color:'#ff64ff'});
+            this.emit('XP_CHANGED', { date: this._currentDate, timestamp, amount: xp.isGain ? amount : -amount, message: cleanMsg });
             return;
         }
     }

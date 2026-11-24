@@ -4,6 +4,8 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-tools.css">
+  <script src="renderer/profile-tool-storage.js"></script>
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
@@ -928,9 +930,36 @@
     };
 
     window.onload = async () => {
+      await window.profileToolStorage.ready;
       await loadData();
       loadCurrentSelection();
       renderPresets();
+      renderList(document.getElementById('search-input').value, true);
+      // 프로필 변경 통지는 화면에만 적용한다. 전환 준비나 원격 수신이 저장을 만들지 않는다.
+      let refreshPending = false;
+      window.addEventListener('storage', event => {
+        if (event.storageArea !== localStorage
+          || !['buff_presets', 'buff_current_selection', 'buff_active_preset_id', null].includes(event.key)) return;
+        if (creatingPreset || editingPresetId !== null) {
+          receivedWhileEditing = true;
+          return;
+        }
+        if (selectionSaveFailed) return;
+        loadCurrentSelection();
+        if (refreshPending) return;
+        refreshPending = true;
+        requestAnimationFrame(() => {
+          refreshPending = false;
+          if (creatingPreset || editingPresetId !== null || selectionSaveFailed) return;
+          renderPresets();
+          renderList(document.getElementById('search-input').value, true);
+        });
+      });
+      window.profileToolStorage.setFlusher(() => {
+        if (creatingPreset || editingPresetId !== null) return '버프 백과의 프리셋을 저장하거나 편집을 취소한 뒤 프로필을 전환해 주세요.';
+        if (selectionSaveFailed) return '버프 백과에서 선택을 다시 저장한 뒤 프로필을 전환해 주세요.';
+        return true;
+      });
       lucide.createIcons();
     };
 
@@ -957,16 +986,31 @@
         document.getElementById('buff-list').innerHTML = '<div class="col-span-full text-center py-20 text-red-300 text-sm font-bold">버프 정보를 불러오지 못했습니다.</div>';
       }
     }
-    function saveCurrentSelection() { localStorage.setItem('buff_current_selection', JSON.stringify(Array.from(selectedBuffIds))); localStorage.setItem('buff_active_preset_id', JSON.stringify(activePresetId)); }
+    let receivedWhileEditing = false;
+    let selectionSaveFailed = false;
+    function saveCurrentSelection() {
+      if (creatingPreset || editingPresetId !== null) return;
+      const storage = window.profileToolStorage;
+      selectionSaveFailed = true;
+      const values = {
+        buff_current_selection: JSON.stringify(Array.from(selectedBuffIds)),
+        buff_active_preset_id: JSON.stringify(activePresetId),
+      };
+      for (const [key, value] of Object.entries(values)) {
+        const previous = storage.getItem(key);
+        if (previous !== value) storage.setItemIfUnchanged(key, value, previous);
+      }
+      selectionSaveFailed = false;
+    }
     function loadCurrentSelection() {
       try {
-        const savedIds = JSON.parse(localStorage.getItem('buff_current_selection') || '[]');
+        const savedIds = JSON.parse(window.profileToolStorage.getItem('buff_current_selection') || '[]');
         selectedBuffIds = new Set(Array.isArray(savedIds) ? savedIds.filter(id => allBuffs.some(buff => buff.id === id)) : []);
       } catch {
         selectedBuffIds = new Set();
       }
       try {
-        activePresetId = JSON.parse(localStorage.getItem('buff_active_preset_id') || 'null');
+        activePresetId = JSON.parse(window.profileToolStorage.getItem('buff_active_preset_id') || 'null');
       } catch {
         activePresetId = null;
       }
@@ -975,10 +1019,9 @@
         && !getPresets().some(preset => Number(preset.id) === Number(activePresetId))) {
         activePresetId = null;
       }
-      renderList();
     }
     function getPresets() {
-      const saved = localStorage.getItem('buff_presets');
+      const saved = window.profileToolStorage.getItem('buff_presets');
       if (!saved) return [];
       try {
         const parsed = JSON.parse(saved);
@@ -992,7 +1035,7 @@
           if (buffIds.length !== originalIds.length || !Array.isArray(preset.buffIds)) changed = true;
           return { ...preset, buffIds };
         });
-        if (changed) localStorage.setItem('buff_presets', JSON.stringify(sanitized));
+        if (changed && !window.profileToolStorage.profileId()) window.profileToolStorage.setItem('buff_presets', JSON.stringify(sanitized));
         return sanitized;
       } catch {
         return [];
@@ -1011,6 +1054,8 @@
       creatingPreset = false;
       presetCreationMode = null;
       presetEditingSnapshot = null;
+      const received = receivedWhileEditing;
+      receivedWhileEditing = false;
       if (restoreSnapshot && snapshot) {
         selectedBuffIds = new Set(snapshot.buffIds.filter(id => allBuffs.some(buff => buff.id === id)));
         activePresetId = snapshot.activePresetId;
@@ -1018,6 +1063,7 @@
       } else {
         document.getElementById('preset-name').value = '';
       }
+      if (restoreSnapshot && received) loadCurrentSelection();
     }
     function updatePresetEditingUi() {
       const presets = getPresets();
@@ -1076,7 +1122,6 @@
       }
       if (editingPresetId !== null) {
         leavePresetEditing(true);
-        saveCurrentSelection();
       }
       presetEditingSnapshot = capturePresetEditingSnapshot();
       creatingPreset = true;
@@ -1085,7 +1130,6 @@
       if (mode === 'empty') selectedBuffIds.clear();
       const nameInput = document.getElementById('preset-name');
       nameInput.value = '';
-      saveCurrentSelection();
       renderPresets();
       renderList(document.getElementById('search-input').value, true);
       nameInput.focus();
@@ -1096,7 +1140,6 @@
       if (!preset) return;
       if (creatingPreset) {
         leavePresetEditing(true);
-        saveCurrentSelection();
       }
       if (editingPresetId === null) presetEditingSnapshot = capturePresetEditingSnapshot();
       const isCurrentPreset = Number(activePresetId) === Number(preset.id);
@@ -1106,19 +1149,18 @@
       activePresetId = preset.id;
       editingPresetId = preset.id;
       document.getElementById('preset-name').value = String(preset.name || '');
-      saveCurrentSelection();
       renderPresets();
       renderList(document.getElementById('search-input').value, true);
     }
     function cancelPresetEditing() {
       if (editingPresetId === null && !creatingPreset) return;
       leavePresetEditing(true);
-      saveCurrentSelection();
       renderPresets();
       renderList(document.getElementById('search-input').value, true);
     }
     function saveCurrentPreset() {
       if (editingPresetId === null && !creatingPreset) return;
+      if (receivedWhileEditing) return alert('다른 창에서 도핑 설정이 바뀌었습니다. 입력을 확인한 뒤 편집을 취소하면 최신 값을 불러옵니다.');
       if (selectedBuffIds.size === 0) return alert('먼저 저장할 버프를 선택해 주세요.');
       const nameInput = document.getElementById('preset-name');
       const presets = getPresets();
@@ -1129,7 +1171,7 @@
         const existing = presets[editingIndex];
         existing.name = (nameInput.value.trim() || String(existing.name || '프리셋')).slice(0, 40);
         existing.buffIds = Array.from(selectedBuffIds);
-        localStorage.setItem('buff_presets', JSON.stringify(presets));
+        window.profileToolStorage.setItem('buff_presets', JSON.stringify(presets));
         activePresetId = existing.id;
         leavePresetEditing(false);
         saveCurrentSelection();
@@ -1140,7 +1182,7 @@
       const name = (nameInput.value.trim() || `프리셋 ${presets.length + 1}`).slice(0, 40);
       const newPreset = { id: Date.now(), name, buffIds: Array.from(selectedBuffIds) };
       presets.push(newPreset);
-      localStorage.setItem('buff_presets', JSON.stringify(presets));
+      window.profileToolStorage.setItem('buff_presets', JSON.stringify(presets));
       nameInput.value = '';
       activePresetId = newPreset.id;
       creatingPreset = false;
@@ -1189,7 +1231,7 @@
       if (!confirm(`'${String(targetPreset.name || '프리셋')}' 프리셋을 삭제할까요?`)) return;
       if (Number(editingPresetId) === Number(presetId)) leavePresetEditing(false);
       const filtered = getPresets().filter(p => Number(p.id) !== Number(presetId));
-      localStorage.setItem('buff_presets', JSON.stringify(filtered));
+      window.profileToolStorage.setItem('buff_presets', JSON.stringify(filtered));
       if (Number(activePresetId) === Number(presetId)) activePresetId = null;
       saveCurrentSelection();
       renderPresets();

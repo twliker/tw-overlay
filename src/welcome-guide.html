@@ -611,9 +611,9 @@
         <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 12px; padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;">
           <div>
             <div style="font-size: 14px; font-weight: 700; color: #e9d5ff;">준비 완료! ✨</div>
-            <div style="font-size: 12px; color: #cbd5e1; margin-top: 1px;">추천 득템 세트가 적용되며, 과거 로그 복원은 설정에서 언제든 실행할 수 있습니다.</div>
+            <div style="font-size: 12px; color: #cbd5e1; margin-top: 1px;">첫 설정에서 득템 목록이 비어 있으면 추천 세트를 적용합니다. 과거 로그 복원은 설정에서 실행할 수 있습니다.</div>
           </div>
-          <button class="primary-btn" onclick="finishWizardAndStart()" style="padding: 8px 18px; font-size: 14px;">
+          <button class="primary-btn" data-wizard-finish onclick="finishWizardAndStart()" style="padding: 8px 18px; font-size: 14px;">
             <i data-lucide="rocket" style="width:16px;height:16px;"></i>
             <span>지금 바로 시작하기</span>
           </button>
@@ -1108,13 +1108,16 @@
         <button id="prev-btn" class="nav-btn" onclick="handlePrevClick()" style="visibility: hidden;">
           <i data-lucide="chevron-left" style="width:16px;height:16px;"></i>이전
         </button>
-        <span class="footer-tip">※ 환경설정 ➡️ 일반 설정에서 언제든 다시 볼 수 있습니다.</span>
+        <div>
+          <span class="footer-tip">※ 환경 설정 → 앱 정보 → 도움말에서 언제든 다시 볼 수 있습니다.</span>
+          <span data-wizard-status role="status" style="font-size: 14px; color: #fca5a5;"></span>
+        </div>
       </div>
       <div style="display: flex; gap: 8px; align-items: center;">
         <button id="next-btn" class="nav-btn" onclick="handleNextClick()">
           <span>다음</span><i data-lucide="chevron-right" style="width:16px;height:16px;"></i>
         </button>
-        <button class="primary-btn" onclick="finishWizardAndStart()">
+        <button class="primary-btn" data-wizard-finish onclick="finishWizardAndStart()">
           <i data-lucide="rocket" style="width:16px;height:16px;"></i>
           <span>시작하기</span>
         </button>
@@ -1131,6 +1134,12 @@
     let selectedUserServer = 7; // 기본값 하이아칸 (7)
     let currentChatLogPath = '';
     let wizardLootKeywords = [];
+    let wizardProfileId;
+    let wizardReady = false;
+    let wizardSaving = false;
+    let serverEdited = false;
+    let initialServer;
+    let pathEdited = false;
 
     initGuide();
     
@@ -1139,15 +1148,15 @@
       try {
         const cfg = await window.electronAPI.getConfig();
         if (cfg) {
+          wizardProfileId = cfg.activePlayProfileId;
+          initialServer = cfg.userServer;
           selectedUserServer = cfg.userServer || 7;
-          selectServer(selectedUserServer);
+          selectServer(selectedUserServer, false);
 
           currentChatLogPath = cfg.chatLogPath || '';
           updatePathDisplay(currentChatLogPath);
 
-          if (Array.isArray(cfg.lootKeywords) && cfg.lootKeywords.length > 0) {
-            wizardLootKeywords = [...cfg.lootKeywords];
-          } else {
+          if (!cfg.setupCompleted && !cfg.lootKeywords?.length) {
             // 기본 득템 프리셋 로드
             try {
               const resDef = await fetch('assets/data/contents_items_default.json');
@@ -1157,14 +1166,16 @@
               console.warn('Loot items load fallback', e);
             }
           }
+          wizardReady = true;
         }
       } catch (e) {
         console.error('Guide init error:', e);
       }
     }
 
-    function selectServer(serverCode) {
+    function selectServer(serverCode, edited = true) {
       selectedUserServer = serverCode;
+      serverEdited ||= edited;
       const card7 = document.getElementById('server-card-7');
       const card16 = document.getElementById('server-card-16');
       if (card7) card7.classList.toggle('selected', serverCode === 7);
@@ -1211,21 +1222,39 @@
         const selected = await window.electronAPI.openChatLogFolderDialog();
         if (selected) {
           currentChatLogPath = selected;
+          pathEdited = true;
           updatePathDisplay(selected);
-          window.electronAPI.applySettings({ chatLogPath: selected });
         }
       }
     }
 
-    function finishWizardAndStart() {
-      if (window.electronAPI && window.electronAPI.completeSetupWizard) {
-        window.electronAPI.completeSetupWizard({
-          chatLogPath: currentChatLogPath,
-          userServer: selectedUserServer,
-          lootKeywords: wizardLootKeywords.length > 0 ? wizardLootKeywords : undefined
+    async function finishWizardAndStart() {
+      if (!window.electronAPI?.completeSetupWizard) { closeGuide(); return; }
+      if (wizardSaving) return;
+      const showStatus = message => {
+        document.querySelector('[data-wizard-status]').textContent = message;
+        document.querySelector('.footer-tip').hidden = !!message;
+      };
+      if (!wizardReady) { showStatus('설정을 불러오지 못했습니다. 시작 안내를 다시 열어 주세요.'); return; }
+      const buttons = document.querySelectorAll('[data-wizard-finish]');
+      wizardSaving = true;
+      buttons.forEach(button => { button.disabled = true; });
+      showStatus('');
+      try {
+        const result = await window.electronAPI.completeSetupWizard({
+          profileId: wizardProfileId,
+          chatLogPath: pathEdited ? currentChatLogPath : undefined,
+          userServer: serverEdited || initialServer === undefined ? selectedUserServer : undefined,
+          userServerEdited: serverEdited,
+          lootKeywords: wizardLootKeywords.length ? wizardLootKeywords : undefined
         });
-      } else {
-        closeGuide();
+        if (result.success) window.close();
+        else showStatus(result.error);
+      } catch {
+        showStatus('설정을 저장하지 못했습니다. 다시 시도해 주세요.');
+      } finally {
+        wizardSaving = false;
+        buttons.forEach(button => { button.disabled = false; });
       }
     }
     

@@ -11,7 +11,6 @@ const { SIDEBAR_CATEGORIES } = require('../shared/sidebarCategories') as {
 };
 import * as config from './config';
 import { log } from './logger';
-import { appState } from './constants';
 import { SIDEBAR_MENUS, getSidebarMenuAction } from '../shared/sidebarMenus';
 import { getTrayMenuHandler } from './trayMenuActions';
 import { analytics } from './analytics';
@@ -101,7 +100,6 @@ function buildMenuTemplate(): MenuItemConstructorOptions[] {
   menuTemplate.push({
     label: '앱 종료',
     click: () => {
-      appState.isQuitting = true;
       app.quit();
     }
   });

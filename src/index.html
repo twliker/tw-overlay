@@ -7,6 +7,9 @@
   <script src="assets/tailwind.min.js"></script>
   <script src="assets/lucide.min.js"></script>
   <script src="assets/ui-utils.js"></script>
+  <link rel="stylesheet" href="assets/diary-profiles.css">
+  <script src="renderer/diary-profiles.js"></script>
+  <script src="renderer/boss-diary-toast.js"></script>
   <script src="assets/audio-playback.js"></script>
   <script src="shared/sidebarCategories.js"></script>
   <script src="shared/sidebarMenuActivation.js"></script>
@@ -155,6 +158,34 @@
       box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
     }
 
+    #system-menus > button { align-items: center; justify-content: center; }
+    #profiles-btn { min-height: 36px; padding-block: 5px; }
+    .sidebar-profile-badge {
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border: 1px solid color-mix(in srgb, var(--profile-accent) 55%, transparent);
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--profile-accent) 18%, transparent);
+      color: var(--ui-text);
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .sidebar-profile-badge[hidden], #profiles-btn > [hidden] { display: none; }
+    #profiles-btn:hover .sidebar-profile-badge { background: color-mix(in srgb, var(--profile-accent) 30%, transparent); }
+    #profiles-btn:focus-visible { outline: 2px solid var(--ui-brand); outline-offset: -2px; }
+    .sidebar-profile-pending {
+      position: absolute;
+      top: 7px;
+      left: calc(50% + 5px);
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ui-warning);
+    }
+
     /* 긴 안내도 사이드바 창 안에서 잘리지 않도록 줄바꿈 허용 */
     .tw-tooltip {
       max-width: calc(100vw - 50px);
@@ -222,8 +253,8 @@
 
     let bossNotifyVolume = 0.5;
     let currentHiddenMenuIds = [];
-    let _lastRecordedBossKey = null;
     let lastConfig = null;
+    let lastClickThrough = null;
     let sidebarPos = 'right';
     let isCollapsed = false;
     let wasCloudReauthRequired = false;
@@ -254,6 +285,34 @@
     function hideTooltip() {
       tooltip.style.display = 'none';
     }
+
+    const profileInitials = new Intl.Segmenter('ko', { granularity: 'grapheme' });
+    const profileBadgeColors = ['var(--ui-brand)', 'var(--ui-xp)', 'var(--ui-warning)', 'var(--ui-boss)', 'var(--ui-income)', 'var(--ui-homework)'];
+    const profileInitial = name => profileInitials.segment(name.trim())[Symbol.iterator]().next().value?.segment || '';
+
+    function updateSidebarProfileButton() {
+      const button = document.getElementById('profiles-btn');
+      if (!button || !window.diaryProfiles) return;
+      const state = window.diaryProfiles.state();
+      const profiles = state.profiles.filter(profile => !profile.deletedAt && profile.name.trim());
+      const active = !state.selectionRequired && profiles.find(profile => profile.id === state.activeProfileId);
+      const initial = active ? profileInitial(active.name) : '';
+      const label = active ? `사용 중 · ${window.diaryProfiles.label(active.id)}`
+        : state.enabled && state.selectionRequired ? '프로필을 선택해 주세요' : '프로필 선택 및 관리';
+      const badge = button.querySelector('.sidebar-profile-badge');
+      badge.textContent = initial;
+      badge.hidden = !initial;
+      if (active) {
+        const matchingIds = profiles.filter(profile => profileInitial(profile.name) === initial).map(profile => profile.id).sort();
+        badge.style.setProperty('--profile-accent', profileBadgeColors[matchingIds.indexOf(active.id) % profileBadgeColors.length]);
+      }
+      button.querySelector('i, svg').toggleAttribute('hidden', Boolean(initial));
+      button.querySelector('.sidebar-profile-pending').hidden = !state.enabled || !state.selectionRequired;
+      button.dataset.tooltip = label;
+      button.setAttribute('aria-label', label);
+    }
+
+    window.diaryProfiles?.subscribe(updateSidebarProfileButton);
 
     function updateCloudSyncStatus(status) {
       const button = document.getElementById('cloud-sync-status');
@@ -505,6 +564,10 @@
           btn.id = menu.id;
           btn.className = `p-2 cursor-pointer text-slate-400 hover:text-${menu.color} relative`;
           btn.innerHTML = `<i data-lucide="${menu.icon}" class="${menu.id.includes('icon') ? '' : 'w-4 h-4'}"></i>`;
+          if (menu.id === 'profiles-btn') {
+            btn.firstElementChild.setAttribute('aria-hidden', 'true');
+            btn.insertAdjacentHTML('beforeend', '<span class="sidebar-profile-badge" aria-hidden="true" hidden></span><span class="sidebar-profile-pending" aria-hidden="true" hidden></span>');
+          }
           if (menu.id === 'overlay-toggle-btn') btn.querySelector('i').id = 'overlay-icon';
           if (menu.id === 'chat-overlay-toggle-btn') btn.querySelector('i').id = 'chat-overlay-icon';
           if (menu.id === 'click-through-btn') btn.querySelector('i').id = 'click-through-icon';
@@ -527,7 +590,9 @@
 
         refreshIcons();
         applyMenuVisibility();
+        updateSidebarProfileButton();
         if (lastConfig) updateMasterMuteButton(Boolean(lastConfig.masterMute));
+        if (lastClickThrough !== null) updateClickThroughButton(lastClickThrough);
       } catch (e) { console.error('Failed to load dynamic menus:', e); }
     }
 
@@ -608,11 +673,11 @@
       toast.className = 'boss-toast show';
 
       const buttonHtml = isAlreadyRecorded
-        ? `<button disabled class="px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default">
+        ? `<button data-boss-record-button disabled class="px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default">
             <i data-lucide="info" class="w-3.5 h-3.5"></i>
             이미 기록됨!
           </button>`
-        : `<button onclick="recordKillAndRemove('${toastId}', '${bossName}', '${validSpawnTime || ''}', event)" class="cursor-custom-sword px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-white transition-all text-[11px] font-bold">
+        : `<button data-boss-record-button class="cursor-custom-sword px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-lg hover:bg-emerald-500 hover:text-white transition-all text-[11px] font-bold">
             <i data-lucide="sword" class="w-3.5 h-3.5"></i>
             일지 기록
           </button>`;
@@ -628,19 +693,33 @@
           </button>
         </div>
         ${isRealBoss ? `
+        <div data-boss-record-profile hidden></div>
         <div class="mt-3 flex justify-end w-full border-t border-slate-700/50 pt-2">
           ${buttonHtml}
         </div>` : ''}
       `;
 
       appendInteractiveToast(toast);
+      if (isRealBoss) window.bindBossDiaryToast(toast, bossName, validSpawnTime || '', () => {
+        const volume = lastConfig?.volumeCalculators ?? 50;
+        if (!lastConfig?.masterMute && volume > 0) {
+          const audio = new Audio('assets/sound/item_get.wav');
+          audio.volume = volume / 100;
+          audio.play().catch(() => {});
+        }
+      }, () => removeToast(toastId));
 
       // 자동 삭제 타이머
       let duration = 5000; // 커스텀 알림 기본 5초
       if (isRealBoss) {
         duration = (offset === 0) ? 60000 : 30000; // 정각 알림은 1분, N분 전 알림은 30초
       }
-      setTimeout(() => { removeToast(toastId); }, duration);
+      const expire = () => {
+        // 저장 중이거나 사이드바에 포커스가 있는 채 토스트를 조작 중일 때만 닫기를 미룬다. (boss-diary-toast.ts 계약)
+        if (window.isToastInUse(toast)) {setTimeout(expire, 5000);return;}
+        removeToast(toastId);
+      };
+      setTimeout(expire, duration);
     }
 
     function removeToast(id, event) {
@@ -655,66 +734,6 @@
           interactiveToasts.remove(id);
         }, 300);
       }
-    }
-
-    async function recordKillAndRemove(toastId, bossName, spawnTime, event) {
-      if (event) event.stopPropagation();
-
-      const recordKey = `${bossName}-${spawnTime}`;
-      // 1차 필터: 현재 세션 내 메모리 체크 (가장 빠름)
-      if (_lastRecordedBossKey === recordKey) {
-        const toast = document.getElementById(toastId);
-        if (toast) {
-          const btn = toast.querySelector('button[onclick^="recordKillAndRemove"]');
-          if (btn) {
-            btn.innerHTML = `<i data-lucide="info" class="w-3.5 h-3.5"></i> 이미 기록됨!`;
-            btn.disabled = true;
-            btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default";
-            refreshIcons();
-          }
-          setTimeout(() => { removeToast(toastId); }, 1500);
-        }
-        return;
-      }
-
-      const isMuted = Boolean(lastConfig && lastConfig.masterMute);
-      const vol = (lastConfig && lastConfig.volumeCalculators !== undefined ? lastConfig.volumeCalculators : 50) / 100;
-      if (!isMuted && vol > 0) {
-        const audio = new Audio('assets/sound/item_get.wav');
-        audio.volume = vol;
-        audio.play().catch(e => { });
-      }
-
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const dateStr = String(now.getDate()).padStart(2, '0');
-      const date = `${year}-${month}-${dateStr}`;
-      const recordTime = (spawnTime && spawnTime !== 'null' && spawnTime !== '') ? (spawnTime + ':00') : (String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0'));
-      const content = `[${bossName}] ${spawnTime || recordTime.substring(0, 5)} 스폰 처치 완료`;
-
-      try {
-        // 2차 필터: DB 실제 존재 여부 확인 (최종 보루)
-        const isSuccess = await window.electronAPI.diaryAddActivity(date, recordTime, 'boss', content);
-
-        const toast = document.getElementById(toastId);
-        if (toast) {
-          const btn = toast.querySelector('button[onclick^="recordKillAndRemove"]');
-          if (btn) {
-            if (isSuccess) {
-              _lastRecordedBossKey = recordKey;
-              btn.innerHTML = `<i data-lucide="check" class="w-3.5 h-3.5"></i> 기록 완료!`;
-              btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-emerald-500 text-white rounded-lg transition-all text-[11px] font-bold opacity-70 cursor-default";
-            } else {
-              btn.innerHTML = `<i data-lucide="info" class="w-3.5 h-3.5"></i> 이미 기록됨!`;
-              btn.className = "px-3 py-1.5 flex items-center gap-1.5 bg-slate-700 text-slate-400 rounded-lg transition-all text-[11px] font-bold cursor-default";
-            }
-            btn.disabled = true;
-            refreshIcons();
-          }
-          setTimeout(() => { removeToast(toastId); }, isSuccess ? 1000 : 1500);
-        }
-      } catch (err) { console.error('Failed to record boss kill:', err); }
     }
 
     function updateOverlayIcon(isVisible) {
@@ -825,7 +844,7 @@
         iconName = isCollapsed ? 'chevron-right' : 'chevron-left';
       }
 
-      document.getElementById('toggle-icon').setAttribute('data-lucide', iconName);
+      document.getElementById('toggle-icon')?.setAttribute('data-lucide', iconName);
       tooltip.style.display = 'none';
       refreshIcons();
     });
@@ -857,13 +876,17 @@
       refreshIcons();
     }
 
-    window.electronAPI.onClickThroughStatus((isClickThrough) => {
-      const icon = document.getElementById('click-through-icon');
+    // Startup status can arrive before the asynchronous menu definitions finish loading.
+    function updateClickThroughButton(isClickThrough) {
+      lastClickThrough = isClickThrough;
       const btn = document.getElementById('click-through-btn');
-      if (isClickThrough) { icon.setAttribute('data-lucide', 'mouse-pointer-off'); btn.classList.add('text-green-400'); btn.classList.remove('text-slate-400'); }
-      else { icon.setAttribute('data-lucide', 'mouse-pointer-2'); btn.classList.add('text-slate-400'); btn.classList.remove('text-green-400'); }
+      if (!btn) return;
+      btn.querySelector('i, svg')?.setAttribute('data-lucide', isClickThrough ? 'mouse-pointer-off' : 'mouse-pointer-2');
+      btn.classList.toggle('text-green-400', isClickThrough);
+      btn.classList.toggle('text-slate-400', !isClickThrough);
       refreshIcons();
-    });
+    }
+    window.electronAPI.onClickThroughStatus(updateClickThroughButton);
 
     window.electronAPI.onConfigData((config) => {
       lastConfig = config;
@@ -886,7 +909,7 @@
       } else {
         iconName = isCollapsed ? 'chevron-right' : 'chevron-left';
       }
-      document.getElementById('toggle-icon').setAttribute('data-lucide', iconName);
+      document.getElementById('toggle-icon')?.setAttribute('data-lucide', iconName);
 
       bossNotifyVolume = (config.fieldBossNotifyVolume !== undefined ? config.fieldBossNotifyVolume : 50) / 100;
 
@@ -971,7 +994,7 @@
       }, 300);
     }
 
-    // 기능 계약: 키보드로 연 메뉴도 포인터와 같은 창 폭·입력·런처 우선순위를 확보한다.
+    // 기능 계약: 키보드로 연 메뉴도 포인터와 같은 창 폭과 입력 영역을 확보한다.
     // 메뉴 내부 Tab 이동/투명 여백의 mousemove/토스트 만료로 접지 않고,
     // 메뉴 밖 포커스 이동 또는 창 비활성화 뒤에는 기존 포인터 정책으로 돌아간다.
     // check-window-visibility에서 실제 index.html → preload/IPC → 네이티브 폭을 검증한다.
@@ -1057,20 +1080,26 @@
         updateSidebarWindowWidth(50);
       }
     }
-    function resetPointerState() {
+    function closeKeyboardMenu() {
       if (keyboardMenuCategory) {
         const category = keyboardMenuCategory;
         keyboardMenuCategory = null;
         category.onmouseleave?.(new MouseEvent('mouseleave'));
       }
-      checkMouseIgnore({ clientX: -Infinity, clientY: -Infinity }, true);
     }
 
-    // 전역 마우스 이동 및 창 이탈/포커스 해제 감시
     window.addEventListener('mouseenter', checkMouseIgnore);
     window.addEventListener('mousemove', checkMouseIgnore);
-    window.addEventListener('mouseleave', resetPointerState);
-    window.addEventListener('blur', resetPointerState);
+    window.addEventListener('mouseleave', () => {
+      closeKeyboardMenu();
+      checkMouseIgnore({ clientX: -Infinity, clientY: -Infinity }, true);
+    });
+    // 체크리스트 등 다른 창이 포커스를 받아도 커서는 사이드바 위에 남을 수 있다.
+    // 키보드 메뉴만 닫고, 입력 투과는 마지막 포인터 위치에서 다시 계산한다.
+    window.addEventListener('blur', () => {
+      closeKeyboardMenu();
+      checkMouseIgnore(lastPointerPosition, true);
+    });
 
     // 초기 상태 설정
     updateIgnoreMouseEvents(true);

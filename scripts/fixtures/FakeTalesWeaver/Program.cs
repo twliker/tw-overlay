@@ -354,9 +354,10 @@ internal sealed class FixtureForm : Form
             File.WriteAllText(temporaryPath, JsonSerializer.Serialize(payload));
             File.Move(temporaryPath, statusFile, true);
         }
-        catch (IOException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            // 관찰자가 읽는 순간과 겹치면 다음 상태 변경에서 다시 저장한다.
+            // 관찰자가 읽는 순간과 겹치면 Windows는 교체를 IOException 또는 접근 거부로 막는다.
+            // 처리하지 않으면 WinForms 예외 대화상자가 떠 검사가 멈추므로 다음 상태 변경에서 다시 저장한다.
         }
     }
 }

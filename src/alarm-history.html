@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>알림 기록</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-settings.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <link rel="stylesheet" href="assets/settings-tools.css">
+</head>
+<body>
+  <div class="tool-shell history-tool app-shell">
+    <header class="win-header">
+      <div class="win-title-area">
+        <div class="win-icon-box"><i data-lucide="history" aria-hidden="true"></i></div>
+        <div class="win-title-text"><span class="win-title-main">알림 기록</span><span class="win-title-sub">최근 200건까지 표시</span></div>
+      </div>
+      <div class="win-controls">
+        <button type="button" class="win-btn win-close-btn" id="close-tool" aria-label="닫기"><i data-lucide="x" aria-hidden="true"></i></button>
+      </div>
+    </header>
+    <div class="tool-actions history-toolbar">
+      <label class="history-filter">
+        <i data-lucide="list-filter" aria-hidden="true"></i>
+        <select aria-label="알림 종류" id="alarm-log-filter" class="ui-input">
+          <option value="all">전체 알림</option>
+          <option value="boss">필드 보스</option>
+          <option value="custom">커스텀 알림</option>
+          <option value="word">지정 단어</option>
+          <option value="wave">몬스터 웨이브</option>
+          <option value="buff">버프 타이머</option>
+          <option value="etc">기타</option>
+        </select>
+      </label>
+      <div class="ui-actions">
+        <span id="alarm-history-count" class="ui-chip history-total" role="status"></span>
+        <button type="button" id="clear-alarm-history" class="ui-button ui-button-danger ui-button-small" disabled>
+          <i data-lucide="trash-2" aria-hidden="true"></i>전체 삭제
+        </button>
+      </div>
+    </div>
+    <span id="alarm-history-status" class="ui-status history-feedback" role="status"></span>
+    <main class="tool-body custom-scroll" aria-label="알림 목록">
+      <div id="alarm-log-empty" class="ui-inset history-empty" hidden>
+        <span class="tool-symbol"><i data-lucide="bell-off" aria-hidden="true"></i></span>
+        <p id="alarm-empty-message" class="ui-heading"></p>
+        <button type="button" id="alarm-show-all" class="ui-button ui-button-small" hidden>전체 알림 보기</button>
+      </div>
+      <div id="alarm-log-list" class="space-y-2"></div>
+    </main>
+  </div>
+  <script>
+    window.bindEscapeClose();
+    document.getElementById('close-tool').addEventListener('click', () => window.close());
+    const api = window.electronAPI;
+    const filter = document.getElementById('alarm-log-filter');
+    const list = document.getElementById('alarm-log-list');
+    const empty = document.getElementById('alarm-log-empty');
+    const status = document.getElementById('alarm-history-status');
+    const clear = document.getElementById('clear-alarm-history');
+    const count = document.getElementById('alarm-history-count');
+    const emptyMessage = document.getElementById('alarm-empty-message');
+    const showAll = document.getElementById('alarm-show-all');
+    const kinds = {
+      boss: { label: '필드 보스', icon: 'alarm-clock' },
+      custom: { label: '커스텀', icon: 'bell-ring' },
+      word: { label: '지정 단어', icon: 'message-square' },
+      wave: { label: '웨이브', icon: 'waves' },
+      buff: { label: '버프 타이머', icon: 'timer-reset' },
+      etc: { label: '기타', icon: 'bell' },
+    };
+    let logs = [];
+    let hasLogs = false;
+    let request = 0;
+    let clearing = false;
+    const at = value => new Date(value).toLocaleString('ko-KR');
+    function render() {
+      const selected = filter.value;
+      const kindOf = log => Object.hasOwn(kinds, log.type) ? log.type : 'etc';
+      count.textContent = (logs.length === 200 ? '최근 ' : '') + logs.length + '건';
+      clear.disabled = clearing || !hasLogs;
+      list.replaceChildren();
+      empty.hidden = logs.length > 0;
+      emptyMessage.textContent = hasLogs ? '이 종류의 알림 기록이 없습니다.' : '기록된 알림이 없습니다.';
+      showAll.hidden = selected === 'all' || !hasLogs;
+      for (const log of logs) {
+        const kind = kindOf(log);
+        const card = document.createElement('article');
+        card.className = 'history-entry';
+        card.dataset.kind = kind;
+        const symbol = document.createElement('span');
+        symbol.className = 'tool-symbol';
+        const icon = document.createElement('i');
+        icon.setAttribute('data-lucide', kinds[kind].icon);
+        icon.setAttribute('aria-hidden', 'true');
+        symbol.appendChild(icon);
+        const content = document.createElement('div');
+        const heading = document.createElement('div');
+        heading.className = 'history-entry-heading';
+        const type = document.createElement('strong');
+        type.textContent = kinds[kind].label;
+        const time = document.createElement('time');
+        time.className = 'ui-description';
+        time.textContent = at(log.recordedAt ?? log.timestamp);
+        heading.append(type, time);
+        const message = document.createElement('p');
+        message.className = 'history-message';
+        message.textContent = log.message;
+        content.append(heading, message);
+        if (log.deliveryStatus === 'missed-sleep') {
+          const missed = document.createElement('p');
+          missed.className = 'ui-description mt-1';
+          missed.textContent = '절전 중 놓침 · 예정 ' + at(log.scheduledAt ?? log.timestamp);
+          content.appendChild(missed);
+        }
+        card.append(symbol, content);
+        list.appendChild(card);
+      }
+      window.refreshIcons();
+    }
+
+    async function refresh() {
+      const revision = ++request;
+      const type = filter.value === 'all' ? undefined : filter.value;
+      try {
+        const [next, any] = await Promise.all([
+          api.getAlarmLogs(200, type),
+          type ? api.getAlarmLogs(1) : null,
+        ]);
+        if (revision !== request) return;
+        logs = next;
+        hasLogs = (any ?? next).length > 0;
+        if (status.dataset.action === 'load-error') {
+          status.textContent = '';
+          delete status.dataset.action;
+        }
+        render();
+      } catch {
+        if (revision !== request) return;
+        if (!list.childElementCount && empty.hidden) count.textContent = '';
+        status.dataset.action = 'load-error';
+        status.textContent = '알림 기록을 불러오지 못했습니다.';
+      }
+    }
+    function changeFilter() {
+      list.replaceChildren();
+      empty.hidden = true;
+      count.textContent = '조회 중…';
+      void refresh();
+    }
+    filter.addEventListener('change', changeFilter);
+    showAll.addEventListener('click', () => { filter.value = 'all'; changeFilter(); });
+    clear.addEventListener('click', async () => {
+      if (!confirm('모든 알림 기록을 삭제하시겠습니까?')) return;
+      clearing = clear.disabled = true;
+      delete status.dataset.action;
+      try {
+        const result = await api.clearAlarmLogsConfirmed();
+        status.textContent = result ? '기록을 삭제했습니다.' : '기록을 삭제하지 못했습니다.';
+        if (result) await refresh();
+      } catch { status.textContent = '기록을 삭제하지 못했습니다.'; }
+      finally { clearing = false; clear.disabled = !hasLogs; }
+    });
+    api?.onAlarmLogsUpdated(refresh);
+    if (api) void refresh();
+    window.refreshIcons();
+  </script>
+</body>
+</html>

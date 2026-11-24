@@ -198,7 +198,8 @@ function buildEncodingProbe(buffer: Buffer): Buffer {
   ]);
 }
 
-export function detectChatLogEncoding(buffer: Buffer): ChatLogEncoding {
+/** ASCII-only and otherwise inconclusive samples keep the live reader in detection mode. */
+export function probeChatLogEncoding(buffer: Buffer): ChatLogEncoding | undefined {
   if (buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) {
     return 'utf8';
   }
@@ -211,16 +212,23 @@ export function detectChatLogEncoding(buffer: Buffer): ChatLogEncoding {
   const probe = buildEncodingProbe(buffer);
   const eucKrScore = decodingScore(iconv.decode(probe, 'euc-kr'));
   const utf8Score = decodingScore(iconv.decode(probe, 'utf8'));
+  if (utf8Score === eucKrScore) return undefined;
   return utf8Score > eucKrScore ? 'utf8' : 'euc-kr';
 }
 
+export function detectChatLogEncoding(buffer: Buffer): ChatLogEncoding {
+  return probeChatLogEncoding(buffer) ?? 'euc-kr';
+}
+
 /** 원본 로그가 EUC-KR 또는 UTF-8인지 표본을 비교해 안전하게 디코딩합니다. */
-export function decodeChatLogBuffer(buffer: Buffer): { content: string; encoding: ChatLogEncoding; damaged: boolean } {
-  const encoding = detectChatLogEncoding(buffer);
+export function decodeChatLogBuffer(buffer: Buffer) {
+  const detected = probeChatLogEncoding(buffer);
+  const encoding = detected ?? 'euc-kr';
   const content = iconv.decode(buffer, encoding);
   return {
     content,
     encoding,
+    encodingConfirmed: detected !== undefined,
     damaged: content.includes('\uFFFD'),
   };
 }

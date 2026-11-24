@@ -9,6 +9,8 @@ import { renderDiaryExport, validateDiaryRange } from './diaryExport';
 import { captureSharedSettings, parseSettingsShare, shareBaseline, shareChanges, sharedPatch, validateShareGroups } from './settingsShare';
 import type { AppConfig } from '../shared/types';
 import type { DiaryExportSnapshot, FileActionResult, ShareGroup } from '../shared/companionFiles';
+import {resolveDiaryProfileFilter,diaryFilterLabel} from './diaryProfileAccess';
+import type {DiaryProfileFilter} from '../shared/diaryProfiles';
 
 interface Dependencies {
   settingsWindow(): BrowserWindow | null;
@@ -16,7 +18,7 @@ interface Dependencies {
   apply(patch: Partial<AppConfig>): { success: boolean; error?: string };
   dialogs?: Pick<typeof dialog, 'showOpenDialog' | 'showSaveDialog'>;
 }
-interface ShareCandidate { token: string; groups: ShareGroup[]; settings: Partial<AppConfig>; review?: { patch: Partial<AppConfig>; baseline: string }; }
+interface ShareCandidate { token: string; groups: ShareGroup[]; settings: Partial<AppConfig>; review?: { patch: Partial<AppConfig>; baseline: string; profileId?: string }; }
 async function writeFile(file: string, contents: string): Promise<void> {
   const temporary = `${file}.${randomUUID()}.tmp`;
   try { await fs.writeFile(temporary, contents, { encoding: 'utf8', flag: 'wx' }); await fs.rename(temporary, file); }
@@ -29,7 +31,7 @@ async function writeFile(file: string, contents: string): Promise<void> {
 export function registerCompanionFiles(deps: Dependencies): void {
   const dialogs = deps.dialogs || dialog;
   const shares = new Map<number, ShareCandidate>();
-  const diaries = new Map<number, { token: string; snapshot: DiaryExportSnapshot }>();
+  const diaries = new Map<number,{token:string;snapshot:DiaryExportSnapshot;filter:DiaryProfileFilter}>();
   const watched = new WeakSet<WebContents>();
   function watch(sender: WebContents): void {
     if (watched.has(sender)) return;
@@ -83,29 +85,38 @@ export function registerCompanionFiles(deps: Dependencies): void {
     if (groups.some(group => !candidate.groups.includes(group))) throw new Error('파일에 포함된 항목만 선택해 주세요.');
     const current = config.load();
     const patch = sharedPatch(current, candidate.settings, groups);
-    candidate.review = { patch, baseline: shareBaseline(current, patch) };
+    candidate.review = { patch, baseline: shareBaseline(current, patch), profileId: current.activePlayProfileId };
     return { success: true, token: candidate.token, groups, changes: shareChanges(current, patch, groups) };
   });
   handle('settings-share-apply', 'settings', (sender, _parent, token: unknown): FileActionResult => {
     const candidate = shares.get(sender.id);
     if (!candidate || candidate.token !== token || !candidate.review) throw new Error('변경 내용을 먼저 비교해 주세요.');
     if (deps.isDragging()) throw new Error('창 이동을 마친 뒤 적용해 주세요.');
-    if (candidate.review.baseline !== shareBaseline(config.load(), candidate.review.patch)) {
+    const current = config.load();
+    if (candidate.review.profileId !== current.activePlayProfileId) {
+      candidate.review = undefined; throw new Error('프로필이 바뀌었습니다. 변경 내용을 다시 비교해 주세요.');
+    }
+    if (candidate.review.baseline !== shareBaseline(current, candidate.review.patch)) {
       candidate.review = undefined; throw new Error('비교 이후 설정이 바뀌었습니다. 다시 비교해 주세요.');
     }
     const result = deps.apply(candidate.review.patch);
     if (!result.success) throw new Error('설정을 저장하지 못했습니다. 다시 시도해 주세요.');
     shares.delete(sender.id); return { success: true };
   });
-  handle('diary-export-preview', 'diary', (sender, _parent, start: unknown, end: unknown) => {
+  handle('diary-export-preview','diary',(sender,_parent,start:unknown,end:unknown,rawFilter:unknown) => {
+    diaries.delete(sender.id);
     validateDiaryRange(start, end);
-    const snapshot = getDiaryExportSnapshot(start, end as string, config.loadFields(['lootKeywords']).lootKeywords || []);
-    const token = randomUUID(); diaries.set(sender.id, { token, snapshot });
-    return { success: true, token, count: snapshot.rows.length, totalSeed: snapshot.totalSeed };
+    const filter=resolveDiaryProfileFilter(rawFilter);
+    const snapshot=getDiaryExportSnapshot(start,end as string,config.loadFields(['lootKeywords']).lootKeywords || [],filter);
+    const profileLabel=diaryFilterLabel(filter);
+    if (profileLabel) snapshot.profileLabel=profileLabel;
+    const token=randomUUID();diaries.set(sender.id,{token,snapshot,filter});
+    return {success:true,token,count:snapshot.rows.length,totalSeed:snapshot.totalSeed,...(snapshot.legacyGoldReviewSeed ? {legacyGoldReviewSeed:snapshot.legacyGoldReviewSeed} : {}),...(profileLabel ? {profileLabel} : {})};
   });
-  handle('diary-export-save', 'diary', async (sender, parent, token: unknown) => {
+  handle('diary-export-save','diary',async (sender,parent,token:unknown,rawFilter:unknown) => {
     const candidate = diaries.get(sender.id);
     if (!candidate || candidate.token !== token) throw new Error('기간의 기록을 먼저 확인해 주세요.');
+    if (JSON.stringify(resolveDiaryProfileFilter(rawFilter))!==JSON.stringify(candidate.filter)) throw new Error('조회 프로필이 변경됐습니다. 기록을 다시 확인해 주세요.');
     const { snapshot } = candidate;
     const chosen = await dialogs.showSaveDialog(parent, { title: '모험 일지 저장', defaultPath: `모험일지-${snapshot.start}-${snapshot.end}.html`, filters: [{ name: '브라우저로 읽는 모험 일지', extensions: ['html'] }] });
     if (chosen.canceled || !chosen.filePath || sender.isDestroyed()) return { success: false, canceled: true };

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>고정 메모</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/profile-settings.css">
+  <script src="assets/tailwind.min.js"></script>
+  <script src="assets/lucide.min.js"></script>
+  <script src="assets/ui-utils.js"></script>
+  <script src="renderer/profile-settings-page.js"></script>
+  <link rel="stylesheet" href="assets/settings-tools.css">
+</head>
+<body>
+  <div class="tool-shell memo-tool app-shell">
+    <header class="win-header">
+      <div class="win-title-area">
+        <div class="win-icon-box"><i data-lucide="sticky-note" aria-hidden="true"></i></div>
+        <div class="win-title-text"><span class="win-title-main">고정 메모</span><span class="win-title-sub">게임 화면에 표시할 메모</span></div>
+      </div>
+      <div class="win-controls">
+        <button type="button" class="win-btn win-close-btn" id="close-tool" aria-label="닫기"><i data-lucide="x" aria-hidden="true"></i></button>
+      </div>
+    </header>
+    <main class="tool-body custom-scroll">
+      <section class="memo-layout" aria-label="고정 메모 편집">
+        <div class="ui-card memo-card">
+          <div class="ui-card-header mb-3">
+            <h2 class="ui-heading"><span class="tool-symbol"><i data-lucide="pen-line" aria-hidden="true"></i></span><label for="pinned-note-text">메모 내용</label></h2>
+            <label class="ui-toggle-row">
+              <span class="text-xs">게임 화면에 고정</span>
+              <span class="ui-switch"><input type="checkbox" id="pinned-note-enabled"><span class="ui-switch-track"></span></span>
+            </label>
+          </div>
+          <textarea id="pinned-note-text" maxlength="1000" rows="2" class="ui-input memo-field" placeholder="오늘 목표, 도핑 체크, 거래할 물품 등을 적어 보세요."></textarea>
+          <span id="memo-length" class="ui-description memo-count">0 / 1,000자</span>
+        </div>
+        <div class="ui-card memo-card space-y-3">
+          <h2 class="ui-heading"><span class="tool-symbol"><i data-lucide="monitor" aria-hidden="true"></i></span>게임 화면 미리보기</h2>
+          <div class="memo-display-grid">
+            <div class="memo-preview-stage">
+              <div id="pinned-note-preview" class="ui-hud-card ui-note-preview custom-scroll whitespace-pre-wrap break-words" tabindex="0" role="region" aria-label="메모 화면 예시"></div>
+            </div>
+            <div class="memo-appearance">
+            <label class="ui-field">글자 크기<select id="pinned-note-font-size" class="ui-input"><option value="12">12px</option><option value="13">13px</option><option value="14">14px</option><option value="15">15px</option><option value="16">16px</option><option value="17">17px</option><option value="18">18px</option><option value="19">19px</option><option value="20">20px</option><option value="21">21px</option><option value="22">22px</option><option value="23">23px</option><option value="24">24px</option><option value="25">25px</option><option value="26">26px</option><option value="27">27px</option><option value="28">28px</option></select></label>
+            <label class="ui-field">글자 색<input type="color" id="pinned-note-color" value="#ffffff" class="ui-color-input"></label>
+              <label class="ui-field"><span>배경 표시</span><span class="ui-switch"><input type="checkbox" id="pinned-note-background" checked><span class="ui-switch-track"></span></span></label>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="tool-actions memo-footer">
+      <button type="button" id="open-hud-position" class="ui-button"><i data-lucide="move" aria-hidden="true"></i>HUD 위치 설정</button>
+      <span id="memo-status" class="ui-status" role="status"></span>
+      <button type="button" id="save-memo" class="ui-button ui-button-primary"><i data-lucide="save" aria-hidden="true"></i>메모 저장</button>
+    </footer>
+    <script src="renderer/settings/companion-controls.js"></script>
+  </div>
+  <script>
+    let closeConfirmed = false;
+    const closeMemo = () => {
+      const state = window.settingsProfileTransition?.status();
+      if (state?.busy) return;
+      if (state?.dirty && !window.confirm('저장하지 않은 메모 변경을 버리고 닫을까요?')) return;
+      closeConfirmed = true;
+      window.close();
+    };
+    document.getElementById('close-tool').addEventListener('click', closeMemo);
+    window.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.repeat) return;
+      queueMicrotask(() => { if (!event.defaultPrevented) closeMemo(); });
+    });
+    const memoInput = document.getElementById('pinned-note-text');
+    const updateLength = () => {
+      document.getElementById('memo-length').textContent =
+        memoInput.value.length.toLocaleString('ko-KR') + ' / ' + memoInput.maxLength.toLocaleString('ko-KR') + '자';
+    };
+    memoInput.addEventListener('input', updateLength);
+    const memoFields = () => window.settingsCompanion.collect().settings;
+    window.profileSettingsPage.init({
+      capture: memoFields,
+      apply(config) { window.settingsCompanion.bind(config); updateLength(); },
+      commonNotice: '메모 본문은 현재 프로필에 저장합니다. 표시와 글자 모양은 공통 설정입니다.',
+    });
+    document.getElementById('open-hud-position').addEventListener('click', () => window.electronAPI.toggleSettings('hud-position'));
+    const saveButton = document.getElementById('save-memo');
+    const status = document.getElementById('memo-status');
+    window.addEventListener('beforeunload', event => {
+      const draft = window.settingsProfileTransition?.status();
+      if (closeConfirmed || (!draft?.dirty && !draft?.busy)) return;
+      status.textContent = '메모를 저장하거나 창의 닫기 버튼으로 변경을 취소해 주세요.';
+      event.preventDefault();
+      event.returnValue = false;
+    });
+    let editRevision = 0;
+    document.addEventListener('input', () => { editRevision++; status.textContent = ''; });
+    saveButton.addEventListener('click', async () => {
+      const isCurrent = window.profileSettingsPage.guard();
+      const revision = editRevision;
+      const patch = memoFields();
+      saveButton.disabled = true;
+      status.textContent = '저장 중…';
+      try {
+        const saved = window.profileSettingsPage.enabled()
+          ? await window.profileSettingsPage.write(patch)
+          : (await window.electronAPI.applySettingsConfirmed(patch))?.success;
+        if (isCurrent() && revision === editRevision) status.textContent = saved ? '저장했습니다.' : '저장하지 못했습니다.';
+      } catch {
+        if (isCurrent() && revision === editRevision) status.textContent = '저장하지 못했습니다.';
+      } finally {
+        saveButton.disabled = false;
+      }
+    });
+    window.refreshIcons();
+  </script>
+</body>
+</html>

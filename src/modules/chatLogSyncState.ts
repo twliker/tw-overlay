@@ -13,7 +13,7 @@ import {
 
 const STATE_FILE_NAME = 'chat-log-sync-state.json';
 const STATE_SCHEMA_VERSION = 2;
-// 모험일지 보관 기간의 최대값(3,650일)과 당일 파일을 모두 보존할 수 있는 안전 상한이다.
+// 최근 파일의 복원 체크포인트를 제한한다. 영구 보관에서도 이전 파일의 일지 귀속·중복 방지는 DB에 남는다.
 const MAX_STATE_FILES = 4_096;
 const MAX_FINGERPRINT_BYTES = 4 * 1024;
 const ENCODING_SAMPLE_BYTES = 32 * 1024;
@@ -127,10 +127,9 @@ export function getChatLogSyncStateKey(filePath: string): string {
   return path.resolve(filePath).replace(/\\/g, '/').toLowerCase();
 }
 
-export function loadChatLogSyncStateAtPath(userDataPath: string): ChatLogSyncLocalState {
-  const statePath = path.join(userDataPath, STATE_FILE_NAME);
+export function normalizeChatLogSyncState(value:unknown):ChatLogSyncLocalState {
   try {
-    const parsed = JSON.parse(fs.readFileSync(statePath, 'utf8')) as Partial<ChatLogSyncLocalState>;
+    const parsed = value as Partial<ChatLogSyncLocalState>;
     if (parsed.schemaVersion !== STATE_SCHEMA_VERSION || !parsed.files || typeof parsed.files !== 'object') {
       throw new Error('unsupported state');
     }
@@ -160,6 +159,11 @@ export function loadChatLogSyncStateAtPath(userDataPath: string): ChatLogSyncLoc
   } catch {
     return { schemaVersion: STATE_SCHEMA_VERSION, files: {} };
   }
+}
+
+export function loadChatLogSyncStateAtPath(userDataPath:string):ChatLogSyncLocalState {
+  try {return normalizeChatLogSyncState(JSON.parse(fs.readFileSync(path.join(userDataPath,STATE_FILE_NAME),'utf8')));}
+  catch {return normalizeChatLogSyncState(null);}
 }
 
 export function saveChatLogSyncStateAtPath(userDataPath: string, state: ChatLogSyncLocalState): void {

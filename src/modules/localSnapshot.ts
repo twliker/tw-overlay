@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isDeepStrictEqual } from 'util';
 import { RENDERER_STORAGE_FILE, RendererStorageSnapshot, validateRendererStorageSnapshot } from '../shared/rendererStorage';
 
 export interface SnapshotEntry {
@@ -26,22 +27,38 @@ export interface SnapshotOptions {
   includeCredentials?: boolean;
   includeCaches?: boolean;
   rendererStorage?: RendererStorageSnapshot;
+  /** Disposable SQLite online backup on the same volume. Moved into the snapshot. */
+  profileDatabaseSnapshot?: string;
   /** destinationRoot가 포함되어야 하는 신뢰 경계. 기본값은 sourceRoot. */
   allowedDestinationRoot?: string;
+  /**
+   * 일지 엘소/금화 복구 journal도 보관한다. 프로필 이전 전 스냅샷 전용이다(수동 되돌리기에서 DB에 아직
+   * 반영되지 않은 금액을 잃지 않게 함). ZIP 백업/복원 허용 목록에는 넣지 않는다: 내보내기·복원 전에는
+   * flush로 journal을 DB에 반영하므로 ZIP에 담을 필요가 없고, 복원 대상 파일을 넓히지 않는다.
+   */
+  includeRecoveryJournals?: boolean;
 }
+
+/** diaryDb.getElsoRecoveryJournalPath / getGoldPouchRecoveryJournalPath의 파일 이름(v3.2.2와 동일). */
+export const DIARY_RECOVERY_JOURNAL_ENTRIES = ['elso-recovery.json', 'gold-pouch-seed-recovery.json'] as const;
 
 const CORE_ENTRIES = [
   'config.json',
   'diary.db',
   'diary.db-wal',
   'diary.db-shm',
+  'app-data.db',
+  'app-data.db-wal',
+  'app-data.db-shm',
+  'app-data-config-write.json',
   'custom_sounds',
   'custom_fonts'
 ];
 
 const CREDENTIAL_ENTRIES = ['google_auth.enc', 'google_user.json'];
 const CACHE_ENTRIES = ['eta_ranking_cache.json', 'analytics.json'];
-const RESTORABLE_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm', RENDERER_STORAGE_FILE]);
+const RESTORABLE_FILES = new Set(['config.json', 'diary.db', 'diary.db-wal', 'diary.db-shm',
+  'app-data.db','app-data.db-wal','app-data.db-shm','app-data-config-write.json',RENDERER_STORAGE_FILE]);
 
 function ensureRelativePath(relativePath: string): string {
   const normalized = path.normalize(relativePath);
@@ -142,6 +159,68 @@ function writeManifestAtomic(destinationRoot: string, manifest: SnapshotManifest
   fs.renameSync(tempPath, manifestPath);
 }
 
+function requestedSnapshotEntries(resolvedSource: string, options: SnapshotOptions): string[] {
+  const hasProfiles=!!options.profileDatabaseSnapshot || fs.existsSync(path.join(resolvedSource,'app-data.db'));
+  return [
+    ...CORE_ENTRIES.filter(entry => (!hasProfiles || !entry.startsWith('diary.db'))
+      && (!options.profileDatabaseSnapshot || !['app-data.db-wal','app-data.db-shm','app-data-config-write.json'].includes(entry))),
+    ...(options.includeRecoveryJournals ? DIARY_RECOVERY_JOURNAL_ENTRIES : []),
+    ...(options.includeCredentials ? CREDENTIAL_ENTRIES : []),
+    ...(options.includeCaches ? CACHE_ENTRIES : [])
+  ];
+}
+
+function serializeRendererStorage(snapshot: RendererStorageSnapshot): string {
+  return JSON.stringify(validateRendererStorageSnapshot(snapshot));
+}
+
+/**
+ * 기능 계약 — 같은 원본의 검증된 스냅샷 재사용.
+ * candidates 중 manifest 무결성 검증을 통과하고, 같은 reason이며, 지금 createUserDataSnapshot(sourceRoot,
+ * …, options)를 실행했을 때 담길 파일 집합(상대 경로·크기·SHA-256)과 렌더러 저장소 값이 정확히 같은 첫
+ * 스냅샷을 반환한다. 없으면 undefined. 앱 버전·생성 시각·missing 목록은 내용이 아니므로 비교하지 않는다.
+ * 실패가 반복되는 부팅(프로필 이전 전 스냅샷)이 같은 원본의 사본을 매번 늘리지 않게 하는 용도이며,
+ * 원본이 조금이라도 다르면 새 스냅샷을 만들도록 undefined를 반환한다. 손상된 후보는 건너뛴다(삭제 안 함).
+ * 회귀: check-profile-backup.ts(재사용 판정·반복 실패 부팅).
+ */
+export function findEquivalentUserDataSnapshot(
+  sourceRoot: string,
+  candidates: readonly string[],
+  options: SnapshotOptions
+): string | undefined {
+  if (options.profileDatabaseSnapshot) throw new Error('임시 DB 사본을 옮기는 스냅샷은 재사용할 수 없습니다.');
+  const resolvedSource = path.resolve(sourceRoot);
+  const expected = new Map<string, { size: number; sha256: string }>();
+  for (const relativeRoot of requestedSnapshotEntries(resolvedSource, options)) {
+    if (!fs.existsSync(path.join(resolvedSource, ensureRelativePath(relativeRoot)))) continue;
+    for (const relativeFile of listFilesRecursive(resolvedSource, relativeRoot)) {
+      const sourcePath = path.join(resolvedSource, relativeFile);
+      expected.set(relativeFile.split(path.sep).join('/'), { size: fs.statSync(sourcePath).size, sha256: hashFile(sourcePath) });
+    }
+  }
+  const renderer = options.rendererStorage ? validateRendererStorageSnapshot(options.rendererStorage) : undefined;
+  for (const candidate of candidates) {
+    try {
+      const manifest = verifyUserDataSnapshot(candidate);
+      if (manifest.reason !== options.reason) continue;
+      const files = manifest.entries.filter(entry => entry.relativePath !== RENDERER_STORAGE_FILE);
+      if (files.length !== expected.size || files.some(entry => {
+        const source = expected.get(entry.relativePath);
+        return !source || source.size !== entry.size || source.sha256.toLowerCase() !== entry.sha256.toLowerCase();
+      })) continue;
+      const hasRenderer = manifest.entries.some(entry => entry.relativePath === RENDERER_STORAGE_FILE);
+      if (hasRenderer !== !!renderer) continue;
+      // 렌더러 값은 키 순서가 달라도 같은 내용이면 같은 백업이다.
+      if (renderer && !isDeepStrictEqual(
+        validateRendererStorageSnapshot(JSON.parse(fs.readFileSync(path.join(candidate, RENDERER_STORAGE_FILE), 'utf8'))), renderer)) continue;
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
 /**
  * config와 SQLite DB(+WAL/SHM)를 같은 시점의 검증 가능한 파일 집합으로 복사한다.
  * 호출자는 DB가 열려 있으면 먼저 메모리 flush와 WAL checkpoint를 수행해야 한다.
@@ -169,15 +248,18 @@ export function createUserDataSnapshot(
   }
   fs.mkdirSync(resolvedDestination, { recursive: true });
 
-  const requestedEntries = [
-    ...CORE_ENTRIES,
-    ...(options.includeCredentials ? CREDENTIAL_ENTRIES : []),
-    ...(options.includeCaches ? CACHE_ENTRIES : [])
-  ];
+  const requestedEntries = requestedSnapshotEntries(resolvedSource, options);
   const entries: SnapshotEntry[] = [];
   const missing: string[] = [];
 
   for (const relativeRoot of requestedEntries) {
+    if (relativeRoot==='app-data.db' && options.profileDatabaseSnapshot) {
+      const databasePath=path.join(resolvedDestination,relativeRoot);
+      fs.renameSync(options.profileDatabaseSnapshot,databasePath);
+      flushFile(databasePath);
+      entries.push({relativePath:relativeRoot,kind:'file',size:fs.statSync(databasePath).size,sha256:hashFile(databasePath)});
+      continue;
+    }
     const sourcePath = path.join(resolvedSource, ensureRelativePath(relativeRoot));
     if (!fs.existsSync(sourcePath)) {
       missing.push(relativeRoot);
@@ -191,7 +273,7 @@ export function createUserDataSnapshot(
   }
 
   if (options.rendererStorage) {
-    const serialized = JSON.stringify(validateRendererStorageSnapshot(options.rendererStorage));
+    const serialized = serializeRendererStorage(options.rendererStorage);
     const filePath = path.join(resolvedDestination, RENDERER_STORAGE_FILE);
     fs.writeFileSync(filePath, serialized, { flag: 'wx', mode: 0o600 });
     flushFile(filePath);
