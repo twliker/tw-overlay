@@ -38,6 +38,7 @@ function line(message:string):string {
 const seed=(amount:number)=>line(`콘텐츠 클리어 보상으로 ${amount} SEED를 획득했습니다.`);
 const xp=(amount:number)=>line(`경험치가 ${amount.toLocaleString('en-US')} 올랐습니다.`);
 const BEFORE_SELECTION=[33_101,33_102],LIVE=[33_201,33_202,33_203],AFTER_UPGRADE=33_301;
+let selectionWindows=0;
 
 async function start(buildRoot:string) {
   const built=(name:string)=>require(path.join(buildRoot,'dist/modules',name+'.js'));
@@ -45,7 +46,7 @@ async function start(buildRoot:string) {
   assert.equal(config.saveConfirmed({chatLogPath:logs,userServer:7,analyticsEnabled:false}),true);
   const application=built('profileApplication');
   const clock=new (built('profileClock').ProfileClock)(async()=>{throw new Error('offline upgrade fixture');});
-  const controller=await application.startProfileApplication(()=>{},clock);
+  const controller=await application.startProfileApplication(()=>{selectionWindows++;},clock);
   built('diaryDb').initDb();
   built('contentsChecker').init();
   built('chatLogProcessor').chatLogProcessor.start();
@@ -87,8 +88,11 @@ async function upgrade():Promise<void> {
   const resolvedRows=()=>store.database.prepare("SELECT COUNT(*) n FROM pending_profile_events WHERE resolved_at IS NOT NULL AND (event_id GLOB 'live-line:*' OR event_id GLOB 'live:*')").get().n;
   assert.equal(resolvedRows(),resolvedLive,'열기만 해서는 원문을 지우지 않는다');
   assert.ok(store.database.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_log_ranges_end'").get(),'v3.3.5 업그레이드: 구간 끝 인덱스');
+  // v3.3.5 사용자의 하나뿐인 프로필(이름·서버 있음)은 게임을 켜면 선택창 없이 자동 선택한다.
+  assert.equal(controller.runtime.service.status().selectionRequired,true,'새 실행은 선택 대기로 시작한다');
   await controller.runtime.onGameState('running');
-  assert.equal((await controller.runtime.service.select(profile,controller.runtime.replay)).success,true);
+  await until(()=>{const status=controller.runtime.service.status();return !status.selectionRequired && status.activeProfileId===profile && !status.busy;},'v3.3.5 단일 프로필 자동 선택');
+  assert.equal(selectionWindows,0,'하나뿐인 프로필은 선택창을 열지 않는다');
   // 1분 압축(체크포인트 포함): 완료한 실시간 줄 원문을 처리 구간으로 바꾸고 지운다.
   application.checkpointProfileApplication(true);application.checkpointProfileApplication(true);
   assert.equal(resolvedRows(),0,'완료한 v3.3.5 대기 원문은 처리 구간으로 바뀌고 지워진다');

@@ -198,8 +198,9 @@ async function recover():Promise<void> {
   const lost=countAmounts(store);
   for (const amount of AMOUNTS.slice(0,10)) assert.equal(lost[amount].recorded,1,`${amount}: 정전 전에 commit된 기록은 남는다`);
   for (const amount of AMOUNTS.slice(10)) assert.equal(lost[amount].recorded+lost[amount].pending,0,`${amount}: 정전 뒤 commit은 사라졌다(검사 전제)`);
+  // 하나뿐인 프로필(이름·서버 있음)은 게임을 켜면 자동 선택된다(check-profile-auto-select.ts).
   await controller.runtime.onGameState('running');
-  assert.equal((await controller.runtime.service.select(profile,controller.runtime.replay)).success,true);
+  await until(()=>{const status=controller.runtime.service.status();return !status.selectionRequired && status.activeProfileId===profile && !status.busy;},'재시작 자동 선택');
   live.start();
   const total=(amount:number)=>{const value=countAmounts(store)[amount];return value.recorded+value.pending;};
   await until(()=>AMOUNTS.every(amount=>total(amount)>=1),'원본 로그에서 다시 기록');

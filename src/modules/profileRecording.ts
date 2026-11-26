@@ -24,6 +24,7 @@ import {isProfileChecklistPage} from './profileChecklistIpc';
 import {isProfileToolPage} from './profileToolsIpc';
 import {refreshProfileStopwatch,assertStopwatchProfileDeletable,clearProfileStopwatch} from './profileStopwatch';
 import {publishEntryWindows} from './bossNotifier';
+import {assertProfileName,isProfileServer} from '../shared/playProfiles';
 
 interface RuntimeSnapshot {
   version:1;
@@ -167,7 +168,19 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
     }
     return replayProfileParserEvent(payload,eventId,pendingAssignment);
   };
-  const lifecycle=new ProfileGameLifecycle(service,options.openSelection);
+  /** 프로필이 하나뿐이고 이름·서버가 있으면 선택창 없이 그 프로필을 쓴다(신규·기존 사용자 모두). 선택 전 기록도 그 프로필에 배정된다. */
+  const autoSelect=():Promise<boolean> | undefined => {
+    const profiles=store.list();
+    if (profiles.length!==1) return;
+    const only=profiles[0];
+    try {assertProfileName(only.name);} catch {return;}
+    if (!isProfileServer(only.userServer)) return;
+    return service.select(only.id,replay).then(result=>{
+      if (!result.success) log(`[PROFILE] 하나뿐인 프로필 자동 선택 실패, 선택창을 엽니다: ${result.error}`);
+      return result.success;
+    });
+  };
+  const lifecycle=new ProfileGameLifecycle(service,options.openSelection,autoSelect);
   const observeGameState=(state:ProfileGameState,processId?:number):void | Promise<void> => {
     const ending=lifecycle.observe(state,processId);
     if (ending) return ending.then(()=>chatLogManager.resumeDeferredLiveRead());

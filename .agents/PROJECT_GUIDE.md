@@ -6,7 +6,7 @@
 
 프로필 숙제 기본값은 `profileStartup`이 `contentsChecker.loadDefaultItems()`로 검증한 실제 배포 목록을 주입합니다. `DEFAULT_CONFIG.contentsCheckerItems`는 빈 초기값이므로 새 프로필 기본 목록으로 직접 사용하지 않습니다. `ApplicationData`는 시작·백업 재연결·Google 수신 시 누락 기본 항목만 원자적으로 보충하고 기존 정의·상태·순서와 명시적 삭제를 보존합니다. 실제 목록/부팅/별도 재시작 검사는 `test:profile-homework-defaults`, 실제 화면 검사는 `test:profile-checklist`입니다.
 
-설정 가져오기는 숙제 정의/커스텀/숨김/정렬/N/A와 도구 입력도 복사하고 완료 횟수·시각은 제외합니다. 새 프로필에서 제외한 기본 숙제는 명시적 동기화 삭제 표식을 함께 남깁니다. `ProfileGameLifecycle`은 최소화/숨김 시작 시 기록 세션만 준비하고 자동 선택창은 게임이 보일 때까지 보류합니다. 숨김 중 직접 선택한 뒤 복귀해도 다시 열지 않습니다.
+설정 가져오기는 숙제 정의/커스텀/숨김/정렬/N/A와 도구 입력도 복사하고 완료 횟수·시각은 제외합니다. 새 프로필에서 제외한 기본 숙제는 명시적 동기화 삭제 표식을 함께 남깁니다. `ProfileGameLifecycle`은 최소화/숨김 시작 시 기록 세션만 준비하고 자동 선택창은 게임이 보일 때까지 보류합니다. 숨김 중 직접 선택한 뒤 복귀해도 다시 열지 않습니다. 프로필이 하나뿐이고 이름·서버가 있으면 게임이 켜질 때(최소화 시작 포함) 선택창 없이 그 프로필을 자동 선택합니다. 플레이 중 Google 적용으로 생긴 다시 선택 요청은 자동 선택하지 않고 선택창을 엽니다. 신규 설치 첫 실행처럼 이름·서버가 비었거나 프로필이 둘 이상이면, 또는 자동 선택이 실패하면 선택창을 엽니다(회귀: `test:profile-auto-select`).
 
 프로필 선택/관리 창은 `windowManager.resolveProfileWindowPosition`이 최초 표시 전에 최신 게임 좌표를 DIP로 변환해 중앙에 놓습니다. 저장/고정 위치보다 열기 시 중앙이 우선이며, 직접 이동 후에는 기존 위치 정책을 사용합니다. 위치 조회 중 전체 숨김/닫기와 늦은 응답은 보존합니다. 검사: `test:profile-placement`, `test:profile-windows` 및 직접 영향을 받는 창 배치·가시성 검사. 검증 내역: `.agents/development/profile-window-placement-2026-11-04.md`.
 
