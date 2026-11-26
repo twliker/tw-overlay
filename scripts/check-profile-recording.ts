@@ -555,6 +555,63 @@ async function run():Promise<void> {
     assert.equal(canControlProfileXp(nextOwner,true),true);
     assert.equal(store.eventRecordState(pending.eventId).profileId,originalOwner);
     assert.equal(countSeed(),1);
+    // 읽기 한 번에 들어온 기록 줄들(경험치·SEED)은 대기 원본과 반영을 한 commit으로 확정하고, 그 commit은
+    // flush 없이(synchronous=NORMAL) 끝낸다. 줄마다 두 번씩 commit하면 사냥 중 디스크 쓰기가 v3.2.2의 약 20배였다
+    // (benchmark-runtime-resources.ts). 읽기가 끝나면 다른 저장을 위해 FULL로 돌아온다.
+    {
+      const database=store.database,originalTransaction=database.transaction;
+      const changes=()=>database.prepare('SELECT total_changes() AS n').get().n as number;
+      const commits:Array<{synchronous:number}>=[];
+      database.transaction=function(fn:(...args:unknown[])=>unknown) {
+        const transaction=originalTransaction.call(database,fn);
+        return Object.assign((...args:unknown[])=>{
+          const top=!database.inTransaction,synchronous=database.pragma('synchronous',{simple:true}) as number,before=changes();
+          const result=transaction(...args);
+          if (top && changes()>before) commits.push({synchronous});
+          return result;
+        },transaction);
+      };
+      const xpBefore=xp.getStats().total,seedRows=()=>store.database.prepare(
+        'SELECT COUNT(*) n FROM activity_logs WHERE amount IN (71301,71302) AND profile_id=?').get(nextOwner).n;
+      try {
+        fs.appendFileSync(liveFile,['경험치가 3 올랐습니다.','콘텐츠 클리어 보상으로 71301 SEED를 획득했습니다.',
+          '경험치가 4 올랐습니다.','콘텐츠 클리어 보상으로 71302 SEED를 획득했습니다.'].map(tailLine).join(''));
+        live._tail.refresh();
+      } finally {database.transaction=originalTransaction;}
+      assert.equal(seedRows(),2,'한 번의 읽기에서 SEED 두 줄을 모두 반영한다');
+      assert.equal(xp.getStats().total,xpBefore+7,'같은 읽기의 경험치 두 줄을 commit 뒤 HUD에 반영한다');
+      assert.equal(commits.length,1,`기록 네 줄은 한 commit으로 저장한다: ${JSON.stringify(commits)}`);
+      assert.equal(commits[0].synchronous,1,'실시간 읽기의 commit은 synchronous=NORMAL이다');
+      assert.equal(database.pragma('synchronous',{simple:true}),2,'읽기가 끝나면 synchronous=FULL로 돌아온다');
+      assert.equal(store.pending().filter((entry:any)=>[71301,71302].includes(entry.payload.data?.amount)).length,0);
+    }
+    // 바로 반영(대기 원문 없음)의 예외 두 가지. 실제 파서로 만든 기록을 같은 경로(acceptLiveLines)에 넣는다.
+    {
+      const {collectLiveProfileLine}=built('modules/profileParserEvents');
+      const lineKey=(n:number)=>n.toString(16).padStart(64,'0');
+      const collect=(message:string,start:number,key:string)=>{
+        const line=tailLine(message).replace(/\r?\n$/,'');
+        return collectLiveProfileLine(()=>withProfileLogSource({fingerprint:'direct-fixture',start,end:start+100,lineKey:key},()=>parser.parseLine(line),line));
+      };
+      const rows=(amount:number)=>store.database.prepare('SELECT COUNT(*) n FROM activity_logs WHERE amount=?').get(amount).n;
+      const span=(start:number,end:number)=>({fingerprint:'direct-fixture',logDate:date,start,end});
+      // 1) 같은 줄이 한 묶음에 두 번 들어와도(정규화 재시도) 한 번만 반영한다. 대기 행이 없어 이벤트 ID로 걸러지지 않는다.
+      const twice=collect('콘텐츠 클리어 보상으로 71401 SEED를 획득했습니다.',0,lineKey(71401));
+      assert.equal(twice.length,1);
+      assignService.acceptLiveLines([twice,twice],assignReplay,span(0,100));
+      assert.equal(rows(71401),1,'한 묶음의 같은 줄은 한 번만 반영한다');
+      assert.equal(store.appliedRangeCovers('direct-fixture',0),true);
+      assert.equal(store.pending().filter((entry:any)=>entry.payload.data?.amount===71401).length,0);
+      // 2) 다른 프로필에 이미 귀속된 줄(과거 복원 등)은 바로 반영하지 않고 대기 경로로 처리해 이 프로필의 범위에 넣지 않는다.
+      store.database.prepare('INSERT INTO profile_log_line_owners VALUES(?,?,?,0)').run(Buffer.from(lineKey(71402),'hex'),date,originalOwner);
+      const owned=collect('콘텐츠 클리어 보상으로 71402 SEED를 획득했습니다.',200,lineKey(71402));
+      assignService.acceptLiveLines([owned],assignReplay,span(100,400));
+      assert.equal(rows(71402),0,'다른 프로필 귀속 줄은 이 프로필에 기록하지 않는다');
+      assert.equal(store.appliedRangeCovers('direct-fixture',200),false,'그 줄은 이 프로필의 읽은 범위에서 빠진다');
+      assert.equal(store.appliedRangeCovers('direct-fixture',150),true,'앞뒤 채팅 구간은 범위에 남는다');
+      assert.equal(store.appliedRangeCovers('direct-fixture',299),false);assert.equal(store.appliedRangeCovers('direct-fixture',350),true);
+      assert.equal(store.eventRecordState(owned[0].eventId)?.resolved,true,'대기 경로로 완료 처리해 다시 읽어도 반복하지 않는다');
+    }
     // A row written after the saved read boundary is replayed as unassigned.
     live.stop();
     fs.appendFileSync(liveFile,tailLine('콘텐츠 클리어 보상으로 71235 SEED를 획득했습니다.'));

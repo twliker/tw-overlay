@@ -37,9 +37,9 @@ import {
 } from './windowMessaging';
 import type { AppConfig, ChatChannel, ChatItem, FocusedChatState, ChatParserEventMap } from '../shared/types';
 import { showSupportedDesktopNotification } from './desktopNotification';
-import { formatLootDiaryContent, getGoldPouchSeedAmount, parseElsoMessage } from './itemAcquisition';
+import { formatLootDiaryContent, getGoldPouchSeedAmount, lootItemRecord, parseElsoMessage } from './itemAcquisition';
 import { normalizeNotificationKeyword, normalizeNotificationKeywords } from '../shared/keywordSanitizer';
-import { isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
+import { matchesRegisteredLoot } from '../shared/lootPolicy';
 export { parseElsoMessage };
 const { COLORS: CHAT_COLORS, getSystemColorGroup, isMessageBlacklisted, resolveOverlayCustomTab } = require('../shared/chatChannels') as ChatChannelConstants;
 
@@ -627,9 +627,8 @@ class ChatLogProcessor {
       // 사용자의 기존 설정에 lootKeywords가 없더라도 모험일지와 오늘의 요약에는 남아야
       // 하므로 항상 기록합니다. 다만 기존 UX대로 일반 득템 데스크톱 알림은 띄우지 않습니다.
       // 수동·자동 교환은 이 ITEM_LOOTED 경로가 아니라 아래 XP_CHANGED 경로가 담당합니다.
-      const isAlwaysTrackedItem = isAlwaysTrackedLoot(data.itemName);
-      const shouldRecordItem = isAlwaysTrackedItem || matchesRegisteredLoot(keywords, data.itemName);
-      const recordLoot = data.isOwn && shouldRecordItem && !data.itemName.includes('마정석') && !data.message.includes('마정석');
+      // 줄 귀속 판단(profileParserEvents, recordsLootLine)과 같은 조건이다. 바꿀 때 함께 바꾼다.
+      const {alwaysTracked: isAlwaysTrackedItem, record: recordLoot} = lootItemRecord(data, keywords);
       if (recordLoot) {
           const timeOnly = data.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
           const diaryContent = formatLootDiaryContent(data.itemName);

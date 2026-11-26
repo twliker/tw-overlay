@@ -46,6 +46,9 @@ export function prepareProfileLogSource(filePath:string,date:string):string | un
   if (!info.snapshotSize) return;
   const value=createDurableFileState(filePath,filePath,date,info.fingerprint,'live',info.fingerprintBytes,info.snapshotSize);
   db.prepare('INSERT INTO profile_log_sources VALUES(?,?) ON CONFLICT(file_key) DO UPDATE SET state_json=excluded.state_json').run(key,JSON.stringify(value));
+  // 처리 구간(log_ranges)이 참조하는 원본 파일 행. 내용 키를 아직 만들 수 없으면(빈 새 파일) 첫 기록 때 등록한다.
+  runtime.service.store.registerLogFile(info.fingerprint,filePath,date,false);
+  runtime.service.store.validateLogRanges(info.fingerprint,filePath);
   return info.fingerprint;
 }
 

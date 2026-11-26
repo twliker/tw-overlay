@@ -109,12 +109,19 @@ function initializeProfileDays():void {
       CREATE INDEX IF NOT EXISTS idx_diary_live_activity_line ON diary_live_activity_events(line_key,signature);
       CREATE INDEX IF NOT EXISTS idx_diary_live_activity_row ON diary_live_activity_events(activity_id);
       CREATE INDEX IF NOT EXISTS idx_diary_live_activity_date ON diary_live_activity_events(date);
+      CREATE TABLE IF NOT EXISTS diary_deleted_sources(file_id INTEGER NOT NULL,source_offset INTEGER NOT NULL,signature TEXT NOT NULL,
+        profile_id TEXT,date TEXT NOT NULL,PRIMARY KEY(file_id,source_offset,signature));
       CREATE TABLE IF NOT EXISTS diary_legacy_homework_days(date TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS diary_homework_snapshots(date TEXT NOT NULL,profile_id TEXT NOT NULL,PRIMARY KEY(date,profile_id));
       DROP INDEX IF EXISTS idx_homework_logs_date_content_unique;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_homework_logs_profile_date_content_unique ON homework_logs(date,content_id,COALESCE(profile_id,''));
       DROP INDEX IF EXISTS idx_alarm_logs_dedupe_key_unique;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_alarm_logs_profile_dedupe_key_unique ON alarm_logs(COALESCE(profile_id,''),dedupe_key) WHERE dedupe_key IS NOT NULL;`);
+    // 실시간 기록의 원본 위치(처리 구간의 log_files id + 줄 시작 byte). 줄↔일지 연결 표(diary_live_activity_events)를 대신한다.
+    const activityColumns=db!.prepare('PRAGMA table_info(activity_logs)').all() as {name:string}[];
+    if (!activityColumns.some(column=>column.name==='source_file_id')) db!.exec('ALTER TABLE activity_logs ADD COLUMN source_file_id INTEGER');
+    if (!activityColumns.some(column=>column.name==='source_offset')) db!.exec('ALTER TABLE activity_logs ADD COLUMN source_offset INTEGER');
+    db!.exec('CREATE INDEX IF NOT EXISTS idx_activity_logs_source ON activity_logs(source_file_id,source_offset) WHERE source_file_id IS NOT NULL');
     if (!db!.prepare("SELECT 1 FROM diary_profile_meta WHERE key='legacy_days_migrated'").get()) {
       db!.exec(`INSERT INTO diary_profile_days(date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total)
         SELECT date,total_score,monster_id,daily_done,daily_total,weekly_done,weekly_total FROM diaries;
@@ -1466,13 +1473,13 @@ function addActivityLogInternal(
         }
       }
 
-      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount, source) VALUES (?, ?, ?, ?, ?, ?)');
-      const result = stmt.run(date, type, content, time, amount, source);
+      // 실시간 줄에서 생긴 자동 기록은 원본 위치(log_files id, 줄 시작 byte)를 행에 함께 남긴다(재분석 개별 복구의 기준).
+      const origin=applicationData && diaryActivitySource?.fingerprint && Number.isSafeInteger(diaryActivitySource.start)
+        && source==='automatic' && (type==='calc' || type==='loot') ? diaryActivitySource : undefined;
+      const fileId=origin ? applicationData!.logFileIdForFingerprint(origin.fingerprint!) ?? null : null;
+      const stmt = getStmt('INSERT INTO activity_logs (date, type, content, time, amount, source, source_file_id, source_offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      const result = stmt.run(date, type, content, time, amount, source, fileId, origin ? origin.start : null);
       insertedId = Number(result.lastInsertRowid);
-      if (applicationData && diaryActivityLineKey && source==='automatic' && (type==='calc' || type==='loot')) {
-        getStmt('INSERT INTO diary_live_activity_events(line_key,date,profile_id,signature,activity_id) VALUES(?,?,?,?,?)')
-          .run(diaryActivityLineKey,date,currentOwner().profileId,chatActivitySignature(type,content,time,amount),insertedId);
-      }
       if(source==='automatic' && type==='calc' && isCanonicalDiaryFee(content))reconcileDiaryFees(db!,!!applicationData,date);
 
       // 포인트 부여
@@ -1489,15 +1496,16 @@ function addActivityLogInternal(
   }
 }
 
-let diaryActivityLineKey:string | undefined;
+/** 지금 반영 중인 실시간 줄의 원본 위치. 이 안에서 쓴 자동 기록 행에 source_file_id/source_offset을 남긴다. */
+let diaryActivitySource:{fingerprint?:string;start?:number} | undefined;
 const chatActivityContent=(type:string,content:string)=>type==='calc' && content.startsWith('[자동] ')
   ? content.replace(/ \([^()]*\)$/u,'') : content;
 const chatActivitySignature=(type:string,content:string,time:string,amount:number)=>
   JSON.stringify([type,chatActivityContent(type,content),time.replace(/^0+(?=\d)/u,''),amount]);
 
-export function withDiaryActivitySource<T>(lineKey:string | undefined,apply:()=>T):T {
-  const previous=diaryActivityLineKey;diaryActivityLineKey=lineKey;
-  try {return apply();} finally {diaryActivityLineKey=previous;}
+export function withDiaryActivitySource<T>(source:{fingerprint?:string;start?:number} | undefined,apply:()=>T):T {
+  const previous=diaryActivitySource;diaryActivitySource=source;
+  try {return apply();} finally {diaryActivitySource=previous;}
 }
 
 /** 자동 감지/내부 로직에서 활동 기록을 추가합니다. */
@@ -1547,6 +1555,14 @@ export function removeActivityLog(date: string, type: string, content: string): 
       for (const table of ['diary_chat_activity_events','diary_live_activity_events']) {
         getStmt(`UPDATE ${table} SET activity_id=0 WHERE activity_id IN
           (SELECT id FROM activity_logs WHERE date=? AND type=? AND content=? AND profile_id IS ?)`).run(date,type,content,currentOwner().profileId);
+      }
+      // 사용자가 지운 실시간 기록은 원본 위치로 삭제 표식을 남겨 재분석이 되살리지 않게 한다.
+      const sourced=getStmt(`SELECT source_file_id AS fileId,source_offset AS offset,type,content,time,amount,profile_id AS profileId FROM activity_logs
+        WHERE date=? AND type=? AND content=? AND profile_id IS ? AND source_file_id IS NOT NULL`).all(date,type,content,currentOwner().profileId) as
+        {fileId:number;offset:number;type:string;content:string;time:string;amount:number;profileId:string | null}[];
+      for (const row of sourced) {
+        getStmt('INSERT OR IGNORE INTO diary_deleted_sources VALUES(?,?,?,?,?)')
+          .run(row.fileId,row.offset,chatActivitySignature(row.type,row.content,row.time,row.amount),row.profileId,date);
       }
       const stmt = getStmt('DELETE FROM activity_logs WHERE date = ? AND type = ? AND content = ? AND profile_id IS ?');
       const info = stmt.run(date,type,content,currentOwner().profileId);
@@ -2425,9 +2441,9 @@ export function deduplicateShoutHistory(): void {
 }
 
 export interface BatchSyncData {
-  loots: Array<{ eventId?: string;repairOnly?:boolean;lineKey?:string; date: string; timeOnly: string; diaryContent: string; count: number }>;
-  essences: Array<{ eventId?: string;repairOnly?:boolean;lineKey?:string; date: string; timeOnly: string; diaryContent: string; count: number }>;
-  seeds: Array<{ eventId?: string;repairOnly?:boolean;lineKey?:string; date: string; timeOnly: string; content: string; amount: number }>;
+  loots: Array<{ eventId?: string;repairOnly?:boolean;lineKey?:string;sourceFingerprint?:string;sourceOffset?:number; date: string; timeOnly: string; diaryContent: string; count: number }>;
+  essences: Array<{ eventId?: string;repairOnly?:boolean;lineKey?:string;sourceFingerprint?:string;sourceOffset?:number; date: string; timeOnly: string; diaryContent: string; count: number }>;
+  seeds: Array<{ eventId?: string;repairOnly?:boolean;lineKey?:string;sourceFingerprint?:string;sourceOffset?:number; date: string; timeOnly: string; content: string; amount: number }>;
   elsoPoints: Array<{eventId?:string;date:string;timeOnly:string;amount:number}>;
   goldPouchSeeds?: Array<{eventId?:string;date:string;timeOnly:string;amount:number}>;
   shouts: Array<{ eventId?: string; fullTimestamp: number; sender: string; message: string; shoutKind?: import('../shared/types').ShoutKind }>;
@@ -2681,7 +2697,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
 
     // 앱 이전 행에는 device와 원본 줄 키가 없다. 일대일로 일치하는 자동 행만 재사용한다.
     // 복원으로 쓴 항목은 원본 이벤트와 실제 일지 행을 연결하여 재분석 시 누락만 복구한다.
-    const reconcileActivity=(item:{eventId?:string;repairOnly?:boolean;lineKey?:string;date:string;timeOnly:string},type:'loot'|'calc',content:string,amount:number):boolean=>{
+    const reconcileActivity=(item:{eventId?:string;repairOnly?:boolean;lineKey?:string;sourceFingerprint?:string;sourceOffset?:number;date:string;timeOnly:string},type:'loot'|'calc',content:string,amount:number):boolean=>{
       const {eventId,date,timeOnly,repairOnly}=item;
       if (repairOnly && pruneBefore && date<pruneBefore) return false;
       if (!data.scopedLogRecords || !eventId) {
@@ -2732,7 +2748,23 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
       if (repairOnly && !linked) {
         const rows=matches(profileId,false);
         if (rows.length) return false; // 이전 설치의 확정 행을 추정으로 교체하지 않는다.
-        if (!receipt) {activitiesHeld++;return false;}
+        if (!receipt) {
+          // 이 프로필이 반영한 실시간 줄(원본 위치 있음)인데 그 위치의 일지 행이 없고 사용자 삭제 표식도 없으면 다시 만든다.
+          // 원본 위치를 행에 두므로 "행이 있었다"는 별도 연결은 없다(사용자 결정 2026-11-24: 없는 행은 다시 만듦).
+          const fileId=item.sourceFingerprint && Number.isSafeInteger(item.sourceOffset)
+            ? (getStmt('SELECT file_id AS id FROM log_file_aliases WHERE fingerprint=?').get(item.sourceFingerprint) as {id:number} | undefined)?.id : undefined;
+          const signature=chatActivitySignature(type,content,timeOnly,amount);
+          if (fileId!==undefined) {
+            const sourced=getStmt(`SELECT content,time FROM activity_logs WHERE source_file_id=? AND source_offset=? AND date=? AND type=? AND amount=?
+              AND source='automatic' AND profile_id IS ?`).all(fileId,item.sourceOffset,date,type,amount,profileId) as {content:string;time:string}[];
+            if (sourced.some(row=>chatActivitySignature(type,row.content,row.time,amount)===signature)) return false;
+            if (getStmt('SELECT 1 FROM diary_deleted_sources WHERE file_id=? AND source_offset=? AND signature=?').get(fileId,item.sourceOffset,signature)) return false;
+            getStmt("INSERT INTO activity_logs(date,type,content,time,amount,source,source_file_id,source_offset) VALUES(?,?,?,?,?,'automatic',?,?)")
+              .run(date,type,content,timeOnly,amount,fileId,item.sourceOffset);
+            activitiesRepaired++;return true;
+          }
+          activitiesHeld++;return false;
+        }
       } else if (!repairOnly) {
         const rows=matches(null,true);
         if (rows.length>1) {
@@ -3152,6 +3184,7 @@ export function cleanOldDiaryData(keepDays: number): void {
       db!.prepare('DELETE FROM diary_homework_snapshots WHERE date < ?').run(cutoffStr);
       db!.prepare('DELETE FROM diary_chat_activity_events WHERE date < ?').run(cutoffStr);
       db!.prepare('DELETE FROM diary_live_activity_events WHERE date < ?').run(cutoffStr);
+      db!.prepare('DELETE FROM diary_deleted_sources WHERE date < ?').run(cutoffStr);
       db!.prepare(`INSERT INTO diary_profile_meta(key,value) VALUES('activity_pruned_before',?)
         ON CONFLICT(key) DO UPDATE SET value=MAX(value,excluded.value)`).run(cutoffStr);
       const infoDiary = delDiary.run(cutoffStr);

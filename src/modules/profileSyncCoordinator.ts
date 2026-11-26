@@ -441,6 +441,9 @@ export class ProfileSyncCoordinator {
         let fileId=this.model.meta<string | undefined>('ownFile',undefined);
         const remote=fileId ? files[fileId] : Object.values(files).find(f=>f.envelope.device===this.model.device);
         const {envelope,sizing,held}=this.model.planUpload(remote?.envelope);
+        // 업로드 전 FULL commit: 실시간 읽기는 WAL synchronous=NORMAL로 commit하므로(ApplicationData.withRelaxedDurability),
+        // 이 commit의 flush가 앞의 NORMAL commit까지 디스크에 확정해야 Google에 올린 변경이 정전으로 로컬에서 사라지지 않는다.
+        // 업로드보다 뒤로 옮기거나 쓰기를 건너뛰지 않는다. 회귀: check-refactor-regressions.ts(checkProfileUploadDurableOrder).
         this.model.setMeta('uploadSizing',sizing);
         if (sizing.uploadBytes>PROFILE_SYNC_POLICY.maxDecodedBytes || Object.keys(envelope.cells).length>PROFILE_SYNC_POLICY.maxCells) {
           throw new Error('계산기 값을 보류한 뒤에도 전송 한도를 초과했습니다. 이 PC의 데이터는 보존됩니다.');

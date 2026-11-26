@@ -15,11 +15,16 @@ export interface ProfileConfiguration {
 
 export type ProfileInputBoundary='selection' | 'switch' | 'end' | 'replacement';
 export type ProfileReplay=(payload:unknown,eventId:string,pendingAssignment?:boolean)=>unknown;
+/** 실시간 읽기 한 번이 처리한 원본 구간. start는 직전 확정 구간의 끝(같은 파일이면) 또는 첫 기록 줄의 시작이다. */
+export interface LiveReadSpan {fingerprint:string;logDate:string;start:number;end:number;filePath?:string}
+
 export interface LiveProfileRecord {
   payload:unknown;
   occurredAt:number;
   eventId:string;
   unassigned?:boolean;
+  /** 경험치 줄처럼 HUD에만 쓰이고 일지·숙제에 남지 않는 기록(정수 교환은 아님). 이런 줄만 있는 읽기는 처리 구간을 DB에 바로 쓰지 않는다. */
+  hudOnly?:boolean;
 }
 const REPLAY_BATCH_SIZE=128;
 const LIVE_RECORD_RETRY_MS=1000;
@@ -255,27 +260,124 @@ export class ProfileService {
     committed();
   }
 
-  /** A line is safe to advance once all its persistent events have been stored together.
-   * Applying the line uses separate commits so a failed record does not rewind the tail. */
-  acceptLiveLine(records:readonly LiveProfileRecord[],apply:ProfileReplay):void {
+  acceptLiveLine(records:readonly LiveProfileRecord[],apply:ProfileReplay,span?:LiveReadSpan):void {this.acceptLiveLines([records],apply,span);}
+
+  /** 기능 계약 — 실시간 읽기 한 번에서 모은 줄들의 영구 기록을 한 commit으로 저장하고 반영한다.
+   * - 바로 반영(대기 원문 없음): 프로필이 선택돼 반영할 수 있고 span이 있으며 같은 세션·소유자의 미완료 실시간 기록이 없으면,
+   *   줄마다 savepoint 안에서 그 줄의 기록을 모두 반영한다(줄 단위 원자성). 반영한 줄과 그 사이의 채팅 줄은 같은 commit에
+   *   소유 프로필의 반영 구간(ApplicationData.extendLiveRange, log_ranges)과 체크포인트 뒤 HUD 복원 구간으로 이어 붙이고
+   *   대기·HUD 대기 행은 만들지 않는다. 일지·숙제에 남는 줄만 줄 귀속(live=1)을 남긴다(파일 교체 뒤 재읽기 중복 방지).
+   *   사냥 중 줄마다 남던 대기 원문(약 680바이트/줄) 때문에 DB가 1시간에 약 78MB 늘던 문제의 해결이다(bench:runtime).
+   * - 대기 경로(이전과 같음): 미배정 줄, 이벤트 행이 이미 있는 재시도 줄, 반영에 실패한 줄과 그 뒤 줄은 대기 원본(enqueue)과
+   *   ACK를 같은 transaction에서 확정한다. 이 줄들은 범위에서 빠지므로(범위를 끊는다) 행이 중복 방지·재시도의 기준이다.
+   *   실패한 기록은 대기에 남아 재시도되고(scheduleLiveRecordRetry) 그동안 같은 세션·소유자의 새 줄도 대기 경로로 순서를 지킨다.
+   * - 바깥 commit이 실패하면(디스크 오류 등) 아무것도 남지 않고 예외를 던진다. 호출자는 줄별 기록을 메모리 재시도
+   *   대기열에 보관하고 북마크를 그 줄의 시작에 둔다(chatLogManager 저장 재시도 계약).
+   * - 화면·소리 효과는 바깥 commit 뒤에 기록 순서대로 반영한다(dispatch와 같은 규칙).
+   * - 경험치 줄만 있는 읽기(hudOnly)는 DB에 쓰지 않는다: 처리 구간을 메모리(ApplicationData.deferAppliedRange)에서 늘리고
+   *   1분 체크포인트·일지 기록·종료 때 쓴다. 비정상 종료하면 마지막 1분 이내 경험치·처치 수만 HUD에서 빠진다(중복은 없다).
+   *   메모리 구간은 묶음 transaction이 commit된 뒤에만 늘린다. commit이 실패하면(디스크 오류) 묶음이 줄별 재시도로 넘어가
+   *   대기 경로(HUD 대기 행)로 다시 들어오는데, 그 전에 늘린 메모리 구간이 남으면 같은 줄이 HUD 복원 구간에도 들어가
+   *   비정상 종료 뒤 두 번 재생된다.
+   * 회귀: check-profile-recording.ts(읽기 묶음 한 commit, 실패 줄만 재시도), check-profile-lifecycle.ts(저장 재시도·북마크),
+   * check-profile-durability.ts(정전 뒤 범위로 중복 없음). */
+  acceptLiveLines(lines:readonly (readonly LiveProfileRecord[])[],apply:ProfileReplay,span?:LiveReadSpan):void {
+    const records=lines.flat();
     if (!records.length) return;
     const session=this.sessionId,owner=this.selectedProfileId;
-    let hasOwnedRecords=false;
-    this.store.database.transaction(()=>{
-      for (const record of records) {
-        const {payload,occurredAt,eventId,unassigned}=record;
-        const assigned=!unassigned && session ? owner : null;
-        hasOwnedRecords ||= !!assigned;
-        if (this.store.eventRecordState(eventId)) continue;
-        this.store.enqueue((!unassigned && session) || this.unassignedSession(payload,occurredAt),payload,occurredAt,eventId,assigned);
-      }
-    })();
-    if (hasOwnedRecords && session && owner && !this.storageMaintenance && !this.historicalRestore
-      && this.selectingReplaySession!==session) this.applyOwnedLiveRecords(session,owner,apply);
-    else this.notifyPending();
+    const canApply=!!session && !!owner && !this.storageMaintenance && !this.historicalRestore && this.selectingReplaySession!==session;
+    let hasOwnedRecords=false,enqueued=false,applied:boolean | undefined;
+    const effects:Array<() => void>=[];
+    /** commit 뒤에 메모리에서 늘릴 경험치 줄만 있는 읽기의 구간(위 계약: transaction 안에서 늘리지 않는다). */
+    const deferred:Array<[number,number]>=[];
+    // 기기 설정 JSON까지 바꾸는 대기 설정 저장은 transaction 안에서 할 수 없으므로 먼저 확정한다.
+    // 실패하면 commitRecords가 다시 확인해 그 기록만 대기에 남긴다.
+    const ready=canApply && this.config.flushPending();
+    let direct=ready && !!span && !this.store.hasOwnedLivePending(session!,owner!);
+    const startedDirect=direct;
+    const hudOnlyBatch=startedDirect && records.every(record=>record.hudOnly && record.payload!==undefined && !record.unassigned);
+    // 경험치 줄만 있는 읽기가 아니면 미뤄 둔 구간을 먼저 쓴다(대기 경로 줄이 메모리 구간에 섞여 들어가지 않게).
+    // 묶음 transaction 밖에서 쓰므로 묶음이 취소돼도 구간은 남는다. 실패하면 묶음 실패와 같이 줄별 재시도로 넘어간다.
+    if (!hudOnlyBatch) this.store.flushDeferredRange();
+    else this.store.flushDeferredRangeUnlessFor(owner!,span!.fingerprint,span!.logDate);
+    try {
+      this.store.database.transaction(()=>{
+        // 같은 commit의 일지 행이 원본 위치(log_files id)를 쓸 수 있도록 파일을 먼저 등록한다.
+        if (span && startedDirect) this.store.registerLogFile(span.fingerprint,span.filePath,span.logDate);
+        let segmentStart=span?.start;
+        const segments:Array<[number,number]>=[];
+        // 같은 줄이 한 묶음에 두 번 들어와도(정규화 재시도) 바로 반영은 대기 행이 없어 이벤트 ID로 걸러지지 않으므로 여기서 거른다.
+        const appliedIds=new Set<string>();
+        const cut=(start:number,end:number)=>{
+          if (segmentStart!==undefined && start>segmentStart) segments.push([segmentStart,start]);
+          // 구간 시작(span.start) 앞의 줄(미배정 기록 줄 등)에서 시작을 뒤로 되돌리지 않는다.
+          segmentStart=segmentStart===undefined ? end : Math.max(segmentStart,end);
+        };
+        for (const line of lines) {
+          if (!line.length) continue;
+          const source=liveLineSource(line,span);
+          if (direct && source && line.every(record=>record.payload!==undefined && !record.unassigned)
+            && !(source.lineKey && this.store.lineOwnedElsewhere(source.lineKey,owner!))) {
+            if (line.every(record=>appliedIds.has(record.eventId))) continue;
+            try {
+              this.store.database.transaction(()=>this.store.withDirectLiveApply(()=>{
+                effects.push(this.commitRecords(session!,owner!,apply,record=>{
+                  for (const item of line) {
+                    if (appliedIds.has(item.eventId) || this.store.eventRecordState(item.eventId)) continue;
+                    record(item.payload,item.eventId,false);
+                  }
+                }));
+              }))();
+              for (const item of line) appliedIds.add(item.eventId);
+              continue;
+            } catch (error) {
+              // SQLite가 바깥 transaction까지 취소한 오류(디스크 가득 참 등)면 묶음 전체를 실패시켜 줄별 재시도로 넘긴다.
+              if (!this.store.database.inTransaction) throw error;
+              log(`[PROFILE] 실시간 기록 바로 반영 실패, 대기로 넘겨 재시도합니다 (${line[0].eventId}): ${String(error)}`);
+              this.config.refreshFromPersistence();
+              // 실패한 줄과 그 뒤 기록 줄은 대기 경로로 순서대로 처리한다(범위에서 빠진다).
+              direct=false;
+            }
+          }
+          if (source) cut(source.start,source.end);
+          else segmentStart=undefined;
+          for (const {payload,occurredAt,eventId,unassigned,hudOnly} of line) {
+            // 소유자를 확정할 수 없게 된 경험치 줄(경계에서 미배정으로 돌린 재시도 줄)은 남기지 않는다(onProfileEvent와 같은 규칙).
+            if (hudOnly && unassigned) continue;
+            const assigned=!unassigned && session ? owner : null;
+            hasOwnedRecords ||= !!assigned;
+            if (this.store.eventRecordState(eventId)) continue;
+            this.store.enqueue((!unassigned && session) || this.unassignedSession(payload,occurredAt),payload,occurredAt,eventId,assigned);
+            enqueued=true;
+          }
+        }
+        if (span && segmentStart!==undefined && span.end>segmentStart) segments.push([segmentStart,span.end]);
+        if (span && startedDirect) {
+          // 경험치 줄만 있는 읽기(사냥 중 대부분)는 처리 구간을 메모리에서만 늘린다(1분 체크포인트·일지 기록·종료 때 함께 쓴다).
+          // 기록이 하나라도 있는 읽기는 미뤄 둔 구간부터 같은 commit에 쓴다.
+          if (hudOnlyBatch && direct && !enqueued) deferred.push(...segments);
+          else {
+            this.store.flushDeferredRange();
+            for (const [start,end] of segments) this.store.extendLiveRange(owner!,span.fingerprint,span.logDate,start,end,span.filePath);
+          }
+        }
+        if (hasOwnedRecords && canApply) applied=this.applyOwnedLiveRecords(session!,owner!,apply,effects);
+      })();
+    } catch (failure) {
+      if (applied!==undefined || effects.length) {this.config.refreshFromPersistence();this.notify();}
+      throw failure;
+    }
+    // 앞의 다른 미룬 구간을 먼저 쓰다 실패하면(DB 오류) 예외를 넘긴다. 효과는 아직 실행하지 않았으므로 줄별 재시도가
+    // 대기 경로로 한 번만 반영한다(이 묶음 commit에는 경험치 줄의 DB 흔적이 없다).
+    for (const [start,end] of deferred) this.store.deferAppliedRange(owner!,span!.fingerprint,span!.logDate,start,end,span!.filePath);
+    for (const effect of effects) effect();
+    if (applied===false) this.scheduleLiveRecordRetry(session!,owner!,apply);
+    else if (applied===undefined && enqueued) this.notifyPending();
   }
 
-  private applyOwnedLiveRecords(session:string,profileId:string,apply:ProfileReplay):boolean {
+  /** 대기 중인 소유 실시간 기록을 순서대로 반영한다. effects를 받으면 바깥 transaction 안에서 기록마다 savepoint로
+   * 반영하고 화면 효과는 effects에 모아 호출자가 commit 뒤에 실행한다(재시도 예약도 호출자가 한다). */
+  private applyOwnedLiveRecords(session:string,profileId:string,apply:ProfileReplay,effects?:Array<() => void>):boolean {
     try {
       let blocked=false;
       // Quest starts and XP share tracker state. Keep their order, independently of
@@ -285,16 +387,20 @@ export class ProfileService {
         try {
           while ((id=this.store.nextOwnedLiveRecord(session,profileId,group))!==undefined) {
             const eventId=id;
-            this.commitRecords(session,profileId,apply,write=>this.store.assignOwnedLiveRecord(session,profileId,eventId,write))();
+            const committed=this.commitRecords(session,profileId,apply,write=>this.store.assignOwnedLiveRecord(session,profileId,eventId,write));
+            if (effects) effects.push(committed); else committed();
           }
         } catch (error) {
+          // SQLite가 바깥 transaction까지 취소한 오류(디스크 가득 참 등)면 묶음 전체를 실패시켜 줄별 재시도로 넘긴다.
+          if (effects && !this.store.database.inTransaction) throw error;
           blocked=true;
           log(`[PROFILE] 저장된 실시간 기록 적용 보류 (${id ?? session}): ${String(error)}`);
         }
       }
-      if (blocked) this.scheduleLiveRecordRetry(session,profileId,apply);
+      if (blocked && !effects) this.scheduleLiveRecordRetry(session,profileId,apply);
       return !blocked;
     } catch (error) {
+      if (effects) throw error;
       this.scheduleLiveRecordRetry(session,profileId,apply);
       log(`[PROFILE] 저장된 실시간 기록 적용 대기: ${String(error)}`);
       return false;
@@ -605,5 +711,16 @@ export class ProfileService {
       this.busy=false;this.notify();
     }
     return failure ? this.fail(failure) : {success:true,status:this.status()};
+  }
+}
+
+/** 한 줄 기록의 원본 위치(대기 payload의 source). 읽기 구간과 같은 파일이 아니면 undefined. */
+function liveLineSource(line:readonly LiveProfileRecord[],span:LiveReadSpan | undefined):{start:number;end:number;lineKey?:string} | undefined {
+  if (!span) return;
+  for (const record of line) {
+    const source=(record.payload as {source?:{fingerprint?:unknown;start?:unknown;end?:unknown;lineKey?:unknown}} | undefined)?.source;
+    if (source?.fingerprint===span.fingerprint && Number.isSafeInteger(source.start) && Number.isSafeInteger(source.end)) {
+      return {start:source.start as number,end:source.end as number,...(typeof source.lineKey==='string' ? {lineKey:source.lineKey} : {})};
+    }
   }
 }

@@ -84,7 +84,7 @@ function restoreLegacyDiary(target:Database.Database,file:string):void {
         for (const index of indexes) if (DIARY_TABLES.has(index.tbl_name)) target.exec(index.sql);
         // 일지 원본이 바뀌면 과거 DB의 완료 위치/원본 귀속 증거를 재사용하지 않는다.
         // 설정만 복원하거나 새 DB 전체를 복원할 때는 이 진행 정보도 그대로 보존한다.
-        for (const table of ['diary_chat_activity_events','diary_live_activity_events','diary_legacy_homework_days','diary_homework_snapshots']) {
+        for (const table of ['diary_chat_activity_events','diary_live_activity_events','diary_deleted_sources','diary_legacy_homework_days','diary_homework_snapshots']) {
           target.exec(`DROP TABLE IF EXISTS ${table}`);
         }
         // 기존 일지 행에 연결된 완료만 폐기한다. 취소 기록은 과거 채팅에서 숙제가 되살아나는 것을 막는다.
@@ -96,6 +96,8 @@ function restoreLegacyDiary(target:Database.Database,file:string):void {
           target.exec("DELETE FROM homework_cycle_progress WHERE source_key<>'checklist'");
         }
         for (const table of ['profile_log_sync_state','profile_log_sources','profile_log_source_ranges','profile_log_legacy_aggregates']) target.exec(`DELETE FROM ${table}`);
+        // 반영 구간(log_ranges applied)도 일지 결과와 함께 버린다(구간만 남으면 다시 읽어도 기록하지 않는다). 무시 구간은 보존한다.
+        target.exec("DELETE FROM log_ranges WHERE state='applied'");
         // 일지 연결은 폐기하되 사용자 무시 표식(NULL, live=0)과 별도 범위는 보존한다.
         target.exec('DELETE FROM profile_log_line_owners WHERE profile_id IS NOT NULL OR live<>0');
         target.prepare("UPDATE app_meta SET value=? WHERE key='legacy_chat_log_sync_state'").run(JSON.stringify(normalizeChatLogSyncState(null)));

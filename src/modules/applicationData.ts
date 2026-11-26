@@ -16,6 +16,8 @@ import {ensureDiaryAttribution} from './diaryAttribution';
 import {excludeIgnoredProfileLog,hasProfileEventDurability,isDurableProfileEvent,profileEventDurabilityByName,type ProfileLogSource} from './profileLogSource';
 import {isProfileToolKey,isSyncableProfileToolValue,PROFILE_TOOL_KEYS} from '../shared/profileTools';
 import {legacyPendingHomeworkEvents} from '../shared/legacyHomework';
+import {computeLogIdentity,LogFileProbe,logFileSize,matchesLogPrefix,readLogEndSample,sampleLogEnd} from './logFileIdentity';
+import {log} from './logger';
 import {prepareProfileSyncSchema,captureProfileSyncChanges,ProfileSyncModel,rememberDeletedHomework,rememberProfileHomeworkDeletion,saveHomeworkExpiry,rememberLegacyDeviceLocalOriginals} from './profileSyncModel';
 import type {DiaryRecordContext} from '../shared/diaryProfiles';
 import type { AppConfig, ContentsCheckerItem } from '../shared/types';
@@ -48,6 +50,14 @@ const unassignedRowBounds=(scope:UnassignedReplayScope):[number,number] =>
   scope===true ? [0,Number.MAX_SAFE_INTEGER] : scope===false ? [0,0] : [scope.afterRowId,scope.throughRowId];
 export type LiveRecordGroup='profile' | 'experience' | 'seed';
 const PENDING_REPLAY_SLICE_MS=12;
+/** 처리 구간 한 행의 최대 byte. 파일이 바뀌면 끝 표본이 맞지 않는 행만 지우므로, 작을수록 앞부분 구간이 많이 남는다(하루 사냥 로그 약 80MB면 약 320행). */
+const RANGE_ROW_MAX_BYTES=256*1024;
+/** v3.3.5 완료 대기 원문 변환: 한 번에 읽는 행 수와 1분 압축 한 번의 시간 예산(메인 스레드를 오래 막지 않게).
+ * 예산은 변환 작업만이고, 같은 transaction의 commit(바꾼 page 쓰기·flush)이 20~30ms 더 걸려 압축 전체는 약 150ms다.
+ * 같은 압축이 30일 지난 완료 행의 영수증 전환(최대 1000행)도 하므로, 그런 행이 남은 DB에서는 압축 한 번이 약 180~220ms까지
+ * 걸린다(합성 2만 행 측정). v3.3.5에서 올라온 DB는 30일 지난 행이 거의 없어 실제로는 드물다. */
+const CONVERT_BATCH_ROWS=500;
+const CONVERT_BUDGET_MS=120;
 
 function writeAtomic(file: string, value: unknown): void {
   writeAtomicText(file,json(value));
@@ -100,6 +110,14 @@ export class ApplicationData {
   private recordContext: { profileId: string | null; sessionId: string | null } = {profileId:null,sessionId:null};
   private automaticSyncChange=false;
   private syncTransactionDepth=0;
+  private relaxedDurabilityDepth=0;
+  private directLiveApplyDepth=0;
+  /** 경험치 줄만 읽은 동안 메모리에서 늘리는 반영 구간(deferAppliedRange). 1분 체크포인트·일지 기록·종료 때 DB에 쓴다. */
+  private deferredRange?:{profileId:string;fingerprint:string;logDate:string;start:number;end:number;filePath?:string;endSample?:string};
+  /** 자주 쓰는 처리 구간 문장의 준비 결과. reopen으로 연결이 바뀌면 버린다. */
+  private statementCache?:{connection:Database.Database;statements:Map<string,Database.Statement>};
+  /** 여러 구간을 한꺼번에 쓰는 동안(v3.3.5 대기 원문 변환) 파일 크기·핸들을 재사용한다. 그 밖에는 매번 연다. */
+  private fileProbe?:LogFileProbe;
 
   private constructor(private readonly options: ProfileStoreOptions) {
     this.filePath = path.join(options.directory, 'app-data.db');
@@ -138,6 +156,17 @@ export class ApplicationData {
       }
       this.database.exec(`CREATE TABLE IF NOT EXISTS profile_event_receipts(event_id TEXT PRIMARY KEY,session_id TEXT NOT NULL,occurred_at INTEGER NOT NULL,payload_hash TEXT NOT NULL,assigned_profile_id TEXT,resolved_at INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_profile_event_receipts_occurred ON profile_event_receipts(occurred_at);`);
+      // 출시 전 개발 빌드(a52766c)의 log_files는 경로가 섞인 지문으로 파일을 정했다. 내용 키 구조로 다시 만든다.
+      if ((this.database.prepare("PRAGMA table_info(log_files)").all() as {name:string}[]).some(column=>column.name==='fingerprint')) {
+        this.database.exec('DROP TABLE IF EXISTS log_ranges;DROP TABLE IF EXISTS log_files;');
+      }
+      // 출시 전 개발 빌드(0db12fd~)의 log_files에는 앞부분 표본 열이 없다.
+      const logFileColumns=this.database.prepare('PRAGMA table_info(log_files)').all() as {name:string}[];
+      if (logFileColumns.length && !logFileColumns.some(column=>column.name==='probe_length')) {
+        this.database.exec('ALTER TABLE log_files ADD COLUMN probe_length INTEGER;ALTER TABLE log_files ADD COLUMN probe_hash TEXT;');
+      }
+      const logRangeColumns=this.database.prepare('PRAGMA table_info(log_ranges)').all() as {name:string}[];
+      if (logRangeColumns.length && !logRangeColumns.some(column=>column.name==='end_sample')) this.database.exec('ALTER TABLE log_ranges ADD COLUMN end_sample TEXT');
       this.database.exec(`CREATE INDEX IF NOT EXISTS idx_profile_events_resolved ON pending_profile_events(resolved_at);
         CREATE INDEX IF NOT EXISTS idx_pending_profile_session_time ON pending_profile_events(session_id,occurred_at)
           WHERE resolved_at IS NULL;
@@ -146,7 +175,18 @@ export class ApplicationData {
         CREATE TABLE IF NOT EXISTS profile_runtime_events(
           sequence INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE REFERENCES pending_profile_events(event_id),
           profile_id TEXT NOT NULL REFERENCES play_profiles(id));
-        CREATE INDEX IF NOT EXISTS idx_profile_runtime_events_owner ON profile_runtime_events(profile_id,sequence);`);
+        CREATE INDEX IF NOT EXISTS idx_profile_runtime_events_owner ON profile_runtime_events(profile_id,sequence);
+        CREATE TABLE IF NOT EXISTS log_files(id INTEGER PRIMARY KEY,content_key TEXT NOT NULL UNIQUE,file_path TEXT NOT NULL,log_date TEXT NOT NULL,
+          probe_length INTEGER,probe_hash TEXT);
+        CREATE TABLE IF NOT EXISTS log_file_aliases(fingerprint TEXT PRIMARY KEY,file_id INTEGER NOT NULL REFERENCES log_files(id));
+        CREATE TABLE IF NOT EXISTS log_ranges(file_id INTEGER NOT NULL REFERENCES log_files(id),start_offset INTEGER NOT NULL,end_offset INTEGER NOT NULL,
+          state TEXT NOT NULL CHECK(state IN ('applied','pending','ignored','legacy')),profile_id TEXT REFERENCES play_profiles(id),session_id TEXT,
+          log_date TEXT NOT NULL,end_sample TEXT,PRIMARY KEY(file_id,start_offset));
+        CREATE INDEX IF NOT EXISTS idx_log_ranges_profile ON log_ranges(profile_id,state,log_date);
+        -- 구간 끝으로 앞 구간·겹치는 구간을 찾는다(extendRange). 없으면 그 파일의 행을 전부 훑어 행이 늘수록 느려진다.
+        CREATE INDEX IF NOT EXISTS idx_log_ranges_end ON log_ranges(file_id,end_offset);
+        CREATE TABLE IF NOT EXISTS profile_runtime_ranges(profile_id TEXT NOT NULL,file_id INTEGER NOT NULL,start_offset INTEGER NOT NULL,
+          end_offset INTEGER NOT NULL,log_date TEXT NOT NULL,PRIMARY KEY(profile_id,file_id,start_offset));`);
       this.ensureDiaryAttribution();
       prepareProfileSyncSchema(this.database);
       this.database.transaction(() => {
@@ -191,6 +231,21 @@ export class ApplicationData {
       if (this.database.open) this.database.close();
       throw error;
     }
+    this.vacuumIfRequested();
+  }
+
+  /** 기능 계약 — 한 번만 하는 파일 축소(VACUUM).
+   * - v3.3.5에서 올라온 DB는 완료된 실시간 대기 원문을 1분 압축이 처리 구간으로 바꾸며 지운다(convertResolvedLiveRows).
+   *   다 지운 뒤 빈 공간이 8MB를 넘으면 표식(vacuum_on_next_start)을 남기고, 다음 시작 때 여기서 한 번 VACUUM한다.
+   * - 표식은 먼저 지운다. 디스크가 모자라 실패해도 앱은 그대로 시작하고 다시 시도하지 않는다(작은 디스크 반복 실패 방지).
+   * - v3.2.2에서 바로 올라오거나 새로 설치한 DB는 지울 대기 원문이 없어 표식이 생기지 않는다.
+   * 회귀: check-profile-storage.ts. */
+  private vacuumIfRequested():void {
+    try {
+      if (!this.database.prepare("SELECT 1 FROM app_meta WHERE key='vacuum_on_next_start'").get()) return;
+      this.database.prepare("DELETE FROM app_meta WHERE key='vacuum_on_next_start'").run();
+      this.database.exec('VACUUM');
+    } catch {/* 공간 부족 등: 다음에 다시 시도하지 않고 그대로 쓴다. */}
   }
 
   /**
@@ -372,6 +427,49 @@ export class ApplicationData {
     try {return write();} finally {this.automaticSyncChange=before;}
   }
 
+  /** 기능 계약 — 실시간 채팅 로그 읽기의 commit만 WAL `synchronous=NORMAL`로 확정한다(commit마다 디스크 flush 없음).
+   * - 기본값은 FULL이다. 설정·프로필 편집·동기화·복원 등 다른 저장은 그대로 commit마다 flush한다.
+   * - 정전·OS 중단 때는 마지막으로 flush되지 않은 commit들이 사라질 수 있다. WAL은 앞에서부터 이어진 commit만
+   *   복구하므로 DB는 손상되지 않고, 감시 북마크(app_meta)도 같은 DB에서 기록보다 늦게 commit되므로 함께 되돌아간다.
+   *   다음 실행은 되돌아간 북마크부터 원본 로그를 다시 읽고, 이미 남은 기록은 이벤트 ID로 걸러진다(at-least-once).
+   *   앱 프로세스만 죽는 경우에는 OS가 쓰기를 마치므로 잃지 않는다.
+   *   단, 되돌아간 구간은 재시작 복구 읽기라 소유자를 확정할 수 없어, 그 사이 득템·SEED·숙제 줄은 자동 기록되지 않고
+   *   **미배정**으로 돌아온다(사용자가 배정. 경험치 줄은 HUD에서만 빠진다). v3.3.5(FULL)에서는 그대로 기록돼 있던 줄이다.
+   *   잃는 범위는 OS가 아직 디스크에 쓰지 않은 마지막 몇 초다. 회귀: check-profile-durability.ts(정전 뒤 기록+대기 합 1건).
+   * - Google 동기화 순서: 업로드 전에 FULL commit(ProfileSyncCoordinator의 setMeta('uploadSizing'))이 먼저 있어야 한다.
+   *   WAL은 한 파일이라 FULL commit의 flush가 앞의 NORMAL commit까지 디스크에 확정한다. 그래서 Google에 올린 변경이
+   *   정전으로 로컬에서 사라지는 일이 없다. 이 순서가 깨지면 정전 뒤 같은 변경 번호를 다른 내용으로 다시 쓰고, 다음 수신에서
+   *   "작성자 되돌림"으로 계정 연결을 풀어 사용자에게 다시 고르게 한다. 회귀: check-refactor-regressions.ts(업로드 전 FULL commit).
+   * - 안에서 JSON 원본을 함께 바꾸는 설정 commit(commitConfiguration)은 FULL로 확정한다(withDurableCommit).
+   * - transaction 안에서 시작하면 설정을 바꾸지 않는다. 중첩 호출은 바깥 범위가 끝날 때 FULL로 돌린다.
+   * 측정·회귀: benchmark-runtime-resources.ts, check-profile-durability.ts. */
+  withRelaxedDurability<T>(work:()=>T):T {
+    if (this.relaxedDurabilityDepth>0 || !this.database.open || this.database.inTransaction) return work();
+    this.database.pragma('synchronous = NORMAL');
+    this.relaxedDurabilityDepth++;
+    try {return work();}
+    finally {
+      this.relaxedDurabilityDepth--;
+      if (this.database.open && !this.database.inTransaction) this.database.pragma('synchronous = FULL');
+    }
+  }
+
+  /** withRelaxedDurability 범위 안에서도 이 commit은 FULL로 flush한다. 디스크 밖 원본(JSON 등)을 commit 뒤에 바꾸는 저장용. */
+  private withDurableCommit<T>(work:()=>T):T {
+    if (this.relaxedDurabilityDepth===0 || this.database.inTransaction) return work();
+    this.database.pragma('synchronous = FULL');
+    try {return work();}
+    finally {if (this.database.open && !this.database.inTransaction) this.database.pragma('synchronous = NORMAL');}
+  }
+
+  /** 처리 구간처럼 줄마다 부르는 문장을 연결별로 한 번만 준비한다(1분 압축 변환 등). */
+  private sql(text:string):Database.Statement {
+    if (this.statementCache?.connection!==this.connection) this.statementCache={connection:this.connection,statements:new Map()};
+    let statement=this.statementCache.statements.get(text);
+    if (!statement) {statement=this.connection.prepare(text);this.statementCache.statements.set(text,statement);}
+    return statement;
+  }
+
   private requireProfile(id: string): PlayProfile {
     const profile = this.list().find(p => p.id === id);
     if (!profile) throw new Error('프로필을 찾을 수 없습니다.');
@@ -429,7 +527,8 @@ export class ApplicationData {
     writeAtomic(journalPath,{ version:1,commitId,before });
     let effective: AppConfig;
     try {
-      effective = this.database.transaction(() => {
+      // commit 뒤 journal을 지우므로 DB commit이 디스크에 확정되어야 한다(실시간 읽기 범위 안에서도 FULL).
+      effective = this.withDurableCommit(() => this.database.transaction(() => {
         mutate?.(next);
         const nextId = next.activePlayProfileId || oldId;
         this.requireProfile(nextId);
@@ -448,7 +547,7 @@ export class ApplicationData {
           .run(commitId);
         writeAtomic(configPath,deviceConfigOnly(value));
         return value;
-      })();
+      })());
     } catch (error) {
       // DB transaction은 rollback. JSON 교체만 완료된 경우 부팅과 같은 복구를 적용한다.
       this.recoverConfigCommit();
@@ -644,6 +743,10 @@ export class ApplicationData {
       this.database.prepare("DELETE FROM profile_settings WHERE profile_id=? AND key<>'userServer'").run(id);
       this.database.prepare('DELETE FROM profile_local_state WHERE profile_id=?').run(id);
       this.database.prepare('DELETE FROM profile_runtime_events WHERE profile_id=?').run(id);
+      // 체크포인트 뒤 HUD 복원 구간도 HUD 복원 대기 행·진행 상태와 함께 지운다. 남기면 Google 적용으로 프로필이 되살아나
+      // 선택될 때 옛 구간의 경험치가 빈 HUD에 재생된다. 미룬 구간은 먼저 써서 그 HUD 복원 행까지 함께 지운다(처리 구간은 남긴다).
+      if (this.deferredRange?.profileId===id) this.flushDeferredRange();
+      this.database.prepare('DELETE FROM profile_runtime_ranges WHERE profile_id=?').run(id);
       this.database.prepare('DELETE FROM profile_runtime_state WHERE profile_id=?').run(id);
       this.database.prepare('DELETE FROM profile_tools WHERE profile_id=?').run(id);
       this.change(id,'profile','metadata','delete',null);
@@ -684,17 +787,361 @@ export class ApplicationData {
     const row=this.database.prepare('SELECT value FROM profile_runtime_state WHERE profile_id=?').get(id) as {value:string} | undefined;
     return row ? JSON.parse(row.value) : null;
   }
-  /** 완료된 HUD 입력은 해당 프로필의 다음 스냅샷과 함께 한 번만 정리한다. */
+  /** 완료된 HUD 입력은 해당 프로필의 다음 스냅샷과 함께 한 번만 정리한다.
+   * 바로 반영한 실시간 구간의 HUD 복원 표(profile_runtime_ranges)도 같은 commit에 비운다(스냅샷에 이미 들어 있다). */
   saveRuntimeState(id:string,value:unknown):void {
     this.requireProfile(id);
     this.database.transaction(() => {
       this.database.prepare('INSERT INTO profile_runtime_state VALUES(?,?) ON CONFLICT(profile_id) DO UPDATE SET value=excluded.value').run(id,json(value));
       this.database.prepare('DELETE FROM profile_runtime_events WHERE profile_id=?').run(id);
+      this.database.prepare('DELETE FROM profile_runtime_ranges WHERE profile_id=?').run(id);
     })();
   }
 
   stageRuntimeEvent(profileId:string,eventId:string):void {
+    // 바로 반영한 실시간 줄은 대기 원문이 없다. HUD는 profile_runtime_ranges의 구간을 원본에서 다시 읽어 복원한다.
+    if (this.directLiveApplyDepth>0) return;
     this.database.prepare('INSERT INTO profile_runtime_events(event_id,profile_id) VALUES(?,?)').run(eventId,profileId);
+  }
+
+  /** 기능 계약 — 체크포인트 뒤 HUD 복원 구간(profile_runtime_ranges).
+   * - 실시간 바로 반영(extendLiveRange)과 미룬 구간 쓰기(flushDeferredRange)가 새로 채운 반영 byte 구간만 같은 commit에 남긴다.
+   *   과거 로그 복원·v3.3.5 대기 원문 변환·이전 세션 배정이 만든 반영 구간은 넣지 않는다(그 줄은 HUD에 재생하지 않는 계약).
+   * - 체크포인트(saveRuntimeState)가 그 프로필의 행을 비우고, 비정상 종료 뒤 선택 때 남은 행만 원본에서 다시 읽어 HUD를 복원한다.
+   * - 파일 내용이 바뀌어 반영 구간을 지우면(validateLogRanges) 겹치는 행도 지운다(다른 내용을 HUD에 재생하지 않게).
+   * 회귀: check-profile-durability.ts, check-profile-crash.ts, check-profile-log-replace.ts(변환 구간은 재생 안 함). */
+  runtimeRanges(profileId:string):{filePath:string;date:string;start:number;end:number}[] {
+    this.flushDeferredRange();
+    const rows=this.database.prepare(`SELECT r.file_id AS fileId,r.start_offset AS start,r.end_offset AS end,r.log_date AS date,f.file_path AS filePath
+      FROM profile_runtime_ranges r JOIN log_files f ON f.id=r.file_id WHERE r.profile_id=? ORDER BY r.file_id,r.start_offset`)
+      .all(profileId) as {fileId:number;start:number;end:number;date:string;filePath:string}[];
+    // 행 경계는 줄 경계가 아닐 수 있으므로(처리 구간 행 크기 상한) 이어지는 행은 하나로 합쳐 줄을 자르지 않고 읽게 한다.
+    const merged:Array<typeof rows[number]>=[];
+    for (const row of rows) {
+      const last=merged.at(-1);
+      if (last && last.fileId===row.fileId && last.end>=row.start) last.end=Math.max(last.end,row.end);
+      else merged.push({...row});
+    }
+    return merged.filter(row=>row.filePath).map(({filePath,date,start,end})=>({filePath,date,start,end}));
+  }
+
+  private recordRuntimeRanges(profileId:string | null,file:number,logDate:string,spans:ReadonlyArray<[number,number]>):void {
+    if (!profileId || !spans.length) return;
+    const extend=this.sql('UPDATE profile_runtime_ranges SET end_offset=? WHERE profile_id=? AND file_id=? AND end_offset=?');
+    const insert=this.sql('INSERT OR IGNORE INTO profile_runtime_ranges VALUES(?,?,?,?,?)');
+    for (const [start,end] of spans) if (!extend.run(end,profileId,file,start).changes) insert.run(profileId,file,start,end,logDate);
+  }
+
+  /** 기능 계약 — 실시간 줄 바로 반영(대기 원문 없음). ProfileService.acceptLiveLines가 한 줄의 기록을 이 범위 안에서 반영한다.
+   * - 범위 안에서는 HUD 복원 대기(profile_runtime_events) 행을 만들지 않는다. 대신 같은 commit에 그 줄의 byte 범위를 소유 프로필의
+   *   반영 구간(extendLiveRange)에 이어 붙이고 HUD 복원 구간(profile_runtime_ranges)에 남긴다.
+   * - 일지·숙제에 남는 줄은 줄 귀속(profile_log_line_owners, live=1)도 남긴다(v3.3.5와 같은 범위). 처리 구간이 파일 교체로
+   *   지워져도 같은 줄을 다시 기록하지 않게 하는 내용 기준 증거다. 경험치 등 기록 없는 줄은 귀속을 만들지 않는다.
+   * - 기존 줄 귀속(과거 복원이 다른 프로필에 귀속한 줄 등)은 지금처럼 확인해 기록을 건너뛴다.
+   * 회귀: check-profile-recording.ts, check-profile-durability.ts, check-profile-log-replace.ts. */
+  withDirectLiveApply<T>(work:()=>T):T {
+    this.directLiveApplyDepth++;
+    try {return work();} finally {this.directLiveApplyDepth--;}
+  }
+  get directLiveApply():boolean {return this.directLiveApplyDepth>0;}
+
+  /** 경로별 원본 지문(inspectChatLogFile)이 가리키는 원본 로그 파일 행(log_files)의 id. 모르면 undefined. */
+  logFileIdForFingerprint(fingerprint:string):number | undefined {
+    return (this.sql('SELECT file_id AS id FROM log_file_aliases WHERE fingerprint=?').get(fingerprint) as {id:number} | undefined)?.id;
+  }
+
+  /** 기능 계약 — 원본 로그 파일의 정체(log_files)는 경로와 무관한 내용 키(logFileIdentity.computeLogContentKey)로 정하고,
+   * 경로별 지문은 별칭(log_file_aliases)으로 연결한다. 같은 로그를 다른 폴더로 복사해도 같은 파일 행이라 처리 구간과 일지 행의
+   * 원본 위치가 그대로 맞는다("경로가 달라도 같은 줄은 같은 기록"). 내용 키를 아직 만들 수 없으면(시각 표시 줄 없음)
+   * fallback일 때만 지문 자체를 키로 쓰고, 아니면 등록하지 않는다. 회귀: check-profile-lifecycle.ts(다른 폴더 복사본).
+   * 알려진 한계: 내용 키의 날짜는 처음 등록한 호출의 logDate다. 실시간·복원은 파일명 날짜를 쓰지만, v3.3.5 대기 원문 변환이
+   * 처음 보는 지문을 등록하면 이벤트 날짜(data.date)를 쓴다. 둘이 다르면(자정 직후 줄 등) 같은 파일의 다른 폴더 복사본을
+   * 같은 파일로 묶지 못한다. 같은 파일 자체의 중복 방지는 지문 별칭으로 지켜진다. */
+  registerLogFile(fingerprint:string,filePath:string | undefined,logDate:string,fallback=true):number | undefined {
+    const known=this.logFileIdForFingerprint(fingerprint);
+    if (known!==undefined) {
+      if (filePath) this.sql('UPDATE log_files SET file_path=? WHERE id=? AND file_path<>?').run(filePath,known,filePath);
+      return known;
+    }
+    const identity=filePath ? computeLogIdentity(filePath,logDate) : undefined;
+    let key=identity?.contentKey ?? (fallback ? `fingerprint:${fingerprint}` : undefined);
+    if (!key) return;
+    // 같은 내용 키라도 처음 등록한 앞부분과 다르면(같은 날짜 파일을 다른 내용으로 다시 씀) 다른 파일로 둔다.
+    const existing=this.database.prepare('SELECT id,probe_length AS probeLength,probe_hash AS probeHash FROM log_files WHERE content_key=?').get(key) as
+      {id:number;probeLength:number | null;probeHash:string | null} | undefined;
+    if (existing && identity && filePath && existing.probeLength && existing.probeHash && !matchesLogPrefix(filePath,existing.probeLength,existing.probeHash)) {
+      key=`${key}:${identity.probeHash}`;
+    }
+    this.database.prepare(`INSERT INTO log_files(content_key,file_path,log_date,probe_length,probe_hash) VALUES(?,?,?,?,?)
+      ON CONFLICT(content_key) DO UPDATE SET file_path=CASE WHEN excluded.file_path<>'' THEN excluded.file_path ELSE file_path END`)
+      .run(key,filePath ?? '',logDate,identity?.probeLength ?? null,identity?.probeHash ?? null);
+    const id=(this.database.prepare('SELECT id FROM log_files WHERE content_key=?').get(key) as {id:number}).id;
+    this.database.prepare('INSERT OR IGNORE INTO log_file_aliases VALUES(?,?)').run(fingerprint,id);
+    return id;
+  }
+
+  /** 기능 계약 — 처리 구간(log_ranges)의 "반영(applied)" 구간: 그 프로필이 반영을 마친 줄(실시간 바로 반영).
+   * - 통합 설계(.agents/development/unified-log-storage-design.md)의 처리 구간 표다. 상태는 applied·pending·ignored·legacy이며
+   *   지금은 실시간 바로 반영만 applied를 쓴다(나머지 상태는 다음 단계에서 옛 대기·귀속·무시 표를 옮겨 온다).
+   * - 같은 원본 파일(log_files)의 구간은 상태와 관계없이 겹치지 않는다. 이어지는 같은 (상태, 프로필, 세션) 구간은 끝만
+   *   늘리되 한 행은 RANGE_ROW_MAX_BYTES(256KB)를 넘지 않는다. 파일이 짧아지거나 바뀌면 끝 표본이 맞지 않는 행만 지우므로
+   *   (validateLogRanges) 그대로 남은 앞부분의 구간은 유지된다. 이미 다른 구간이 덮은 byte는 새 구간에서 잘라 낸다.
+   * - 지금 파일보다 끝이 긴 구간은 쓰지 않는다(파일이 잘린 뒤 늦게 쓰는 구간이 나중에 같은 위치에 새로 쓰인 줄을 덮지 않게).
+   * - applied 구간 안의 줄은 반영을 마친 줄이다. 재읽기 중복 방지는 이벤트 행(대기·영수증)이 먼저이고, 행이 없으면 구간을 본다
+   *   (appliedRangeCovers). 구간에는 기록 없는 채팅 줄도 들어간다(기록 없는 줄은 다시 읽어도 기록이 생기지 않는다).
+   * - 이 함수(복원 등)는 HUD 복원 구간을 남기지 않는다. 실시간 바로 반영은 extendLiveRange를 쓴다.
+   * 회귀: check-profile-storage.ts, check-profile-recording.ts, check-profile-log-replace.ts. */
+  extendAppliedRange(profileId:string,fingerprint:string,logDate:string,start:number,end:number,filePath?:string):void {
+    this.flushDeferredRange();
+    this.extendRange('applied',profileId,fingerprint,logDate,start,end,filePath);
+  }
+
+  /** 실시간 바로 반영의 처리 구간. extendAppliedRange와 같고, 새로 채운 byte를 체크포인트 뒤 HUD 복원 구간으로도 남긴다. */
+  extendLiveRange(profileId:string,fingerprint:string,logDate:string,start:number,end:number,filePath?:string):void {
+    this.flushDeferredRange();
+    const written=this.extendRange('applied',profileId,fingerprint,logDate,start,end,filePath);
+    if (written) this.recordRuntimeRanges(profileId,written.file,logDate,written.spans);
+  }
+
+  /** 기능 계약 — 경험치 줄만 있는 실시간 읽기의 처리 구간은 DB에 바로 쓰지 않는다(사냥 정보는 DB에 줄 단위로 남기지 않는다).
+   * - 구간을 메모리에서 이어 붙인다. 같은 프로필·같은 파일이면 사이의 기록 없는 줄(채팅 등)까지 한 구간으로 늘린다.
+   * - 쓰는 때(flushDeferredRange): 기록이 있는 읽기(같은 commit), 구간을 읽거나 바꾸는 모든 호출(appliedRanges·runtimeRanges·
+   *   validateLogRanges·extendAppliedRange·압축), 1분 체크포인트(profileRecording.checkpoint), 감시 북마크 저장(최대 1분 간격), 종료(close).
+   * - 같은 프로세스 안의 중복 확인(appliedRangeCovers·rangeAt)은 메모리 구간도 본다.
+   * - 비정상 종료하면 메모리 구간을 잃는다. 그 줄들은 일지·숙제 기록이 없는 경험치 줄이라 다시 읽어도 기록이 생기지 않고,
+   *   마지막 체크포인트 뒤 최대 1분의 경험치·처치 수만 HUD에서 빠진다(사용자 결정 2026-11-25). 버프 등은 바로 쓴다.
+   * 회귀: check-profile-durability.ts, check-profile-storage.ts. */
+  deferAppliedRange(profileId:string,fingerprint:string,logDate:string,start:number,end:number,filePath?:string):void {
+    if (!fingerprint || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end<=start) return;
+    const current=this.deferredRange;
+    if (current && current.profileId===profileId && current.fingerprint===fingerprint && current.logDate===logDate && start>=current.start) {
+      const grew=end>current.end || (!!filePath && filePath!==current.filePath);
+      current.end=Math.max(current.end,end);
+      if (filePath) current.filePath=filePath;
+      // 방금 읽은 내용의 구간 끝 표본. 쓸 때 다시 재서 파일이 그 사이 바뀌었으면 쓰지 않는다(flushDeferredRange).
+      // 알려진 한계: 표본은 경로로 파일을 다시 열어 잰다(읽기 한 번에 약 0.4ms, 사냥 중 초당 1~5회). 읽은 직후 표본을 재기 전
+      // (1ms 미만) 파일이 교체되면 새 파일에서 재므로 쓸 때 비교를 통과한다. 읽기 버퍼로 재면 둘 다 없어지지만, 구간 끝이
+      // 버퍼 밖일 수 있어 chatLogManager부터 넘기는 값을 바꿔야 한다.
+      if (grew && current.filePath) current.endSample=sampleLogEnd(current.filePath,current.end);
+      return;
+    }
+    this.flushDeferredRange();
+    this.deferredRange={profileId,fingerprint,logDate,start,end,filePath,...(filePath ? {endSample:sampleLogEnd(filePath,end)} : {})};
+  }
+
+  /** 쓰지 못한 미룬 구간을 버리기 직전에 남긴다(flushDeferredRange 계약). 그 줄은 경험치 줄뿐이다. */
+  private logUnwrittenDeferredRange(reason:string):void {
+    const range=this.deferredRange;
+    if (range) log(`[PROFILE] 미룬 처리 구간을 쓰지 못하고 버립니다(${reason}, ${range.end-range.start}byte). 경험치 줄만 다시 읽힐 수 있습니다.`);
+  }
+
+  /** 미뤄 둔 구간이 이 (프로필, 파일, 날짜)의 것이 아니면 transaction 밖에서 먼저 쓴다. 경험치 줄만 있는 읽기가
+   * transaction 안에서 다른 구간으로 바꿔 끼우다 그 commit이 취소되면 앞 구간을 잃기 때문이다(acceptLiveLines). */
+  flushDeferredRangeUnlessFor(profileId:string,fingerprint:string,logDate:string):void {
+    const current=this.deferredRange;
+    if (current && (current.profileId!==profileId || current.fingerprint!==fingerprint || current.logDate!==logDate)) this.flushDeferredRange();
+  }
+
+  /** 메모리에 미뤄 둔 반영 구간이 있는지(감시 북마크 저장 간격 판단용). */
+  get hasDeferredRange():boolean {return !!this.deferredRange;}
+
+  /** 미뤄 둔 반영 구간을 DB에 쓴다. 실패하면 메모리에 남겨 다음에 다시 쓴다(호출자에게 예외를 넘긴다).
+   * 바깥 transaction 안에서 쓰면 그 commit이 취소될 수 있으므로 메모리에서 지우지 않는다. 다시 써도 같은 구간이라
+   * 결과가 같고, transaction 밖의 다음 쓰기(북마크 저장·체크포인트·기록 있는 읽기 앞)가 지운다.
+   * 기능 계약 — 쓰기 전에 구간 끝 표본을 미룰 때 잰 값과 비교한다. 파일이 교체·다시 쓰기로 바뀌었는데 실시간 감시가 아직
+   * 알아채지 못한 사이(최대 1초)에 체크포인트·압축·선택·복원이 먼저 부르면, 끝 표본이 바뀐 파일에서 계산되어 검증을 통과하고
+   * 그 byte의 새 줄(득템 포함)을 처리한 줄로 보고 건너뛴다. 표본이 다르면(또는 파일이 짧아졌으면) 구간을 버린다.
+   * 버린 구간의 줄은 경험치 줄뿐이라 HUD만 다시 읽힐 수 있다(discardDeferredRange와 같은 결과).
+   * 원본 경로가 있는데 확인할 수 없으면(쓸 때 파일을 열지 못함, 또는 미룰 때 표본을 재지 못함 — 백신 등의 잠깐 잠금·옮김·삭제)
+   * 바뀌지 않았다고 볼 근거가 없으므로 같은 이유로 버리고 로그를 남긴다. 메모리에 남겨 다시 확인하면 그 사이 끼어든 대기 경로 줄·
+   * 체크포인트·프로필 삭제·감시 북마크와 맞물리는 상태가 늘어난다. 버려도 일지·숙제 기록에는 영향이 없고(경험치 줄뿐), 체크포인트가
+   * 버리면 바로 뒤 HUD 저장이 그 경험치를 담는다. 그 밖에서 버린 뒤 다음 체크포인트 전에 비정상 종료하면 그 경험치(최대 1분)만 HUD
+   * 복원에서 빠진다(위 계약의 "마지막 1분" 한계와 같은 범위). 회귀: check-profile-storage.ts(바뀐·잘린·열지 못한·표본 없는 미룬 구간). */
+  flushDeferredRange():void {
+    const range=this.deferredRange;
+    if (!range || !this.database.open) return;
+    if (range.filePath) {
+      const now=range.endSample===undefined ? undefined : readLogEndSample(range.filePath,range.end);
+      if (now===undefined || now!==range.endSample) {
+        if (now===undefined) this.logUnwrittenDeferredRange(range.endSample===undefined ? '미룰 때 원본 표본을 재지 못함' : '원본을 열지 못함');
+        if (this.deferredRange===range) this.deferredRange=undefined;
+        return;
+      }
+    }
+    this.database.transaction(()=>{
+      const written=this.extendRange('applied',range.profileId,range.fingerprint,range.logDate,range.start,range.end,range.filePath);
+      // 미룬 구간도 실시간으로 반영한 줄이라 체크포인트 뒤라면 HUD 복원 대상이다.
+      if (written) this.recordRuntimeRanges(range.profileId,written.file,range.logDate,written.spans);
+    })();
+    if (this.deferredRange===range && !this.database.inTransaction) this.deferredRange=undefined;
+  }
+
+  /** 실시간 감시가 파일 교체·절단을 감지해 처음부터 다시 읽을 때, 그 파일의 미룬 구간을 버린다.
+   * 미룬 구간은 바뀌기 전 내용을 읽은 결과인데, 쓸 때 끝 표본은 바뀐 파일에서 계산되므로 검증을 통과해 엉뚱한 줄을 덮을 수 있다.
+   * 버리면 그 사이 경험치 줄은 다시 읽혀 HUD에 한 번 더 들어갈 수 있다(일지·숙제 기록은 줄 귀속으로 걸러진다). */
+  discardDeferredRange(fingerprint:string):void {
+    const range=this.deferredRange;
+    if (!range) return;
+    const file=this.logFileIdForFingerprint(fingerprint);
+    if (range.fingerprint===fingerprint || (file!==undefined && this.logFileIdForFingerprint(range.fingerprint)===file)) this.deferredRange=undefined;
+  }
+
+  private deferredCovers(fingerprint:string,offset:number):boolean {
+    const range=this.deferredRange;
+    return !!range && range.fingerprint===fingerprint && offset>=range.start && offset<range.end;
+  }
+
+  /** 처리 구간을 이어 붙인다. 이미 다른 구간이 덮은 byte는 건너뛰고, 그 사이의 빈 곳마다 채운다(구간 하나가 중간에 있어도
+   * 그 뒤를 버리지 않는다. 예: 실시간으로 반영한 구간이 있는 오늘 파일을 같은 프로필이 처음부터 복원).
+   * 빈 곳 바로 앞 구간이 같은 (상태, 소유, 세션 없음)이면 행 크기 상한 안에서 그 끝만 늘리고, 넘으면 새 행을 만든다.
+   * 새로 채운 byte 구간(written.spans)을 돌려준다. 파일보다 끝이 긴 빈 곳은 쓰지 않는다. */
+  private extendRange(state:'applied' | 'ignored',profileId:string | null,fingerprint:string,logDate:string,start:number,end:number,filePath?:string):
+    {file:number;spans:Array<[number,number]>} | undefined {
+    if (!fingerprint || !/^\d{4}-\d{2}-\d{2}$/.test(logDate) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start<0 || end<=start) return;
+    const file=this.registerLogFile(fingerprint,filePath,logDate)!;
+    // 구간 끝 표본: 파일이 다른 내용으로 바뀌면(같은 날짜 파일 다시 쓰기·교체) 그 구간을 가려낸다(validateLogRanges).
+    const samplePath=filePath || this.logFilePath(file);
+    const probe=this.fileProbe;
+    const sample=(at:number)=>samplePath ? (probe ? probe.sampleEnd(samplePath,at) : sampleLogEnd(samplePath,at)) ?? null : null;
+    // 파일이 있는데 구간 끝보다 짧으면 이미 잘린 파일이다(없는 파일은 표본 없이 쓴다: 지워진 옛 로그의 v3.3.5 원문 변환 등).
+    const size=samplePath ? (probe ? probe.size(samplePath) : logFileSize(samplePath)) : undefined;
+    // 구간은 겹치지 않으므로 끝 위치 순서가 시작 위치 순서와 같다. 끝 인덱스로 start 뒤에서 끝나는 행부터 읽고
+    // 시작이 end를 넘으면 멈춘다(시작 위치 PK로 start_offset<end를 찾으면 파일 앞쪽 행을 전부 훑는다).
+    const overlapping:{start:number;end:number}[]=[];
+    for (const range of this.sql(`SELECT start_offset AS start,end_offset AS end FROM log_ranges INDEXED BY idx_log_ranges_end
+      WHERE file_id=? AND end_offset>? ORDER BY end_offset`).iterate(file,start) as Iterable<{start:number;end:number}>) {
+      if (range.start>=end) break;
+      overlapping.push(range);
+    }
+    const gaps:Array<[number,number]>=[];
+    let cursor=start;
+    for (const range of overlapping) {
+      if (range.start>cursor) gaps.push([cursor,range.start]);
+      cursor=Math.max(cursor,range.end);
+    }
+    if (cursor<end) gaps.push([cursor,end]);
+    const adjacent=this.sql(`SELECT start_offset AS start,state,profile_id AS owner,session_id AS session FROM log_ranges
+      INDEXED BY idx_log_ranges_end WHERE file_id=? AND end_offset=? LIMIT 1`);
+    const following=this.sql(`SELECT end_offset AS end,end_sample AS sample,state,profile_id AS owner,session_id AS session FROM log_ranges
+      WHERE file_id=? AND start_offset=?`);
+    const extend=this.sql('UPDATE log_ranges SET end_offset=?,end_sample=? WHERE file_id=? AND start_offset=?');
+    const remove=this.sql('DELETE FROM log_ranges WHERE file_id=? AND start_offset=?');
+    const insert=this.sql('INSERT INTO log_ranges(file_id,start_offset,end_offset,state,profile_id,session_id,log_date,end_sample) VALUES(?,?,?,?,?,NULL,?,?)');
+    const sameKey=(row:{state:string;owner:string | null;session:string | null} | undefined)=>!!row && row.state===state && row.owner===profileId && row.session===null;
+    const spans:Array<[number,number]>=[];
+    for (const [from,to] of gaps) {
+      if (size!==undefined && to>size) continue;
+      let position=from,lastStart:number;
+      const before=adjacent.get(file,from) as {start:number;state:string;owner:string | null;session:string | null} | undefined;
+      if (sameKey(before) && from-before!.start<RANGE_ROW_MAX_BYTES) {
+        const stop=Math.min(to,before!.start+RANGE_ROW_MAX_BYTES);
+        extend.run(stop,sample(stop),file,before!.start);
+        lastStart=before!.start;position=stop;
+      } else lastStart=from;
+      while (position<to) {
+        const stop=Math.min(to,position+RANGE_ROW_MAX_BYTES);
+        insert.run(file,position,stop,state,profileId,logDate,sample(stop));
+        lastStart=position;position=stop;
+      }
+      // 빈 곳 뒤의 같은 (상태, 소유) 구간과 상한 안에서 한 행으로 합친다.
+      const after=following.get(file,to) as {end:number;sample:string | null;state:string;owner:string | null;session:string | null} | undefined;
+      if (sameKey(after) && after!.end-lastStart<=RANGE_ROW_MAX_BYTES) {
+        remove.run(file,to);
+        extend.run(after!.end,after!.sample,file,lastStart);
+      }
+      spans.push([from,to]);
+    }
+    return {file,spans};
+  }
+
+  /** 기능 계약 — 처리 구간은 byte 위치라, 같은 파일이 다른 내용으로 바뀌면(파일 교체·같은 날짜 파일 다시 쓰기) 엉뚱한 줄을 덮는다.
+   * 줄 키(내용 해시) 시절처럼 바뀐 줄을 새 줄로 보도록, 과거 로그 복원 시작과 실시간 감시 준비 때 그 파일 구간의 끝 표본을
+   * 지금 파일과 비교해 맞지 않는(파일이 짧아졌거나 내용이 다른) 구간을 지운다. 덧붙이기만 하는 로그와 복사본은 그대로다.
+   * 행은 최대 256KB라 앞부분이 그대로인 파일에서는 바뀐 지점이 걸친 행과 그 뒤만 지운다. 지운 구간의 일지·숙제 줄은
+   * 줄 귀속(live=1)으로 다시 기록되지 않는다. 겹치는 HUD 복원 구간도 함께 지운다.
+   * 표본이 없는 구간(경로를 몰랐던 이전 행)은 둔다. 회귀: check-profile-log-restore.ts(같은 날짜 파일 다시 쓰기), check-profile-log-replace.ts. */
+  validateLogRanges(fingerprint:string,filePath:string):number {
+    this.flushDeferredRange();
+    const file=this.logFileIdForFingerprint(fingerprint);
+    if (file===undefined) return 0;
+    const rows=this.database.prepare('SELECT start_offset AS start,end_offset AS end,end_sample AS sample FROM log_ranges WHERE file_id=? AND end_sample IS NOT NULL')
+      .all(file) as {start:number;end:number;sample:string}[];
+    const remove=this.database.prepare('DELETE FROM log_ranges WHERE file_id=? AND start_offset=?');
+    const removeHud=this.database.prepare('DELETE FROM profile_runtime_ranges WHERE file_id=? AND start_offset<? AND end_offset>?');
+    let removed=0;
+    for (const row of rows) if (sampleLogEnd(filePath,row.end)!==row.sample) {remove.run(file,row.start);removeHud.run(file,row.end,row.start);removed++;}
+    // transaction 안이라 메모리에 남은 미룬 구간이 바뀐 파일의 것이면 버린다(다음 쓰기가 지운 구간을 되살리지 않게).
+    const deferred=this.deferredRange;
+    if (removed && deferred && this.logFileIdForFingerprint(deferred.fingerprint)===file) this.deferredRange=undefined;
+    return removed;
+  }
+
+  /** 이 원본 위치(줄 시작 byte)가 이미 처리한 구간(반영 applied 또는 무시 ignored) 안인지. 실시간 재읽기 중복 방지용. */
+  appliedRangeCovers(fingerprint:string,offset:number):boolean {
+    if (this.deferredCovers(fingerprint,offset)) return true;
+    const file=this.logFileIdForFingerprint(fingerprint);
+    if (file===undefined) return false;
+    const row=this.sql('SELECT end_offset AS end,state FROM log_ranges WHERE file_id=? AND start_offset<=? ORDER BY start_offset DESC LIMIT 1')
+      .get(file,offset) as {end:number;state:string} | undefined;
+    return !!row && (row.state==='applied' || row.state==='ignored') && row.end>offset;
+  }
+
+  /** 이 줄을 어떤 프로필이 실시간으로 이미 반영했는지(줄 귀속 live=1). 일지·숙제에 남는 줄만 귀속을 남기므로,
+   * 처리 구간이 지워진 뒤(파일 교체·절단) 같은 줄을 다시 읽어도 기록을 중복하지 않게 하는 내용 기준 확인이다. */
+  lineAppliedLive(lineKey:string):boolean {
+    if (!/^[a-f0-9]{64}$/.test(lineKey)) return false;
+    return !!this.sql('SELECT 1 FROM profile_log_line_owners WHERE line_key=? AND live=1 AND profile_id IS NOT NULL').get(Buffer.from(lineKey,'hex'));
+  }
+
+  /** 이 원본 위치(줄 시작 byte)를 덮는 처리 구간의 상태·소유. 없으면 undefined. */
+  rangeAt(fingerprint:string,offset:number):{state:string;profileId:string | null} | undefined {
+    if (this.deferredCovers(fingerprint,offset)) return {state:'applied',profileId:this.deferredRange!.profileId};
+    const file=this.logFileIdForFingerprint(fingerprint);
+    if (file===undefined) return;
+    const row=this.database.prepare('SELECT end_offset AS end,state,profile_id AS profileId FROM log_ranges WHERE file_id=? AND start_offset<=? ORDER BY start_offset DESC LIMIT 1')
+      .get(file,offset) as {end:number;state:string;profileId:string | null} | undefined;
+    return row && row.end>offset ? {state:row.state,profileId:row.profileId} : undefined;
+  }
+
+  /** 반영(applied) 구간. fingerprint를 주면 그 지문이 가리키는 파일만, fromDate를 주면 그 날짜 이후만.
+   * 파일·시작 위치 순서다(재분석 워커가 시작 위치 순서로 한 번 훑는다. 한 파일에 날짜가 다른 구간이 섞여도 순서가 맞아야 한다). */
+  appliedRanges(query:{profileId?:string;notProfileId?:string;fingerprint?:string;fromDate?:string}):{fileId:number;start:number;end:number;profileId:string;logDate:string}[] {
+    this.flushDeferredRange();
+    const where:string[]=["state='applied'"],params:Array<string | number>=[];
+    if (query.profileId!==undefined) {where.push('profile_id=?');params.push(query.profileId);}
+    if (query.notProfileId!==undefined) {where.push('profile_id<>?');params.push(query.notProfileId);}
+    if (query.fingerprint!==undefined) {
+      const file=this.logFileIdForFingerprint(query.fingerprint);
+      if (file===undefined) return [];
+      where.push('file_id=?');params.push(file);
+    }
+    if (query.fromDate!==undefined) {where.push('log_date>=?');params.push(query.fromDate);}
+    return this.database.prepare(`SELECT file_id AS fileId,start_offset AS start,end_offset AS end,profile_id AS profileId,log_date AS logDate
+      FROM log_ranges WHERE ${where.join(' AND ')} ORDER BY file_id,start_offset`).all(...params) as
+      {fileId:number;start:number;end:number;profileId:string;logDate:string}[];
+  }
+
+  /** 원본 로그 파일 경로(log_files, 마지막으로 본 경로). 모르면 undefined. */
+  logFilePath(fileId:number):string | undefined {
+    return (this.sql('SELECT file_path AS path FROM log_files WHERE id=?').get(fileId) as {path:string} | undefined)?.path || undefined;
+  }
+
+  /** 이 줄이 다른 프로필(또는 무시·복원 귀속)에 이미 귀속돼 있는지. 그런 줄은 바로 반영하지 않고 대기 경로로 처리해
+   * 이 프로필의 읽은 범위에 넣지 않는다(넣으면 원래 소유자의 재분석에서 제외되고 HUD 재생 대상이 된다). */
+  lineOwnedElsewhere(lineKey:string,profileId:string):boolean {
+    if (!/^[a-f0-9]{64}$/.test(lineKey)) return false;
+    const owner=this.database.prepare('SELECT profile_id AS owner,live FROM profile_log_line_owners WHERE line_key=?')
+      .get(Buffer.from(lineKey,'hex')) as {owner:string | null;live:number} | undefined;
+    return !!owner && !(owner.live===1 && owner.owner===profileId);
+  }
+
+  /** 바로 반영을 멈춰야 하는 미완료 소유 실시간 기록(저장·반영 실패 재시도)이 있는지. 있으면 순서를 지키려 대기 경로로 처리한다.
+   * 알려진 한계: 같은 세션에 계속 실패하는 소유 기록이 하나라도 남으면 세션 끝까지 v3.3.5처럼 줄마다 대기 원문(약 680바이트)이
+   * 쌓인다(순서 보장이 우선). 프로필이 둘 이상인 사용자가 선택창에 답하지 않은 채 사냥하는 동안도 같다(선택 뒤 배정·압축으로 줄어듦). */
+  hasOwnedLivePending(session:string,profileId:string):boolean {
+    return !!this.database.prepare(`SELECT 1 FROM pending_profile_events INDEXED BY idx_pending_profile_owner
+      WHERE assigned_profile_id=? AND resolved_at IS NULL AND session_id=? AND (event_id GLOB 'live:*' OR event_id GLOB 'live-line:*') LIMIT 1`)
+      .get(profileId,session);
   }
 
   pendingRuntimeEvents(id:string):unknown[] {
@@ -872,7 +1319,10 @@ export class ApplicationData {
    * 일지·숙제에 남지 않는 이벤트(profileLogSource의 보관 범위 계약)는 영수증을 만들지 않고 그 줄만의 귀속도 놓는다.
    * 같은 호출에서 보관 기간 밖 증거를 제한된 개수만 정리한다(pruneProfileEventEvidence). 회귀: check-profile-storage.ts. */
   compactResolvedEvents(now=Date.now()):number {
+    // 미룬 구간은 압축 transaction 밖에서 먼저 쓴다(압축이 취소돼도 구간은 남는다).
+    this.flushDeferredRange();
     return this.database.transaction(()=>{
+      this.convertResolvedLiveRows();
       const rows=this.database.prepare('SELECT * FROM pending_profile_events WHERE resolved_at IS NOT NULL AND resolved_at<? AND NOT EXISTS (SELECT 1 FROM profile_runtime_events r WHERE r.event_id=pending_profile_events.event_id) LIMIT 1000').all(now-30*86400000) as {event_id:string;session_id:string;occurred_at:number;payload:string;assigned_profile_id:string | null;resolved_at:number}[];
       const insert=this.database.prepare('INSERT INTO profile_event_receipts VALUES(?,?,?,?,?,?)'),remove=this.database.prepare('DELETE FROM pending_profile_events WHERE event_id=?');
       for (const row of rows) {
@@ -885,6 +1335,94 @@ export class ApplicationData {
       this.pruneProfileEventEvidence();
       return rows.length;
     })();
+  }
+
+  /**
+   * 기능 계약 — 미룬 실시간 기록(선택 전·반영 실패·이전 세션 배정)은 대기 행으로 두되 미룬 동안만 둔다.
+   * - 완료(반영 또는 무시)된 실시간 줄 행(`live-line:`·`live:`, payload에 원본 위치)은 1분 압축 때 그 줄을 처리 구간으로 바꾸고
+   *   행을 지운다: 소유자가 있으면 반영(applied), 없으면(무시) 무시(ignored). 30일 원문 보관·완료 영수증은 쓰지 않는다.
+   * - HUD 복원 대기(profile_runtime_events)에 있는 행은 체크포인트 뒤로 미룬다. 미완료 행(배정·무시 대기)은 건드리지 않으므로
+   *   선택 대기 배정·수동 배정·무시·미배정 화면·확인 토큰·Google 동기화 가드는 그대로다.
+   * - 재읽기 중복 방지는 이벤트 행 → 처리 구간(applied·ignored) 순이라 행을 지워도 같은 줄을 다시 기록하지 않는다.
+   * - 줄 귀속은 놓지 않는다. 같은 줄의 일지·숙제 기록 행이 먼저(다른 묶음에서) 지워졌으면 귀속이 그 줄의 유일한 내용 증거이기
+   *   때문이다. v3.3.5는 기록 없는 줄에 귀속을 만들지 않았으므로 남는 귀속은 기록 있는 줄 것이고, 일지 정리 날짜와 함께 지워진다.
+   * - 만든 구간은 HUD 복원 구간에 넣지 않는다(이미 HUD에 반영됐거나, 이전 세션 배정처럼 재생하지 않는 줄).
+   * - 성능: 위치·날짜는 SQL에서 꺼내고, 이어지는(또는 겹치는) 같은 (파일, 소유, 날짜) 줄은 한 구간으로 합쳐 쓴다. 한 번 압축은
+   *   CONVERT_BATCH_ROWS씩 골라 구간마다 CONVERT_BUDGET_MS 예산을 확인한다(구간 하나는 항상 처리해 앞으로 나아간다).
+   *   파일 크기·핸들은 한 번 압축 안에서 재사용하고(LogFileProbe), 앞·겹치는 구간은 끝 위치 인덱스(idx_log_ranges_end)로 찾는다.
+   *   실제 v3.3.5 DB는 평균 2.19행마다 줄 사이가 끊겨, 예산을 묶음 사이에서만 보던 때는 1분마다 0.5~1.8초를 막았다.
+   *   측정: scripts/benchmark-convert-live-rows.ts.
+   * 회귀: check-profile-storage.ts(완료 행의 구간 전환·HUD 대기 보존·무시 구간), check-profile-crash.ts, check-profile-upgrade-335.ts. */
+  private convertResolvedLiveRows(batchRows=CONVERT_BATCH_ROWS,budgetMs=CONVERT_BUDGET_MS):void {
+    const select=this.sql(`SELECT event_id AS id,assigned_profile_id AS owner,json_extract(payload,'$.source.fingerprint') AS fingerprint,
+      json_extract(payload,'$.source.start') AS start,json_extract(payload,'$.source.end') AS end,json_extract(payload,'$.data.date') AS date
+      FROM pending_profile_events
+      WHERE resolved_at IS NOT NULL AND (event_id GLOB 'live-line:*' OR event_id GLOB 'live:*')
+      AND NOT EXISTS (SELECT 1 FROM profile_runtime_events r WHERE r.event_id=pending_profile_events.event_id)
+      -- 구간으로 바꿀 수 없는 행(원본 위치·날짜 없음, 손상)은 고르지 않는다. 매번 다시 읽거나 앞 묶음을 막지 않게 하고,
+      -- 이런 행은 이전처럼 30일 뒤 완료 영수증으로 옮긴다.
+      AND CASE WHEN json_valid(payload) THEN json_type(payload,'$.source.fingerprint')='text' AND json_extract(payload,'$.source.fingerprint')<>''
+        AND json_type(payload,'$.source.start')='integer' AND json_type(payload,'$.source.end')='integer'
+        AND json_extract(payload,'$.source.start')>=0 AND json_extract(payload,'$.source.end')>json_extract(payload,'$.source.start')
+        AND json_type(payload,'$.data.date')='text' AND json_extract(payload,'$.data.date') GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+        ELSE 0 END LIMIT ?`);
+    const remove=this.sql('DELETE FROM pending_profile_events WHERE event_id=?');
+    const sourcePaths=new Map<string,string | undefined>();
+    const pathOf=(fingerprint:string)=>{
+      if (!sourcePaths.has(fingerprint)) {
+        let found:string | undefined;
+        if (this.logFileIdForFingerprint(fingerprint)===undefined) {
+          for (const {state_json} of this.database.prepare('SELECT state_json FROM profile_log_sources').all() as {state_json:string}[]) {
+            try {const value=JSON.parse(state_json) as {fingerprint?:unknown;filePath?:unknown};if (value.fingerprint===fingerprint && typeof value.filePath==='string') {found=value.filePath;break;}}
+            catch {/* 손상된 원본 정보는 건너뛴다. */}
+          }
+        }
+        sourcePaths.set(fingerprint,found);
+      }
+      return sourcePaths.get(fingerprint);
+    };
+    const deadline=performance.now()+budgetMs;
+    // 한 번 압축 동안 파일마다 한 번만 열고 크기를 잰다(구간마다 stat·open·close를 하지 않는다).
+    const ownProbe=!this.fileProbe;
+    if (ownProbe) this.fileProbe=new LogFileProbe();
+    try {
+      for (let wrote=false;;) {
+        if (wrote && performance.now()>=deadline) return;
+        const rows=select.all(batchRows) as {id:string;owner:string | null;fingerprint:string;start:number;end:number;date:string}[];
+        if (!rows.length) {
+          // 이전 버전(v3.3.5)이 쌓은 완료 원문을 다 바꾼 첫 시점에 한 번만, 빈 공간이 크면 다음 시작 때 파일을 줄인다(vacuumIfRequested).
+          if (!this.database.prepare("SELECT 1 FROM app_meta WHERE key='live_rows_converted'").get()) {
+            this.database.prepare("INSERT INTO app_meta VALUES('live_rows_converted','done')").run();
+            const free=Number(this.database.pragma('freelist_count',{simple:true}))*Number(this.database.pragma('page_size',{simple:true}));
+            if (free>8*2**20) this.database.prepare("INSERT OR IGNORE INTO app_meta VALUES('vacuum_on_next_start','1')").run();
+          }
+          return;
+        }
+        // 같은 (파일 지문, 소유, 날짜)의 이어지거나 겹치는 줄을 합친다. 사이가 빈 줄(다른 소유·기록 없는 채팅)은 합치지 않는다.
+        rows.sort((a,b)=>a.fingerprint<b.fingerprint ? -1 : a.fingerprint>b.fingerprint ? 1
+          : (a.owner ?? '')<(b.owner ?? '') ? -1 : (a.owner ?? '')>(b.owner ?? '') ? 1
+          : a.date<b.date ? -1 : a.date>b.date ? 1 : a.start-b.start);
+        const runs:Array<{fingerprint:string;owner:string | null;date:string;start:number;end:number;ids:string[]}>=[];
+        for (const row of rows) {
+          const run=runs.at(-1);
+          // 위치가 안전한 정수가 아닌 행은 구간으로 바꿀 수 없다. 이전처럼 행만 지운다.
+          if (!Number.isSafeInteger(row.start) || !Number.isSafeInteger(row.end)) {remove.run(row.id);continue;}
+          if (run && run.fingerprint===row.fingerprint && run.owner===row.owner && run.date===row.date && row.start<=run.end) {
+            run.end=Math.max(run.end,row.end);run.ids.push(row.id);
+          } else runs.push({fingerprint:row.fingerprint,owner:row.owner,date:row.date,start:row.start,end:row.end,ids:[row.id]});
+        }
+        // 시간 예산은 구간마다 본다(줄 사이가 자주 끊기면 한 묶음도 수백 ms가 걸린다). 한 번 압축에 구간 하나는 반드시 처리해
+        // 앞으로 나아가고, 쓰지 못한 구간의 행은 남겨 다음 압축이 다시 고른다.
+        for (const run of runs) {
+          if (wrote && performance.now()>=deadline) return;
+          this.extendRange(run.owner ? 'applied' : 'ignored',run.owner,run.fingerprint,run.date,run.start,run.end,pathOf(run.fingerprint));
+          for (const id of run.ids) remove.run(id);
+          wrote=true;
+        }
+      }
+    } finally {
+      if (ownProbe) {this.fileProbe?.close();this.fileProbe=undefined;}
+    }
   }
 
   /** 기록이 남지 않는 이벤트만 있던 실시간 줄의 귀속을 놓는다. 같은 줄의 다른 대기/영수증이 남아 있으면
@@ -920,6 +1458,10 @@ export class ApplicationData {
         if (removed<limit) this.database.prepare('INSERT INTO app_meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
           .run(ownersDoneKey,prunedBefore);
       }
+      // 반영 구간도 일지가 정리한 날짜 이전 것은 지운다(그 날짜의 일지 행이 없으므로 다시 기록돼도 이중 집계가 아니다).
+      this.database.prepare("DELETE FROM log_ranges WHERE state='applied' AND log_date<?").run(prunedBefore);
+      // 체크포인트가 비우지 못한(삭제된 프로필 등) 오래된 HUD 복원 구간도 같은 기준으로 지운다.
+      this.database.prepare('DELETE FROM profile_runtime_ranges WHERE log_date<?').run(prunedBefore);
       const cutoff=new Date(`${prunedBefore}T00:00:00`).getTime();
       if (Number.isFinite(cutoff)) this.database.prepare(`DELETE FROM profile_event_receipts WHERE rowid IN (
         SELECT rowid FROM profile_event_receipts WHERE occurred_at<? LIMIT ?)`).run(cutoff,limit);
@@ -1098,5 +1640,10 @@ export class ApplicationData {
     return {processed,assigned};
   }
 
-  close(): void { if (this.database.open) this.database.close(); }
+  close(): void {
+    try {this.flushDeferredRange();} catch {/* 종료: 미룬 구간은 경험치 줄뿐이라 잃어도 기록은 그대로다. */}
+    this.logUnwrittenDeferredRange('종료');
+    this.deferredRange=undefined;
+    if (this.database.open) this.database.close();
+  }
 }

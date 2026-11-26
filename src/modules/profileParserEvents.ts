@@ -1,4 +1,7 @@
 import {randomUUID} from 'crypto';
+import * as fs from 'fs';
+import iconv = require('iconv-lite');
+import {ChatLogLineNormalizer,detectChatLogEncoding} from './chatLogNormalizer';
 import {ChatParser,chatParser} from './chatParser';
 import {getProfileRuntime} from './profileRuntime';
 import type {ChatParserEventMap} from '../shared/types';
@@ -6,9 +9,10 @@ import {collectRecordEffects,deferRecordEffect} from './recordEffects';
 import * as config from './config';
 import {withDiaryActivitySource} from './diaryDb';
 import {nextProfileLogSource,claimProfileLogRange,claimProfileLogLine,setProfileEventDurability,type ProfileLogSource} from './profileLogSource';
-import type {LiveProfileRecord} from './profileService';
+import type {LiveProfileRecord,LiveReadSpan} from './profileService';
 import {getEssenceExchangeCount} from '../shared/experienceEssence';
-import {parseElsoMessage} from './itemAcquisition';
+import {parseElsoMessage,recordsLootLine} from './itemAcquisition';
+import {normalizeNotificationKeywords} from '../shared/keywordSanitizer';
 
 type EventName=keyof ChatParserEventMap;
 type Subscription={callback:(data:any) => void | false | string;progress:boolean};
@@ -30,10 +34,16 @@ export function collectLiveProfileLine(parse:()=>void):LiveProfileRecord[] | und
 }
 
 /** collectLiveProfileLine이 모은 한 줄의 기록을 함께 저장한다. 실패하면 예외를 던지며 기록은 저장되지 않는다. */
-export function persistLiveProfileRecords(records:readonly LiveProfileRecord[]):void {
+export function persistLiveProfileRecords(records:readonly LiveProfileRecord[],span?:LiveReadSpan):void {
+  persistLiveProfileBatch([records],span);
+}
+
+/** 한 번의 읽기에서 모은 여러 줄의 기록을 한 commit으로 저장한다(ProfileService.acceptLiveLines 계약).
+ * 실패하면 예외를 던지며 어느 줄의 기록도 저장되지 않는다. */
+export function persistLiveProfileBatch(lines:readonly (readonly LiveProfileRecord[])[],span?:LiveReadSpan):void {
   const runtime=getProfileRuntime();
-  if (!runtime || !records.length) return;
-  runtime.service.acceptLiveLine(records,runtime.replay);
+  if (!runtime || !lines.some(records=>records.length)) return;
+  runtime.service.acceptLiveLines(lines,runtime.replay,span);
 }
 
 /** Replay only the profile subscribers, without publishing old chat and notifications. */
@@ -92,9 +102,20 @@ export function onProfileEvent<K extends EventName>(event:K,callback:(data:ChatP
         else if (!liveLine) runtime.service.retryLiveRecords(state,runtime.replay);
         return;
       }
+      // 대기 행 없이 바로 반영한 줄은 프로필별 읽은 범위로 거른다(이벤트 행이 있으면 위에서 그 상태를 따른다).
+      const source=origin.source,store=runtime.service.store;
+      if (source?.fingerprint && Number.isSafeInteger(source.start) && store.appliedRangeCovers(source.fingerprint,source.start)) return;
+      // 처리 구간이 지워진 줄(파일 교체·절단 뒤 처음부터 다시 읽음)도 일지·숙제에 남는 줄이면 줄 귀속(live=1)으로 거른다.
+      if (source?.lineKey && store.lineAppliedLive(source.lineKey)) return;
+      // 경험치 줄(정수 교환 아님)은 HUD에만 쓰인다. 이런 줄만 있는 읽기는 처리 구간을 DB에 바로 쓰지 않는다(acceptLiveLines).
+      // 버프 등 다른 진행 줄은 드물고, 비정상 종료 뒤 빠지면 남은 시간 내내 HUD가 비므로 지금처럼 바로 쓴다.
+      const hudOnly=event==='XP_CHANGED' && isDurableProfileEventData(event,data)===false;
+      // 소유자를 확정할 수 없는 줄(재시작 복구 읽기·세션 경계)의 경험치는 배정해도 HUD에 재생하지 않고 기록도 없다(이전 세션 계약).
+      // 대기 행으로 남기면 강제 종료 뒤 미룬 구간(최대 1분)의 경험치 줄이 줄마다 미배정 기록으로 쌓이므로 남기지 않는다.
+      if (hudOnly && source?.unassigned) return;
       const payload:ParsedProfileEvent={kind:'parsed-profile-event',version:1,event,data:structuredClone(data),observedAt,sessionId,...(origin.source ? {source:origin.source} : {})};
       if (liveLine && origin.eventId) liveLine.push({
-        payload,eventId:origin.eventId,occurredAt:observedAt,unassigned:origin.source?.unassigned,
+        payload,eventId:origin.eventId,occurredAt:observedAt,unassigned:origin.source?.unassigned,...(hudOnly ? {hudOnly} : {}),
       });
       else runtime.service.dispatch(payload,runtime.replay,observedAt,origin.eventId || randomUUID(),origin.source?.unassigned);
     };
@@ -121,6 +142,21 @@ function isDurableProfileEventData(event:string,data:unknown):boolean | undefine
 }
 setProfileEventDurability(isDurableProfileEventData);
 
+/** 실시간 줄 귀속(profile_log_line_owners live=1)을 지금 남길지. 기본은 보관 범위(isDurableProfileEventData)를 따르고,
+ * 획득 줄은 지금 설정으로 일지에 실제 남는 줄만 남긴다(recordsLootLine 계약). 보관 범위 자체는 바꾸지 않는다:
+ * 30일 대기 원문 압축은 그 판단으로 영수증을 버리고 귀속을 놓는데(compactResolvedEvents), 등록 아이템 설정은 나중에
+ * 바뀔 수 있어 그때 기록된 줄의 증거를 지우면 안 되기 때문이다. 회귀: check-profile-durability.ts(획득 줄 귀속 수). */
+function persistsLineOwner(event:string,data:unknown):boolean {
+  if (event==='ITEM_LOOTED' && data && typeof data==='object') {
+    const value=data as {itemName?:unknown;count?:unknown;isOwn?:unknown;message?:unknown};
+    if (typeof value.itemName==='string' && typeof value.message==='string' && typeof value.isOwn==='boolean' && typeof value.count==='number') {
+      return recordsLootLine({itemName:value.itemName,count:value.count,isOwn:value.isOwn,message:value.message},
+        normalizeNotificationKeywords(config.loadFields(['lootKeywords']).lootKeywords));
+    }
+  }
+  return isDurableProfileEventData(event,data) ?? true;
+}
+
 function readProfileParserEvent(value:unknown):ParsedProfileEvent {
   const event=value as ParsedProfileEvent;
   if (!event || event.kind!=='parsed-profile-event' || event.version!==1 || !(subscriptions.has(event.event) || MECHANIC_ALERT_EVENTS.has(event.event))
@@ -143,7 +179,15 @@ export function replayProfileParserEvent(value:unknown,eventId:string,pendingAss
   const record=() => {
     if (event.source && store) {
       const {lineKey}=event.source;
-      const accepted=lineKey ? claimProfileLogLine(store.database,lineKey,event.data.date,owner ?? null,isDurableProfileEventData(event.event,event.data) ?? true)
+      // 처리 구간이 먼저다: 무시했거나 다른 프로필이 반영(복원 포함)한 줄은 이 프로필에 기록하지 않는다.
+      // 같은 프로필의 반영 구간은 같은 줄의 다른 기록이 먼저 완료된 경우라 이어서 기록한다.
+      const range=event.source.fingerprint && Number.isSafeInteger(event.source.start) ? store.rangeAt(event.source.fingerprint,event.source.start) : undefined;
+      if (range && (range.state!=='applied' || range.profileId!==(owner ?? null))) {
+        return pendingAssignment ? '원본 로그가 이미 다른 기록 대상에 연결되어 있습니다.' : ()=>{};
+      }
+      // 일지·숙제에 남는 줄은 바로 반영에서도 줄 귀속(live=1)을 남긴다. 처리 구간은 위치 기준이라 파일 교체로 지워질 수 있고,
+      // 귀속은 내용(줄 키) 기준이라 같은 줄을 다시 읽어도 걸러 준다(onProfileEvent, 재분석 knownLines). 기록 없는 줄은 만들지 않는다.
+      const accepted=lineKey ? claimProfileLogLine(store.database,lineKey,event.data.date,owner ?? null,persistsLineOwner(event.event,event.data))
         : claimProfileLogRange(store.database,event.source,owner ?? null);
       if (!accepted) {
         const existing=lineKey ? store.database.prepare('SELECT profile_id FROM profile_log_line_owners WHERE line_key=?')
@@ -160,7 +204,7 @@ export function replayProfileParserEvent(value:unknown,eventId:string,pendingAss
       let recorded=hasProgress;
       for (const item of listeners) {
         if (!item.progress) {
-          const result=withDiaryActivitySource(event.source?.lineKey,()=>item.callback(event.data));
+          const result=withDiaryActivitySource(event.source,()=>item.callback(event.data));
           if (pendingAssignment && typeof result==='string') throw new SkippedProfileEvent(result);
           recorded ||= result!==false;
         } else if (current) deferRecordEffect(() => {
@@ -194,4 +238,44 @@ export function recoverProfileProgress(value:unknown,sessionId:string | null):vo
       if (item.progress) deferRecordEffect(()=>item.callback(event.data));
     }
   },false,Number.isFinite(timestamp) ? timestamp : event.observedAt,true)();
+}
+
+/** 기능 계약 — 체크포인트 뒤 바로 반영한 실시간 줄의 HUD 복원(대기 원문 없이 원본 로그에서).
+ * - 바로 반영한 줄은 HUD 복원 대기(profile_runtime_events) 대신 체크포인트 뒤 HUD 복원 구간(ApplicationData.runtimeRanges)을
+ *   남기고, 체크포인트가 그 행을 비운다. 비정상 종료 뒤 선택 때 남은 구간만 원본에서 다시 읽어 진행(HUD) 구독자만 재생한다
+ *   (recoverProfileProgress와 같은 규칙: 다른 세션이면 이어 갈 수 있는 진행만). 기록은 만들지 않는다.
+ *   복원·v3.3.5 원문 변환·이전 세션 배정이 만든 반영 구간은 이 표에 없어 재생하지 않는다.
+ * - 원본 파일이 없거나 읽지 못하면 그 구간의 HUD만 잃는다(기록은 이미 확정). 반환값은 재생한 이벤트 수.
+ * 회귀: check-profile-durability.ts(정전 뒤 HUD 경험치), check-profile-recording.ts. */
+export function recoverLiveProgress(segments:readonly {filePath:string;date:string;start:number;end:number}[],recordedSession:string | null,currentSession:string | null):number {
+  let replayed=0;
+  for (const segment of segments) {
+    let bytes:Buffer,head:Buffer;
+    try {
+      const fd=fs.openSync(segment.filePath,'r');
+      try {
+        const size=fs.fstatSync(fd).size,end=Math.min(segment.end,size);
+        if (end<=segment.start) continue;
+        bytes=Buffer.alloc(end-segment.start);fs.readSync(fd,bytes,0,bytes.length,segment.start);
+        head=Buffer.alloc(Math.min(size,64*1024));fs.readSync(fd,head,0,head.length,0);
+      } finally {fs.closeSync(fd);}
+    } catch {continue;}
+    const encoding=detectChatLogEncoding(head),parser=new ChatParser(),normalizer=new ChatLogLineNormalizer();
+    parser.setCurrentDate(segment.date);
+    for (const event of subscriptions.keys()) {
+      parser.on(event,(data:any)=>{
+        if (event==='NORMAL_CHAT' && !isQuestCommand(data)) return;
+        recoverProfileProgress({kind:'parsed-profile-event',version:1,event,data,sessionId:recordedSession,observedAt:Date.now()},currentSession);
+        replayed++;
+      });
+    }
+    const lines:string[]=[];
+    let from=0;
+    for (let index=bytes.indexOf(10);index!==-1;index=bytes.indexOf(10,from)) {lines.push(iconv.decode(bytes.subarray(from,index),encoding).replace(/\r$/,''));from=index+1;}
+    if (from<bytes.length) lines.push(iconv.decode(bytes.subarray(from),encoding).replace(/\r$/,''));
+    for (const line of [...lines.flatMap(item=>normalizer.push(item)),...normalizer.flush()]) {
+      if (line && !line.includes('회복되었습니다')) parser.parseLine(line);
+    }
+  }
+  return replayed;
 }

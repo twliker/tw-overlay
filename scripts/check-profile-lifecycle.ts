@@ -221,7 +221,8 @@ async function main():Promise<void> {
     assert.equal(amount(a.id),-109,'생성을 기다리던 로그 파일은 전환 전에 첫 줄부터 읽는다');
 
     const pendingFee=line('입장료 67 Seed를 지불하였습니다. [','10시 01분 06초');
-    store.database.exec("CREATE TRIGGER fail_tail_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture last line write'); END;");
+    // 기록 저장 실패(디스크 가득 참 등): 대기 원문과 실시간 읽은 범위(바로 반영) 쓰기를 모두 막아 commit 자체를 실패시킨다.
+    store.database.exec("CREATE TRIGGER fail_tail_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture last line write'); END;CREATE TRIGGER fail_tail_enqueue_range BEFORE INSERT ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture last line write'); END;CREATE TRIGGER fail_tail_enqueue_range_up BEFORE UPDATE ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture last line write'); END;");
     fs.appendFileSync(file,pendingFee);live._tail.refresh();
     await until(()=>live._profilePersistRetry.length===1);
     assert.equal(live._normalizedRetry.length,0,'저장만 실패한 줄은 원문을 다시 해석하지 않는다');
@@ -233,22 +234,58 @@ async function main():Promise<void> {
     await until(()=>liveChat.getChatHistory('System').some((item:any)=>item.message===stillReading));
     assert.equal(live._profilePersistRetry.length,1,'기록이 없는 다음 줄은 저장 대기열에 쌓지 않는다');
     assert.equal((await service.select(a.id,replay)).success,false,'실패한 원문을 다른 프로필로 넘기지 않는다');
-    store.database.exec('DROP TRIGGER fail_tail_enqueue');
+    store.database.exec('DROP TRIGGER fail_tail_enqueue;DROP TRIGGER fail_tail_enqueue_range;DROP TRIGGER fail_tail_enqueue_range_up');
     await until(()=>amount(b.id)===-52_800_067);
     assert.equal((await service.select(a.id,replay)).success,true);
     assert.equal(amount(a.id),-109);assert.equal(amount(b.id),-52_800_067,'새 입력 없이 재시도하고 정확히 한 건만 기록한다');
     const splitTime='10시 01분 07초';
     const splitFee=line('입장료 77 Seed를 지불하였습',splitTime)+line('니다.',splitTime);
-    store.database.exec("CREATE TRIGGER fail_join_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture joined line write'); END;");
+    store.database.exec("CREATE TRIGGER fail_join_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture joined line write'); END;CREATE TRIGGER fail_join_enqueue_range BEFORE INSERT ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture joined line write'); END;CREATE TRIGGER fail_join_enqueue_range_up BEFORE UPDATE ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture joined line write'); END;");
+    const splitStart=fs.statSync(file).size;
     fs.appendFileSync(file,splitFee);live._tail.refresh();
+    const splitEnd=fs.statSync(file).size;
     await until(()=>live._profilePersistRetry.length===1);
     assert.equal(live._normalizedRetry.length,0,'두 줄을 합친 결과의 기록이 저장 실패 후에도 남고 원문은 다시 해석하지 않는다');
     assert.equal(amount(a.id),-109);
-    store.database.exec('DROP TRIGGER fail_join_enqueue');
+    store.database.exec('DROP TRIGGER fail_join_enqueue;DROP TRIGGER fail_join_enqueue_range;DROP TRIGGER fail_join_enqueue_range_up');
     await until(()=>amount(a.id)===-186);
     fs.appendFileSync(file,fee(89,'10시 01분 08초'));
     await until(()=>amount(a.id)===-275);
     assert.equal(store.pending().filter((event:any)=>event.payload?.data?.amount===77).length,0);
+    // 재시도로 저장한 줄은 대기 경로(HUD 대기 행)로 들어가므로, 그 뒤 바로 반영한 줄의 구간이 재시도 줄까지 덮어
+    // HUD 복원 구간에 넣지 않는다(넣으면 비정상 종료 뒤 같은 줄의 진행이 대기 행과 원본 구간에서 두 번 재생된다).
+    // 바로 반영(직전 확정 구간 있음) → 저장 실패·재시도 → 다음 바로 반영 순서로 확인한다.
+    {
+      const overlapsHud=(from:number,to:number)=>store.runtimeRanges(a.id).filter((range:any)=>path.resolve(range.filePath)===path.resolve(file)
+        && range.start<to && range.end>from).length;
+      assert.equal(overlapsHud(splitStart,splitEnd),0,'저장 재시도를 거친 줄은 HUD 복원 구간에 넣지 않는다');
+      const before=amount(a.id);
+      fs.appendFileSync(file,fee(11,'10시 01분 09초'));live._tail.refresh();
+      await until(()=>amount(a.id)===before-11);
+      store.database.exec("CREATE TRIGGER fail_cover_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture cover write'); END;CREATE TRIGGER fail_cover_range BEFORE INSERT ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture cover write'); END;CREATE TRIGGER fail_cover_range_up BEFORE UPDATE ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture cover write'); END;");
+      const retriedStart=fs.statSync(file).size;
+      fs.appendFileSync(file,fee(13,'10시 01분 10초'));live._tail.refresh();
+      const retriedEnd=fs.statSync(file).size;
+      try {await until(()=>live._profilePersistRetry.length===1);}
+      finally {store.database.exec('DROP TRIGGER fail_cover_enqueue;DROP TRIGGER fail_cover_range;DROP TRIGGER fail_cover_range_up');}
+      await until(()=>amount(a.id)===before-24);
+      fs.appendFileSync(file,fee(17,'10시 01분 11초'));live._tail.refresh();
+      await until(()=>amount(a.id)===before-41);
+      assert.equal(overlapsHud(retriedStart,retriedEnd),0,'재시도 뒤 바로 반영한 구간이 재시도 줄을 HUD 복원 구간으로 덮지 않는다');
+      assert.equal(store.appliedRangeCovers(live._sourceFingerprint,retriedEnd),true,'재시도 뒤 줄은 바로 반영 구간에 들어간다');
+    }
+    // 미배정으로 읽은 줄(재시작 복구·세션 경계·재연결 중 전환) 뒤의 구간은 그 줄 앞으로 가지 않는다. 그 안의 경험치 줄은 버린 줄이다.
+    {
+      const saved=[live._liveProcessed,live._liveCovered,live._liveUnassignedEnd];
+      try {
+        live._liveProcessed={fingerprint:'span-fixture',logDate:'2026-11-26',end:500};live._liveCovered={fingerprint:'span-fixture',end:100};
+        live._liveUnassignedEnd=undefined;
+        assert.deepEqual([live.liveSpan([300])?.start,live.liveSpan([300])?.end],[100,500],'평소에는 직전 확정 구간 끝부터 덮는다');
+        live._liveUnassignedEnd={fingerprint:'span-fixture',end:200};
+        assert.deepEqual([live.liveSpan([50,300])?.start,live.liveSpan([50,300])?.end],[300,500],'미배정 줄 앞(직전 구간 끝·미배정 기록 줄)부터 덮지 않는다');
+        assert.equal(live.liveSpan([50]),undefined,'미배정 기록 줄만 있으면 바로 반영 구간이 없다');
+      } finally {[live._liveProcessed,live._liveCovered,live._liveUnassignedEnd]=saved;}
+    }
 
     // 감시 북마크(app_meta)까지 모든 DB 쓰기가 실패해도(디스크 가득 참) 감시를 놓지 않고 다음 줄의 채팅·기믹 이벤트를
     // 계속 처리한다. DB에는 마지막으로 저장한 북마크가 남고, 회복되면 다음 읽기에서 북마크를 다시 저장한다.
@@ -261,7 +298,7 @@ async function main():Promise<void> {
       const tail=live._tail,savedBefore=savedOffset();
       store.database.exec(`CREATE TRIGGER fail_meta_insert BEFORE INSERT ON app_meta BEGIN SELECT RAISE(ABORT,'fixture disk full'); END;
         CREATE TRIGGER fail_meta_update BEFORE UPDATE ON app_meta BEGIN SELECT RAISE(ABORT,'fixture disk full'); END;
-        CREATE TRIGGER fail_meta_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture disk full'); END;`);
+        CREATE TRIGGER fail_meta_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture disk full'); END;CREATE TRIGGER fail_meta_enqueue_range BEFORE INSERT ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture disk full'); END;CREATE TRIGGER fail_meta_enqueue_range_up BEFORE UPDATE ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture disk full'); END;`);
       try {
         for (const [index,message] of ['북마크 저장 실패 중 첫 줄','북마크 저장 실패 중 둘째 줄'].entries()) {
           fs.appendFileSync(file,line(message,'10시 01분 09초')+line('선봉대장, 로카고스 : 알파 구역에 마법 공격 지원 바란다!','10시 01분 09초'));
@@ -272,7 +309,7 @@ async function main():Promise<void> {
         }
         assert.equal(savedOffset(),savedBefore,'저장 실패 동안 DB의 북마크는 마지막으로 저장한 위치에 남는다');
       } finally {
-        store.database.exec('DROP TRIGGER IF EXISTS fail_meta_insert;DROP TRIGGER IF EXISTS fail_meta_update;DROP TRIGGER IF EXISTS fail_meta_enqueue;');
+        store.database.exec('DROP TRIGGER IF EXISTS fail_meta_insert;DROP TRIGGER IF EXISTS fail_meta_update;DROP TRIGGER IF EXISTS fail_meta_enqueue;DROP TRIGGER IF EXISTS fail_meta_enqueue_range;DROP TRIGGER IF EXISTS fail_meta_enqueue_range_up;');
         parser.removeListener('LOKAGOS_PATTERN',countLokagos);
       }
       fs.appendFileSync(file,line('북마크 저장 회복 확인','10시 01분 09초'));live._tail.refresh();
@@ -289,7 +326,7 @@ async function main():Promise<void> {
     const firstUnsaved=fs.statSync(file).size;
     live._maxProfilePersistRetryLines=2;
     try {
-      store.database.exec("CREATE TRIGGER fail_overflow_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture overflow write'); END;");
+      store.database.exec("CREATE TRIGGER fail_overflow_enqueue BEFORE INSERT ON pending_profile_events BEGIN SELECT RAISE(ABORT,'fixture overflow write'); END;CREATE TRIGGER fail_overflow_enqueue_range BEFORE INSERT ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture overflow write'); END;CREATE TRIGGER fail_overflow_enqueue_range_up BEFORE UPDATE ON log_ranges BEGIN SELECT RAISE(ABORT,'fixture overflow write'); END;");
       try {
         fs.appendFileSync(file,fee(201,'10시 01분 10초'));live._tail.refresh();
         await until(()=>live._profilePersistRetry.length===1);
@@ -300,7 +337,7 @@ async function main():Promise<void> {
         assert.equal(live._profilePersistPinnedStart,firstUnsaved,'상한을 넘으면 첫 미저장 줄 위치에 북마크를 고정');
         assert.equal(live._profilePersistRetry.length,2,'상한을 넘은 뒤의 기록은 메모리에 더 쌓지 않는다');
         await until(()=>bookmarkOffset()===firstUnsaved);
-      } finally {store.database.exec('DROP TRIGGER IF EXISTS fail_overflow_enqueue');}
+      } finally {store.database.exec('DROP TRIGGER IF EXISTS fail_overflow_enqueue;DROP TRIGGER IF EXISTS fail_overflow_enqueue_range;DROP TRIGGER IF EXISTS fail_overflow_enqueue_range_up');}
       await until(()=>live._profilePersistRetry.length===0);
       assert.equal(feeRows(201)+feeRows(203),2,'보관한 기록은 DB가 회복되면 순서대로 저장');
       assert.equal(feeRows(207)+feeRows(209)+pendingFeeCount(207)+pendingFeeCount(209),0,'상한을 넘은 기록은 이번 실행에서 저장하지 않는다');
@@ -548,6 +585,49 @@ async function main():Promise<void> {
   assert.deepEqual(store.database.prepare('SELECT profile_id,amount FROM activity_logs WHERE content=? ORDER BY id').all(diary.GOLD_POUCH_DAILY_CONTENT),
     [{profile_id:null,amount:1500000},{profile_id:b.id,amount:1500000}],'출처 없는 기존 합계는 보존하고 복원한 원본은 새로 기록');
   await append('입장료 23 Seed를 지불하였습니다.','10시 00분 01초');assert.equal(sum(b.id),-23);
+  // 실시간 기록의 원본 위치(일지 행의 source_file_id/source_offset). 줄↔일지 연결 표는 쓰지 않는다.
+  // 원본 위치가 있는 행이 사라지면 재분석이 다시 만들고, 사용자가 지운 행은 삭제 표식으로 되살리지 않는다.
+  {
+    const feeContent='[자동] 어벤던로드 입장료 (-23 SEED)';
+    const feeRow=()=>store.database.prepare('SELECT id,source_file_id AS fileId,source_offset AS offset FROM activity_logs WHERE profile_id=? AND content=?').get(b.id,feeContent);
+    const original=feeRow();
+    assert.ok(original?.fileId && Number.isSafeInteger(original.offset),'실시간 기록 행에 원본 위치를 남긴다');
+    assert.equal(store.database.prepare('SELECT COUNT(*) n FROM diary_live_activity_events').get().n,0,'줄↔일지 연결 표는 쓰지 않는다');
+    const reanalyze=async()=>assert.equal((await sync.syncWeeklyChatLogs({profileId:b.id,startDate:new Date(today+'T00:00:00'),endDate:new Date(today+'T00:00:00'),reanalyzeCompletedLogs:true})).success,true);
+    store.database.prepare('DELETE FROM activity_logs WHERE id=?').run(original.id);
+    assert.equal(sum(b.id),0);
+    await reanalyze();
+    assert.equal(sum(b.id),-23,'원본 위치가 있는 사라진 실시간 기록은 재분석이 다시 만든다');
+    assert.deepEqual([feeRow().fileId,feeRow().offset],[original.fileId,original.offset],'다시 만든 행도 같은 원본 위치를 가진다');
+    await reanalyze();assert.equal(sum(b.id),-23,'다시 분석해도 중복으로 만들지 않는다');
+    // 같은 로그를 다른 폴더로 복사해 다시 분석해도 같은 원본 파일(내용 키)이다. 바로 반영한 줄을 중복 기록하지 않고,
+    // 사라진 행은 복사본에서도 같은 원본 위치로 복구한다(경로가 달라도 같은 줄은 같은 기록).
+    {
+      // 재분석을 한 번도 거치지 않은 바로 반영 줄(줄 귀속 행 없음). 경로 지문으로 파일을 정하면 복사본에서 중복된다.
+      await append('입장료 31 Seed를 지불하였습니다.','10시 00분 02초');assert.equal(sum(b.id),-54);
+      const copyDir=path.join(fixture,'copied-logs');fs.mkdirSync(copyDir,{recursive:true});
+      fs.copyFileSync(file,path.join(copyDir,path.basename(file)));
+      assert.equal(config.saveConfirmed({chatLogPath:copyDir}),true);
+      try {
+        await reanalyze();
+        assert.equal(sum(b.id),-54,'다른 폴더 복사본을 다시 분석해도 바로 반영한 줄을 중복 기록하지 않는다');
+        store.database.prepare('DELETE FROM activity_logs WHERE id=?').run(feeRow().id);
+        await reanalyze();
+        assert.equal(sum(b.id),-54,'사라진 행은 다른 폴더 복사본에서도 복구한다');
+        assert.deepEqual([feeRow().fileId,feeRow().offset],[original.fileId,original.offset]);
+      } finally {assert.equal(config.saveConfirmed({chatLogPath:logs}),true);}
+      // 뒤 검사는 이 블록 전의 금액을 가정하므로 추가한 입장료는 사용자 삭제로 정리한다(삭제 표식이 남아 되살아나지 않음).
+      store.withRecordContext(b.id,null,()=>diary.removeActivityLog(today,'calc','[자동] 어벤던로드 입장료 (-31 SEED)'));
+      assert.equal(sum(b.id),-23);
+    }
+    store.withRecordContext(b.id,null,()=>diary.removeActivityLog(today,'calc',feeContent));
+    assert.equal(store.database.prepare('SELECT COUNT(*) n FROM diary_deleted_sources WHERE file_id=? AND source_offset=?').get(original.fileId,original.offset).n,1);
+    await reanalyze();
+    assert.equal(sum(b.id),0,'사용자가 지운 실시간 기록은 재분석이 되살리지 않는다');
+    // 뒤 검사는 이 입장료가 남아 있다고 가정하므로 같은 금액의 수동 행으로 보완한다.
+    store.withRecordContext(b.id,null,()=>diary.addManualActivityLog(today,'10:00:01','calc','수동 대조 입장료',-23));
+    assert.equal(sum(b.id),-23);
+  }
   await append('경험치가 57 올랐습니다.','10시 00분 02초');
   application.checkpointProfileApplication(true);assert.equal(store.runtimeState(b.id).xp.total,57);
 

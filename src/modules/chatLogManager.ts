@@ -43,8 +43,8 @@ import {
 import { formatLocalDateKey } from '../shared/localDate';
 import {prepareProfileLogSource,withProfileLogSource,type ProfileLogSource} from './profileLogSource';
 import {getProfileRuntime} from './profileRuntime';
-import type {LiveProfileRecord,ProfileInputBoundary} from './profileService';
-import {collectLiveProfileLine,createProfileRecoveryParser,persistLiveProfileRecords} from './profileParserEvents';
+import type {LiveProfileRecord,LiveReadSpan,ProfileInputBoundary} from './profileService';
+import {collectLiveProfileLine,createProfileRecoveryParser,persistLiveProfileBatch,persistLiveProfileRecords} from './profileParserEvents';
 import type Database = require('better-sqlite3');
 
 const { isLegacyNpcSender, isNpcChat } = require('../shared/chatConstants') as ChatConstants;
@@ -60,6 +60,8 @@ const LIVE_READ_MAX_BYTES=1024*1024;
 const LIVE_MAX_ROW_BYTES=1024*1024;
 const LIVE_POLL_MS=1000;
 const BOUNDARY_RECHECK_MS=15_000;
+/** 경험치 줄만 읽는 동안(처리 구간을 메모리에 미룬 동안) 감시 북마크를 저장하는 최소 간격. 1분 체크포인트와 같다. */
+const DEFERRED_BOOKMARK_MS=60_000;
 const HANDOFF_PREFIX='live-chat-handoff:';
 const WATCH_CHECKPOINT_PREFIX='live-chat-watch:';
 /** 저장이 밀린 프로필 기록을 메모리에 보관할 최대 줄 수. 넘으면 북마크 고정으로 다음 실행에 맡긴다. */
@@ -228,6 +230,16 @@ export class ChatLogManager {
   private _syncPauseSequence = 0;
   private _syncCatchUpActive = false;
   private _sourceFingerprint:string | undefined;
+  private _sourceLogDate:string | undefined;
+  private _sourceFilePath:string | undefined;
+  /** 실시간 읽은 범위(ProfileService.acceptLiveLines의 span). processed는 해석을 마친 마지막 줄의 끝,
+   * covered는 마지막으로 범위를 확정한 commit의 끝이다. 기록 없는 채팅만 읽은 동안은 commit하지 않고,
+   * 다음 기록 줄의 commit이 covered부터 이어 붙인다. 파일·감시·세션 경계에서 지운다. */
+  private _liveProcessed:{fingerprint:string;logDate:string;end:number;filePath?:string} | undefined;
+  private _liveCovered:{fingerprint:string;end:number} | undefined;
+  /** 소유자를 확정할 수 없어 미배정으로 읽은 줄(재시작 복구·세션 경계·재연결 중 전환)의 끝. 바로 반영 구간은 이 앞으로 가지 않는다.
+   * 그 안의 경험치 줄은 기록하지 않고 버리므로(onProfileEvent), 구간에 넣으면 비정상 종료 뒤 새 프로필 HUD에 재생된다. */
+  private _liveUnassignedEnd:{fingerprint:string;end:number} | undefined;
   private _waitingForDailyLog=false;
   private _deferredLiveRead=false;
   private _unassignedReadPending=false;
@@ -249,6 +261,8 @@ export class ChatLogManager {
   /** 저장 대기 메모리 상한(줄). 회귀 테스트가 실제 로그 줄로 상한 초과 경로를 확인하도록 인스턴스 값으로 둔다. */
   private _maxProfilePersistRetryLines=MAX_PROFILE_PERSIST_RETRY_LINES;
   private _profilePersistRetryTimer:NodeJS.Timeout | null=null;
+  /** 진행 중인 read()에서 모은 줄별 프로필 기록(withLiveBatch). read() 밖에서는 undefined. */
+  private _liveBatch:Array<{records:LiveProfileRecord[];start?:number}> | undefined;
   /** 감시 북마크 저장이 처음 실패한 시각(회복 전까지 유지)과 마지막 실패 로그 시각. */
   private _bookmarkSaveFailedSince:number | undefined;
   private _bookmarkSaveFailureLoggedAt=0;
@@ -256,6 +270,7 @@ export class ChatLogManager {
 
   private source(filePath:string,start:number,end:number):ProfileLogSource | undefined {
     this._sourceFingerprint ||= prepareProfileLogSource(filePath,formatLocalDateKey());
+    this._sourceLogDate=this.logFileDate(filePath);this._sourceFilePath=filePath;
     return this._sourceFingerprint ? {fingerprint:this._sourceFingerprint,start,end} : undefined;
   }
 
@@ -351,6 +366,7 @@ export class ChatLogManager {
     this._tailReconnect=undefined;
     this._lineNormalizer.reset();
     this._sourceFingerprint=undefined;this._pendingProfileSource=undefined;this._pendingProfileLine=undefined;this._normalizedRetry.length=0;
+    this._liveProcessed=undefined;this._liveCovered=undefined;this._liveUnassignedEnd=undefined;
     // 저장하지 못한 기록은 북마크가 그 시작에 머물러 있으므로 다시 감시할 때 원본부터 다시 기록한다.
     this._profilePersistRetry.length=0;this._profilePersistPinnedStart=undefined;
     this._currentFilePath = null;
@@ -623,7 +639,7 @@ export class ChatLogManager {
     let position=startOffset,completed=startOffset,boundary=previous;
     const bookmarkPath=path.resolve(filePath);
     const bookmarkKey=WATCH_CHECKPOINT_PREFIX+bookmarkPath.toLowerCase();
-    let lastSavedOffset:number | undefined;
+    let lastSavedOffset:number | undefined,lastSavedAt:number | undefined,deferredFailedAt:number | undefined;
     let partial:Buffer | undefined;
     let lastCheckpoint=previous;
     let lastStat:fs.Stats | undefined,lastVerifiedAt=0;
@@ -675,7 +691,15 @@ export class ChatLogManager {
       position=completed=end;
       this.drainNormalizedLines();
     };
-    const read=(options?:{flushClosed?:boolean;protectIncomplete?:boolean;bounded?:boolean;limit?:LogReadLimit})=>{
+    type ReadOptions={flushClosed?:boolean;protectIncomplete?:boolean;bounded?:boolean;limit?:LogReadLimit};
+    // 실시간 읽기 한 번의 프로필 기록은 한 commit으로 모으고(withLiveBatch), 이 범위의 commit은 flush 없이 확정한다
+    // (ApplicationData.withRelaxedDurability: 정전 시 북마크와 함께 되돌아가 원본에서 다시 기록).
+    const read=(options?:ReadOptions)=>{
+      const run=()=>this.withLiveBatch(()=>readNow(options));
+      const store=getProfileRuntime()?.service.store;
+      return store ? store.withRelaxedDurability(run) : run();
+    };
+    const readNow=(options?:ReadOptions)=>{
       this.drainNormalizedLines();
       const fd=fs.openSync(filePath,'r');
       try {
@@ -683,10 +707,19 @@ export class ChatLogManager {
         const store=!this.recoveryParser && !this._syncPaused ? getProfileRuntime()?.service.store : undefined;
         const persistBookmark=(offset:number)=>{
           if (!store || (lastSavedOffset===offset && lastStat && chatLogFileIdentity(lastStat)===identity)) return;
+          // 경험치 줄만 읽는 동안은 처리 구간을 메모리에 두므로(ApplicationData.deferAppliedRange) 북마크도 최대 1분 간격으로
+          // 저장한다. 저장할 때는 구간을 먼저 써서 북마크가 처리 구간을 앞서지 않게 한다.
+          // 구간 쓰기가 실패하면 같은 1분 간격으로만 다시 시도한다(디스크 오류 동안 매 읽기 재시도·로그 반복 방지).
+          if (store.hasDeferredRange) {
+            const now=Date.now();
+            if ([lastSavedAt,deferredFailedAt].some(at=>at!==undefined && now-at<DEFERRED_BOOKMARK_MS)) return;
+            try {store.flushDeferredRange();deferredFailedAt=undefined;}
+            catch (error) {deferredFailedAt=now;log(`[CHAT_LOG] 미룬 처리 구간 저장 보류: ${String(error)}`);return;}
+          }
           // 저장에 실패하면 lastSavedOffset을 그대로 두어 다음 읽기에서 다시 저장한다(saveWatchBookmark 계약).
           if (this.saveWatchBookmark(bookmarkKey,bookmarkPath,
             {offset,identity,bytes:sampleChatLogBoundary(fd,offset),unassignedUntil,encodingConfirmed},
-            store.getRecordContext().deviceId ?? undefined)) lastSavedOffset=offset;
+            store.getRecordContext().deviceId ?? undefined)) {lastSavedOffset=offset;lastSavedAt=Date.now();}
         };
         // 감시 북마크는 결합 대기 줄과 저장하지 못한 프로필 기록의 시작을 넘지 않는다(다음 실행이 그 줄부터 다시 기록).
         const safeBookmarkOffset=()=>Math.min(this._pendingProfileSource?.start ?? completed,this.firstUnpersistedProfileStart() ?? completed);
@@ -699,6 +732,11 @@ export class ChatLogManager {
           || !sampleChatLogBoundary(fd,boundary.offset).equals(boundary.bytes))) {
           if (this.recoveryParser) throw new Error('The source of the live log checkpoint has changed');
           position=completed=0;partial=undefined;unassignedUntil=0;
+          // 처음부터 다시 읽으므로 이전 내용 기준의 읽은 범위(끝 위치)와 미룬 처리 구간을 버린다. 남기면 다음 구간 끝이 바뀐 파일의
+          // 크기를 넘어, 그 자리에 새로 쓰이는 줄을 이미 처리한 줄로 보고 버린다(회귀: check-profile-log-replace.ts).
+          const replacedFingerprint=this._sourceFingerprint;
+          this._liveProcessed=undefined;this._liveCovered=undefined;this._liveUnassignedEnd=undefined;
+          if (replacedFingerprint) getProfileRuntime()?.service.store.discardDeferredRange(replacedFingerprint);
           this._sourceFingerprint=undefined;
           this._lineNormalizer.reset();this._pendingProfileSource=undefined;this._pendingProfileLine=undefined;
           this._chatLogEncoding='euc-kr';
@@ -751,6 +789,7 @@ export class ChatLogManager {
         // A normalized line still waiting for its continuation has not passed the
         // durable event boundary. Restart from its first byte if the process stops.
         // 저장하지 못한 프로필 기록이 있으면 그 줄의 시작에서 멈춘다(다음 실행이 다시 기록).
+        this.flushActiveLiveBatch();
         persistBookmark(safeBookmarkOffset());
         lastStat=stat;
         lastVerifiedAt=performance.now();
@@ -1112,6 +1151,7 @@ export class ChatLogManager {
 
   /** 로컬 전환 확정 전에 실패하면 나머지 원문도 기존 프로필에 이어서 기록한다. */
   commitProfileInputBoundary():void {
+    this._liveCovered=undefined;
     this._tail?.protectPartial();
     if (this._tailReconnect) this._unassignedReadPending=true;
     if (this._pendingProfileSource) this._pendingProfileSource.unassigned=true;
@@ -1145,23 +1185,92 @@ export class ChatLogManager {
 
   /** 저장이 밀린 줄이 남아 있는지(북마크·파일 전환 판단용). */
   private hasUnpersistedProfileRecords():boolean {
-    return this._profilePersistRetry.length>0 || this._profilePersistPinnedStart!==undefined;
+    return this._profilePersistRetry.length>0 || this._profilePersistPinnedStart!==undefined || !!this._liveBatch?.length;
   }
 
   /** 다음 실행에서 다시 읽어야 하는 가장 앞선 원본 위치. 없으면 undefined. */
   private firstUnpersistedProfileStart():number | undefined {
-    const starts=[this._profilePersistPinnedStart,...this._profilePersistRetry.map(item=>item.start)]
+    const starts=[this._profilePersistPinnedStart,...this._profilePersistRetry.map(item=>item.start),...(this._liveBatch ?? []).map(item=>item.start)]
       .filter((start):start is number=>start!==undefined);
     return starts.length ? Math.min(...starts) : undefined;
+  }
+
+  /** 이번에 저장할 줄들과 그 사이·뒤의 채팅 줄을 덮는 읽기 구간. 저장이 밀린 줄이 없을 때만 부른다
+   * (해석을 마친 줄 중 기록 줄은 모두 이번 저장에 들어 있으므로 processed 끝까지 덮어도 된다).
+   * 기능 계약 — 구간은 이 프로필이 이번에 반영하는 줄과 그 사이의 기록 없는 줄만 덮는다.
+   * - 시작은 직전 확정 구간의 끝(covered)이다. 저장 재시도 대기열을 거친 줄은 대기 경로(대기 행·HUD 대기 행)로 저장되므로
+   *   재시도에 넣을 때 covered를 지운다(queueProfilePersistRetry). 남기면 다음 구간이 그 줄까지 덮어 비정상 종료 뒤 HUD에 두 번 재생된다.
+   * - 미배정으로 읽은 줄(_liveUnassignedEnd 앞)은 덮지 않는다. 그 안의 경험치 줄은 버린 줄이다.
+   * 회귀: check-profile-lifecycle.ts(저장 재시도 뒤 HUD 복원 구간, 미배정 줄 뒤 구간 시작). */
+  private liveSpan(starts:Array<number | undefined>):LiveReadSpan | undefined {
+    const processed=this._liveProcessed;
+    if (!processed) return;
+    const unassigned=this._liveUnassignedEnd,floor=unassigned?.fingerprint===processed.fingerprint ? unassigned.end : 0;
+    // 미배정 기록 줄(구간 앞)은 시작 후보에서 뺀다. 대기 경로로 처리되고 구간이 덮지 않는다.
+    const known=starts.filter((start):start is number=>start!==undefined && start>=floor);
+    if (!known.length) return;
+    const first=Math.min(...known),covered=this._liveCovered;
+    if (first>processed.end) return;
+    const start=covered?.fingerprint===processed.fingerprint && covered.end<=first && covered.end>=floor ? covered.end : first;
+    return {fingerprint:processed.fingerprint,logDate:processed.logDate,start,end:processed.end,...(processed.filePath ? {filePath:processed.filePath} : {})};
   }
 
   private persistLiveRecords(records:LiveProfileRecord[],start?:number):void {
     if (!records.length) return;
     if (this._profilePersistPinnedStart!==undefined) return; // 상한 초과 뒤에는 다음 실행이 다시 기록한다.
+    if (this._liveBatch) {this._liveBatch.push({records,start});return;}
     if (!this._profilePersistRetry.length) {
-      try {persistLiveProfileRecords(records);return;}
+      const span=this.liveSpan([start]);
+      try {persistLiveProfileRecords(records,span);if (span) this._liveCovered={fingerprint:span.fingerprint,end:span.end};return;}
       catch (error) {log('[CHAT_LOG] 프로필 기록 저장 실패, 다음 줄은 계속 읽고 기록만 재시도합니다: '+String(error));}
     }
+    this.queueProfilePersistRetry(records,start);
+  }
+
+  /** 기능 계약 — 실시간 읽기 한 번(read)의 프로필 기록은 그 읽기 안에서 모아 한 commit으로 저장한다.
+   * - 묶음은 동기 read() 안에서만 존재하고, 북마크 저장 직전과 read()를 벗어날 때(예외 포함) 반드시 저장한다.
+   *   다른 경로(줄 결합 타이머·경계 처리·재시도)는 묶음 없이 줄마다 저장한다.
+   * - 묶음 저장이 실패하면 줄별로 기존 재시도 대기열에 넣는다. 줄 수 상한·북마크 고정 규칙은 줄 단위 그대로다.
+   * - 묶음에 있는 동안에도 북마크는 그 첫 줄의 시작을 넘지 않는다(firstUnpersistedProfileStart).
+   * 회귀: check-profile-recording.ts(읽기 묶음 한 commit), check-profile-lifecycle.ts(저장 실패 줄별 재시도·상한). */
+  private withLiveBatch<T>(work:()=>T):T {
+    if (this._liveBatch) return work();
+    this._liveBatch=[];
+    try {return work();}
+    finally {
+      const batch=this._liveBatch;
+      this._liveBatch=undefined;
+      if (batch.length) this.flushLiveBatch(batch);
+    }
+  }
+
+  private flushActiveLiveBatch():void {
+    const batch=this._liveBatch;
+    if (!batch?.length) return;
+    this._liveBatch=[];
+    this.flushLiveBatch(batch);
+  }
+
+  /** 예외를 던지지 않는다. 저장하지 못한 줄은 재시도 대기열(또는 상한 뒤 북마크 고정)로 넘긴다. */
+  private flushLiveBatch(batch:Array<{records:LiveProfileRecord[];start?:number}>):void {
+    if (this._profilePersistPinnedStart===undefined && !this._profilePersistRetry.length) {
+      const span=this.liveSpan(batch.map(item=>item.start));
+      try {
+        persistLiveProfileBatch(batch.map(item=>item.records),span);
+        if (span) this._liveCovered={fingerprint:span.fingerprint,end:span.end};
+        return;
+      }
+      catch (error) {log('[CHAT_LOG] 프로필 기록 저장 실패, 다음 줄은 계속 읽고 기록만 재시도합니다: '+String(error));}
+    }
+    for (const {records,start} of batch) {
+      if (this._profilePersistPinnedStart!==undefined) return;
+      this.queueProfilePersistRetry(records,start);
+    }
+  }
+
+  private queueProfilePersistRetry(records:LiveProfileRecord[],start?:number):void {
+    // 재시도로 저장하는 줄은 대기 경로(대기 행·HUD 대기 행)로 들어간다. 다음 바로 반영 구간이 그 줄을 덮지 않게 한다(liveSpan 계약).
+    this._liveCovered=undefined;
     if (this._profilePersistRetry.length>=this._maxProfilePersistRetryLines) {
       this._profilePersistPinnedStart=Math.min(start ?? Infinity,this.firstUnpersistedProfileStart() ?? Infinity);
       if (!Number.isFinite(this._profilePersistPinnedStart)) this._profilePersistPinnedStart=0;
@@ -1234,6 +1343,7 @@ export class ChatLogManager {
   /** 세션 종료·교체로 현재 소유자에게 기록할 수 없게 된 보류 입력을 미배정으로 돌린다. */
   private markPendingProfileInputUnassigned():void {
     this._unassignedReadPending=true;
+    this._liveCovered=undefined;
     if (this._pendingProfileSource) this._pendingProfileSource.unassigned=true;
     for (const row of this._normalizedRetry) if (row.source) row.source.unassigned=true;
     for (const item of this._profilePersistRetry) for (const record of item.records) record.unassigned=true;
@@ -1261,6 +1371,16 @@ export class ChatLogManager {
     const parse=()=>withProfileLogSource(source,()=>parser.parseLine(line),originalLine);
     if (source && !this.recoveryParser) {
       const records=collectLiveProfileLine(parse);
+      // 해석을 마친 줄의 끝(읽은 범위의 후보). 기록 줄은 아래 저장(또는 묶음)에 들어간 뒤의 위치다.
+      if (this._sourceLogDate) {
+        const previous=this._liveProcessed;
+        this._liveProcessed={fingerprint:source.fingerprint,logDate:this._sourceLogDate,filePath:this._sourceFilePath,
+          end:previous?.fingerprint===source.fingerprint ? Math.max(previous.end,source.end) : source.end};
+        if (source.unassigned) {
+          const before=this._liveUnassignedEnd;
+          this._liveUnassignedEnd={fingerprint:source.fingerprint,end:before?.fingerprint===source.fingerprint ? Math.max(before.end,source.end) : source.end};
+        }
+      }
       if (records) this.persistLiveRecords(records,source.start);
     } else parse();
     if (this.recoveryParser) return;
@@ -1269,8 +1389,11 @@ export class ChatLogManager {
     this.trimRecentHistoryIfNeeded();
   }
 
+  /** 오늘 로그 메모리 창은 시작 모드와 관계없이 MAX_RECENT_HISTORY_CHARS를 넘으면 오래된 줄부터 정리한다.
+   * 작은 파일로 시작해 하루 종일 사냥하면 줄이 계속 쌓였다(줄당 약 286바이트, 초당 40줄이면 시간당 약 33MB).
+   * 상한 안에서는 기존처럼 오늘 전체를 검색·탭 이력에 쓴다. 회귀: check-refactor-regressions.ts(checkLargeChatLogReadBoundary). */
   private trimRecentHistoryIfNeeded(): void {
-    if (!this._recentHistoryMode || this._todayLineChars <= MAX_RECENT_HISTORY_CHARS) return;
+    if (this._todayLineChars <= MAX_RECENT_HISTORY_CHARS) return;
     const trimmed = trimRecentChatLogLines(this._todayLines);
     if (trimmed.removedCount === 0) return;
     this._todayLines = trimmed.lines;

@@ -49,7 +49,7 @@ async function driver():Promise<void> {
     const output=path.join(root,'output/profile-crash');fs.mkdirSync(output,{recursive:true});
     fs.writeFileSync(path.join(output,'summary.json'),JSON.stringify({passed:true,forcedProcessExit:true,uncheckpointedWal:true,
       confirmedRecordsPreserved:true,hudProgressRecovered:true,pendingSessionsPreserved:true,syncOutboxPreserved:true,explicitAssignmentOnce:true,historicalReplayOnce:true},null,2));
-    console.log('PASS profile crash: real SIGKILL/WAL recovery, settings/tools/confirmed/pending records, one-time XP/kills/buff recovery and historical replay');
+    console.log('PASS profile crash: real SIGKILL/WAL recovery, settings/tools/confirmed/pending records, one-time XP/kills/buff recovery from the source log after the checkpoint and historical replay');
   } finally {if(producer.process.exitCode===null && !producer.process.killed)producer.process.kill();}
 }
 
@@ -93,12 +93,27 @@ async function run():Promise<void> {
       +currentLine('입장료 5 Seed를 지불하였습니다.'));
     await until(()=>xp.getStats().total===91 && buffs.getActiveBuffs().length===1 && sum(a.id)===-42,'uncheckpointed HUD and diary');
     assert.equal(store.runtimeState(a.id).xp.total,0);
-    assert.equal(store.pendingRuntimeEvents(a.id).length,3);
+    // 바로 반영한 줄은 HUD 대기 행 없이 체크포인트 뒤 HUD 복원 구간(profile_runtime_ranges)만 남는다.
+    assert.equal(store.pendingRuntimeEvents(a.id).length,0,'바로 반영한 줄은 HUD 복원 대기 행을 남기지 않는다');
+    const beyond=()=>store.runtimeRanges(a.id).length>0;
+    assert.ok(beyond(),'체크포인트 뒤 바로 반영한 구간이 HUD 복원 구간으로 남는다');
     store.compactResolvedEvents(Date.now()+31*86_400_000);
-    assert.equal(store.pendingRuntimeEvents(a.id).length,3,'아직 HUD 스냅샷에 없는 원문은 압축할 수 없다');
+    assert.ok(beyond(),'압축은 체크포인트 뒤 HUD 복원 구간을 건드리지 않는다');
+    // 경험치 줄만 있는 읽기는 DB에 쓰지 않는다(처리 구간·북마크를 메모리에 미룬다, 1분 체크포인트 때 쓴다).
+    // 강제 종료하면 이 줄은 HUD에서만 빠지고(사용자 결정: 최대 1분) 일지·중복에는 영향이 없다.
+    const kills=xp.getStats().kills;
+    const rangeEnd=()=>store.database.prepare("SELECT MAX(end_offset) n FROM log_ranges WHERE state='applied'").get().n;
+    const bookmark=()=>store.database.prepare("SELECT value FROM app_meta WHERE key GLOB 'live-chat-watch:*'").get()?.value;
+    const [endBefore,bookmarkBefore,changesBefore]=[rangeEnd(),bookmark(),store.database.prepare('SELECT total_changes() n').get().n];
+    fs.appendFileSync(file,currentLine('경험치가 7 올랐습니다.'));
+    await until(()=>xp.getStats().total===98,'HUD-only XP line');
+    assert.equal(store.hasDeferredRange,true,'경험치 줄만 읽은 구간은 메모리에 미룬다');
+    assert.equal(rangeEnd(),endBefore,'경험치 줄만 읽어도 처리 구간을 DB에 쓰지 않는다');
+    assert.equal(bookmark(),bookmarkBefore,'경험치 줄만 읽어도 감시 북마크를 바로 저장하지 않는다');
+    assert.equal(store.database.prepare('SELECT total_changes() n').get().n,changesBefore,'경험치 줄만 읽으면 DB 변경이 없다');
     assert.equal(config.flushPending(),true);
     const model=built('modules/profileCloudSync').getProfileCloudSync().coordinator.model;assert.ok(model.pending()>0);
-    fs.writeFileSync(`${expectedPath}.tmp`,JSON.stringify({a:a.id,b:b.id,sessionId,ids,syncEnvelope:model.envelope(),kills:xp.getStats().kills,buffStart:buffs.getActiveBuffs()[0].startTime}));fs.renameSync(`${expectedPath}.tmp`,expectedPath);
+    fs.writeFileSync(`${expectedPath}.tmp`,JSON.stringify({a:a.id,b:b.id,sessionId,ids,syncEnvelope:model.envelope(),kills,buffStart:buffs.getActiveBuffs()[0].startTime}));fs.renameSync(`${expectedPath}.tmp`,expectedPath);
     await new Promise<void>(()=>{setInterval(()=>{},1000);});
     return;
   }
@@ -111,11 +126,12 @@ async function run():Promise<void> {
   assert.ok(recoveredSync.pending()>0,'SIGKILL 뒤 미전송 sync journal 유지');assert.ok(recoveredEnvelope.sequence>=expected.syncEnvelope.sequence);
   for(const [key,value] of Object.entries(expected.syncEnvelope.cells)) if(key.includes('pinnedNoteText') || JSON.parse(key)[0]==='tool') assert.deepEqual(recoveredEnvelope.cells[key],value,'강제 종료/재시작으로 원래 변경 ID와 시각을 바꾸지 않음');
   assert.equal(sum(expected.a),-42);assert.equal(sum(expected.b),0);
-  assert.equal(store.pendingRuntimeEvents(expected.a).length,3);
+  assert.equal(store.pendingRuntimeEvents(expected.a).length,0);
   assert.deepEqual(store.database.prepare('SELECT event_id FROM pending_profile_events WHERE session_id=? AND resolved_at IS NULL ORDER BY event_id').all(expected.sessionId),expected.ids);
   assert.deepEqual(store.database.pragma('integrity_check'),[{integrity_check:'ok'}]);
   controller.runtime.onGameState('running');live.start();
   assert.equal((await service.select(expected.a,replay)).success,true);
+  // 체크포인트 뒤 기록과 함께 읽은 경험치(91)는 원본에서 복원하고, 강제 종료 직전 경험치 줄만 읽은 7은 HUD에서 빠진다(중복 없음).
   assert.equal(xp.getStats().total,91);assert.equal(xp.getStats().kills,1);assert.equal(xp.getStats().kills,expected.kills);
   assert.equal(buffs.getActiveBuffs()[0]?.startTime,expected.buffStart);
   assert.equal(sum(expected.a),-42,'HUD 복구는 일지에 입장료를 다시 기록하지 않음');

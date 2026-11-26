@@ -95,6 +95,16 @@ async function runWorker() {
   let currentEventNew = false;
   let repairOnly = false;
   let legacyOwnsCurrentLine = false;
+  let appliedCurrentLine = false;
+  /** 프로필 복원의 처리 구간: 이 프로필이 처리한 줄의 이어진 byte 구간. 제외·다른 소유 줄에서 끊는다. */
+  let foreignLine = false;
+  let spanStart = 0;
+  let lastLineStart: number | undefined;
+  let ownedSpans: Array<{start:number;end:number}> = [];
+  const closeForeignLine = (): void => {
+    if (lastLineStart === undefined || !foreignLine) return;
+    if (lastLineStart > spanStart) ownedSpans.push({start:spanStart,end:lastLineStart});
+  };
   const lineKeys = new Set<string>();
   let elsoEvents: ChatLogSyncBatchData['elsoPoints'] = [];
   let goldEvents: NonNullable<ChatLogSyncBatchData['goldPouchSeeds']> = [];
@@ -109,8 +119,10 @@ async function runWorker() {
       if (!currentEventOwned) return;
       if (currentFile?.knownLines) {
         currentLineKey ??= createChatLogLineKey(value.date,value.timestamp,currentLine,currentEventOffset);
-        const known=Object.hasOwn(currentFile.knownLines,currentLineKey);
-        if (known && currentFile.knownLines[currentLineKey]!==currentFile.aggregateOwnerKey) return;
+        // 이 프로필이 실시간으로 바로 반영한 줄(줄 귀속 행 없음)은 이 프로필의 알려진 줄이다.
+        const listed=Object.hasOwn(currentFile.knownLines,currentLineKey);
+        const known=listed || appliedCurrentLine;
+        if (known && (listed ? currentFile.knownLines[currentLineKey] : currentFile.aggregateOwnerKey)!==currentFile.aggregateOwnerKey) {foreignLine=true;return;}
         if (!known && legacyOwnsCurrentLine) lineKeys.add(currentLineKey);
         currentEventNew=!known && !legacyOwnsCurrentLine;
         repairOnly=known && currentFile.repairKnownActivities===true && !legacyOwnsCurrentLine;
@@ -118,6 +130,10 @@ async function runWorker() {
       callback(value);
     });
   };
+
+  /** 재분석 복구 항목의 원본 위치(일지 행의 source_file_id/source_offset과 대조). */
+  const repairSource=():{sourceFingerprint?:string;sourceOffset?:number} => repairOnly && currentFile?.fingerprint
+    ? {sourceFingerprint:currentFile.fingerprint,sourceOffset:currentEventOffset} : {};
 
   const nextEventId = (kind: string): string => {
     if (!currentFile) throw new Error('현재 채팅 로그 파일이 없습니다.');
@@ -371,7 +387,7 @@ async function runWorker() {
     if (!aggregate || (currentFile?.knownLines && !currentEventNew && !repairOnly) || !Number.isSafeInteger(evt.amount) || evt.amount <= 0) return;
     seeds.push({
       eventId: nextEventId('seed'),
-      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
+      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,...repairSource(),
       date: evt.date,
       timeOnly: evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', ''),
       content: `[자동] 어벤던로드 입장료 (-${evt.amount.toLocaleString('en-US')} SEED)`,
@@ -386,7 +402,7 @@ async function runWorker() {
     const content = `[자동] ${evt.message} (${formatKoreanNumber(evt.amount)})`;
     seeds.push({
       eventId: nextEventId('seed'),
-      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
+      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,...repairSource(),
       date: evt.date,
       timeOnly,
       content,
@@ -442,7 +458,7 @@ async function runWorker() {
       if (isAlwaysTrackedItem) {
         essences.push({
           eventId: nextEventId('essence'),
-          repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
+          repairOnly,lineKey:repairOnly ? currentLineKey : undefined,...repairSource(),
           date: evt.date,
           timeOnly,
           diaryContent: formatLootDiaryContent('경험의 정수'),
@@ -452,7 +468,7 @@ async function runWorker() {
       } else {
         loots.push({
           eventId: nextEventId('loot'),
-          repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
+          repairOnly,lineKey:repairOnly ? currentLineKey : undefined,...repairSource(),
           date: evt.date,
           timeOnly,
           diaryContent: formatLootDiaryContent(evt.itemName),
@@ -490,7 +506,7 @@ async function runWorker() {
       const timeOnly = evt.timestamp.replace(/ /g, '').replace(/[시분]/g, ':').replace('초', '');
       essences.push({
         eventId: nextEventId('essence-xp'),
-      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,
+      repairOnly,lineKey:repairOnly ? currentLineKey : undefined,...repairSource(),
         date: evt.date,
         timeOnly,
         diaryContent: formatLootDiaryContent('경험의 정수'),
@@ -569,6 +585,7 @@ async function runWorker() {
     lineKeys.clear();
     let linesSinceBatch = 0;
     let confirmedOffset = file.startOffset;
+    foreignLine=false;spanStart=file.startOffset;lastLineStart=undefined;ownedSpans=[];
 
     const sendProgress = (offset: number, completed: boolean): void => {
       const fileProgress = file.snapshotSize > 0 ? Math.min(1, offset / file.snapshotSize) : 1;
@@ -621,6 +638,11 @@ async function runWorker() {
           if (amount>0) aggregateGoldPouchSeeds.push({eventId:createStableChatSyncEventId(file.fingerprint,0,`daily-gold:${date}${file.aggregateOwnerKey ? ':'+file.aggregateOwnerKey : ''}`,0),date,timeOnly:info.latestTime,amount});
         }
       }
+      // 이 배치까지 처리한 구간을 닫는다. 마지막 줄이 제외·다른 소유면 그 줄 앞에서 끊는다.
+      if (foreignLine) closeForeignLine();
+      else if (offset > spanStart) ownedSpans.push({start:spanStart,end:offset});
+      spanStart=offset;foreignLine=false;lastLineStart=undefined;
+      const spans=ownedSpans;ownedSpans=[];
       const batch: ChatLogSyncBatchData = {
         jobId,
         batchId: `${jobId}:${fileIdx}:${batchSequence++}`,
@@ -640,7 +662,7 @@ async function runWorker() {
         seeds: [...seeds],
         elsoPoints: file.knownLines ? elsoEvents : aggregateElso,
         goldPouchSeeds: file.knownLines ? goldEvents : aggregateGoldPouchSeeds,
-        ...(file.knownLines ? {lineKeys:[...lineKeys]} : {}),
+        ...(file.knownLines ? {lineKeys:[...lineKeys],ownedSpans:spans} : {}),
         ...(fileComplete && file.replaceAutomaticDateOnComplete
           ? { replaceAutomaticDate: file.dateStr }
           : {}),
@@ -669,11 +691,19 @@ async function runWorker() {
       const excluded=file.excludedRanges || [];
       const legacyOwned=file.legacyOwnedRanges || [];
       let legacyIndex=0;
+      const applied=file.appliedRanges || [];
+      let appliedIndex=0;
       const parseNormalizedLine = (line: string, eventOffset: number, originalLine = line): void => {
+        // 앞 줄이 제외·다른 소유였다면 처리 구간을 그 줄 앞에서 끊고 이 줄부터 다시 시작한다.
+        if (foreignLine) {closeForeignLine();spanStart=eventOffset;}
+        lastLineStart=eventOffset;foreignLine=false;
         while (excludedIndex<excluded.length && excluded[excludedIndex].end<=eventOffset) ++excludedIndex;
         const range=excluded[excludedIndex];currentEventOwned=!range || eventOffset<range.start || eventOffset>=range.end;
+        if (!currentEventOwned) foreignLine=true;
         while (legacyIndex<legacyOwned.length && legacyOwned[legacyIndex].end<=eventOffset) ++legacyIndex;
         legacyOwnsCurrentLine=legacyIndex<legacyOwned.length && eventOffset>=legacyOwned[legacyIndex].start;
+        while (appliedIndex<applied.length && applied[appliedIndex].end<=eventOffset) ++appliedIndex;
+        appliedCurrentLine=appliedIndex<applied.length && eventOffset>=applied[appliedIndex].start;
         currentEventOffset = eventOffset;
         currentEventSequence = 0;
         currentLine = originalLine;

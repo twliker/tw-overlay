@@ -473,7 +473,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions,owner:ReturnType<type
       broadcastToAllWindows('chat-log-sync-progress', progressInfo);
       continue;
     }
-    const excludedRanges=owner?.exclusions(stateKey,inspection);
+    const excludedRanges=owner?.exclusions(stateKey,inspection,target.filePath,target.dateStr);
     const finishTodayBeforeCatchUp=Boolean(livePauseToken && target.dateStr===todayStr);
     const replaceAutomaticDateOnComplete = owner
       ? finishTodayBeforeCatchUp
@@ -529,6 +529,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions,owner:ReturnType<type
       catchUpAfterReplace: !!livePauseToken && target.dateStr === todayStr,
       ...(owner ? {excludedRanges,aggregateOwnerKey:owner.profileId,
         knownLines:owner.knownLines(target.dateStr),legacyOwnedRanges:owner.legacyOwnedRanges(inspection.fingerprint),
+        appliedRanges:owner.appliedRanges(inspection.fingerprint),
         repairKnownActivities:reanalyzeCompletedLogs} : {}),
     });
     const progressInfo: SyncProgressInfo = {
@@ -667,7 +668,7 @@ async function runChatLogSync(options?: ChatLogSyncOptions,owner:ReturnType<type
               if (!value.success) throw new Error(value.error || '채팅 로그 DB 배치 반영 실패');
               return value;
             };
-            const batchResult=owner ? owner.commit(stateKey,nextState,batch.lineKeys ?? [],apply) : apply();
+            const batchResult=owner ? owner.commit(stateKey,nextState,batch.lineKeys ?? [],apply,batch.ownedSpans) : apply();
             if (batchResult.activitiesRepaired && !automaticRebuiltDateSet.has(batch.dateStr)) {
               automaticRebuiltDateSet.add(batch.dateStr);automaticRecordsRebuiltDates++;
             }

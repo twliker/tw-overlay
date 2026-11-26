@@ -201,6 +201,8 @@ async function run():Promise<void> {
   assert.equal(stoneCount(monthly.calendarLootList),2);assert.equal(stoneCount(diary.getLootHistory(date,date,['하급 마정석'])),2);
   assert.equal(stoneCount(exported.rows.filter((row:any)=>row.kind==='득템')),2);
   assert.deepEqual(store.database.pragma('integrity_check'),[{integrity_check:'ok'}]);
+  // 처리 구간 끝 인덱스(변환·실시간 구간 쓰기의 앞 구간 찾기)는 v3.2.2에서 올라온 DB에도 만든다.
+  assert.ok(store.database.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_log_ranges_end'").get(),'v3.2.2 업그레이드: 구간 끝 인덱스');
   const output=path.join(root,'output/profile-upgrade');fs.mkdirSync(output,{recursive:true});
   // 이전 버전은 설치본 app.asar 또는 git 태그로 만든 빌드 폴더(prepare-upgrade-baseline)다. 폴더는 태그 커밋으로 식별한다.
   const originalFs=require('original-fs') as typeof fs,baselineMarker=path.join(oldArchive,'.baseline.json');

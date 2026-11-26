@@ -161,8 +161,12 @@ async function run(): Promise<void> {
   store.enqueue('old-ignore-fixture',{data:{date:ignoredDate},source:legacySource},1000,'legacy-ignore-event');
   store.database.prepare("UPDATE pending_profile_events SET resolved_at=? WHERE event_id='legacy-ignore-event'").run(2000);
   store.database.prepare("DELETE FROM app_meta WHERE key='ignored_log_ranges_backfilled'").run();
+  // 한 번만 하는 파일 축소: 표식이 있으면 다시 열 때 VACUUM하고 표식을 지운다(실패해도 다시 시도하지 않음).
+  store.database.prepare("INSERT OR REPLACE INTO app_meta VALUES('vacuum_on_next_start','1')").run();
   store.close();
   store = await ApplicationData.initialize({directory:dir,deviceId:'PC-A',defaults},legacy);
+  assert.equal(store.database.prepare("SELECT 1 FROM app_meta WHERE key='vacuum_on_next_start'").get(),undefined,'다시 열 때 VACUUM하고 표식을 지운다');
+  assert.equal(store.database.pragma('freelist_count',{simple:true}),0);
   assert.deepEqual(store.list().map((profile:any)=>profile.id),orderedIds,'수동 순서는 저장소 재시작 후 유지');
   assert.equal(store.list().length,3,'재실행 이전 중복 없음');
   assert.equal(store.project(a.id,legacy).pinnedNoteText,'A만 변경','재실행 후 사용자 변경 유지');
@@ -201,9 +205,16 @@ async function run(): Promise<void> {
   const seed=liveEvent(7,'SEED_GAINED',{amount:10});
   store.compactResolvedEvents(Date.now()+31*86400000);
   const receipt=(id:string)=>!!store.database.prepare('SELECT 1 FROM profile_event_receipts WHERE event_id=?').get(id);
-  assert.deepEqual([transientXp,exchange,otherLoot,ownLoot,elsoOther,sharedXp,seed].map(receipt),[false,true,false,true,true,false,true],
-    '기록 줄만 재시도 영수증을 남긴다');
-  assert.deepEqual([1,2,3,4,5,6,7].map(n=>!!ownerOf(n)),[false,true,false,true,true,true,true],'같은 줄의 다른 대기 기록이 있으면 귀속 보존');
+  const pendingRow=(id:string)=>!!store.database.prepare('SELECT 1 FROM pending_profile_events WHERE event_id=?').get(id);
+  // 완료한 실시간 줄 행은 30일 영수증 대신 처리 구간(반영)이 되고 행은 지운다. 같은 줄의 미완료 대기(6번 SEED)는 그대로다.
+  assert.deepEqual([transientXp,exchange,otherLoot,ownLoot,elsoOther,sharedXp,seed].map(receipt),[false,false,false,false,false,false,false],
+    '완료한 실시간 줄은 영수증을 남기지 않는다');
+  assert.deepEqual([transientXp,exchange,otherLoot,ownLoot,elsoOther,sharedXp,seed].map(pendingRow),[false,false,false,false,false,false,false]);
+  assert.deepEqual([1,2,3,4,5,6,7].map(n=>store.appliedRangeCovers('retention',n)),[true,true,true,true,true,true,true],'완료한 줄은 처리 구간으로 거른다');
+  assert.equal(store.pending('retention-session').length,1,'미완료 대기는 그대로');
+  // 변환은 줄 귀속을 놓지 않는다. 같은 줄의 일지 기록 행이 다른 묶음에서 먼저 지워졌으면 귀속이 그 줄의 유일한 내용 증거다.
+  // 기록 없는 줄의 귀속(이 계약 이전 버전이 만든 것)은 일지 정리 날짜와 함께 지워진다(아래).
+  assert.deepEqual([1,2,3,4,5,6,7].map(n=>!!ownerOf(n)),[true,true,true,true,true,true,true],'변환은 줄 귀속을 보존한다');
   // 일지 정리 기준(activity_pruned_before) 이전의 증거만 지우고 무시 표식은 보존한다. 영구 보관이면 기준이 없다.
   const owners=store.database.prepare('INSERT OR REPLACE INTO profile_log_line_owners VALUES(?,?,?,?)');
   owners.run(Buffer.from(retentionKey(20),'hex'),'2026-01-31',a.id,1);owners.run(Buffer.from(retentionKey(21),'hex'),'2026-01-31',a.id,0);
@@ -229,6 +240,180 @@ async function run(): Promise<void> {
   assert.deepEqual([30,31,32].map(n=>!!ownerOf(n)),[false,true,true]);
   assert.equal(store.database.prepare("SELECT value FROM app_meta WHERE key='profile_event_receipt_backfill_rowid'").get().value,'done');
   store.database.exec("DROP TABLE diary_live_activity_events;DELETE FROM diary_profile_meta WHERE key='activity_pruned_before'");
+  // 실시간 바로 반영의 반영 구간(log_ranges applied): 이어지는 같은 프로필 범위는 한 행으로 늘리고, 다른 범위와 겹치지 않으며,
+  // 덮은 줄 시작만 반영으로 본다. 일지가 정리한 날짜 이전 범위는 압축 때 함께 지운다.
+  const liveRows=()=>store.database.prepare("SELECT r.start_offset AS start,r.end_offset AS end,r.profile_id AS owner FROM log_ranges r JOIN log_file_aliases f ON f.file_id=r.file_id WHERE f.fingerprint='live-fixture' ORDER BY r.start_offset").all();
+  store.extendAppliedRange(a.id,'live-fixture','2026-11-10',0,100);store.extendAppliedRange(a.id,'live-fixture','2026-11-10',100,180);
+  store.extendAppliedRange(a.id,'live-fixture','2026-11-10',150,170);
+  assert.deepEqual(liveRows(),[{start:0,end:180,owner:a.id}],'이어지는 같은 프로필 범위는 끝만 늘린다');
+  store.extendAppliedRange(b.id,'live-fixture','2026-11-10',150,260);
+  store.extendAppliedRange(a.id,'live-fixture','2026-11-10',300,400);store.extendAppliedRange(b.id,'live-fixture','2026-11-10',250,350);
+  assert.deepEqual(liveRows(),[{start:0,end:180,owner:a.id},{start:180,end:300,owner:b.id},{start:300,end:400,owner:a.id}],
+    '다른 프로필·이미 덮은 byte는 잘라 내 겹치지 않는다(이미 반영한 줄을 다른 프로필로 옮기지 않음)');
+  assert.deepEqual([0,179,180,259,260,299,300,399,400].map(offset=>store.appliedRangeCovers('live-fixture',offset)),[true,true,true,true,true,true,true,true,false]);
+  assert.equal(store.appliedRanges({profileId:a.id,fingerprint:'live-fixture'}).at(-1)!.end,400);
+  // 중간에 이미 덮은 구간이 있어도 그 뒤를 버리지 않고 빈 곳마다 채운다(실시간 반영 구간이 있는 오늘 파일을 처음부터 복원).
+  {
+    const gapRows=()=>store.database.prepare("SELECT r.start_offset AS start,r.end_offset AS end,r.profile_id AS owner FROM log_ranges r JOIN log_file_aliases f ON f.file_id=r.file_id WHERE f.fingerprint='gap-fixture' ORDER BY r.start_offset").all();
+    store.extendAppliedRange(b.id,'gap-fixture','2026-11-10',400,500);store.extendAppliedRange(a.id,'gap-fixture','2026-11-10',700,800);
+    store.extendAppliedRange(a.id,'gap-fixture','2026-11-10',0,1000);
+    assert.deepEqual(gapRows(),[{start:0,end:400,owner:a.id},{start:400,end:500,owner:b.id},{start:500,end:1000,owner:a.id}],
+      '다른 프로필 구간은 건너뛰고, 같은 프로필 구간은 이어 붙여 끝까지 덮는다');
+    // 바깥 transaction 안에서 쓴 미룬 구간은 그 commit이 취소될 수 있으므로 메모리에 남긴다.
+    store.deferAppliedRange(a.id,'gap-fixture','2026-11-10',2000,2100);
+    assert.throws(()=>store.database.transaction(()=>{store.flushDeferredRange();throw new Error('rollback');})(),/rollback/);
+    assert.ok(store.hasDeferredRange,'취소된 commit 안에서 쓴 미룬 구간은 메모리에 남는다');
+    store.flushDeferredRange();
+    assert.ok(!store.hasDeferredRange,'transaction 밖에서 쓰면 메모리에서 지운다');
+    assert.deepEqual(gapRows().at(-1),{start:2000,end:2100,owner:a.id});
+    // 미룬 동안 파일이 다른(더 긴) 내용으로 바뀌었는데 실시간 감시가 알아채기 전에 체크포인트 등이 먼저 쓰면, 구간 끝 표본이
+    // 바뀐 파일 기준이라 검증을 통과해 새 줄을 처리한 줄로 건너뛴다. 미룰 때 잰 끝 표본과 다르면 쓰지 않고 버린다.
+    const replacedLog=path.join(path.dirname(store.filePath),'TWChatLog_2026_11_09.html');
+    fs.writeFileSync(replacedLog,Buffer.alloc(4000,0x41));
+    store.deferAppliedRange(a.id,'replace-fixture','2026-11-09',0,1000,replacedLog);
+    store.deferAppliedRange(a.id,'replace-fixture','2026-11-09',1000,2000,replacedLog);
+    fs.writeFileSync(replacedLog,Buffer.alloc(8000,0x42));
+    store.flushDeferredRange();
+    assert.ok(!store.hasDeferredRange,'바뀐 파일의 미룬 구간은 버린다');
+    assert.deepEqual([0,1500].map(offset=>store.appliedRangeCovers('replace-fixture',offset)),[false,false],'바뀐 파일의 새 줄을 처리한 줄로 보지 않는다');
+    store.deferAppliedRange(a.id,'replace-fixture','2026-11-09',0,2000,replacedLog);
+    fs.appendFileSync(replacedLog,Buffer.alloc(100,0x43));
+    store.flushDeferredRange();
+    assert.equal(store.appliedRangeCovers('replace-fixture',1500),true,'덧붙이기만 한 파일은 그대로 쓴다');
+    // 쓸 때 파일을 열지 못하면(백신 잠금·옮김·삭제) 바뀌지 않았다고 볼 근거가 없으므로 버린다(메모리에 남겨 다시 확인하지 않는다).
+    const lockedLog=path.join(path.dirname(store.filePath),'TWChatLog_2026_11_08.html'),away=`${lockedLog}.away`;
+    const lockedRows=()=>store.database.prepare(`SELECT COUNT(*) n FROM log_ranges r JOIN log_file_aliases a ON a.file_id=r.file_id
+      WHERE a.fingerprint='locked-fixture'`).get().n;
+    fs.writeFileSync(lockedLog,Buffer.alloc(4000,0x44));
+    store.deferAppliedRange(a.id,'locked-fixture','2026-11-08',0,1000,lockedLog);
+    fs.renameSync(lockedLog,away);
+    store.flushDeferredRange();
+    assert.equal(store.hasDeferredRange,false,'열지 못한 파일의 미룬 구간은 버린다');
+    fs.renameSync(away,lockedLog);
+    store.flushDeferredRange();
+    assert.equal(lockedRows(),0,'버린 구간은 다시 열려도 쓰지 않는다');
+    assert.equal(store.appliedRangeCovers('locked-fixture',500),false);
+    // 미룰 때 표본을 재지 못했으면(그 순간 잠김) 확인할 수 없으므로 다시 열려도 쓰지 않고 버린다(end_sample 없는 행을 만들지 않는다).
+    fs.renameSync(lockedLog,away);
+    store.deferAppliedRange(a.id,'locked-fixture','2026-11-08',1000,2000,lockedLog);
+    fs.renameSync(away,lockedLog);
+    store.flushDeferredRange();
+    assert.equal(store.hasDeferredRange,false,'표본 없이 미룬 구간은 버린다');
+    assert.equal(lockedRows(),0,'표본 없이 미룬 구간은 쓰지 않는다');
+    // 확인할 수 있으면 그대로 쓴다.
+    store.deferAppliedRange(a.id,'locked-fixture','2026-11-08',0,2000,lockedLog);
+    store.flushDeferredRange();
+    assert.ok(lockedRows()>0,'확인한 미룬 구간은 쓴다');
+    assert.equal(store.appliedRangeCovers('locked-fixture',1500),true);
+    // 파일이 구간 끝보다 짧아졌으면(잘림) 바뀐 파일이므로 버린다.
+    store.deferAppliedRange(a.id,'locked-fixture','2026-11-08',2000,3000,lockedLog);
+    fs.truncateSync(lockedLog,2500);
+    store.flushDeferredRange();
+    assert.equal(store.hasDeferredRange,false,'잘린 파일의 미룬 구간은 버린다');
+    assert.equal(store.appliedRangeCovers('locked-fixture',2200),false);
+  }
+  store.extendAppliedRange(a.id,'live-old','2026-01-31',0,50);
+  store.database.exec("INSERT OR REPLACE INTO diary_profile_meta VALUES('activity_pruned_before','2026-02-01')");
+  store.compactResolvedEvents();
+  assert.equal(store.appliedRanges({fingerprint:'live-old'}).length,0,'일지가 정리한 날짜 이전 범위는 지운다');
+  assert.equal(liveRows().length,3);
+  store.database.exec("DELETE FROM log_ranges;DELETE FROM diary_profile_meta WHERE key='activity_pruned_before'");
+  // 미룬 실시간 기록은 미룬 동안만 대기 행으로 둔다. 완료되면 1분 압축 때 처리 구간이 되고 행을 지운다.
+  {
+    const deferred=(n:number,owner:string | null,resolved:boolean)=>{
+      const id=`live-line:${retentionKey(n)}:SEED_GAINED:0`;
+      store.enqueue('deferred-session',{kind:'parsed-profile-event',version:1,event:'SEED_GAINED',sessionId:'deferred-session',observedAt:7000,
+        data:{date:'2026-11-11',timestamp:'10시 00분 00초',message:'',amount:n},source:{fingerprint:'deferred-fixture',start:n*100,end:n*100+50,lineKey:retentionKey(n)}},7000,id,owner);
+      if (resolved) store.database.prepare('UPDATE pending_profile_events SET resolved_at=?,assigned_profile_id=? WHERE event_id=?').run(Date.now(),owner,id);
+      return id;
+    };
+    const row=(id:string)=>!!store.database.prepare('SELECT 1 FROM pending_profile_events WHERE event_id=?').get(id);
+    const state=(offset:number)=>store.database.prepare(`SELECT r.state,r.profile_id AS owner FROM log_ranges r JOIN log_file_aliases f ON f.file_id=r.file_id
+      WHERE f.fingerprint='deferred-fixture' AND r.start_offset<=? AND r.end_offset>?`).get(offset,offset);
+    const staged=deferred(50,a.id,true);store.stageRuntimeEvent(a.id,staged);
+    const assigned=deferred(51,a.id,true),ignored=deferred(52,null,true),waiting=deferred(53,null,false);
+    store.compactResolvedEvents();
+    assert.deepEqual([staged,assigned,ignored,waiting].map(row),[true,false,false,true],'완료 행만 구간으로 바꾸고, HUD 복원 대기와 미완료 대기는 남긴다');
+    assert.deepEqual(state(5100),{state:'applied',owner:a.id},'배정한 줄은 그 프로필의 반영 구간');
+    assert.deepEqual(state(5200),{state:'ignored',owner:null},'무시한 줄은 무시 구간');
+    assert.deepEqual([5100,5200,5300].map(offset=>store.appliedRangeCovers('deferred-fixture',offset)),[true,true,false],'다시 읽으면 반영·무시 줄은 거르고 미룬 줄은 다시 본다');
+    assert.equal(store.eventRecordState(assigned),undefined);
+    store.saveRuntimeState(a.id,{version:1});store.compactResolvedEvents();
+    assert.equal(row(staged),false,'체크포인트 뒤에는 HUD 복원 대기였던 행도 구간으로 바꾼다');
+    assert.deepEqual(state(5000),{state:'applied',owner:a.id});
+    // 구간으로 바꿀 수 없는 완료 행(원본 위치 없음)은 고르지 않는다. 매분 다시 읽거나 뒤의 행 전환을 막지 않는다.
+    const broken='live-line:!broken:SEED_GAINED:0';
+    store.enqueue('deferred-session',{kind:'parsed-profile-event',version:1,event:'SEED_GAINED',sessionId:'deferred-session',observedAt:7000,
+      data:{date:'2026-11-11',timestamp:'10시 00분 00초',message:'',amount:1}},7000,broken,a.id);
+    store.database.prepare('UPDATE pending_profile_events SET resolved_at=? WHERE event_id=?').run(Date.now(),broken);
+    const later=deferred(54,a.id,true);
+    (store as any).convertResolvedLiveRows(1);
+    assert.deepEqual([broken,later].map(row),[true,false],'바꿀 수 없는 행은 남기고(30일 영수증 경로) 뒤의 행은 구간으로 바꾼다');
+    // 시간 예산은 구간마다 본다: 예산이 없어도 구간 하나는 바꾸고(앞으로 나아감), 나머지 행은 지우지 않고 다음 압축에 남긴다.
+    // 줄 사이가 끊긴 행(각자 다른 구간)이 한 묶음에 모여도 묶음 전체를 한 번에 처리하지 않는다(실제 v3.3.5 DB 측정: 2.19행마다 끊김).
+    const gapped=[60,62,64,66].map(n=>deferred(n,a.id,true));
+    (store as any).convertResolvedLiveRows(500,0);
+    assert.equal(gapped.filter(row).length,3,'예산이 없으면 한 번에 구간 하나만 바꾸고 나머지 행은 남긴다');
+    (store as any).convertResolvedLiveRows();
+    assert.equal(gapped.filter(row).length,0,'예산 안에서는 남은 구간을 이어서 바꾼다');
+    assert.deepEqual([6000,6200,6400,6600,6100].map(offset=>store.appliedRangeCovers('deferred-fixture',offset)),[true,true,true,true,false],'끊긴 줄은 각자 구간이고 사이 줄은 덮지 않는다');
+    assert.ok(store.database.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_log_ranges_end'").get(),'구간 끝 인덱스가 있다');
+    assert.match(JSON.stringify(store.database.prepare(`EXPLAIN QUERY PLAN SELECT start_offset FROM log_ranges WHERE file_id=1 AND end_offset=5`).all()),/idx_log_ranges_end/,'앞 구간 찾기는 끝 인덱스를 쓴다');
+    store.database.prepare("DELETE FROM pending_profile_events WHERE session_id='deferred-session'").run();
+    store.database.exec('DELETE FROM log_ranges;DELETE FROM profile_runtime_state');
+  }
+  // 처리 구간 행 크기 상한·잘린 파일·부분 검증·HUD 복원 구간·변환 병합(브랜치 리뷰 수정 회귀).
+  {
+    const rowsOf=(fingerprint:string)=>store.database.prepare(`SELECT r.start_offset AS start,r.end_offset AS end FROM log_ranges r
+      JOIN log_file_aliases f ON f.file_id=r.file_id WHERE f.fingerprint=? ORDER BY r.start_offset`).all(fingerprint) as {start:number;end:number}[];
+    const KB=1024;
+    // 한 행은 256KB를 넘지 않는다(파일이 바뀌면 끝 표본이 맞지 않는 행만 지우기 위해).
+    store.extendAppliedRange(a.id,'cap-fixture','2026-11-12',0,600*KB);
+    assert.deepEqual(rowsOf('cap-fixture'),[{start:0,end:256*KB},{start:256*KB,end:512*KB},{start:512*KB,end:600*KB}],'처리 구간 한 행은 256KB 상한');
+    store.extendAppliedRange(a.id,'cap-fixture','2026-11-12',600*KB,610*KB);
+    assert.deepEqual(rowsOf('cap-fixture').at(-1),{start:512*KB,end:610*KB},'상한 안에서는 이어지는 구간을 같은 행으로 늘린다');
+    assert.deepEqual([0,300*KB,609*KB,610*KB].map(offset=>store.appliedRangeCovers('cap-fixture',offset)),[true,true,true,false]);
+    // 실제 파일: 앞부분이 같은 더 짧은 파일로 바뀌면 바뀐 지점이 걸친 행과 그 뒤만 지운다.
+    const logFile=path.join(dir,'TWChatLog_2026_11_12.html');
+    const lineText=(n:number)=>`<font size="2" color="white"> [ 10시 00분 ${String(n%60).padStart(2,'0')}초] </font> <font>줄 ${n}</font></br>\r\n`;
+    let content='';for (let n=0;Buffer.byteLength(content)<600*KB;n++) content+=lineText(n);
+    fs.writeFileSync(logFile,content);
+    const size=Buffer.byteLength(content);
+    store.extendLiveRange(a.id,'file-fixture','2026-11-12',0,size,logFile);
+    assert.equal(rowsOf('file-fixture').length,3);
+    assert.equal(store.runtimeRanges(a.id).length,1,'실시간 반영 구간은 체크포인트 뒤 HUD 복원 구간으로 남는다(행 경계와 관계없이 하나로 합쳐 읽는다)');
+    assert.deepEqual(store.runtimeRanges(a.id)[0],{filePath:logFile,date:'2026-11-12',start:0,end:size});
+    fs.writeFileSync(logFile,Buffer.from(content).subarray(0,300*KB));
+    assert.equal(store.validateLogRanges('file-fixture',logFile),2,'잘린 지점이 걸친 행과 그 뒤 행만 지운다');
+    assert.deepEqual(rowsOf('file-fixture'),[{start:0,end:256*KB}],'그대로 남은 앞부분 행은 유지한다');
+    assert.deepEqual(store.runtimeRanges(a.id).map((range:any)=>[range.start,range.end]),[],'지운 구간과 겹치는 HUD 복원 구간도 지운다');
+    // 파일보다 끝이 긴 구간은 쓰지 않는다(잘린 뒤 늦게 쓰는 구간이 그 자리에 새로 쓰일 줄을 덮지 않게).
+    store.extendAppliedRange(a.id,'file-fixture','2026-11-12',256*KB,400*KB,logFile);
+    assert.equal(store.appliedRangeCovers('file-fixture',260*KB),false,'지금 파일보다 긴 구간은 쓰지 않는다');
+    // 복원(extendAppliedRange)과 v3.3.5 원문 변환이 만든 구간은 HUD 복원 구간에 넣지 않는다(HUD 재생 안 함).
+    store.saveRuntimeState(a.id,{version:1});
+    assert.equal(store.runtimeRanges(a.id).length,0,'체크포인트는 HUD 복원 구간을 비운다');
+    store.extendAppliedRange(a.id,'file-fixture','2026-11-12',256*KB,280*KB,logFile);
+    const convertRow=(n:number,start:number,end:number,event='XP_CHANGED',lineKey=retentionKey(n))=>{
+      const id=`live-line:${lineKey}:${event}:0`;
+      store.enqueue('convert-session',{kind:'parsed-profile-event',version:1,event,sessionId:'convert-session',observedAt:7000,
+        data:{date:'2026-11-12',timestamp:'10시 00분 00초',message:'',amount:n},source:{fingerprint:'file-fixture',start,end,lineKey}},7000,id,a.id);
+      store.database.prepare('UPDATE pending_profile_events SET resolved_at=? WHERE event_id=?').run(Date.now(),id);
+      return id;
+    };
+    // 이어지는 세 줄은 한 구간으로 합쳐 쓰고, 같은 줄의 줄 귀속(일지에 남는 줄의 내용 증거)은 놓지 않는다.
+    claimProfileLogLine(store.database,retentionKey(91),'2026-11-12',a.id);
+    convertRow(90,280*KB,280*KB+100);convertRow(91,280*KB+100,280*KB+200);convertRow(92,280*KB+200,280*KB+300);
+    store.compactResolvedEvents();
+    assert.equal(store.database.prepare("SELECT COUNT(*) n FROM pending_profile_events WHERE session_id='convert-session'").get().n,0);
+    assert.deepEqual(rowsOf('file-fixture').at(-1),{start:256*KB,end:280*KB+300},'이어지는 변환 줄은 앞 구간과 한 행으로 합친다');
+    assert.ok(ownerOf(91),'변환은 같은 줄의 줄 귀속을 놓지 않는다(일지 행 증거가 먼저 지워졌을 수 있다)');
+    assert.equal(store.runtimeRanges(a.id).length,0,'복원·변환 구간은 HUD에 재생하지 않는다');
+    // 재분석 워커는 시작 위치 순서로 훑으므로, 한 파일에 날짜가 다른 구간이 섞여도 시작 위치 순서로 돌려준다.
+    store.extendAppliedRange(a.id,'order-fixture','2026-11-13',0,10);store.extendAppliedRange(a.id,'order-fixture','2026-11-12',100,110);
+    assert.deepEqual(store.appliedRanges({fingerprint:'order-fixture'}).map((range:any)=>range.start),[0,100]);
+    store.database.exec("DELETE FROM log_ranges;DELETE FROM profile_runtime_state;DELETE FROM profile_runtime_ranges;DELETE FROM profile_log_line_owners WHERE log_date='2026-11-12'");
+  }
   // 실제 config facade와 혼합 파일 저장. 프로필 본문은 config.json에 중복 저장하지 않음.
   const config = require(path.join(root,'dist/modules/config.js'));
   const persistence = {
@@ -275,6 +460,23 @@ async function run(): Promise<void> {
   assert.equal(blank.list().length,1,'신규 설치 기본 하나');
   assert.equal(blank.list()[0].userServer,null,'앱 기본 서버를 사용자 선택으로 간주하지 않음');
   assert.equal(blank.homework(blank.list()[0].id)[0].id,'base');
+  // 프로필을 지우면 체크포인트 뒤 HUD 복원 구간(바로 반영·미룬 구간)도 지운다. Google 적용으로 되살아나도 옛 경험치를 재생하지 않는다.
+  {
+    const doomed=blank.create('삭제 HUD 구간',7);
+    blank.extendLiveRange(doomed.id,'removed-hud-fixture','2026-11-13',0,100);
+    blank.deferAppliedRange(doomed.id,'removed-hud-fixture','2026-11-13',100,200);
+    assert.equal(blank.database.prepare('SELECT COUNT(*) n FROM profile_runtime_ranges WHERE profile_id=?').get(doomed.id).n,1);
+    blank.remove(doomed.id);
+    assert.equal(blank.database.prepare('SELECT COUNT(*) n FROM profile_runtime_ranges WHERE profile_id=?').get(doomed.id).n,0,'삭제한 프로필의 HUD 복원 구간을 지운다');
+    // 삭제 transaction 안에서 쓴 미룬 구간은 메모리에도 남지만(flush 계약), 다시 써도 이미 덮인 구간이라 HUD 복원 행이 생기지 않는다.
+    blank.flushDeferredRange();
+    assert.equal(blank.database.prepare('SELECT COUNT(*) n FROM profile_runtime_ranges WHERE profile_id=?').get(doomed.id).n,0,'삭제 뒤 미룬 구간을 써도 HUD 복원 구간이 생기지 않는다');
+    assert.equal(blank.appliedRangeCovers('removed-hud-fixture',150),true,'처리 구간(중복 방지)은 남긴다');
+    blank.database.prepare('UPDATE play_profiles SET deleted_at=NULL WHERE id=?').run(doomed.id);
+    assert.deepEqual(blank.runtimeRanges(doomed.id),[],'되살아난 프로필을 선택해도 옛 구간을 재생하지 않는다');
+    blank.remove(doomed.id);
+    blank.database.exec("DELETE FROM log_ranges");
+  }
   blank.close();
   const onlyDevice = deviceConfigOnly(legacy);
   assert.ok(!('userServer' in onlyDevice) && !('contentsCheckerItems' in onlyDevice) && !('wordAlarmKeywords' in onlyDevice));

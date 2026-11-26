@@ -4,7 +4,7 @@ import * as contents from './contentsChecker';
 import {ProfileService,type ProfileServiceHooks} from './profileService';
 import {ProfileGameLifecycle,type ProfileGameState} from './profileGameLifecycle';
 import {getProfileRuntime,setProfileRuntime,type ProfileRuntime} from './profileRuntime';
-import {recoverProfileProgress,replayProfileParserEvent} from './profileParserEvents';
+import {recoverLiveProgress,recoverProfileProgress,replayProfileParserEvent} from './profileParserEvents';
 import {chatLogManager} from './chatLogManager';
 import {collectRecordEffects} from './recordEffects';
 import {xpTracker} from './xpTracker';
@@ -60,6 +60,8 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
   const checkpoint=() => {
     if (!active || failedProgress.has(active)) return;
     xpTracker.flushXpUpdate();
+    // 미룬 경험치 구간을 먼저 쓴다(처리 구간 1분 계약). 그 구간의 HUD 복원 행은 아래 저장이 스냅샷과 함께 비운다.
+    store.flushDeferredRange();
     const value:RuntimeSnapshot={version:1,sessionId:activeSession,xp:xpTracker.captureProfileState(),buffs:buffTimerManager.captureProfileState(),
       abandoned:abandonedTracker.captureProfileState(),digsite:digsiteTracker.getState(),supply:getSupplyRun(),detected:contents.captureDetectedHomework()};
     store.saveRuntimeState(active,value);
@@ -135,9 +137,16 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
       digsiteTracker.restoreProfileState(sameSession ? saved?.digsite || null : null);
       restoreSupplyRun(sameSession ? saved?.supply || null : null);contents.restoreDetectedHomework(saved?.detected || null);
       const events=store.pendingRuntimeEvents(id);
-      if (events.length) {
+      // 체크포인트 뒤 바로 반영한 실시간 줄(대기 원문 없음)만 원본 로그에서 HUD를 다시 재생한다(profile_runtime_ranges).
+      // 복원·v3.3.5 원문 변환·이전 세션 배정이 만든 반영 구간은 이 표에 없으므로 재생하지 않는다.
+      // 알려진 한계(계약): 재생 순서는 HUD 대기 행(대기 경로 줄) 전부 → 원본 구간이라 시간 순이 아니다. 체크포인트 뒤에
+      // 대기 경로의 도전과제 시작 줄과 바로 반영한 경험치 줄이 섞여 있으면, 비정상 종료 뒤 복원에서만 퀘스트·경험치 순서가
+      // 바뀔 수 있다(평상시 반영은 순서를 지킨다. applyOwnedLiveRecords). 최대 1분 구간이고 HUD에만 영향이 있다.
+      const segments=store.runtimeRanges(id);
+      if (events.length || segments.length) {
         failedProgress.add(id);
         for (const event of events) recoverProfileProgress(event,activeSession);
+        if (segments.length) recoverLiveProgress(segments,saved?.sessionId ?? null,activeSession);
         // 이미 지난 버프와 경고를 제거하고 실제 사용 시각을 유지한다.
         buffTimerManager.restoreProfileState(buffTimerManager.captureProfileState());
         failedProgress.delete(id);

@@ -4437,11 +4437,28 @@ function checkTodaySummary(): void {
     ],
   });
 
+  // 실시간 득템 기록과 줄 귀속 판단은 같은 조건(itemAcquisition.lootItemRecord·recordsLootLine)을 쓴다.
   assert.match(read('src/modules/chatLogProcessor.ts'),
-    /isAlwaysTrackedItem = isAlwaysTrackedLoot\(data\.itemName\)[\s\S]*?shouldRecordItem = isAlwaysTrackedItem \|\| matchesRegisteredLoot\(keywords, data\.itemName\)/,
+    /\{alwaysTracked: isAlwaysTrackedItem, record: recordLoot\} = lootItemRecord\(data, keywords\)/,
+    '실시간 득템 기록이 공통 조건(lootItemRecord)을 쓰지 않습니다.');
+  const acquisition = require(path.join(projectRoot, 'dist/modules/itemAcquisition.js')) as {
+    lootItemRecord(value: {itemName: string; isOwn: boolean; message: string}, keywords: string[]): {alwaysTracked: boolean; record: boolean};
+    recordsLootLine(value: {itemName: string; count: number; isOwn: boolean; message: string}, keywords: string[]): boolean;
+  };
+  const own = (itemName: string, message = '') => ({itemName, count: 1, isOwn: true, message});
+  assert.deepEqual(acquisition.lootItemRecord(own('경험의 정수'), []), {alwaysTracked: true, record: true},
     '경험의 정수 상시 기록과 일반 등록 아이템 필터가 함께 유지되지 않습니다.');
-  assert.match(read('src/modules/chatLogProcessor.ts'), /data\.isOwn/,
+  assert.equal(acquisition.lootItemRecord(own('장비 강화석'), ['장비 강화석']).record, true);
+  assert.equal(acquisition.lootItemRecord(own('장비 강화석'), []).record, false, '등록하지 않은 아이템이 기록됩니다.');
+  assert.equal(acquisition.lootItemRecord({...own('장비 강화석'), isOwn: false}, ['장비 강화석']).record, false,
     '타인의 획득 알림이 모험일지에 기록될 수 있습니다.');
+  assert.equal(acquisition.lootItemRecord(own('하급 마정석'), ['하급 마정석']).record, false, '마정석은 득템 행이 아니라 일일 누적으로 기록됩니다.');
+  // 줄 귀속: 일지에 무엇이든 남는 획득 줄만(등록 아이템·엘소·금화 주머니). 등록하지 않은 자기 획득은 귀속 없음.
+  assert.equal(acquisition.recordsLootLine(own('장비 강화석'), []), false, '기록하지 않는 획득 줄에 줄 귀속을 남깁니다.');
+  assert.equal(acquisition.recordsLootLine(own('장비 강화석'), ['장비 강화석']), true);
+  assert.equal(acquisition.recordsLootLine({...own('ELSO', '[엘소 스크롤 (1 포인트)]을(를) [3]개 획득하였습니다.'), isOwn: false}, []), true,
+    '엘소 줄은 일지 누적에 남으므로 줄 귀속을 남깁니다.');
+  assert.equal(acquisition.recordsLootLine(own('금화 주머니'), []), true, '금화 주머니 SEED 줄은 줄 귀속을 남깁니다.');
   assert.match(read('src/modules/chatLogProcessor.ts'),
     /const diaryContent = formatLootDiaryContent\(data\.itemName\)/,
     '실시간 득템 기록이 정확한 파싱 아이템명으로 저장되지 않습니다.');
@@ -9000,6 +9017,17 @@ async function checkGoogleSyncDataContracts(): Promise<void> {
   }
 }
 
+/** Google 프로필 업로드 전에 FULL commit(setMeta('uploadSizing'))이 있어야 실시간 읽기의 NORMAL commit까지 디스크에 확정된다
+ * (ApplicationData.withRelaxedDurability 계약). 순서가 바뀌면 정전 뒤 올린 변경이 로컬에서 사라져 동기화가 "작성자 되돌림"으로 멈춘다. */
+function checkProfileUploadDurableOrder(): void {
+  const source = fs.readFileSync(path.join(projectRoot, 'src', 'modules', 'profileSyncCoordinator.ts'), 'utf8');
+  const durable = source.indexOf("this.model.setMeta('uploadSizing',sizing);");
+  const upload = source.indexOf('this.transport.upload(');
+  assert.ok(durable > 0 && upload > durable, '프로필 업로드 전에 FULL commit(uploadSizing 저장)이 먼저 있어야 한다');
+  const applicationSource = fs.readFileSync(path.join(projectRoot, 'src', 'modules', 'applicationData.ts'), 'utf8');
+  assert.match(applicationSource, /setMeta\('uploadSizing'\)/, '실시간 읽기 NORMAL 계약에 업로드 전 FULL commit 순서를 적는다');
+}
+
 function checkLargeChatLogReadBoundary(): void {
   const {
     findLastCompleteChatLogOffset,
@@ -9069,6 +9097,30 @@ function checkLargeChatLogReadBoundary(): void {
   assert.equal(trimmed.lines.includes('a'.repeat(60)), false);
   assert.equal(trimmed.lines.at(-1), 'latest');
   assert.ok(trimmed.totalChars <= 80);
+
+  // 작은 파일로 시작한 날(최근 구간 모드가 아님)도 하루 종일 사냥하면 메모리 창 상한을 넘는 순간 오래된 줄을 정리한다.
+  // 이전에는 대형 파일 모드에서만 정리해 초당 40줄이면 시간당 약 33MB씩 계속 늘었다(benchmark-runtime-resources.ts).
+  {
+    const { ChatLogManager } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogManager.js'));
+    const { MAX_RECENT_HISTORY_CHARS } = require(path.join(projectRoot, 'dist', 'modules', 'chatLogFileReader.js'));
+    const manager = Object.create(ChatLogManager.prototype);
+    const lineChars = 64 * 1024;
+    const lines = Array.from({ length: Math.ceil(MAX_RECENT_HISTORY_CHARS / lineChars) + 8 }, (_, index) => `${index}:`.padEnd(lineChars, 'x'));
+    Object.assign(manager, {
+      _recentHistoryMode: false,
+      _todayLines: lines,
+      _todayLineChars: lines.reduce((sum, line) => sum + line.length + 1, 0),
+      _initialReadIndex: { Basic: 3 },
+      _lastReadIndex: { Basic: lines.length - 2 },
+    });
+    manager.trimRecentHistoryIfNeeded();
+    assert.ok(manager._todayLines.length < lines.length, '최근 구간 모드가 아니어도 상한을 넘으면 오래된 줄을 정리한다.');
+    assert.ok(manager._todayLineChars <= MAX_RECENT_HISTORY_CHARS);
+    assert.equal(manager._todayLines.at(-1), lines.at(-1), '가장 최근 줄은 남긴다.');
+    const removed = lines.length - manager._todayLines.length;
+    assert.equal(manager._lastReadIndex.Basic, lines.length - 2 - removed, '탭 읽기 위치를 정리한 줄 수만큼 당긴다.');
+    assert.equal(manager._initialReadIndex.Basic, 0);
+  }
 
   const completeBoundaryPath = path.join(fixtureDir, 'complete-boundary.html');
   const completeBoundaryPrefix = '<font>완전한 첫 줄</font></br>\n';
@@ -10420,6 +10472,7 @@ async function runRegressionChecks(): Promise<void> {
   checkStoreUpdateLogic();
   checkCustomTabHistoryContracts();
   checkLargeChatLogReadBoundary();
+  checkProfileUploadDurableOrder();
   await checkChatTailRecoveryBoundary();
   await checkChatDirectoryNotifications();
   checkNotificationKeywordBoundaries();

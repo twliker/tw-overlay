@@ -1,3 +1,5 @@
+import { isAlwaysTrackedLoot, matchesRegisteredLoot } from '../shared/lootPolicy';
+
 export type ItemAcquisitionSource = 'direct' | 'pet' | 'other';
 
 export interface ItemAcquisition {
@@ -259,6 +261,31 @@ export function getGoldPouchSeedAmount(acquisition: ItemAcquisition): number {
     .trim();
   if (normalizedName !== '금화 주머니') return 0;
   return acquisition.count * GOLD_POUCH_SEED_VALUE;
+}
+
+/** 획득 줄의 아이템이 모험일지 득템 행으로 남는지(자기 획득, 경험의 정수 또는 등록 아이템, 마정석 제외).
+ * 실시간 기록(chatLogProcessor ITEM_LOOTED)과 줄 귀속 판단(recordsLootLine)이 같이 쓴다. 과거 로그 복원
+ * (chatLogSyncWorker)도 같은 조건이다. lootKeywords는 normalizeNotificationKeywords를 거친 값을 받는다. */
+export function lootItemRecord(acquisition: {itemName: string; isOwn: boolean; message: string}, lootKeywords: readonly string[]): {alwaysTracked: boolean; record: boolean} {
+  const alwaysTracked = isAlwaysTrackedLoot(acquisition.itemName);
+  const registered = alwaysTracked || matchesRegisteredLoot(lootKeywords, acquisition.itemName);
+  return {alwaysTracked, record: acquisition.isOwn && registered && !acquisition.itemName.includes('마정석') && !acquisition.message.includes('마정석')};
+}
+
+/** 기능 계약 — 획득 줄 하나가 지금 설정으로 모험일지에 무엇이든 남기는지(엘소 포인트·금화 주머니 SEED·득템 행).
+ * 실시간 줄 귀속(profile_log_line_owners)은 이 값이 참인 줄에만 만든다. 이전에는 자기 획득 줄 전부에 남겨, 등록하지 않은
+ * 아이템 줄(실제 사냥 로그 하루 약 200~700행)도 귀속이 쌓였다. 엘소 스크롤 줄은 일일 엘소 누적에 남는 기록이라 귀속을
+ * 유지한다(파일 교체 뒤 다시 읽어도 누적에 두 번 더하지 않게). 기록하지 않은 줄은 귀속이 없어도
+ * 다시 읽을 때 다시 기록되지 않으므로(같은 조건) 중복이 생기지 않는다. 등록 아이템을 나중에 추가하면 그 뒤 재분석이
+ * 그 줄을 새로 기록할 수 있는데, 그때까지 일지에 없던 줄이므로 중복이 아니다. 다른 프로필의 복원은 이 프로필의 반영 구간
+ * (log_ranges applied)으로 그 줄을 건너뛴다(profileLogRestore otherLive). 파일 교체로 그 구간이 지워진 뒤에는 다른 프로필이
+ * 등록한 아이템이면 그 프로필에 기록될 수 있다(알려진 한계: 이 프로필 일지에는 없던 줄이라 중복은 아니다).
+ * 엘소 문구를 읽지 못하면(예외) 남는 줄로 본다(귀속을 남기는 쪽이 안전).
+ * 회귀: check-profile-durability.ts(실제 감시에서 등록·미등록 획득 줄의 귀속 수), check-refactor-regressions.ts(조건). */
+export function recordsLootLine(acquisition: {itemName: string; count: number; isOwn: boolean; message: string}, lootKeywords: readonly string[]): boolean {
+  try {if (parseElsoMessage(acquisition.message) > 0) return true;} catch {return true;}
+  if (getGoldPouchSeedAmount({...acquisition, source: 'direct'}) > 0) return true;
+  return lootItemRecord(acquisition, lootKeywords).record;
 }
 
 function parseMultiItemAcquisition(normalized: string): ItemAcquisition[] {

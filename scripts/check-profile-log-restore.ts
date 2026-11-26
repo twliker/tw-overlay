@@ -205,7 +205,9 @@ async function main():Promise<void> {
       assert.equal((await run(b.id,fresh,true)).success,true);
       assert.equal(scope(b.id,fresh,'[자동] 어벤던로드 입장료 (-25 SEED)'),-25,'같은 날 다른 원문의 기록도 추가');
       assert.equal(scope(a.id,fresh),1400);assert.equal(gold(b.id,fresh),500000);
+      // 복원은 줄 귀속(32바이트 줄 키)과 함께 처리 구간(log_ranges applied)을 남긴다.
       assert.equal(store.database.prepare('SELECT min(length(line_key)) bytes FROM profile_log_line_owners').get().bytes,32);
+      assert.ok(store.database.prepare("SELECT COUNT(*) n FROM log_ranges WHERE state='applied' AND profile_id=?").get(b.id).n>0,'복원한 프로필의 처리 구간을 남긴다');
     } finally {assert.equal(config.saveConfirmed({chatLogPath:logs}),true);}
 
     // SQLite 확정 위치 저장 실패도 활동·원본 구간과 함께 rollback한다.

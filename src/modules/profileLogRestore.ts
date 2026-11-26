@@ -43,16 +43,23 @@ export function beginProfileLogRestore(expectedId:unknown) {
     for (const row of rows) {if (row.start>cursor) insert.run(fingerprint,cursor,Math.min(row.start,end),owner);cursor=Math.max(cursor,row.end);}
     if (cursor<end) insert.run(fingerprint,cursor,end,owner);
   };
-  const exclusions=(key:string,inspected:{fingerprint:string;fingerprintBytes:number;snapshotSize:number}) => {
+  const exclusions=(key:string,inspected:{fingerprint:string;fingerprintBytes:number;snapshotSize:number},filePath?:string,dateStr?:string) => {
     assertCurrent();
+    // 다른 폴더의 복사본도 같은 원본 파일(내용 키)로 연결해 처리 구간·일지 원본 위치를 그대로 쓴다.
+    if (filePath && dateStr) connection.transaction(()=>{
+      store.registerLogFile(inspected.fingerprint,filePath,dateStr,false);
+      store.validateLogRanges(inspected.fingerprint,filePath);
+    })();
     const previous=legacy.files[key];
     if (previous && previous.fingerprint===inspected.fingerprint && previous.confirmedOffset<=inspected.snapshotSize) connection.transaction(()=>claim(inspected.fingerprint,0,previous.confirmedOffset,null))();
     const assigned=connection.prepare('SELECT start_offset AS start,end_offset AS end FROM profile_log_source_ranges WHERE fingerprint=? AND profile_id IS NOT ?').all(inspected.fingerprint,lease.profileId) as {start:number;end:number}[];
     const pending=connection.prepare("SELECT DISTINCT json_extract(payload,'$.source.start') AS start,json_extract(payload,'$.source.end') AS end FROM pending_profile_events WHERE resolved_at IS NULL AND json_extract(payload,'$.source.fingerprint')=?").all(inspected.fingerprint) as {start:number;end:number}[];
     const ignored=connection.prepare('SELECT start_offset AS start,end_offset AS end FROM profile_ignored_log_ranges WHERE fingerprint=?')
       .all(inspected.fingerprint) as {start:number;end:number}[];
+    // 다른 프로필이 실시간으로 바로 반영한 구간(대기·줄 귀속 행 없음)도 그 프로필의 것이다.
+    const otherLive=store.appliedRanges({fingerprint:inspected.fingerprint,notProfileId:lease.profileId}).map(({start,end})=>({start,end}));
     const merged:{start:number;end:number}[]=[];
-    for (const range of [...assigned,...pending,...ignored].sort((a,b)=>a.start-b.start)) {
+    for (const range of [...assigned,...pending,...ignored,...otherLive].sort((a,b)=>a.start-b.start)) {
       const last=merged.at(-1);if (last && range.start<=last.end) last.end=Math.max(last.end,range.end);else merged.push({...range});
     }
     return merged;
@@ -65,19 +72,28 @@ export function beginProfileLogRestore(expectedId:unknown) {
       AND json_type(payload,'$.source.lineKey')='text'`).all(date) as {line_key:string}[];
     return Object.fromEntries([...pending.map(row=>[row.line_key,null] as const),...rows.map(row=>[row.line_key,row.profile_id] as const)]);
   };
+  const appliedRanges=(fingerprint:string) => {
+    assertCurrent();
+    return store.appliedRanges({fingerprint,profileId:lease.profileId}).map(({start,end})=>({start,end}));
+  };
   const legacyOwnedRanges=(fingerprint:string) => connection.prepare('SELECT start_offset AS start,end_offset AS end FROM profile_log_source_ranges WHERE fingerprint=? AND profile_id IS ? ORDER BY start_offset').all(fingerprint,lease.profileId) as {start:number;end:number}[];
   const save=(state:ChatLogSyncLocalState) => {
     assertCurrent();
     const write=connection.prepare('INSERT INTO profile_log_sync_state VALUES(?,?,?) ON CONFLICT(profile_id,file_key) DO UPDATE SET state_json=excluded.state_json');
     for (const [key,value] of Object.entries(state.files)) write.run(lease.profileId,key,JSON.stringify(value));
   };
-  return {profileId:lease.profileId,sessionId:lease.sessionId,config:lease.config,load,probe,exclusions,knownLines,legacyOwnedRanges,save,assertCurrent,
-    commit<T>(key:string,state:DurableChatLogFileState,lineKeys:string[],apply:()=>T):T {
+  return {profileId:lease.profileId,sessionId:lease.sessionId,config:lease.config,load,probe,exclusions,knownLines,appliedRanges,legacyOwnedRanges,save,assertCurrent,
+    commit<T>(key:string,state:DurableChatLogFileState,lineKeys:string[],apply:()=>T,ownedSpans?:ReadonlyArray<{start:number;end:number}>):T {
       assertCurrent();
+      // 복원 구간은 반영 구간(log_ranges)만 남기고 HUD 복원 구간(profile_runtime_ranges)에는 넣지 않는다(HUD에 재생하지 않는 줄).
       return store.withRecordContext(lease.profileId,lease.sessionId,()=>connection.transaction(()=>{
         const result=apply();
+        // 줄 귀속(줄 키 = 원문·위치 해시)은 복원에서 계속 남긴다. 같은 날짜 파일을 일부만 같은 내용으로 다시 쓴 경우에도
+        // 그대로 남은 줄의 소유를 줄 단위로 지키기 위해서다(위치만 보는 처리 구간은 바뀐 구간을 통째로 지운다).
         const insert=connection.prepare('INSERT OR IGNORE INTO profile_log_line_owners VALUES(?,?,?,0)');
         for (const lineKey of lineKeys) insert.run(Buffer.from(lineKey,'hex'),state.dateStr,lease.profileId);
+        // 처리 구간(log_ranges applied)도 남겨 실시간 재읽기·다른 프로필 복원이 같은 기준으로 본다.
+        for (const span of ownedSpans ?? []) store.extendAppliedRange(lease.profileId,state.fingerprint,state.dateStr,span.start,span.end,state.filePath);
         connection.prepare('INSERT INTO profile_log_sources VALUES(?,?) ON CONFLICT(file_key) DO UPDATE SET state_json=excluded.state_json').run(key,JSON.stringify(state));
         save({...legacy,files:{[key]:state}});return result;
       })());

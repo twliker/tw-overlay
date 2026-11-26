@@ -78,6 +78,8 @@ export interface WorkerSyncTargetFile {
   aggregateOwnerKey?:string;
   knownLines?: Record<string, string | null>;
   legacyOwnedRanges?: Array<{start:number;end:number}>;
+  /** 이 프로필이 실시간으로 바로 반영한 구간(log_ranges의 applied). 그 안의 줄은 이 프로필의 알려진 줄(knownLines)과 같다. */
+  appliedRanges?: Array<{start:number;end:number}>;
   repairKnownActivities?: boolean;
 }
 
@@ -85,6 +87,9 @@ export interface ParsedLootEvent {
   eventId?: string;
   repairOnly?: boolean;
   lineKey?: string;
+  /** 재분석 복구용 원본 위치(파일 지문, 줄 시작 byte). */
+  sourceFingerprint?: string;
+  sourceOffset?: number;
   date: string;
   timeOnly: string;
   diaryContent: string;
@@ -103,6 +108,9 @@ export interface ParsedSeedEvent {
   eventId?: string;
   repairOnly?: boolean;
   lineKey?: string;
+  /** 재분석 복구용 원본 위치(파일 지문, 줄 시작 byte). */
+  sourceFingerprint?: string;
+  sourceOffset?: number;
   date: string;
   timeOnly: string;
   content: string;
@@ -144,6 +152,8 @@ export interface ChatLogSyncBatchData {
   goldPouchSeeds?: ParsedGoldPouchSeedEvent[];
   scopedLogRecords?: boolean;
   lineKeys?: string[];
+  /** 프로필 복원: 이 배치에서 이 프로필이 처리한 byte 구간(다른 소유·제외 줄을 뺀 것). 처리 구간(log_ranges applied)으로 남긴다. */
+  ownedSpans?: Array<{start:number;end:number}>;
   /** 지정 날짜의 채팅 로그 유래 automatic row를 이 배치 결과로 원자 교체한다. */
   replaceAutomaticDate?: string;
 }
