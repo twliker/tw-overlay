@@ -18,6 +18,7 @@ import {isProfileToolKey,isSyncableProfileToolValue,PROFILE_TOOL_KEYS} from '../
 import {legacyPendingHomeworkEvents} from '../shared/legacyHomework';
 import {computeLogIdentity,LogFileProbe,logFileSize,matchesLogPrefix,readLogEndSample,sampleLogEnd} from './logFileIdentity';
 import {log} from './logger';
+import {renameSyncWithRetry} from './atomicRename';
 import {prepareProfileSyncSchema,captureProfileSyncChanges,ProfileSyncModel,rememberDeletedHomework,rememberProfileHomeworkDeletion,saveHomeworkExpiry,rememberLegacyDeviceLocalOriginals} from './profileSyncModel';
 import type {DiaryRecordContext} from '../shared/diaryProfiles';
 import type { AppConfig, ContentsCheckerItem } from '../shared/types';
@@ -67,7 +68,8 @@ function writeAtomicText(file: string, value: string): void {
   const temp = `${file}.tmp`;
   const fd = fs.openSync(temp, 'w', 0o600);
   try { fs.writeFileSync(fd, value, 'utf8'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  fs.renameSync(temp, file);
+  // 기기 설정·journal 교체. Windows 백신·색인의 잠깐 잠금(EPERM 등)은 짧게 기다려 다시 시도한다(atomicRename 계약).
+  renameSyncWithRetry(() => fs.renameSync(temp, file));
 }
 
 const MIGRATION_STAGING_PREFIX='app-data-migration-';

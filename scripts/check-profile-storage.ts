@@ -507,6 +507,35 @@ async function run(): Promise<void> {
   assert.equal(config.saveConfirmed({pinnedNoteText:'실패할 공개 저장'}),false);
   assert.deepEqual(config.load(),beforeFacadeFailure,'공개 확정 저장 실패 시 캐시/DB 유지');
   facade.database.exec('DROP TRIGGER reject_facade');
+  // Windows 백신·색인이 설정 임시 파일을 잠깐 잡으면 rename이 EPERM으로 실패한다(실제로 이 검사에서 간헐 실패했다).
+  // 잠깐 잠금은 짧게 기다려 다시 시도해 저장을 취소하지 않고, 끝내 잠기거나 잠금이 아닌 오류면 지금처럼 취소한다(atomicRename 계약).
+  // 앱 모듈이 쓰는 fs(Electron의 require('fs'))를 바꾼다. node:fs와 다른 객체다.
+  const appFs=require('fs') as typeof fs,realRename=appFs.renameSync;let lockedRenames=0;
+  const lockConfigRename=(times:number,code='EPERM')=>{
+    lockedRenames=0;
+    (appFs as any).renameSync=(from:fs.PathLike,to:fs.PathLike)=>{
+      if (String(from).endsWith('config.json.tmp') && lockedRenames<times) {lockedRenames++;throw Object.assign(new Error(`${code}: fixture lock`),{code});}
+      return realRename(from,to);
+    };
+  };
+  try {
+    // 기기 설정(창 크기 등)이 바뀌어야 config.json을 다시 쓴다(프로필 설정만 바뀌면 DB 안에서 끝난다).
+    lockConfigRename(3);
+    assert.equal(config.saveConfirmed({width:701}),true,'설정 rename의 잠깐 잠금은 다시 시도해 저장한다');
+    assert.equal(lockedRenames,3);
+    assert.equal(config.load().width,701);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(fixture,'config.json'),'utf8')).width,701);
+    const beforeLocked=config.load();
+    lockConfigRename(100);
+    assert.equal(config.saveConfirmed({width:702}),false,'끝내 잠겨 있으면 저장을 취소한다');
+    // 저장 commit과, 실패 뒤 journal로 JSON을 되돌리는 복구가 각각 정해진 횟수(5번)만 시도한다(복구도 잠겨 있으면 journal을 남겨 다음에 되돌린다).
+    assert.ok(lockedRenames>=5 && lockedRenames%5===0,`잠깐 잠금은 쓰기마다 정해진 횟수만 다시 시도한다: ${lockedRenames}`);
+    assert.deepEqual(config.load(),beforeLocked,'취소한 저장은 캐시/DB를 유지');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(fixture,'config.json'),'utf8')).width,701,'취소한 저장은 JSON도 유지');
+    lockConfigRename(100,'ENOENT');
+    assert.equal(config.saveConfirmed({width:703}),false);
+    assert.ok(lockedRenames>=1 && lockedRenames<5,`잠금이 아닌 오류는 다시 시도하지 않는다: ${lockedRenames}`);
+  } finally {(appFs as any).renameSync=realRename;}
   const { ProfileService } = require(path.join(root,'dist/modules/profileService.js'));
   let allowTransition = true,failRuntime = false;
   let duringTransition:(() => void) | null=null;

@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { get_CONFIG_PATH, DEFAULT_CONFIG, SAVE_DEBOUNCE_MS, AppConfig, get_RESOURCE_PATH } from './constants';
 import { log } from './logger';
+import { renameSyncWithRetry } from './atomicRename';
 import type { WindowPositionKey } from '../shared/types';
 import { repairLegacyHiddenHudPositions } from '../shared/windowPositions';
 import { isTradeSearchState } from '../shared/tradeSearchState';
@@ -26,7 +27,6 @@ import { isDeepStrictEqual } from 'util';
 import {deferRecordEffect} from './recordEffects';
 
 const CONFIG_QUARANTINE_FILENAME = 'config.quarantine.json';
-const WRITE_RETRY_DELAYS_MS = [0, 25, 75, 150];
 const SAVE_RETRY_DELAYS_MS = [250, 500, 1000, 2000];
 const BLOCKED_OBJECT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const EXTERNAL_PATCH_MAX_BYTES = 2 * 1024 * 1024;
@@ -585,12 +585,6 @@ export function readBackupConfiguration(value:unknown):AppConfig {
   return mergeAndValidateConfig(parsed).config;
 }
 
-function waitSync(ms: number): void {
-  if (ms <= 0) return;
-  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-  Atomics.wait(waitBuffer, 0, 0, ms);
-}
-
 /** 같은 폴더의 완전한 임시 파일을 flush한 뒤 원본 경로로 원자 교체한다. */
 function writeJsonAtomicSync(filePath: string, value: unknown, tempPath = `${filePath}.tmp`): void {
   const directory = path.dirname(filePath);
@@ -604,17 +598,8 @@ function writeJsonAtomicSync(filePath: string, value: unknown, tempPath = `${fil
     fs.closeSync(fd);
   }
 
-  let lastError: unknown;
-  for (const delay of WRITE_RETRY_DELAYS_MS) {
-    waitSync(delay);
-    try {
-      fs.renameSync(tempPath, filePath);
-      return;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  // Windows 백신·색인이 잠깐 잡고 있으면 짧게 기다려 다시 시도한다(atomicRename 계약).
+  renameSyncWithRetry(() => fs.renameSync(tempPath, filePath));
 }
 
 function readJsonCandidate(filePath: string): { value: Record<string, unknown>; mtimeMs: number; path: string } | null {
