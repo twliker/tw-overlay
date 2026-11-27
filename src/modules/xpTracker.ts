@@ -25,6 +25,7 @@ import {onProfileProgress} from './profileParserEvents';
 import {isReplayingRecord,recordEventTime,transientEffectsAllowed} from './recordEffects';
 import * as config from './config';
 import { log } from './logger';
+import {diagTransition} from './profileDiagnostics';
 import * as wm from './windowManager';
 import {
   broadcastToAllWindows,
@@ -188,6 +189,8 @@ class XpTracker {
 
       const timely = transientEffectsAllowed() && !isReplayingRecord();
       if (data.amount > 0 && this._autoPaused && timely) this.startSession();
+      // 진단: 자동 휴식 중 늦게 읽힌 경험치(로그 시각과 10초 넘게 차이)는 측정을 다시 시작하지 않는다.
+      else if (data.amount > 0 && this._autoPaused) diagTransition('xp-session','auto-paused:late-xp-not-resumed',`age=${Math.round((Date.now()-recordEventTime())/1000)}s`);
 
       if (!this._isActive && !this._autoPaused) {
         // 경고 진행도는 HUD에 반영하되 세션 총 경험치·킬·분당 경험치는 변경하지 않습니다.
@@ -440,6 +443,7 @@ class XpTracker {
     this._accumulatedTime=state?.elapsedMs || 0;this._startTime=Date.now();
     this._isActive=selected && (state ? state.active : shouldAutoStartXpSession(config.load()));
     this._autoPaused=state?.autoPaused || false;this._lastActivityAt=this._isActive ? Date.now() : null;
+    diagTransition('xp-session',this._isActive ? 'active' : this._autoPaused ? 'auto-paused' : 'stopped',`reason=profile-restore selected=${selected}`,0);
     this._minuteHistory=[...(state?.history || [])];this._currentMinuteXP=state?.currentMinute || 0;
     this._lastMinuteTimestamp=state?.minuteIndex || 0;this._historyBeforeIdle=null;
     this._essenceWarningXp=state?.warningXp || 0;this._sessionEssenceCount=state?.essences || 0;
@@ -464,6 +468,7 @@ class XpTracker {
     this._historyBeforeIdle = null;
     this._efficiency.reset();
     log('[XP_TRACKER] XP 세션 측정 시작');
+    diagTransition('xp-session','active',undefined,0);
     
     this.broadcastUpdate();
   }
@@ -477,6 +482,7 @@ class XpTracker {
     this._autoPaused = false;
     this._lastActivityAt = null;
     this._historyBeforeIdle = null;
+    diagTransition('xp-session','stopped',undefined,0);
     this._efficiency.reset();
     log('[XP_TRACKER] XP 세션 측정 중지');
     
@@ -537,6 +543,7 @@ class XpTracker {
     this._accumulatedTime += Math.max(0, this._lastActivityAt - this._startTime);
     this._isActive = false;
     this._autoPaused = true;
+    diagTransition('xp-session','auto-paused',`idle=${Math.round((now-this._lastActivityAt)/1000)}s`,0);
     if (this._historyBeforeIdle) {
       this._minuteHistory = this._historyBeforeIdle.minutes;
       this._lastMinuteTimestamp = this._historyBeforeIdle.minute;

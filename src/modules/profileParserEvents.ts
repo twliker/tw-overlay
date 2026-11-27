@@ -1,4 +1,5 @@
 import {randomUUID} from 'crypto';
+import {diagTransition,shortId} from './profileDiagnostics';
 import * as fs from 'fs';
 import iconv = require('iconv-lite');
 import {ChatLogLineNormalizer,detectChatLogEncoding} from './chatLogNormalizer';
@@ -104,9 +105,12 @@ export function onProfileEvent<K extends EventName>(event:K,callback:(data:ChatP
       }
       // 대기 행 없이 바로 반영한 줄은 프로필별 읽은 범위로 거른다(이벤트 행이 있으면 위에서 그 상태를 따른다).
       const source=origin.source,store=runtime.service.store;
-      if (source?.fingerprint && Number.isSafeInteger(source.start) && store.appliedRangeCovers(source.fingerprint,source.start)) return;
+      // 진단: 아래 거름·미배정은 오류 없이 HUD·일지에서 빠진다. 선택된 상태에서 새 줄이 계속 여기로 빠지면 멈춘 것처럼 보인다.
+      const note=(state:string)=>diagTransition('live-source',state,`event=${event} profile=${shortId(runtime.service.selectedProfileId)}`);
+      if (source?.fingerprint && Number.isSafeInteger(source.start) && store.appliedRangeCovers(source.fingerprint,source.start)) {note('skipped:range-already-applied');return;}
       // 처리 구간이 지워진 줄(파일 교체·절단 뒤 처음부터 다시 읽음)도 일지·숙제에 남는 줄이면 줄 귀속(live=1)으로 거른다.
-      if (source?.lineKey && store.lineAppliedLive(source.lineKey)) return;
+      if (source?.lineKey && store.lineAppliedLive(source.lineKey)) {note('skipped:line-already-applied');return;}
+      note(origin.source?.unassigned ? 'unassigned-source' : 'owned');
       // 경험치 줄(정수 교환 아님)은 HUD에만 쓰인다. 이런 줄만 있는 읽기는 처리 구간을 DB에 바로 쓰지 않는다(acceptLiveLines).
       // 버프 등 다른 진행 줄은 드물고, 비정상 종료 뒤 빠지면 남은 시간 내내 HUD가 비므로 지금처럼 바로 쓴다.
       const hudOnly=event==='XP_CHANGED' && isDurableProfileEventData(event,data)===false;
@@ -183,6 +187,7 @@ export function replayProfileParserEvent(value:unknown,eventId:string,pendingAss
       // 같은 프로필의 반영 구간은 같은 줄의 다른 기록이 먼저 완료된 경우라 이어서 기록한다.
       const range=event.source.fingerprint && Number.isSafeInteger(event.source.start) ? store.rangeAt(event.source.fingerprint,event.source.start) : undefined;
       if (range && (range.state!=='applied' || range.profileId!==(owner ?? null))) {
+        diagTransition('record-range',`skipped:${range.state}`,`range-profile=${shortId(range.profileId)} profile=${shortId(owner)}`);
         return pendingAssignment ? '원본 로그가 이미 다른 기록 대상에 연결되어 있습니다.' : ()=>{};
       }
       // 일지·숙제에 남는 줄은 바로 반영에서도 줄 귀속(live=1)을 남긴다. 처리 구간은 위치 기준이라 파일 교체로 지워질 수 있고,

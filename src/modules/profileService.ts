@@ -3,6 +3,7 @@ import type { AppConfig } from '../shared/types';
 import type { PlayProfileResult, PlayProfileStatus } from '../shared/playProfiles';
 import { assertProfileName, isProfileServer } from '../shared/playProfiles';
 import {log} from './logger';
+import {diagEvent,diagTransition,shortId} from './profileDiagnostics';
 import type { ApplicationData, UnassignedReplayScope } from './applicationData';
 
 export interface ProfileConfiguration {
@@ -120,6 +121,7 @@ export class ProfileService {
   acceptSyncSelection():void {
     ++this.syncSelectionRevision;
     this.selectionPending=true;
+    diagEvent('selection',`pending reason=cloud-sync session=${shortId(this.sessionId)}`);
     this.store.setRecordContext(null,this.sessionId);
     this.hooks.commitInputBoundary?.();
   }
@@ -206,6 +208,7 @@ export class ProfileService {
     this.pendingSessionKey=null;
     this.store.setRecordContext(null,this.sessionId);
     this.unassignedBatchId=randomUUID();
+    diagEvent('selection',`pending reason=game-session session=${shortId(this.sessionId)}`);
     this.notify();
   }
 
@@ -228,6 +231,7 @@ export class ProfileService {
     this.hooks.pendingSelection?.();
     this.store.setRecordContext(null,null);
     if (!this.config.saveConfirmed({profileSelectionRequired:true})) throw new Error('게임 종료 기록을 저장하지 못했습니다.');
+    diagEvent('selection',`pending reason=game-end session=${shortId(this.sessionId)}`);
     this.sessionKey = null;
     this.pendingSessionKey=null;this.sessionId=null;
     this.unassignedBatchId=randomUUID();
@@ -239,11 +243,13 @@ export class ProfileService {
     const session=(!unassigned && this.sessionId) || this.unassignedSession(payload,occurredAt);
     const owner=!unassigned && this.sessionId ? this.selectedProfileId : null;
     if (!owner || this.storageMaintenance || this.historicalRestore || this.selectingReplaySession===session) {
+      this.noteRoute('dispatch-route',unassigned ? 'queued:unassigned-source' : this.queueReason(session,owner),session,owner);
       this.store.enqueue(session,payload,occurredAt,eventId,owner);
       this.notifyPending();
       return;
     }
     const ready=this.config.flushPending();
+    this.noteRoute('dispatch-route',ready ? 'direct' : 'queued:settings-not-saved',session,owner);
     let error:unknown,committed:() => void=() => {};
     // enqueue와 ACK를 한 번의 commit으로 저장한다. 소비자 실패는 savepoint만 취소해
     // 대기 원본은 남기고, 화면·소리는 바깥 commit까지 성공한 뒤 반영한다.
@@ -293,8 +299,11 @@ export class ProfileService {
     // 기기 설정 JSON까지 바꾸는 대기 설정 저장은 transaction 안에서 할 수 없으므로 먼저 확정한다.
     // 실패하면 commitRecords가 다시 확인해 그 기록만 대기에 남긴다.
     const ready=canApply && this.config.flushPending();
-    let direct=ready && !!span && !this.store.hasOwnedLivePending(session!,owner!);
+    const ownedPending=ready && !!span && this.store.hasOwnedLivePending(session!,owner!);
+    let direct=ready && !!span && !ownedPending;
     const startedDirect=direct;
+    this.noteRoute('live-route',direct ? 'direct' : !canApply ? this.queueReason(session,owner) : !ready ? 'queued:settings-not-saved'
+      : !span ? 'queued:no-span' : 'queued:owned-pending-first',session,owner);
     const hudOnlyBatch=startedDirect && records.every(record=>record.hudOnly && record.payload!==undefined && !record.unassigned);
     // 경험치 줄만 있는 읽기가 아니면 미뤄 둔 구간을 먼저 쓴다(대기 경로 줄이 메모리 구간에 섞여 들어가지 않게).
     // 묶음 transaction 밖에서 쓰므로 묶음이 취소돼도 구간은 남는다. 실패하면 묶음 실패와 같이 줄별 재시도로 넘어간다.
@@ -373,6 +382,20 @@ export class ProfileService {
     for (const effect of effects) effect();
     if (applied===false) this.scheduleLiveRecordRetry(session!,owner!,apply);
     else if (applied===undefined && enqueued) this.notifyPending();
+  }
+
+  /** 진단: 기록을 바로 반영하지 못하고 대기로 보내는 이유. 선택은 됐는데 HUD·일지가 멈추는 경우를 debug.log로 가린다. */
+  private queueReason(session:string | null,owner:string | null):string {
+    if (!session) return 'queued:no-game-session';
+    if (!owner) return this.selectionPending ? 'queued:selection-pending' : 'queued:no-profile';
+    if (this.storageMaintenance) return 'queued:storage-maintenance';
+    if (this.historicalRestore) return 'queued:history-restore';
+    if (this.selectingReplaySession===session) return 'queued:selecting';
+    return 'queued:other';
+  }
+
+  private noteRoute(key:string,route:string,session:string | null,owner:string | null):void {
+    diagTransition(key,route,`session=${shortId(session)} profile=${shortId(owner)}`);
   }
 
   /** 대기 중인 소유 실시간 기록을 순서대로 반영한다. effects를 받으면 바깥 transaction 안에서 기록마다 savepoint로
@@ -506,6 +529,7 @@ export class ProfileService {
     let failure:unknown;
     let warning:string | undefined;
     const wasPending=this.selectionPending;
+    const previousSelected=this.selectedProfileId;
     const sessionRevision=this.sessionRevision;
     const skipped=new Set<string>();
     let reviewedUnassigned=false;
@@ -601,6 +625,8 @@ export class ProfileService {
         await drainPending();
       } finally {this.busy=false;this.notify();}
     }
+    diagEvent('selection',failure ? `select-failed profile=${shortId(id)} error=${failure instanceof Error ? failure.message : String(failure)}`
+      : `selected profile=${shortId(id)} again=${previousSelected===id} session=${shortId(this.sessionId)}${warning ? ` warning=${warning}` : ''}`);
     return failure ? this.fail(failure) : {success:true,error:warning,status:this.status()};
   }
 

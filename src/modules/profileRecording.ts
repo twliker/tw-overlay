@@ -13,6 +13,7 @@ import {abandonedTracker} from './abandonedTracker';
 import {digsiteTracker} from './digsiteTracker';
 import {getSupplyRun,restoreSupplyRun} from './supplyTracker';
 import {log} from './logger';
+import {diagEvent,diagTransition,shortId} from './profileDiagnostics';
 import {broadcastToAllWindows,sendToAllWindowsByPage,sendToFirstWindowByPage} from './windowMessaging';
 import type {ApplicationData} from './applicationData';
 import {readLegacyPendingHomework} from '../shared/legacyHomework';
@@ -69,6 +70,8 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
   };
   const suspend=() => {
     active=null;activeSession=null;
+    // 선택된 상태인데 이 상태가 이어지면 경험치·버프 HUD가 기록을 받지 않는다(다음 전환의 restore가 다시 켠다).
+    diagTransition('hud-runtime','suspended',undefined,0);
     xpTracker.restoreProfileState(null,false);buffTimerManager.restoreProfileState(null);
     abandonedTracker.restoreProfileState(null);digsiteTracker.restoreProfileState(null);restoreSupplyRun(null);contents.restoreDetectedHomework(null);
   };
@@ -153,6 +156,7 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
         failedProgress.delete(id);
         checkpoint();
       } else failedProgress.delete(id);
+      diagTransition('hud-runtime',`active:${shortId(id)}`,`session=${shortId(activeSession)}`,0);
   };
   const replay=(payload:unknown,eventId:string,pendingAssignment?:boolean):unknown => {
     const legacy=payload as {kind?:string;value?:unknown};
@@ -223,8 +227,13 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
     if (deferredGameStates.length>256) deferredGameStates=[['not-running'],[state,processId]];
   },canReadLiveLog:()=>{
     const id=lifecycle.currentProcessId;
-    return id===undefined || options.isGameProcessCurrent?.(id)!==false;
-  },checkpoint,progressFailed:id=>failedProgress.add(id),
+    const current=id===undefined || options.isGameProcessCurrent?.(id)!==false;
+    diagTransition('game-process',current ? 'current' : 'not-current',`pid=${id ?? '-'}`);
+    return current;
+  },checkpoint,progressFailed:id=>{
+    failedProgress.add(id);
+    diagTransition('hud-runtime',`progress-failed:${shortId(id)}`,undefined,0);
+  },
     suspendForRestore:()=>{
       if (paused) throw new Error('프로필 실행 상태가 이미 중지되어 있습니다.');
       checkpoint();paused=true;suspend();
@@ -238,6 +247,7 @@ export function installProfileRecording(store:ApplicationData,options:{openSelec
         try {restore(config.load());}
         catch (error) {
           failed=true;failure=error;
+          diagEvent('hud-runtime',`resume-failed error=${String(error)}`);
           try {suspend();} catch (cleanup) {log(`[PROFILE] 실행 상태 정리 실패: ${String(cleanup)}`);}
         }
         replayDeferredGameStates();

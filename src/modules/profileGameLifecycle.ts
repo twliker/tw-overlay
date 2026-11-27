@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { ProfileService } from './profileService';
+import {diagTransition} from './profileDiagnostics';
 
 export type ProfileGameState='running' | 'minimized' | 'not-running';
 
@@ -31,7 +32,18 @@ export class ProfileGameLifecycle {
 
   get currentProcessId():number | undefined {return this.processId;}
 
+  /** 진단: 게임 상태가 바뀔 때만 남긴다. 최소화에서 돌아오면 최소화로 있던 시간도 남긴다. */
+  private diagState:ProfileGameState='not-running';
+  private diagSince=Date.now();
+  private noteState(state:ProfileGameState,processId?:number):void {
+    if (state===this.diagState) return;
+    const now=Date.now(),seconds=Math.round((now-this.diagSince)/1000);
+    diagTransition('game',state,`pid=${processId ?? '-'} previous=${this.diagState} for=${seconds}s`,0);
+    this.diagState=state;this.diagSince=now;
+  }
+
   observe(state:ProfileGameState,processId?:number):void | Promise<void> {
+    this.noteState(state,processId);
     if (this.ending) {this.latestDuringEnd=[state,processId];return this.ending;}
     const replaced=processId!==undefined && this.processId!==undefined && processId!==this.processId;
     if (this.sessionKey && (replaced || state==='not-running')) {

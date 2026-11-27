@@ -19,6 +19,7 @@ import { promises as fsp } from 'fs';
 import * as path from 'path';
 import * as iconv from 'iconv-lite';
 import { log } from './logger';
+import {diagTransition} from './profileDiagnostics';
 import { chatParser, parseChatLogDateHeader } from './chatParser';
 import * as config from './config';
 import { chatLogProcessor } from './chatLogProcessor';
@@ -780,6 +781,7 @@ export class ChatLogManager {
         if (completed>=unassignedUntil) unassignedUntil=0;
         if (!yielded) flushClosedLine=false;
         this._unassignedReadPending=false;this._deferredLiveRead=false;
+        diagTransition('log-read','reading');
         boundary={offset:position,identity,bytes:sampleChatLogBoundary(fd,position),unassignedUntil,encodingConfirmed};
         if (!yielded && this._lineNormalizer.hasPending() && !this._normalizerFlushTimer && !this._syncCatchUpActive && !this.profileBoundaryActive) {
           this.scheduleNormalizedFlush(100);
@@ -805,7 +807,7 @@ export class ChatLogManager {
     };
     const onChange=()=>{
       if (this._tail!==watch || this._syncPaused || this.profileBoundaryActive) return;
-      if (getProfileRuntime()?.canReadLiveLog?.()===false) {this._deferredLiveRead=true;return;}
+      if (getProfileRuntime()?.canReadLiveLog?.()===false) {this.deferLiveRead();return;}
       try {if (read({bounded:true}).yielded) scheduleContinuation();}
       catch (error) {
         log('[CHAT_LOG] 감시 오류: '+String(error));
@@ -819,7 +821,7 @@ export class ChatLogManager {
       if (this._tail!==watch || this._syncPaused || this.profileBoundaryActive) return;
       if (this.logFileDate(filePath)!==formatLocalDateKey() && this.checkDailyLog(this.getTodayFilePath())) return;
       if (getProfileRuntime()?.canReadLiveLog?.()===false) {
-        this._deferredLiveRead=true;
+        this.deferLiveRead();
         return;
       }
       const previous=lastStat;
@@ -918,6 +920,7 @@ export class ChatLogManager {
       log(`[CHAT_LOG] 오늘의 로그 파일이 아직 생성되지 않음: ${filePath}`);
       this._currentFilePath=filePath;
       this._waitingForDailyLog=true;
+      diagTransition('log-tail','waiting-daily-file');
       this.waitForDailyLog();
       return;
     }
@@ -973,6 +976,7 @@ export class ChatLogManager {
       this._currentFilePath = filePath;
       this._tailReconnect=undefined;
       log(`[CHAT_LOG] 파일 감시 시작: ${filePath}`);
+      diagTransition('log-tail','watching',path.basename(filePath));
 
     } catch (err) {
       log(`[CHAT_LOG] 감시 시작 실패: ${err}`);
@@ -985,6 +989,8 @@ export class ChatLogManager {
   private scheduleTailReconnect(filePath: string,boundary?:LogBoundary,offset?:number): void {
     if (this._syncPaused) return;
     this._tailReconnect={filePath,boundary,offset};
+    // 빠른 재시도를 다 쓰면 폴더 이벤트·주기 확인만 남는다. 그동안 실시간 기록이 멈추므로 진단에 남긴다.
+    if (!this._tail && !this._tailRetryTimer) diagTransition('log-tail',this._tailRetryAttempts >= MAX_TAIL_RETRY_ATTEMPTS ? 'retry-exhausted' : 'reconnecting',path.basename(filePath));
     if (this._tailRetryTimer || this._tail || this._tailRetryAttempts >= MAX_TAIL_RETRY_ATTEMPTS) return;
     const attempt = ++this._tailRetryAttempts;
     const delayMs = getTailRetryDelayMs(attempt);
@@ -1155,6 +1161,12 @@ export class ChatLogManager {
     this._tail?.protectPartial();
     if (this._tailReconnect) this._unassignedReadPending=true;
     if (this._pendingProfileSource) this._pendingProfileSource.unassigned=true;
+  }
+
+  /** 게임 프로세스 확인이 맞지 않아 실시간 읽기를 미룬다. 미루는 동안 HUD·일지가 멈추므로 진단에 남긴다. */
+  private deferLiveRead():void {
+    this._deferredLiveRead=true;
+    diagTransition('log-read','deferred:game-process-not-current');
   }
 
   resumeDeferredLiveRead():void {if (this._deferredLiveRead) this._tail?.refresh();}
