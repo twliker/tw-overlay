@@ -39,7 +39,7 @@ export const SHARE_FIELDS: Record<ShareGroup, readonly Field[]> = {
     ['essenceAlertEnabled', '정수 알림'], ['essenceAlertVolume', '정수 음량'],
     ['specialMonsterAlertEnabled', '특수 몬스터 알림'], ['specialMonsterAlertVolume', '특수 몬스터 음량'],
     ['golgothaAlertEnabled', '골고다 적 출현 알림'], ['golgothaAlertVolume', '골고다 적 출현 음량'],
-    ['abandonedAlertEnabled', '어벤던 알림'], ['pittaHillAlertEnabled', '피타 힐 알림'],
+    ['abandonedAlertEnabled', '어벤던 알림'], ['abandonedAlertVolume', '어벤던 음량'], ['pittaHillAlertEnabled', '피타 힐 알림'],
     ['questCompleteAlertEnabled', '퀘스트 완료 알림'], ['questCompleteAlertVolume', '퀘스트 음량'],
     ['abyssTreasureAlertEnabled', '심연 보물 알림'], ['abyssTreasureAlertVolume', '심연 보물 음량'],
     ['waveMonsterWarningEnabled', '웨이브 알림'], ['waveMonsterWarningVolume', '웨이브 음량'],

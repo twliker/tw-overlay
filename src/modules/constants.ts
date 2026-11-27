@@ -217,6 +217,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   golgothaAlertSound: 'orb.mp3',
   golgothaAlertVolume: 40,
   abandonedAlertEnabled: true,
+  abandonedAlertSound: 'orb.mp3',
+  abandonedAlertVolume: 40,
   pittaHillAlertEnabled: true,
   questCompleteAlertEnabled: true,
   questCompleteAlertSound: 'orb.mp3',

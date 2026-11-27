@@ -38,6 +38,8 @@
     golgothaAlertSound?: string;
     golgothaAlertVolume?: number;
     abandonedAlertEnabled?: boolean;
+    abandonedAlertSound?: string;
+    abandonedAlertVolume?: number;
     pittaHillAlertEnabled?: boolean;
     questCompleteAlertEnabled?: boolean;
     questCompleteAlertSound?: string;
@@ -225,6 +227,13 @@
       value => `${value}%`,
     );
     setChecked('abandoned-alert-enabled', config.abandonedAlertEnabled ?? defaults.abandonedAlertEnabled ?? true);
+    setValue('abandoned-alert-sound', config.abandonedAlertSound || defaults.abandonedAlertSound || '');
+    bindRange(
+      'abandoned-alert-volume',
+      'abandoned-alert-volume-val',
+      config.abandonedAlertVolume ?? defaults.abandonedAlertVolume ?? 40,
+      value => `${value}%`,
+    );
     setChecked('pitta-hill-alert-enabled', config.pittaHillAlertEnabled ?? defaults.pittaHillAlertEnabled ?? true);
     setChecked('quest-complete-alert-enabled', config.questCompleteAlertEnabled ?? defaults.questCompleteAlertEnabled ?? true);
     setValue('quest-complete-alert-sound', config.questCompleteAlertSound || defaults.questCompleteAlertSound || '');

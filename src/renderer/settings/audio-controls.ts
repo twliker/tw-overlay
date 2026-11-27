@@ -10,6 +10,7 @@
     abyssTreasureAlertSound?: string;
     specialMonsterAlertSound?: string;
     golgothaAlertSound?: string;
+    abandonedAlertSound?: string;
   }
 
   const defaultConfig = (window.electronAPI as typeof window.electronAPI & {
@@ -26,6 +27,7 @@
     { id: 'abyss-treasure-alert-sound', configKey: 'abyssTreasureAlertSound' },
     { id: 'special-monster-alert-sound', configKey: 'specialMonsterAlertSound' },
     { id: 'golgotha-alert-sound', configKey: 'golgothaAlertSound' },
+    { id: 'abandoned-alert-sound', configKey: 'abandonedAlertSound' },
   ] as const);
 
   const previousVolumes: Record<string, number> = {

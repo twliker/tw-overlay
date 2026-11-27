@@ -126,6 +126,11 @@
       background: rgba(168, 85, 247, .07);
     }
     .settings-primary-options .ui-heading svg { color: var(--ui-brand); }
+    /* 접기 섹션: ui-heading이 flex라 기본 펼침 표시가 숨으므로 화살표로 상태를 보여 준다. */
+    details > summary.ui-heading { list-style: none; }
+    details > summary.ui-heading::-webkit-details-marker { display: none; }
+    details > summary.ui-heading .settings-fold-chevron { margin-left: auto; transition: transform .2s; }
+    details[open] > summary.ui-heading .settings-fold-chevron { transform: rotate(180deg); }
 
     .nav-container {
       flex: 1;
@@ -786,9 +791,9 @@
                   <div class="space-y-1">
                     <span
                       class="text-xs font-bold text-slate-200 group-hover:text-white transition-colors flex items-center gap-1.5">
-                      <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-rose-400"></i> 기믹 & 도전과제 알림
+                      <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-rose-400"></i> 게임 진행 알림
                     </span>
-                    <p class="text-xs text-slate-500">제2사도/로카고스/에토스 알림음 변경</p>
+                    <p class="text-xs text-slate-500">보스 기믹·어벤던로드·도전과제 등 알림음 변경</p>
                   </div>
                   <i data-lucide="chevron-right"
                     class="w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors"></i>
@@ -2038,7 +2043,7 @@
               </label>
 
               <div class="space-y-4">
-                <details class="ui-inset space-y-3" open><summary class="ui-heading cursor-pointer">보스 기믹</summary>
+                <details class="ui-inset space-y-3" open><summary class="ui-heading cursor-pointer select-none" title="눌러서 접기/펼치기">보스 기믹<i data-lucide="chevron-down" class="settings-fold-chevron"></i></summary>
 
                 <!-- 1. 에토스 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
@@ -2196,7 +2201,7 @@
                 </div>
 
                 </details>
-                <details class="ui-inset space-y-3"><summary class="ui-heading cursor-pointer">콘텐츠 알림</summary>
+                <details class="ui-inset space-y-3" open><summary class="ui-heading cursor-pointer select-none" title="눌러서 접기/펼치기">콘텐츠 알림<i data-lucide="chevron-down" class="settings-fold-chevron"></i></summary>
                 <!-- 4. 웨이브 종료 대기 알림 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <label class="flex items-center justify-between gap-4 cursor-pointer group">
@@ -2351,18 +2356,43 @@
                   </div>
                 </div>
 
-                <!-- 9. 소리 설정이 없는 기타 게임 진행 알림 -->
+                <!-- 9. 어벤던로드 10회 완료 알림 -->
+                <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
+                  <label class="flex items-center justify-between gap-4 cursor-pointer group">
+                    <div>
+                      <span class="text-sm font-bold text-slate-200 group-hover:text-white">어벤던로드 10회 완료 알림</span>
+                      <p class="text-xs text-slate-500 mt-0.5">어벤던로드 지역 도전이 10회에 도달하면 카드와 효과음을 출력합니다. 효과음만 끄려면 알림음을 '사용 안 함'으로 고르세요.</p>
+                    </div>
+                    <input type="checkbox" id="abandoned-alert-enabled"
+                      class="w-5 h-5 accent-indigo-600 cursor-pointer shrink-0">
+                  </label>
+                  <div class="space-y-3 pt-2 border-t border-white/5">
+                    <div class="flex gap-2 items-center">
+                      <span class="text-xs text-slate-400 font-bold w-16">알림음</span>
+                      <select id="abandoned-alert-sound"
+                        class="input-field py-1.5 px-3 bg-black/40 text-xs text-slate-300 rounded-lg flex-1"></select>
+                      <button id="btn-abandoned-sound-preview" onclick="previewAbandonedSound()"
+                        class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-lg text-xs">
+                        ▶ 미리듣기
+                      </button>
+                    </div>
+                    <div class="flex items-center gap-4">
+                      <span class="text-xs text-slate-400 font-bold w-16">볼륨</span>
+                      <input type="range" id="abandoned-alert-volume" min="0" max="100"
+                        class="w-full h-2 rounded-lg appearance-none bg-slate-800 accent-indigo-500">
+                      <span id="abandoned-alert-volume-val"
+                        class="text-xs font-bold text-indigo-400 w-12 text-right">40%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 10. 소리 설정이 없는 기타 게임 진행 알림 -->
                 <div class="p-4 bg-black/20 rounded-xl border border-white/5 space-y-4">
                   <div>
                     <span class="text-sm font-bold text-slate-200">기타 게임 진행 알림</span>
                     <p class="text-xs text-slate-500 mt-0.5">별도 알림음 없이 게임 화면에 표시되는 진행·완료 카드를 관리합니다.</p>
                   </div>
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-white/5">
-                    <label class="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5 cursor-pointer group">
-                      <input type="checkbox" id="abandoned-alert-enabled"
-                        class="w-4 h-4 accent-indigo-600 cursor-pointer shrink-0 mt-0.5">
-                      <span class="text-xs font-bold text-slate-300 group-hover:text-white">어벤던로드 10회 완료</span>
-                    </label>
                     <label class="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5 cursor-pointer group">
                       <input type="checkbox" id="pitta-hill-alert-enabled"
                         class="w-4 h-4 accent-indigo-600 cursor-pointer shrink-0 mt-0.5">
@@ -4865,8 +4895,8 @@
         targetId: 'golgotha-alert-enabled'
       },
       {
-        title: '어벤던로드 10회 완료 알림',
-        keywords: ['어벤던', '어벤던로드', '10회', '보석알림', 'abandoned'],
+        title: '어벤던로드 10회 완료 알림 & 사운드',
+        keywords: ['어벤던', '어벤던로드', '10회', '보석알림', 'abandoned', '알림음', '소리'],
         targetId: 'abandoned-alert-enabled'
       },
       {
@@ -6483,6 +6513,10 @@
 
     function previewSpecialMonsterSound() {
       window.settingsSoundPreview.previewAlertSound({ soundElementId: 'special-monster-alert-sound', volumeElementId: 'special-monster-alert-volume', label: '공허 특별 몬스터 출현 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.specialMonsterAlertSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.specialMonsterAlertVolume });
+    }
+
+    function previewAbandonedSound() {
+      window.settingsSoundPreview.previewAlertSound({ soundElementId: 'abandoned-alert-sound', volumeElementId: 'abandoned-alert-volume', label: '어벤던로드 10회 완료 알림', fallbackSound: window.electronAPI.DEFAULT_CONFIG.abandonedAlertSound, fallbackVolume: window.electronAPI.DEFAULT_CONFIG.abandonedAlertVolume });
     }
 
     function previewGolgothaSound() {

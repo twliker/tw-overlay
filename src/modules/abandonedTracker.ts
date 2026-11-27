@@ -11,7 +11,8 @@
  *   (`lastNuBroadcastTime`, `lastNuBroadcastText`)을 상태에 기록합니다.
  *   서버 전체 공지는 개인 던전 플레이 활동이 아니므로 숨김 상태의 HUD를 강제로 띄우지 않고 상태만 보존하며,
  *   HUD가 이미 활성화된 경우에만 화면을 실시간 갱신합니다. `reset()` 시에도 이 서버 공지 기록은 유지됩니다.
- * - 10회 도달 알림은 설정이 켜졌을 때만 Windows/HUD에 보내며, 통계 상태는 모든 관련 창에
+ * - 10회 도달 알림은 설정이 켜졌을 때만 Windows/HUD에 보내고 알림음(`abandonedAlertSound`,
+ *   'none'이면 생략)을 재생하며, 통계 상태는 모든 관련 창에
  *   브로드캐스트합니다. 자동 숨김은 통계 수집을 중단하지 않습니다.
  * - 사용자가 직접 숨긴 상태는 활동으로 자동 해제하지 않고 명시적 표시 또는 다음 게임 세션에서만
  *   해제합니다. `reset()`은 통계를 초기화하되 기능 활성 설정은 유지합니다.
@@ -28,6 +29,7 @@ import { log } from './logger';
 import type { AbandonedRoadState } from '../shared/types';
 import { broadcastToAllWindows } from './windowMessaging';
 import { showSupportedDesktopNotification } from './desktopNotification';
+import * as wm from './windowManager';
 import { getHomeworkCycleStart, getHomeworkCycleEnd } from '../shared/homeworkResetCycle';
 import { getProfileRuntime } from './profileRuntime';
 import { createCorrectedTimeline } from './profileClock';
@@ -165,6 +167,16 @@ class AbandonedTracker {
         if (cfg.abandonedAlertEnabled !== false) {
           showSupportedDesktopNotification('어벤던로드 알림', `${data.region} 지역 10회 도달! 최고 효율 구간입니다.`);
           broadcastToAllWindows('abandoned-alert', { region: data.region, count: data.count });
+          const soundFile = cfg.abandonedAlertSound || 'orb.mp3';
+          if (soundFile !== 'none') {
+            wm.sendPlaySound({
+              label: '어벤던로드 10회 완료',
+              soundFile,
+              volume: cfg.abandonedAlertVolume ?? 40,
+              isCustom: true,
+              logMessage: `[어벤던로드] ${data.region} 지역 10회 도달`
+            });
+          }
         }
       }
       this.activateFromActivity();

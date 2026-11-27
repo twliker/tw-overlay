@@ -25,7 +25,7 @@ export const ACTIVITY_SETTING_KEYS = [
   'essenceAlertEnabled', 'essenceAlertSound', 'essenceAlertVolume',
   'specialMonsterAlertEnabled', 'specialMonsterAlertSound', 'specialMonsterAlertVolume',
   'golgothaAlertEnabled', 'golgothaAlertSound', 'golgothaAlertVolume',
-  'abandonedAlertEnabled', 'pittaHillAlertEnabled', 'questCompleteAlertEnabled', 'questCompleteAlertSound', 'questCompleteAlertVolume',
+  'abandonedAlertEnabled', 'abandonedAlertSound', 'abandonedAlertVolume', 'pittaHillAlertEnabled', 'questCompleteAlertEnabled', 'questCompleteAlertSound', 'questCompleteAlertVolume',
   'abyssTreasureAlertEnabled', 'abyssTreasureAlertSound', 'abyssTreasureAlertVolume',
   'waveMonsterWarningEnabled', 'waveMonsterWarningSound', 'waveMonsterWarningVolume', 'ethosAlertEnabled', 'ethosAlertSound', 'ethosAlertVolume',
   'abyssApostleAlertEnabled', 'abyssApostleStartSound', 'abyssApostleEndSound', 'abyssApostleVolume', 'lokagosAlertEnabled', 'lokagosAlertSound', 'lokagosAlertVolume',

@@ -2279,7 +2279,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         questComplete: addSelect('quest-complete-alert-sound', 'start.mp3'),
         abyssTreasure: addSelect('abyss-treasure-alert-sound', 'end.mp3'),
         specialMonster: addSelect('special-monster-alert-sound', 'orb.mp3'),
-        golgotha: addSelect('golgotha-alert-sound', 'orb.mp3')
+        golgotha: addSelect('golgotha-alert-sound', 'orb.mp3'),
+        abandoned: addSelect('abandoned-alert-sound', 'end.mp3')
       };
       addInput('chat-overlay-width-input', '512');
       addInput('chat-overlay-height-input', '400');
@@ -2304,6 +2305,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       addInput('golgotha-alert-sound', 'orb.mp3');
       addInput('golgotha-alert-volume', '40');
       addInput('abandoned-alert-enabled', '', true);
+      addInput('abandoned-alert-sound', 'end.mp3');
+      addInput('abandoned-alert-volume', '27');
       addInput('pitta-hill-alert-enabled', '', false);
       addInput('quest-complete-alert-enabled', '', true);
       addInput('quest-complete-alert-volume', '32');
@@ -2395,7 +2398,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
         questCompleteAlertSound: 'start.mp3',
         abyssTreasureAlertSound: 'end.mp3',
         specialMonsterAlertSound: 'orb.mp3',
-        golgothaAlertSound: 'orb.mp3'
+        golgothaAlertSound: 'orb.mp3',
+        abandonedAlertSound: 'end.mp3'
       });
       const configuredAlertSounds = Object.fromEntries(
         Object.entries(alertSoundSelects).map(([key, select]) => [key, select.value])
@@ -2669,6 +2673,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
           ethosVolume: alertSettings.ethosAlertVolume,
           specialMonsterEnabled: alertSettings.specialMonsterAlertEnabled,
           abandonedEnabled: alertSettings.abandonedAlertEnabled,
+          abandonedSound: alertSettings.abandonedAlertSound,
+          abandonedVolume: alertSettings.abandonedAlertVolume,
           pittaHillEnabled: alertSettings.pittaHillAlertEnabled,
           questCompleteEnabled: alertSettings.questCompleteAlertEnabled,
           questCompleteSound: alertSettings.questCompleteAlertSound,
@@ -2793,6 +2799,8 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
     ethosVolume: 40,
     specialMonsterEnabled: true,
     abandonedEnabled: true,
+    abandonedSound: 'end.mp3',
+    abandonedVolume: 27,
     pittaHillEnabled: false,
     questCompleteEnabled: true,
     questCompleteSound: 'start.mp3',
@@ -2850,6 +2858,7 @@ async function checkRendererHelpers(window: BrowserWindow): Promise<void> {
       abyssTreasure: 'end.mp3',
       specialMonster: 'orb.mp3',
       golgotha: 'orb.mp3',
+      abandoned: 'end.mp3',
     },
     waveOptionLabels: [
       '사용 안 함 (소리 없음)',

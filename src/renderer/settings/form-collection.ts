@@ -55,6 +55,8 @@
     golgothaAlertSound: string;
     golgothaAlertVolume: number;
     abandonedAlertEnabled: boolean;
+    abandonedAlertSound: string;
+    abandonedAlertVolume: number;
     pittaHillAlertEnabled: boolean;
     questCompleteAlertEnabled: boolean;
     questCompleteAlertSound: string;
@@ -209,6 +211,8 @@
       golgothaAlertSound: stringValue('golgotha-alert-sound', defaultConfig.golgothaAlertSound),
       golgothaAlertVolume: integerValue('golgotha-alert-volume', defaultConfig.golgothaAlertVolume),
       abandonedAlertEnabled: checkedValue('abandoned-alert-enabled', defaultConfig.abandonedAlertEnabled),
+      abandonedAlertSound: stringValue('abandoned-alert-sound', defaultConfig.abandonedAlertSound),
+      abandonedAlertVolume: integerValue('abandoned-alert-volume', defaultConfig.abandonedAlertVolume),
       pittaHillAlertEnabled: checkedValue('pitta-hill-alert-enabled', defaultConfig.pittaHillAlertEnabled),
       questCompleteAlertEnabled: checkedValue('quest-complete-alert-enabled', defaultConfig.questCompleteAlertEnabled),
       questCompleteAlertSound: stringValue('quest-complete-alert-sound', defaultConfig.questCompleteAlertSound),

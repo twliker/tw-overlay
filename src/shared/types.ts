@@ -654,6 +654,8 @@ export interface AppConfig {
     golgothaAlertSound?: string;
     golgothaAlertVolume?: number;
     abandonedAlertEnabled?: boolean;
+    abandonedAlertSound?: string;
+    abandonedAlertVolume?: number;
     pittaHillAlertEnabled?: boolean;
     questCompleteAlertEnabled?: boolean;
     questCompleteAlertSound?: string;
