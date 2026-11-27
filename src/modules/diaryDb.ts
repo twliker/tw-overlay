@@ -371,6 +371,23 @@ function throttleNotifyUpdate(delayMs = 1000): void {
   }
 }
 
+/** 쓰로틀로 예약된 갱신 신호를 취소한다. DB를 닫기 직전에만 쓴다: 닫은 뒤 신호가 나가면 창이 다시 조회하며
+ * DB를 다시 연다(백업 복원 중 재오픈). 조회 함수가 부르는 flush에서 취소하면 예약된 마지막 갱신이 사라져
+ * 오늘의 요약 HUD가 다음 기록까지 멈추므로 거기서는 취소하지 않는다. 회귀: check-profile-diary.ts */
+function cancelThrottledNotify(): void {
+  if (_notifyThrottleTimer) {
+    clearTimeout(_notifyThrottleTimer);
+    _notifyThrottleTimer = null;
+  }
+}
+
+/** 지금 바로 갱신 신호를 보내고, 이미 예약된 쓰로틀 신호는 이번 신호로 대신한다. */
+function notifyUpdateNow(): void {
+  cancelThrottledNotify();
+  _lastNotifyTime = Date.now();
+  notifyUpdate();
+}
+
 /** 대기 중인 엘소 포인트가 있는지 여부 */
 export function hasPendingElso(): boolean {
   return _pendingElsoByDate.size > 0 || fs.existsSync(getElsoRecoveryJournalPath());
@@ -382,10 +399,6 @@ export function flushPendingElso(): boolean {
   if (_elsoDebounceTimer) {
     clearTimeout(_elsoDebounceTimer);
     _elsoDebounceTimer = null;
-  }
-  if (_notifyThrottleTimer) {
-    clearTimeout(_notifyThrottleTimer);
-    _notifyThrottleTimer = null;
   }
   if (_pendingElsoByDate.size === 0) {
     // 프로필 저장소에 연결되기 전에는 journal만 재생하려고 원본 diary.db를 열지 않는다. 열면 initDb가
@@ -425,7 +438,7 @@ export function flushPendingElso(): boolean {
       // DB에는 operation ID가 함께 커밋되어 다음 실행의 재생이 중복 반영되지 않는다.
       log(`[DiaryDB] Elso recovery journal cleanup deferred: ${cleanupError}`);
     }
-    notifyUpdate();
+    notifyUpdateNow();
     return true;
   } catch (error) {
     if (!journalWritten) {
@@ -1003,7 +1016,7 @@ function findMagicStoneDailyRow(date: string, grade: string, profileId: string |
 /**
  * 마정석 일자별 누적 기록 (프로필마다 하루에 등급별 1개 행)
  */
-export function addMagicStoneDaily(date: string, time: string, grade: string, count: number): boolean {
+export function addMagicStoneDaily(date: string, time: string, grade: string, count: number, notify = true): boolean {
   if (!db) initDb();
   if (!db) return false;
 
@@ -1027,6 +1040,9 @@ export function addMagicStoneDaily(date: string, time: string, grade: string, co
           .run(date, standardContent, time, count);
       }
     })();
+    // 실시간 등록 마정석도 오늘의 요약 득템 목록에 들어가므로 갱신 신호를 보낸다. 과거 로그 복원 배치는
+    // 끝난 뒤 한 번 알리므로(chatLogSyncManager) 도중에 부분 결과를 보이지 않게 notify=false로 부른다.
+    if (notify) throttleNotifyUpdate();
     return true;
   } catch (e) {
     log(`[DiaryDB] addMagicStoneDaily failed: ${e}`);
@@ -1132,6 +1148,7 @@ export function closeDb(): boolean {
   const elsoFlushed = flushPendingElso();
   const goldPouchFlushed = flushPendingGoldPouchSeed();
   if (!elsoFlushed || !goldPouchFlushed) return false;
+  cancelThrottledNotify();
   statementCache.clear();
   if (db) {
     if (applicationData) applicationData.close();
@@ -2827,7 +2844,7 @@ export function batchInsertSyncResults(data: BatchSyncData): BatchSyncResult {
         if (!claimEvent(item.eventId,!data.scopedLogRecords)) continue;
         const grade = magicStoneGrade(item.diaryContent) ?? '하급';
         if (data.scopedLogRecords) {
-          if (!addMagicStoneDaily(item.date,item.timeOnly,grade,item.count)) throw new Error('마정석 기록을 저장하지 못했습니다.');
+          if (!addMagicStoneDaily(item.date,item.timeOnly,grade,item.count,false)) throw new Error('마정석 기록을 저장하지 못했습니다.');
           lootsAdded+=item.count;
           continue;
         }
@@ -3204,7 +3221,13 @@ export function addElsoPoints(date: string, time: string, points: number): void 
   if (!Number.isSafeInteger(points) || points <= 0) return;
   if (!db) initDb();
   const owner=currentOwner();
-  if (db?.inTransaction) {accumulateDailyAmount('elso','엘소 포인트 획득',{...owner,date,latestTime:time,totalAmount:points});return;}
+  // 실시간 기록 transaction 안(프로필 바로 반영·대기 재생)에서는 행에 바로 더한다. 여기서도 갱신 신호를 보내야
+  // 엘소만 줍는 동안 오늘의 요약 HUD가 멈추지 않는다(addActivityLog와 같은 규칙). 회귀: check-profile-diary.ts
+  if (db?.inTransaction) {
+    accumulateDailyAmount('elso','엘소 포인트 획득',{...owner,date,latestTime:time,totalAmount:points});
+    throttleNotifyUpdate(1000);
+    return;
+  }
   const key=pendingKey({...owner,date});
   const current = _pendingElsoByDate.get(key) || {...owner,date,latestTime:time,totalAmount:0};
   if (!Number.isSafeInteger(current.totalAmount+points)) throw new Error('엘소 포인트 합계가 저장 범위를 초과했습니다.');
@@ -3229,7 +3252,11 @@ export function addGoldPouchSeed(date: string, time: string, amount: number): vo
   if (!Number.isSafeInteger(amount) || amount <= 0) return;
   if (!db) initDb();
   const owner=currentOwner();
-  if (db?.inTransaction) {accumulateDailyAmount('calc',GOLD_POUCH_DAILY_CONTENT,{...owner,date,latestTime:time,totalAmount:amount});return;}
+  if (db?.inTransaction) {
+    accumulateDailyAmount('calc',GOLD_POUCH_DAILY_CONTENT,{...owner,date,latestTime:time,totalAmount:amount});
+    throttleNotifyUpdate(1000);
+    return;
+  }
   const key=pendingKey({...owner,date});
   const current = _pendingGoldPouchSeedByDate.get(key) || {...owner,date,latestTime:time,totalAmount:0};
   if (!Number.isSafeInteger(current.totalAmount+amount)) throw new Error('금화 주머니 합계가 저장 범위를 초과했습니다.');

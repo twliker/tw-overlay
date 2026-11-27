@@ -414,9 +414,70 @@ async function run():Promise<void> {
     assert.ok(diary.getDiaryByDate(restoredOnly,keywords,unassigned).activityLogs.some((row:any)=>row.content===legacyLoot));
     assert.ok(diary.getDiaryExportSnapshot(restoredOnly,restoredOnly,keywords,unassigned).rows.some((row:any)=>row.content===legacyLoot));
   }
+  // 오늘의 요약 HUD 갱신 신호(diary-updated). 실시간 기록은 transaction 안에서 반영되므로 엘소·금화 주머니도
+  // 그 경로에서 신호를 보내야 하고, 조회 함수의 flush가 쓰로틀로 미룬 마지막 신호를 지우면 안 된다.
+  const sent:string[]=[];
+  const electron=require('electron');
+  const originalGetAllWindows=electron.BrowserWindow.getAllWindows;
+  electron.BrowserWindow.getAllWindows=()=>[{isDestroyed:()=>false,webContents:{isDestroyed:()=>false,
+    mainFrame:{isDestroyed:()=>false,detached:false,send:(channel:string)=>sent.push(channel)}}}];
+  const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+  const updates=()=>sent.filter(channel=>channel==='diary-updated').length;
+  const settle=async()=>{await sleep(1100);sent.length=0;};
+  try {
+    const notifyDate='2026-10-20';
+    await settle();
+    owner(b.id,'notify-session',()=>store.database.transaction(()=>diary.addElsoPoints(notifyDate,'10:00:00',7))());
+    await sleep(1100);
+    assert.equal(updates(),1,'실시간 transaction 안의 엘소 기록도 오늘의 요약 갱신 신호를 보냄');
+    assert.equal(store.database.prepare("SELECT amount FROM activity_logs WHERE date=? AND type='elso' AND profile_id=?").get(notifyDate,b.id).amount,7);
+    await settle();
+    owner(b.id,'notify-session',()=>store.database.transaction(()=>diary.addGoldPouchSeed(notifyDate,'10:01:00',300))());
+    await sleep(1100);
+    assert.equal(updates(),1,'실시간 transaction 안의 금화 주머니 기록도 갱신 신호를 보냄');
+    await settle();
+    owner(b.id,'notify-session',()=>assert.equal(diary.addMagicStoneDaily(notifyDate,'10:02:00','상급',1),true));
+    await sleep(1100);
+    assert.equal(updates(),1,'실시간 마정석 일일 누적도 갱신 신호를 보냄');
+    await settle();
+    owner(b.id,'notify-session',()=>assert.equal(diary.addMagicStoneDaily(notifyDate,'10:03:00','상급',1,false),true));
+    await sleep(1100);
+    assert.equal(updates(),0,'과거 로그 복원 배치용 호출은 도중에 신호를 보내지 않음');
+    // 첫 기록은 바로, 1초 안의 다음 기록은 예약으로 알린다. 그 사이 일지 창의 월 조회(flushPendingElso)가 예약을 지우면
+    // 마지막 엘소가 HUD에 다음 기록 전까지 보이지 않는다.
+    await settle();
+    owner(b.id,'notify-session',()=>store.database.transaction(()=>diary.addElsoPoints(notifyDate,'10:04:00',1))());
+    owner(b.id,'notify-session',()=>store.database.transaction(()=>diary.addElsoPoints(notifyDate,'10:04:01',1))());
+    assert.equal(updates(),1);
+    diary.getDiariesByMonth('2026-10',0,fb);
+    await sleep(1100);
+    assert.equal(updates(),2,'조회 함수의 빈 flush가 예약된 갱신 신호를 지우지 않음');
+    await settle();
+    // 메모리 버퍼 경로(transaction 밖): flush가 바로 알리고, 이미 예약된 신호는 그 알림으로 대신한다.
+    owner(b.id,'notify-session',()=>{diary.addElsoPoints(notifyDate,'10:05:00',2);diary.addElsoPoints(notifyDate,'10:05:01',2);});
+    assert.equal(updates(),1);
+    assert.equal(diary.flushPendingElso(),true);
+    assert.equal(updates(),2,'버퍼 flush 성공은 바로 알림');
+    await sleep(1100);
+    assert.equal(updates(),2,'flush 알림이 예약된 쓰로틀 신호를 대신함(중복 없음)');
+    assert.equal(store.database.prepare("SELECT amount FROM activity_logs WHERE date=? AND type='elso' AND profile_id=?").get(notifyDate,b.id).amount,13);
+  } finally {electron.BrowserWindow.getAllWindows=originalGetAllWindows;}
   // 복원 실패 뒤 재연결처럼 일지 초기화가 실패해도 ApplicationData 소유의 공유 연결은 닫지 않는다.
   store.database.exec("CREATE TRIGGER reject_elso_replay BEFORE INSERT ON elso_flush_operations BEGIN SELECT RAISE(ABORT,'fixture diary init failure'); END;");
-  assert.equal(diary.closeDb(),true);assert.equal(store.database.open,false);
+  // 닫기 직전에 예약된 갱신 신호는 취소한다. 닫은 뒤 신호가 나가면 창이 다시 조회하며 DB를 다시 연다.
+  electron.BrowserWindow.getAllWindows=()=>[{isDestroyed:()=>false,webContents:{isDestroyed:()=>false,
+    mainFrame:{isDestroyed:()=>false,detached:false,send:(channel:string)=>sent.push(channel)}}}];
+  try {
+    await settle();
+    owner(b.id,'notify-session',()=>{
+      assert.equal(diary.addActivityLog('2026-10-21','11:00:00','calc','[자동] 닫기 전 기록',1),true);
+      assert.equal(diary.addActivityLog('2026-10-21','11:00:01','calc','[자동] 닫기 전 기록 2',1),true);
+    });
+    assert.equal(updates(),1);
+    assert.equal(diary.closeDb(),true);assert.equal(store.database.open,false);
+    await sleep(1100);
+    assert.equal(updates(),1,'닫은 뒤에는 예약된 갱신 신호를 보내지 않음');
+  } finally {electron.BrowserWindow.getAllWindows=originalGetAllWindows;}
   const failedInitDate='2026-09-16';
   fs.writeFileSync(diary.getElsoRecoveryJournalPath(),JSON.stringify({schemaVersion:2,operationId:'diary-init-failure',createdAt:1,
     entries:[{date:failedInitDate,latestTime:'09:00:00',totalAmount:12,profileId:null,deviceId:null,sessionId:null}]}));
