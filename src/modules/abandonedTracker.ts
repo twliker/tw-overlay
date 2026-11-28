@@ -23,7 +23,7 @@
  *   회귀: check-abandoned-visibility-policy.ts, check-profile-recording.ts.
  */
 import {onProfileProgress} from './profileParserEvents';
-import {recordEventTime,transientEffectsAllowed} from './recordEffects';
+import {deferTransientEffect,recordEventTime,transientEffectsAllowed} from './recordEffects';
 import * as config from './config';
 import { log } from './logger';
 import type { AbandonedRoadState } from '../shared/types';
@@ -165,18 +165,24 @@ class AbandonedTracker {
       if (data.count === 10 && transientEffectsAllowed()) {
         const cfg = config.load();
         if (cfg.abandonedAlertEnabled !== false) {
-          showSupportedDesktopNotification('어벤던로드 알림', `${data.region} 지역 10회 도달! 최고 효율 구간입니다.`);
-          broadcastToAllWindows('abandoned-alert', { region: data.region, count: data.count });
+          // 기록 transaction 안에서 불리므로 알림·소리는 commit 뒤에 낸다. 취소되면 소리만 나고
+          // sendPlaySound가 쓴 알람 로그는 함께 취소되는 어긋남을 막는다(다른 알림음과 같은 규칙).
+          const region = data.region, count = data.count;
           const soundFile = cfg.abandonedAlertSound || 'orb.mp3';
-          if (soundFile !== 'none') {
-            wm.sendPlaySound({
-              label: '어벤던로드 10회 완료',
-              soundFile,
-              volume: cfg.abandonedAlertVolume ?? 40,
-              isCustom: true,
-              logMessage: `[어벤던로드] ${data.region} 지역 10회 도달`
-            });
-          }
+          const volume = cfg.abandonedAlertVolume ?? 40;
+          deferTransientEffect(() => {
+            showSupportedDesktopNotification('어벤던로드 알림', `${region} 지역 10회 도달! 최고 효율 구간입니다.`);
+            broadcastToAllWindows('abandoned-alert', { region, count });
+            if (soundFile !== 'none') {
+              wm.sendPlaySound({
+                label: '어벤던로드 10회 완료',
+                soundFile,
+                volume,
+                isCustom: true,
+                logMessage: `[어벤던로드] ${region} 지역 10회 도달`
+              });
+            }
+          });
         }
       }
       this.activateFromActivity();
