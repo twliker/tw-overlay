@@ -5,20 +5,20 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
-![Version](https://img.shields.io/badge/version-3.4.0-violet.svg)
+![Version](https://img.shields.io/badge/version-3.4.1-violet.svg)
 
 ## 📸 스크린샷
 
 ![App Screenshot](./screenshot/screen1.png)
 
-## 📦 v3.4.0 (2026.11.26)
-사냥 중 데이터 파일 증가를 줄이고, 프로필이 하나뿐이면 선택창 없이 바로 시작합니다.
+## 📦 v3.4.1 (2026.11.28)
+어벤던로드 10회 완료 알림에 알림음을 추가하고, 오늘의 요약이 바로 갱신되지 않던 문제를 수정했습니다.
 
-- **사냥 중 데이터 파일 증가 감소:** v3.3.5에서 하루 사냥에 약 9~13MB씩 늘던 `app-data.db`가 1MB 안팎만 늘어납니다. 모험일지·숙제 기록과 중복 방지는 그대로이며, v3.3.5에서 쌓인 기록은 업데이트 후 백그라운드에서 옮깁니다.
-- **프로필 자동 선택:** 프로필이 하나뿐이고 이름·서버가 있으면 게임을 켤 때 선택창 없이 그 프로필로 시작합니다.
-- **설정 저장 안정화:** 백신·검색 색인 프로그램이 설정 파일을 잠깐 잡아도 프로필 선택과 설정 저장이 취소되지 않습니다.
+- **어벤던로드 10회 알림음:** 10회 도달 카드와 함께 알림음을 냅니다. 알림음과 볼륨은 환경설정에서 바꾸거나 '사용 안 함'으로 끌 수 있습니다.
+- **오늘의 요약 갱신 수정:** 엘소 포인트·금화 주머니·등록 마정석만 얻는 동안에도 오늘의 요약 HUD가 바로 갱신됩니다.
+- **진단 기록:** 프로필 선택 뒤 HUD·모험일지가 멈추는 경우를 찾기 위해 `debug.log`에 진단 기록을 남깁니다.
 
-자세한 변경 사항은 [v3.4.0 릴리즈 노트](release-note/CHANGELOG-v3.4.0.md)를 확인해 주세요.
+자세한 변경 사항은 [v3.4.1 릴리즈 노트](release-note/CHANGELOG-v3.4.1.md)를 확인해 주세요.
 
 *(이전 버전의 변경 사항은 [release-note](release-note/) 폴더의 릴리즈 노트를 참조해 주세요.)*
 
